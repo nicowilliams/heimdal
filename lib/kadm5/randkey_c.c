@@ -38,15 +38,23 @@ RCSID("$Id$");
 kadm5_ret_t
 kadm5_c_randkey_principal(void *server_handle,
 			  krb5_principal princ,
+			  krb5_boolean keepold,
+			  int n_ks_tuple,
+			  krb5_key_salt_tuple *ks_tuple,
 			  krb5_keyblock **new_keys,
 			  int *n_keys)
 {
     kadm5_client_context *context = server_handle;
     kadm5_ret_t ret;
     krb5_storage *sp;
-    unsigned char buf[1024];
+    unsigned char buf[1536];
     int32_t tmp;
+    int i;
     krb5_data reply;
+
+    if (keepold == TRUE || n_ks_tuple > 0)
+	/* Adding support for these will require extending the protocol */
+	return ENOTSUP;
 
     ret = _kadm5_connect(server_handle);
     if(ret)
@@ -63,6 +71,15 @@ kadm5_c_randkey_principal(void *server_handle,
     krb5_storage_free(sp);
     if (ret)
 	return ret;
+
+    if (keepold == TRUE || n_ks_tuple > 0)
+	    krb5_store_uint32(sp, keepold);
+    if (n_ks_tuple > 0)
+	    krb5_store_uint32(sp, n_ks_tuple);
+    for (i = 0; i < n_ks_tuple; i++) {
+	    krb5_store_int32(sp, ks_tuple[i].ks_enctype);
+	    krb5_store_int32(sp, ks_tuple[i].ks_salttype);
+    }
     ret = _kadm5_client_recv(context, &reply);
     if(ret)
 	return ret;
