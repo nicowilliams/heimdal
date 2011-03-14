@@ -93,6 +93,16 @@ kadm5_get_principal(void *server_handle,
 }
 
 kadm5_ret_t
+kadm5_decrypt_key(void *server_handle,
+                  kadm5_principal_ent_t entry,
+		  int32_t ktype, int32_t stype,
+		  int32_t kvno, krb5_keyblock *keyblock,
+                  krb5_keysalt *keysalt, int *kvnop)
+{
+	
+}
+
+kadm5_ret_t
 kadm5_modify_principal(void *server_handle,
 		       kadm5_principal_ent_t princ,
 		       uint32_t mask)

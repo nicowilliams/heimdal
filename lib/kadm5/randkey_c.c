@@ -52,10 +52,6 @@ kadm5_c_randkey_principal(void *server_handle,
     int i;
     krb5_data reply;
 
-    if (keepold == TRUE || n_ks_tuple > 0)
-	/* Adding support for these will require extending the protocol */
-	return ENOTSUP;
-
     ret = _kadm5_connect(server_handle);
     if(ret)
 	return ret;
@@ -65,6 +61,24 @@ kadm5_c_randkey_principal(void *server_handle,
 	krb5_clear_error_message(context->context);
 	return ENOMEM;
     }
+
+    /*
+     * NOTE WELL: This message is extensible.  It currently consists of:
+     *
+     *  - opcode (kadm_randkey)
+     *  - principal name (princ)
+     *
+     * followed by optional items, each of which must be present if
+     * there are any items following them that are also present:
+     *
+     *  - keepold boolean (whether to delete old kvnos)
+     *  - number of key/salt type tuples
+     *  - array of {enctype, salttype}
+     *
+     * Eventually we may add:
+     *
+     *  - opaque string2key parameters (salt, rounds, ...)
+     */
     krb5_store_int32(sp, kadm_randkey);
     krb5_store_principal(sp, princ);
     ret = _kadm5_client_send(context, sp);
@@ -73,13 +87,15 @@ kadm5_c_randkey_principal(void *server_handle,
 	return ret;
 
     if (keepold == TRUE || n_ks_tuple > 0)
-	    krb5_store_uint32(sp, keepold);
+	krb5_store_uint32(sp, keepold);
     if (n_ks_tuple > 0)
-	    krb5_store_uint32(sp, n_ks_tuple);
+	krb5_store_uint32(sp, n_ks_tuple);
     for (i = 0; i < n_ks_tuple; i++) {
-	    krb5_store_int32(sp, ks_tuple[i].ks_enctype);
-	    krb5_store_int32(sp, ks_tuple[i].ks_salttype);
+	krb5_store_int32(sp, ks_tuple[i].ks_enctype);
+	krb5_store_int32(sp, ks_tuple[i].ks_salttype);
     }
+
+    /* Future extensions go here */
     ret = _kadm5_client_recv(context, &reply);
     if(ret)
 	return ret;

@@ -359,6 +359,10 @@ kadmind_dispatch(void *kadm_handlep, krb5_boolean initial,
 	    goto fail;
 	}
 
+	/*
+	 * See comments in kadm5_c_randkey_principal() regarding the
+	 * protocol.
+	 */
 	ret = krb5_ret_int32(sp, &keepold);
 	if (ret != 0 && ret != HEIM_ERR_EOF) {
 	    krb5_free_principal(contextp->context, princ);
@@ -366,8 +370,11 @@ kadmind_dispatch(void *kadm_handlep, krb5_boolean initial,
 	}
 
 	ret = krb5_ret_int32(sp, &n_ks_tuple);
-	if (ret == 0) {
-	    int i;
+	if (ret != 0 && ret != HEIM_ERR_EOF) {
+	    krb5_free_principal(contextp->context, princ);
+	    goto fail;
+	} else if (ret == 0) {
+	    size_t i;
 
 	    if ((ks_tuple = calloc(n_ks_tuple, sizeof (*ks_tuple))) == NULL) {
 		ret = errno;
@@ -387,9 +394,6 @@ kadmind_dispatch(void *kadm_handlep, krb5_boolean initial,
 		    goto fail;
 		}
 	    }
-	} else if (ret != HEIM_ERR_EOF) {
-	    krb5_free_principal(contextp->context, princ);
-	    goto fail;
 	}
 	ret = kadm5_randkey_principal_3(kadm_handle, princ, keepold, n_ks_tuple,
 					ks_tuple, &new_keys, &n_keys);
