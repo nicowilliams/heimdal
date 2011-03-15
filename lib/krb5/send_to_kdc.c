@@ -49,6 +49,7 @@ struct send_to_kdc {
 static int
 recv_loop (krb5_socket_t fd,
 	   time_t tmout,
+	   time_t tmout_us,
 	   int udp,
 	   size_t limit,
 	   krb5_data *rep)
@@ -69,7 +70,9 @@ recv_loop (krb5_socket_t fd,
 	 FD_ZERO(&fdset);
 	 FD_SET(fd, &fdset);
 	 timeout.tv_sec  = tmout;
-	 timeout.tv_usec = 0;
+	 if (tmout_us < 0 || tmout_us > 1000000)
+		tmout_us = 0;
+	 timeout.tv_usec = tmout_us;
 	 ret = select (fd + 1, &fdset, NULL, NULL, &timeout);
 	 if (ret < 0) {
 	     if (errno == EINTR)
@@ -115,13 +118,14 @@ recv_loop (krb5_socket_t fd,
 static int
 send_and_recv_udp(krb5_socket_t fd,
 		  time_t tmout,
+		  time_t tmout_us,
 		  const krb5_data *req,
 		  krb5_data *rep)
 {
     if (send (fd, req->data, req->length, 0) < 0)
 	return -1;
 
-    return recv_loop(fd, tmout, 1, 0, rep);
+    return recv_loop(fd, tmout, tmout_us, 1, 0, rep);
 }
 
 /*
@@ -134,6 +138,7 @@ send_and_recv_udp(krb5_socket_t fd,
 static int
 send_and_recv_tcp(krb5_socket_t fd,
 		  time_t tmout,
+		  time_t tmout_us,
 		  const krb5_data *req,
 		  krb5_data *rep)
 {
@@ -146,7 +151,7 @@ send_and_recv_tcp(krb5_socket_t fd,
 	return -1;
     if(net_write (fd, req->data, req->length) < 0)
 	return -1;
-    if (recv_loop (fd, tmout, 0, 4, &len_data) < 0)
+    if (recv_loop (fd, tmout, tmout_us, 0, 4, &len_data) < 0)
 	return -1;
     if (len_data.length != 4) {
 	krb5_data_free (&len_data);
@@ -154,7 +159,7 @@ send_and_recv_tcp(krb5_socket_t fd,
     }
     _krb5_get_int(len_data.data, &rep_len, 4);
     krb5_data_free (&len_data);
-    if (recv_loop (fd, tmout, 0, rep_len, rep) < 0)
+    if (recv_loop (fd, tmout, tmout_us, 0, rep_len, rep) < 0)
 	return -1;
     if(rep->length != rep_len) {
 	krb5_data_free (rep);
@@ -166,10 +171,11 @@ send_and_recv_tcp(krb5_socket_t fd,
 int
 _krb5_send_and_recv_tcp(krb5_socket_t fd,
 			time_t tmout,
+			time_t tmout_us,
 			const krb5_data *req,
 			krb5_data *rep)
 {
-    return send_and_recv_tcp(fd, tmout, req, rep);
+    return send_and_recv_tcp(fd, tmout, tmout_us, req, rep);
 }
 
 /*
@@ -179,6 +185,7 @@ _krb5_send_and_recv_tcp(krb5_socket_t fd,
 static int
 send_and_recv_http(krb5_socket_t fd,
 		   time_t tmout,
+		   time_t tmout_us,
 		   const char *prefix,
 		   const krb5_data *req,
 		   krb5_data *rep)
@@ -198,7 +205,7 @@ send_and_recv_http(krb5_socket_t fd,
     free (request);
     if (ret < 0)
 	return ret;
-    ret = recv_loop(fd, tmout, 0, 0, rep);
+    ret = recv_loop(fd, tmout, tmout_us, 0, 0, rep);
     if(ret)
 	return ret;
     {
@@ -309,7 +316,7 @@ send_via_proxy (krb5_context context,
 	close(s);
 	return 1;
     }
-    ret = send_and_recv_http(s, context->kdc_timeout,
+    ret = send_and_recv_http(s, context->kdc_timeout, context->kdc_timeout_us,
 			     prefix, send_data, receive);
     rk_closesocket (s);
     free(prefix);
@@ -322,6 +329,7 @@ static krb5_error_code
 send_via_plugin(krb5_context context,
 		krb5_krbhst_info *hi,
 		time_t timeout,
+		time_t timeout_us,
 		const krb5_data *send_data,
 		krb5_data *receive)
 {
@@ -342,7 +350,7 @@ send_via_plugin(krb5_context context,
 	
 	(*service->init)(context, &ctx);
 	ret = (*service->send_to_kdc)(context, ctx, hi,
-				      timeout, send_data, receive);
+				      timeout, timeout_us, send_data, receive);
 	(*service->fini)(ctx);
 	if (ret == 0)
 	    break;
@@ -389,14 +397,15 @@ krb5_sendto (krb5_context context,
 		 struct send_to_kdc *s = context->send_to_kdc;
 
 		 ret = (*s->func)(context, s->data, hi,
-				  context->kdc_timeout, send_data, receive);
+				  context->kdc_timeout, context->kdc_timeout_us,
+				  send_data, receive);
 		 if (ret == 0 && receive->length != 0)
 		     goto out;
 		 continue;
 	     }
 
 	     ret = send_via_plugin(context, hi, context->kdc_timeout,
-				   send_data, receive);
+				   context->kdc_timeout_us, send_data, receive);
 	     if (ret == 0 && receive->length != 0)
 		 goto out;
 	     else if (ret != KRB5_PLUGIN_NO_HANDLE)
@@ -426,14 +435,17 @@ krb5_sendto (krb5_context context,
 		 switch (hi->proto) {
 		 case KRB5_KRBHST_HTTP :
 		     ret = send_and_recv_http(fd, context->kdc_timeout,
-					      "", send_data, receive);
+					      context->kdc_timeout_us, "",
+					      send_data, receive);
 		     break;
 		 case KRB5_KRBHST_TCP :
 		     ret = send_and_recv_tcp (fd, context->kdc_timeout,
+					      context->kdc_timeout_us,
 					      send_data, receive);
 		     break;
 		 case KRB5_KRBHST_UDP :
 		     ret = send_and_recv_udp (fd, context->kdc_timeout,
+					      context->kdc_timeout_us,
 					      send_data, receive);
 		     break;
 		 }
