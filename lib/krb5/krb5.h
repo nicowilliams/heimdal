@@ -808,7 +808,7 @@ enum {
 
 typedef krb5_error_code
 (KRB5_CALLCONV * krb5_send_to_kdc_func)(krb5_context, void *, krb5_krbhst_info *, time_t,
-					const krb5_data *, krb5_data *);
+					time_t, const krb5_data *, krb5_data *);
 
 /** flags for krb5_parse_name_flags */
 enum {
