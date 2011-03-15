@@ -257,6 +257,7 @@ typedef struct krb5_context_data {
     char **default_realms;
     time_t max_skew;
     time_t kdc_timeout;
+    time_t kdc_timeout_us;
     unsigned max_retries;
     int32_t kdc_sec_offset;
     int32_t kdc_usec_offset;

@@ -45,6 +45,7 @@ typedef krb5_error_code
 			       void *,
 			       krb5_krbhst_info *,
 			       time_t timeout,
+			       time_t timeout_us,
 			       const krb5_data *,
 			       krb5_data *);
 
