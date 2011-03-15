@@ -100,7 +100,10 @@ init_context_from_config_file(krb5_context context)
 
     INIT_FIELD(context, time, max_skew, 5 * 60, "clockskew");
     INIT_FIELD(context, time, kdc_timeout, 3, "kdc_timeout");
-    INIT_FIELD(context, time, kdc_timeout_us, 3, "kdc_timeout_us");
+    INIT_FIELD(context, time, kdc_timeout_us, 0, "kdc_timeout_us");
+    INIT_FIELD(context, time, max_kdc_timeout, 8, "max_kdc_timeout");
+    INIT_FIELD(context, time, max_kdc_timeout_cumulative, 60,
+	       "max_kdc_timeout_cumulative");
     INIT_FIELD(context, int, max_retries, 3, "max_retries");
 
     INIT_FIELD(context, string, http_proxy, NULL, "http_proxy");
