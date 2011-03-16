@@ -261,6 +261,7 @@ typedef struct krb5_context_data {
     time_t max_kdc_timeout;
     time_t max_kdc_timeout_cumulative;
     unsigned max_retries;
+    krb5_boolean fallback_to_master_kdc;
     int32_t kdc_sec_offset;
     int32_t kdc_usec_offset;
     krb5_config_section *cf;

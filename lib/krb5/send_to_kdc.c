@@ -688,6 +688,40 @@ krb5_sendto_context(krb5_context context,
     return ret;
 }
 
+static
+bool
+error_is_retriable_on_master(krb5_context context, krb5_error_code code)
+{
+    /*
+     * We want to retry on the master any KDC-REQ that fails due to
+     * errors that could be transient due to async KDB replication from
+     * a master KDC.  KRB5_KDC_ERR_WRONG_REALM is border-line...
+     */
+    switch(code) {
+    case KRB5KDC_ERR_NONE:
+    case KRB5KDC_ERR_BADOPTION:
+    case KRB5KDC_ERR_TRTYPE_NOSUPP:
+    case KRB5KDC_ERR_KDC_ERR_MUST_USE_USER2USER:
+    case KRB5KRB_AP_ERR_TKT_NYV:
+    case KRB5KRB_AP_ERR_BADMATCH:
+    case KRB5KRB_AP_ERR_SKEW:
+    case KRB5KRB_AP_ERR_TKT_INVALID:
+    case KRB5KRB_AP_ERR_BADVERSION:
+    case KRB5KRB_AP_ERR_MSG_TYPE:
+    case KRB5KRB_AP_ERR_ILL_CR_TKT:
+    case KRB5KRB_AP_ERR_INAPP_CKSUM:
+    case KRB5KRB_AP_PATH_NOT_ACCEPTED:
+    case KRB5_KDC_ERR_INVALID_SIG:
+    case KRB5_KDC_ERR_WRONG_REALM:
+    case KRB5_KDC_ERR_CLIENT_NAME_MISMATCH:
+    case KRB5_KDC_ERR_INCONSISTENT_KEY_PURPOSE:
+    case KRB5KRB_AP_WRONG_PRINC:
+	return (FALSE);
+    default:
+	return (TRUE);
+    }
+}
+
 krb5_error_code KRB5_CALLCONV
 _krb5_kdc_retry(krb5_context context, krb5_sendto_ctx ctx, void *data,
 		const krb5_data *reply, int *action)
@@ -711,6 +745,14 @@ _krb5_kdc_retry(krb5_context context, krb5_sendto_ctx ctx, void *data,
     }
     case KRB5KDC_ERR_SVC_UNAVAILABLE:
 	*action = KRB5_SENDTO_CONTINUE;
+	break;
+    default:
+	if (!error_is_retriable_on_master(context, ret) ||
+	    krb5_sendto_ctx_get_flags(ctx) & KRB5_KRBHST_FLAGS_MASTER ||
+	    !(context->fallback_to_master_kdc))
+	    break;
+	krb5_sendto_ctx_add_flags(ctx, KRB5_KRBHST_FLAGS_MASTER);
+	*action = KRB5_SENDTO_RESTART;
 	break;
     }
     return 0;
