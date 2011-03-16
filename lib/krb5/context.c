@@ -107,6 +107,9 @@ init_context_from_config_file(krb5_context context)
 	       "max_kdc_timeout_cumulative");
     INIT_FIELD(context, int, max_retries, 3, "max_retries");
 
+    INIT_FIELD(context, bool, fallback_to_master_kdc, FALSE,
+	       "fallback_to_master_kdc");
+
     INIT_FIELD(context, string, http_proxy, NULL, "http_proxy");
 
     ret = krb5_config_get_bool_default(context, NULL, FALSE,
