@@ -224,6 +224,30 @@ init_context_from_config_file(krb5_context context)
 	    context->flags |= KRB5_CTX_F_RD_REQ_IGNORE;
     }
 
+    tmp = krb5_config_get_string(context, NULL, "libdefaults",
+				 "check-rd-req-server-hostname", NULL);
+    if (tmp == NULL && !issuid())
+	tmp = getenv("KRB5_CHECK_RD_REQ_SERVER_HOSTNAME");
+    if(tmp) {
+	/* Ignore taks precedence over ignore-hostname */
+	if (strcasecmp(tmp, "ignore") == 0 &&
+	    (context->flags & KRB5_CTX_F_RD_REQ_IGNORE) == 0)
+	    context->flags |= KRB5_CTX_F_RD_REQ_IGNORE_HOSTNAME;
+    }
+
+    tmp = krb5_config_get_string(context, NULL, "libdefaults",
+				 "search-keytab", NULL);
+    if (tmp == NULL && !issuid())
+	tmp = getenv("KRB5_CHECK_RD_REQ_SEARCH_KEYTAB");
+    if (tmp == NULL)
+	/* Default to yes */
+	context->flags |= KRB5_CTX_F_RD_REQ_SEARCH_KEYTAB;
+    if(tmp) {
+	if (strcasecmp(tmp, "search") == 0)
+	    context->flags |= KRB5_CTX_F_RD_REQ_SEARCH_KEYTAB;
+	/* else don't search keytab */
+    }
+
     return 0;
 }
 

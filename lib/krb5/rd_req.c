@@ -811,6 +811,36 @@ out:
     return ret;
 }
 
+static
+krb5_error_code
+princs_are_similar(krb5_context context, krb5_principal p1, krb5_principal p2)
+{
+    if (p1 == NULL || p2 == NULL || p1 == p2)
+	return (0);
+
+    /* We allow aliases, sure, but only in the same realm. */
+    if (strcmp(krb5_principal_get_realm(context, p1),
+	krb5_principal_get_realm(context, p2)) != 0)
+	return (KRB5KRB_AP_WRONG_PRINC);
+
+    /*
+     * If configured to then we want to ignore the hostname part of the
+     * app-provided server princ name.  But we still want to have the same
+     * number of components as the sname in the ticket, ...
+     */
+    if ((context->flags & KRB5_CTX_F_RD_REQ_IGNORE_HOSTNAME) == 0)
+	return (0);
+    if (krb5_principal_get_num_comp(context, p1) !=
+	krb5_principal_get_num_comp(context, p2))
+	return (KRB5KRB_AP_WRONG_PRINC);
+    /* ...the same service name (0th component). */
+    if (strcmp(krb5_principal_get_comp_string(context, p1, 0),
+	krb5_principal_get_comp_string(context, p2, 0))
+	!= 0)
+	return (KRB5KRB_AP_WRONG_PRINC);
+    return (0);
+}
+
 /**
  * The core server function that verify application authentication
  * requests from clients.
@@ -847,7 +877,8 @@ krb5_rd_req_ctx(krb5_context context,
     krb5_ap_req ap_req;
     krb5_rd_req_out_ctx o = NULL;
     krb5_keytab id = NULL, keytab = NULL;
-    krb5_principal service = NULL;
+    krb5_principal server_frm_tckt = NULL;
+    int server_was_null = (server == NULL);
 
     *outctx = NULL;
 
@@ -909,14 +940,25 @@ krb5_rd_req_ctx(krb5_context context,
 	if (id == NULL)
 	    goto out;
 
-	if (server == NULL) {
-	    ret = _krb5_principalname2krb5_principal(context,
-						     &service,
-						     ap_req.ticket.sname,
-						     ap_req.ticket.realm);
-	    if (ret)
-		goto out;
-	    server = service;
+	ret = _krb5_principalname2krb5_principal(context,
+						 &server_frm_tckt,
+						 ap_req.ticket.sname,
+						 ap_req.ticket.realm);
+	if (ret)
+	    goto out;
+
+	if (server != NULL) {
+	    if (context->flags & KRB5_CTX_F_RD_REQ_IGNORE_HOSTNAME) {
+		ret = princs_are_similar(context, server, server_frm_tckt);
+		if (ret)
+		    goto out;
+	    }
+	} else {
+	    /*
+	     * If the app didn't provide a service name we'll use the one from
+	     * the AP-REQ's Ticket.
+	     */
+	    server = server_frm_tckt;
 	}
 
 	ret = get_key_from_keytab(context,
@@ -925,11 +967,19 @@ krb5_rd_req_ctx(krb5_context context,
 				  id,
 				  &o->keyblock);
 	if (ret) {
-	    /* If caller specified a server, fail. */
-	    if (service == NULL && (context->flags & KRB5_CTX_F_RD_REQ_IGNORE) == 0)
+	    /* If caller specified a server and we couldn't find a key, fail */
+	    if (server_was_null &&
+		((context->flags & KRB5_CTX_F_RD_REQ_SEARCH_KEYTAB == 0) ||
+		((context->flags & KRB5_CTX_F_RD_REQ_IGNORE) == 0 &&
+		(context->flags & KRB5_CTX_F_RD_REQ_IGNORE_HOSTNAME) == 0)))
 		goto out;
-	    /* Otherwise, fall back to iterating over the keytab. This
+	    /*
+	     * Otherwise, fall back to iterating over the keytab.  We'll try all
+	     * keys of the same enctype as the Ticket's encryption key. This
 	     * have serious performace issues for larger keytab.
+	     *
+	     * XXX Must we set o->keyblock to NULL here?  Surely it already
+	     * was...
 	     */
 	    o->keyblock = NULL;
 	}
@@ -983,8 +1033,13 @@ krb5_rd_req_ctx(krb5_context context,
 		goto out;
 	    }
 
+	    /*
+	     * Skip keytab entries with different enctype, kvno or non-similar
+	     * princ names.
+	     */
 	    if (entry.keyblock.keytype != ap_req.ticket.enc_part.etype ||
-		(kvno && kvno != entry.vno)) {
+		(kvno && kvno != entry.vno) ||
+		princs_are_similar(context, server, server_frm_tckt)) {
 		krb5_kt_free_entry (context, &entry);
 		continue;
 	    }
@@ -1068,8 +1123,8 @@ out:
 
     free_AP_REQ(&ap_req);
 
-    if (service)
-	krb5_free_principal(context, service);
+    if (server_frm_tckt)
+	krb5_free_principal(context, server_frm_tckt);
 
     if (keytab)
 	krb5_kt_close(context, keytab);
