@@ -97,10 +97,18 @@ hdb_next_enctype2key(krb5_context context,
 		     krb5_enctype enctype,
 		     Key **key)
 {
+    hdb_keyset *ks;
+    hdb_keyset *found = NULL;
     Key *k;
 
-    for (k = *key ? (*key) + 1 : e->keys.val;
-	 k < e->keys.val + e->keys.len;
+    /* Here we care about the highest kvno only */
+    for (found = ks = e->keysets.val; ks < e->keysets.val + e->keysets.len; ks++) {
+	if (ks->kvno > found->kvno)
+	    found = ks;
+    }
+
+    for (k = *key ? (*key) + 1 : found->keys.val;
+	 k < found->keys.val + found->keys.len;
 	 k++)
     {
 	if(k->key.keytype == enctype){
@@ -166,15 +174,17 @@ hdb_unlock(int fd)
 void
 hdb_free_entry(krb5_context context, hdb_entry_ex *ent)
 {
-    int i;
+    int i, m;
 
     if (ent->free_entry)
 	(*ent->free_entry)(context, ent);
 
-    for(i = 0; i < ent->entry.keys.len; ++i) {
-	Key *k = &ent->entry.keys.val[i];
+    for(i = 0; i < ent->entry.keysets.len; ++i) {
+	for (m = 0; m < ent->entry.keysets.val[i].keys.len; m++) {
+	    Key *k = &ent->entry.keysets.val[i].keys.val[m];
 
-	memset (k->key.keyvalue.data, 0, k->key.keyvalue.length);
+	    memset (k->key.keyvalue.data, 0, k->key.keyvalue.length);
+	}
     }
     free_hdb_entry(&ent->entry);
 }
@@ -425,17 +435,23 @@ _hdb_keytab2hdb_entry(krb5_context context,
     entry->entry.kvno = ktentry->vno;
     entry->entry.created_by.time = ktentry->timestamp;
 
-    entry->entry.keys.val = calloc(1, sizeof(entry->entry.keys.val[0]));
-    if (entry->entry.keys.val == NULL)
+    entry->entry.keysets.val = calloc(1, sizeof(entry->entry.keysets.val[0]));
+    if (entry->entry.keysets.val == NULL)
 	return ENOMEM;
-    entry->entry.keys.len = 1;
+    entry->entry.keysets.len = 1;
 
-    entry->entry.keys.val[0].mkvno = NULL;
-    entry->entry.keys.val[0].salt = NULL;
+    entry->entry.keysets.val[0].keys.val =
+	calloc(1, sizeof(entry->entry.keysets.val[0].keys.val[0]));
+    if (entry->entry.keysets.val[0].keys.val == NULL)
+	return ENOMEM;
+    entry->entry.keysets.val[0].keys.len = 1;
+
+    entry->entry.keysets.val[0].keys.val[0].mkvno = NULL;
+    entry->entry.keysets.val[0].keys.val[0].salt = NULL;
     
     return krb5_copy_keyblock_contents(context,
 				       &ktentry->keyblock,
-				       &entry->entry.keys.val[0].key);
+				       &entry->entry.keysets.val[0].keys.val[0].key);
 }
 
 /**

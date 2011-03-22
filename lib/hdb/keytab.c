@@ -228,15 +228,15 @@ hdb_get_entry(krb5_context context,
 	goto out;
     }
     if(enctype == 0)
-	if(ent.entry.keys.len > 0)
-	    enctype = ent.entry.keys.val[0].key.keytype;
+	if(ent.entry.keysets.len > 0)
+	    enctype = ent.entry.keysets.val[0].keys.val[0].key.keytype;
     ret = KRB5_KT_NOTFOUND;
-    for(i = 0; i < ent.entry.keys.len; i++) {
-	if(ent.entry.keys.val[i].key.keytype == enctype) {
+    for(i = 0; i < ent.entry.keysets.val[0].keys.len; i++) {
+	if(ent.entry.keysets.val[i].keys.val[0].key.keytype == enctype) {
 	    krb5_copy_principal(context, principal, &entry->principal);
 	    entry->vno = ent.entry.kvno;
 	    krb5_copy_keyblock_contents(context,
-					&ent.entry.keys.val[i].key,
+					&ent.entry.keysets.val[i].keys.val[0].key,
 					&entry->keyblock);
 	    ret = 0;
 	    break;
@@ -332,7 +332,7 @@ hdb_next_entry(krb5_context context,
 	else if (ret)
 	    return ret;
 	
-	if (c->hdb_entry.entry.keys.len == 0)
+	if (c->hdb_entry.entry.keysets.len == 0)
 	    hdb_free_entry(context, &c->hdb_entry);
 	else
 	    c->next = FALSE;
@@ -349,7 +349,7 @@ hdb_next_entry(krb5_context context,
 	    return ret;
 	
 	/* If no keys on this entry, try again */
-	if (c->hdb_entry.entry.keys.len == 0)
+	if (c->hdb_entry.entry.keysets.len == 0)
 	    hdb_free_entry(context, &c->hdb_entry);
 	else
 	    c->next = FALSE;
@@ -368,7 +368,7 @@ hdb_next_entry(krb5_context context,
 
     entry->vno = c->hdb_entry.entry.kvno;
     ret = krb5_copy_keyblock_contents(context,
-				      &c->hdb_entry.entry.keys.val[c->key_idx].key,
+				      &c->hdb_entry.entry.keysets.val[c->key_idx].keys.val[0].key,
 				      &entry->keyblock);
     if (ret) {
 	krb5_free_principal(context, entry->principal);
@@ -382,7 +382,7 @@ hdb_next_entry(krb5_context context,
      * next entry
      */
     
-    if (c->key_idx == c->hdb_entry.entry.keys.len) {
+    if (c->key_idx == c->hdb_entry.entry.keysets.len) {
 	hdb_free_entry(context, &c->hdb_entry);
 	c->next = TRUE;
 	c->key_idx = 0;

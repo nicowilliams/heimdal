@@ -64,7 +64,7 @@ append_string(krb5_context context, krb5_storage *sp, const char *fmt, ...)
     char *s;
     va_list ap;
     va_start(ap, fmt);
-    vasprintf(&s, fmt, ap);
+    (void) vasprintf(&s, fmt, ap);
     va_end(ap);
     if(s == NULL) {
 	krb5_set_error_message(context, ENOMEM, "malloc: out of memory");
@@ -127,6 +127,7 @@ entry2string_int (krb5_context context, krb5_storage *sp, hdb_entry *ent)
 {
     char *p;
     int i;
+    int k;
     krb5_error_code ret;
 
     /* --- principal */
@@ -137,25 +138,28 @@ entry2string_int (krb5_context context, krb5_storage *sp, hdb_entry *ent)
     free(p);
     /* --- kvno */
     append_string(context, sp, "%d", ent->kvno);
-    /* --- keys */
-    for(i = 0; i < ent->keys.len; i++){
-	/* --- mkvno, keytype */
-	if(ent->keys.val[i].mkvno)
-	    append_string(context, sp, ":%d:%d:",
-			  *ent->keys.val[i].mkvno,
-			  ent->keys.val[i].key.keytype);
-	else
-	    append_string(context, sp, "::%d:",
-			  ent->keys.val[i].key.keytype);
-	/* --- keydata */
-	append_hex(context, sp, &ent->keys.val[i].key.keyvalue);
-	append_string(context, sp, ":");
-	/* --- salt */
-	if(ent->keys.val[i].salt){
-	    append_string(context, sp, "%u/", ent->keys.val[i].salt->type);
-	    append_hex(context, sp, &ent->keys.val[i].salt->salt);
-	}else
-	    append_string(context, sp, "-");
+    /* --- keysets */
+    for(i = 0; i < ent->keysets.len; i++){
+	/* --- keys */
+	for (k = 0; k < ent->keysets.val[i].keys.len; k++) {
+	    /* --- mkvno, keytype */
+	    if(ent->keysets.val[i].keys.val[k].mkvno)
+		append_string(context, sp, ":%d:%d:",
+			      *ent->keysets.val[i].keys.val[k].mkvno,
+			      ent->keysets.val[i].keys.val[k].key.keytype);
+	    else
+		append_string(context, sp, "::%d:",
+			      ent->keysets.val[i].keys.val[k].key.keytype);
+	    /* --- keydata */
+	    append_hex(context, sp, &ent->keysets.val[i].keys.val[k].key.keyvalue);
+	    append_string(context, sp, ":");
+	    /* --- salt */
+	    if(ent->keysets.val[i].keys.val[k].salt){
+		append_string(context, sp, "%u/", ent->keysets.val[i].keys.val[k].salt->type);
+		append_hex(context, sp, &ent->keysets.val[i].keys.val[k].salt->salt);
+	    }else
+		append_string(context, sp, "-");
+	}
     }
     append_string(context, sp, " ");
     /* --- created by */

@@ -460,13 +460,17 @@ krb5_error_code
 hdb_unseal_keys_mkey(krb5_context context, hdb_entry *ent, hdb_master_key mkey)
 {
     int i;
+    int k;
 
-    for(i = 0; i < ent->keys.len; i++){
-	krb5_error_code ret;
+    for(i = 0; i < ent->keysets.len; i++){
+	for (k = 0; k < ent->keysets.val[i].keys.len; k++) {
+	    krb5_error_code ret;
 
-	ret = hdb_unseal_key_mkey(context, &ent->keys.val[i], mkey);
-	if (ret)
-	    return ret;
+	    ret = hdb_unseal_key_mkey(context, &ent->keysets.val[i].keys.val[k],
+		mkey);
+	    if (ret)
+		return ret;
+	}
     }
     return 0;
 }
@@ -527,12 +531,17 @@ krb5_error_code
 hdb_seal_keys_mkey(krb5_context context, hdb_entry *ent, hdb_master_key mkey)
 {
     int i;
-    for(i = 0; i < ent->keys.len; i++){
-	krb5_error_code ret;
+    int k;
 
-	ret = hdb_seal_key_mkey(context, &ent->keys.val[i], mkey);
-	if (ret)
-	    return ret;
+    for(i = 0; i < ent->keysets.len; i++){
+	for (k = 0; k < ent->keysets.val[i].keys.len; k++) {
+	    krb5_error_code ret;
+
+	    ret = hdb_seal_key_mkey(context, &ent->keysets.val[i].keys.val[k],
+		mkey);
+	    if (ret)
+		return ret;
+	}
     }
     return 0;
 }

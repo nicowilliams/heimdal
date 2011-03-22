@@ -56,6 +56,19 @@ hdb_free_keys (krb5_context context, int len, Key *keys)
     free (keys);
 }
 
+void
+hdb_free_keysets (krb5_context context, int len, hdb_keyset *keysets)
+{
+    int i;
+
+    for (i = 0; i < len; i++) {
+	hdb_free_keys(context, keysets[i].keys.len, keysets[i].keys.val);
+	keysets[i].keys.val = NULL;
+	keysets[i].keys.len = 0;
+    }
+    free (keysets);
+}
+
 /*
  * for each entry in `default_keys' try to parse it as a sequence
  * of etype:salttype:salt, syntax of this if something like:
@@ -194,6 +207,27 @@ parse_key_set(krb5_context context, const char *key,
     *ret_num_enctypes = num_enctypes;
 
     return 0;
+}
+
+krb5_error_code
+hdb_add_keys_to_keysets(krb5_context context, int kvno,
+			hdb_keyset **keysets, size_t *nkeysets,
+		        Key *keyset, size_t nkeyset)
+{
+    hdb_keyset *tmp;
+
+    tmp = realloc(*keysets, (*nkeysets + 1) * sizeof((*keysets)[0]));
+    if (tmp == NULL)
+	return errno;
+
+    /* Highest kvno first */
+    if (*nkeysets > 0)
+	(void) memmove(&tmp[1], &tmp[0], *nkeysets * sizeof (*tmp));
+    tmp[0].kvno = kvno;
+    tmp[0].keys.val = keyset;
+    tmp[0].keys.len = nkeyset;
+    *keysets = tmp;
+    return (0);
 }
 
 static krb5_error_code
