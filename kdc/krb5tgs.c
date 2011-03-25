@@ -2324,9 +2324,8 @@ out:
 static
 krb5_error_code
 policy_db_check(DB *db,
-		       const char *key,
-		       size_t key_len,
-		       const char **status)
+	        const char *key,
+	        size_t key_len)
 {
     int db_ret;
     DBT k;
@@ -2375,7 +2374,7 @@ against_local_policy_tgs(krb5_context context,
     if (db == NULL)
 	return (KRB5KDC_ERR_POLICY); /* fail closed */
 
-    ret = policy_db_check(db, client->realm, strlen(client->realm), status);
+    ret = policy_db_check(db, client->realm, strlen(client->realm));
     if (ret != -1)
 	goto done;
 
@@ -2386,7 +2385,7 @@ against_local_policy_tgs(krb5_context context,
 	goto done;
     }
 
-    ret = policy_db_check(db, cname, strlen(cname), status);
+    ret = policy_db_check(db, cname, strlen(cname));
     if (ret == -1) {
 	*status = "POLICY NOT FOUND: DENY";
 	ret = KRB5KDC_ERR_POLICY;
