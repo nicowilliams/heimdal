@@ -496,6 +496,7 @@ struct entry kdc_database_entries[] = {
 struct entry kdc_entries[] = {
     { "database", krb5_config_list, kdc_database_entries },
     { "key-file", krb5_config_string, NULL },
+    { "xrealm-policy-database", krb5_config_string, NULL },
     { "logging", krb5_config_string, check_log },
     { "max-request", krb5_config_string, check_bytes },
     { "require-preauth", krb5_config_string, check_boolean },

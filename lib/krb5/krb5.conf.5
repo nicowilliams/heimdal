@@ -375,6 +375,13 @@ Use this keytab file for the master key of this database.
 If not specified
 .Va DATABASENAME Ns .mkey
 will be used.
+.It Li xrealm-policy-database Li = Va DATABASENAME
+If set then the given database will be used as a white- and black-list
+of realms and client principals when requests are made for service
+tickets in the realm(s) of this KDC.  The keys are realm names and
+unparsed principal names.  The values are "ALLOW" and "DENY".  You can
+use this feature, for example, when there are applications that blindly
+"chop the realm" of client principals to map them to usernames.
 .It Li acl_file Li = PA FILENAME
 Use this file for the ACL list of this database.
 .It Li log_file Li = Pa FILENAME

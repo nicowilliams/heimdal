@@ -33,6 +33,12 @@
 
 #include "kdc_locl.h"
 
+static krb5_error_code against_local_policy_tgs(krb5_context context,
+						krb5_kdc_configuration *config,
+						krb5_principal client,
+						krb5_principal server,
+						const char **status);
+
 /*
  * return the realm of a krbtgt-ticket or NULL
  */
@@ -1638,6 +1644,18 @@ server_lookup:
 	goto out;
     }
 
+    {
+	const char *msg = "";
+	ret = against_local_policy_tgs(context, config, cp, sp, &msg);
+	if (ret) {
+	    /* XXX Set e_text to msg? */
+	    kdc_log(context, config, 0,
+		    "Request rejected by local policy: %s for %s: %s", cpn,
+		    spn, msg);
+	    goto out;
+	}
+    }
+
     /*
      * Select enctype, return key and kvno.
      */
@@ -2283,7 +2301,7 @@ out:
     if(ret && ret != HDB_ERR_NOT_FOUND_HERE && data->data == NULL){
 	krb5_mk_error(context,
 		      ret,
-		      NULL,
+		      e_text,
 		      NULL,
 		      NULL,
 		      NULL,
@@ -2306,3 +2324,119 @@ out:
 
     return ret;
 }
+
+#include <db.h>
+
+/**
+ * Checks the xrealm-policy-database.
+ *
+ * Returns -1 if no entry was found, 0 if the entry is found and it is
+ * an ALLOW entry, KRB5KDC_ERR_POLICY if the entry is found and it is a
+ * DENY entry.  Malformed entries also result in -1.  The caller calls
+ * this function more than once, and it's the caller's responsibility to
+ * fail closed if there are any -1 results.
+ */
+static
+krb5_error_code
+policy_db_check(DB *db,
+	        const char *key,
+	        size_t key_len)
+{
+    int db_ret;
+    DBT k;
+    DBT v;
+
+    k.data = (char *)key;
+    k.size = key_len;
+
+    db_ret = db->get(db, &k, &v, 0);
+    if (db_ret == 1)
+	return (-1); /* key not found; fall through */
+    if (db_ret == -1)
+	return (KRB5KDC_ERR_POLICY);	/* db2 error -> fail closed */
+
+#define	ALLOW_STR   "ALLOW"
+    if (v.size == strlen(ALLOW_STR) && strcmp(v.data, ALLOW_STR) == 0)
+	return (0);
+#define	DENY_STR   "DENY"
+    if (v.size == strlen(DENY_STR) && strcmp(v.data, DENY_STR) == 0)
+	return (KRB5KDC_ERR_POLICY);
+    return (-1); /* value not understood; fall through */
+}
+
+/**
+ * Check that a given client can talk to a given server.  This is always
+ * allowed within a realm, but across realms a policy ruleset can be
+ * applied.  This ruleset is stored in a DB.
+ *
+ * The database is configued via the xrealm-policy-database kdc
+ * parameter, in krb5.conf.  Its keys are realm names and unparsed
+ * client principal names.  The values are "ALLOW" and "DENY".  If a
+ * realm is ALLOWed, then all principals from it are allowed as clients
+ * as well.  If a realm is not listed and the client is not listed,
+ * then access is denied.  If xrealm-policy-database is not set then all
+ * x-realm tickets are allowed.
+ */
+static
+krb5_error_code
+against_local_policy_tgs(krb5_context context,
+			 krb5_kdc_configuration *config,
+			 krb5_principal client,
+			 krb5_principal server,
+			 const char **status)
+{
+    krb5_error_code ret;
+    char *cname = NULL;
+    DB *db = NULL;
+
+    if (config->xrealm_policy_db == NULL)
+	return (0);
+
+    if (strcmp(client->realm, server->realm) == 0)
+	return (0); /* not xrealm, so it's OK */
+
+#ifdef KRB5__XREALM_POLICY_GOOD_REALM1
+    /*
+     * You can set KRB5__XREALM_POLICY_GOOD_REALM1 in CPPFLAGS if you
+     * want to hardcode some policy, but this is discouraged -- just
+     * make triple sure that your policy DB has the entries that you
+     * need.
+     */
+    if (strcmp(client->realm, KRB5__XREALM_POLICY_GOOD_REALM1) == 0)
+	return (0);
+#endif
+#ifdef KRB5__XREALM_POLICY_GOOD_REALM2
+    if (strcmp(client->realm, KRB5__XREALM_POLICY_GOOD_REALM2) == 0)
+	return (0);
+#endif
+
+    db = dbopen(config->xrealm_policy_db, O_RDONLY, 0, DB_HASH, NULL);
+    if (db == NULL)
+	return (KRB5KDC_ERR_POLICY); /* fail closed */
+
+    ret = policy_db_check(db, client->realm, strlen(client->realm));
+    if (ret != -1)
+	goto done;
+
+    ret = krb5_unparse_name(context, client, &cname);
+    if (ret) {
+	*status = "MALFORMED CLIENT NAME";
+	ret = KRB5KDC_ERR_POLICY;
+	goto done;
+    }
+
+    ret = policy_db_check(db, cname, strlen(cname));
+    if (ret == -1) {
+	*status = "POLICY NOT FOUND: DENY";
+	ret = KRB5KDC_ERR_POLICY;
+	goto done;
+    }
+
+done:
+    if (cname != NULL)
+	free(cname);
+    if (db != NULL)
+	db->close(db);
+    return (ret);
+}
+

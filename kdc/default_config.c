@@ -66,6 +66,10 @@ krb5_kdc_get_config(krb5_context context, krb5_kdc_configuration **config)
     c->num_db = 0;
     c->logf = NULL;
 
+    c->xrealm_policy_db = 
+	krb5_config_get_string(context, NULL,
+			       "kdc", "xrealm-policy-database", NULL);
+
     c->require_preauth =
 	krb5_config_get_bool_default(context, NULL,
 				     c->require_preauth,
