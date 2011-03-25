@@ -33,6 +33,11 @@
 
 #include "kdc_locl.h"
 
+static krb5_error_code against_local_policy_tgs(krb5_context context,
+						krb5_principal client,
+						krb5_principal server,
+						const char **status);
+
 /*
  * return the realm of a krbtgt-ticket or NULL
  */
@@ -1637,6 +1642,18 @@ server_lookup:
 	goto out;
     }
 
+    {
+	const char *msg;
+	ret = against_local_policy_tgs(context, cp, sp, &msg);
+	if (ret) {
+	    /* XXX Set e_text to msg? */
+	    kdc_log(context, config, 0,
+		    "Request rejected by local policy: %s for %s: %s", cpn,
+		    spn, msg);
+	    goto out;
+	}
+    }
+
     /*
      * Select enctype, return key and kvno.
      */
@@ -2278,7 +2295,7 @@ out:
     if(ret && ret != HDB_ERR_NOT_FOUND_HERE && data->data == NULL){
 	krb5_mk_error(context,
 		      ret,
-		      NULL,
+		      e_text,
 		      NULL,
 		      NULL,
 		      NULL,
@@ -2301,3 +2318,86 @@ out:
 
     return ret;
 }
+
+#include <db.h>
+
+static
+krb5_error_code
+policy_db_check(DB *db,
+		       const char *key,
+		       size_t key_len,
+		       const char **status)
+{
+    int db_ret;
+    DBT k;
+    DBT v;
+
+    k.data = (char *)key;
+    k.size = key_len;
+
+    db_ret = db->get(db, &k, &v, 0);
+    if (db_ret == 1)
+	return (-1); /* key not found; fall through */
+    if (db_ret == -1)
+	return (KRB5KDC_ERR_POLICY);	/* db2 error -> fail closed */
+
+#define	ALLOW_STR   "ALLOW"
+    if (v.size == strlen(ALLOW_STR) && strcmp(v.data, ALLOW_STR) == 0)
+	return (0);
+#define	DENY_STR   "DENY"
+    if (v.size == strlen(DENY_STR) && strcmp(v.data, DENY_STR) == 0)
+	return (KRB5KDC_ERR_POLICY);
+    return (-1); /* value not understood; fall through */
+}
+
+static
+krb5_error_code
+against_local_policy_tgs(krb5_context context,
+			 krb5_principal client,
+			 krb5_principal server,
+			 const char **status)
+{
+    krb5_error_code ret;
+    char *cname = NULL;
+    DB *db = NULL;
+
+#define GOOD_REALM1     "is1.morgan"
+#define GOOD_REALM2     "MSAD.MS.COM"
+
+    /* Realms we like */
+    if (strcmp(client->realm, GOOD_REALM1) == 0 ||
+	strcmp(client->realm, GOOD_REALM2) == 0)
+	return (0);
+
+    /* In all other cases we check a DB */
+#define	DB_PATH	"/var/kerberos/policy.db"
+    db = dbopen(DB_PATH, O_RDONLY, 0, DB_HASH, NULL);
+    if (db == NULL)
+	return (KRB5KDC_ERR_POLICY); /* fail closed */
+
+    ret = policy_db_check(db, client->realm, strlen(client->realm), status);
+    if (ret != -1)
+	goto done;
+
+    ret = krb5_unparse_name(context, client, &cname);
+    if (ret) {
+	*status = "MALFORMED CLIENT NAME";
+	ret = KRB5KDC_ERR_POLICY;
+	goto done;
+    }
+
+    ret = policy_db_check(db, cname, strlen(cname), status);
+    if (ret == -1) {
+	*status = "POLICY NOT FOUND: DENY";
+	ret = KRB5KDC_ERR_POLICY;
+	goto done;
+    }
+
+done:
+    if (cname != NULL)
+	free(cname);
+    if (db != NULL)
+	db->close(db);
+    return (ret);
+}
+
