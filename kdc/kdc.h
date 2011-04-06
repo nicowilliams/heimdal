@@ -58,7 +58,10 @@ typedef struct krb5_kdc_configuration {
     int num_db;
 
     krb5_boolean encode_as_rep_as_tgs_rep; /* bug compatibility */
-	
+
+    krb5_boolean as_use_strongest_session_key;
+    krb5_boolean tgs_use_strongest_session_key;
+
     krb5_boolean check_ticket_addresses;
     krb5_boolean allow_null_ticket_addresses;
     krb5_boolean allow_anonymous;
