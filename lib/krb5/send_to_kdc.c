@@ -49,6 +49,7 @@ struct send_to_kdc {
 static int
 recv_loop (krb5_socket_t fd,
 	   time_t tmout,
+	   time_t tmout_us,
 	   int udp,
 	   size_t limit,
 	   krb5_data *rep)
@@ -69,7 +70,9 @@ recv_loop (krb5_socket_t fd,
 	 FD_ZERO(&fdset);
 	 FD_SET(fd, &fdset);
 	 timeout.tv_sec  = tmout;
-	 timeout.tv_usec = 0;
+	 if (tmout_us < 0 || tmout_us > 1000000)
+		tmout_us = 0;
+	 timeout.tv_usec = tmout_us;
 	 ret = select (fd + 1, &fdset, NULL, NULL, &timeout);
 	 if (ret < 0) {
 	     if (errno == EINTR)
@@ -115,13 +118,14 @@ recv_loop (krb5_socket_t fd,
 static int
 send_and_recv_udp(krb5_socket_t fd,
 		  time_t tmout,
+		  time_t tmout_us,
 		  const krb5_data *req,
 		  krb5_data *rep)
 {
     if (send (fd, req->data, req->length, 0) < 0)
 	return -1;
 
-    return recv_loop(fd, tmout, 1, 0, rep);
+    return recv_loop(fd, tmout, tmout_us, 1, 0, rep);
 }
 
 /*
@@ -134,6 +138,7 @@ send_and_recv_udp(krb5_socket_t fd,
 static int
 send_and_recv_tcp(krb5_socket_t fd,
 		  time_t tmout,
+		  time_t tmout_us,
 		  const krb5_data *req,
 		  krb5_data *rep)
 {
@@ -146,7 +151,7 @@ send_and_recv_tcp(krb5_socket_t fd,
 	return -1;
     if(net_write (fd, req->data, req->length) < 0)
 	return -1;
-    if (recv_loop (fd, tmout, 0, 4, &len_data) < 0)
+    if (recv_loop (fd, tmout, tmout_us, 0, 4, &len_data) < 0)
 	return -1;
     if (len_data.length != 4) {
 	krb5_data_free (&len_data);
@@ -154,7 +159,7 @@ send_and_recv_tcp(krb5_socket_t fd,
     }
     _krb5_get_int(len_data.data, &rep_len, 4);
     krb5_data_free (&len_data);
-    if (recv_loop (fd, tmout, 0, rep_len, rep) < 0)
+    if (recv_loop (fd, tmout, tmout_us, 0, rep_len, rep) < 0)
 	return -1;
     if(rep->length != rep_len) {
 	krb5_data_free (rep);
@@ -166,10 +171,11 @@ send_and_recv_tcp(krb5_socket_t fd,
 int
 _krb5_send_and_recv_tcp(krb5_socket_t fd,
 			time_t tmout,
+			time_t tmout_us,
 			const krb5_data *req,
 			krb5_data *rep)
 {
-    return send_and_recv_tcp(fd, tmout, req, rep);
+    return send_and_recv_tcp(fd, tmout, tmout_us, req, rep);
 }
 
 /*
@@ -179,6 +185,7 @@ _krb5_send_and_recv_tcp(krb5_socket_t fd,
 static int
 send_and_recv_http(krb5_socket_t fd,
 		   time_t tmout,
+		   time_t tmout_us,
 		   const char *prefix,
 		   const krb5_data *req,
 		   krb5_data *rep)
@@ -198,7 +205,7 @@ send_and_recv_http(krb5_socket_t fd,
     free (request);
     if (ret < 0)
 	return ret;
-    ret = recv_loop(fd, tmout, 0, 0, rep);
+    ret = recv_loop(fd, tmout, tmout_us, 0, 0, rep);
     if(ret)
 	return ret;
     {
@@ -256,6 +263,8 @@ init_port(const char *s, int fallback)
 static int
 send_via_proxy (krb5_context context,
 		const krb5_krbhst_info *hi,
+		time_t tmout_secs,
+		time_t tmout_usecs,
 		const krb5_data *send_data,
 		krb5_data *receive)
 {
@@ -309,8 +318,8 @@ send_via_proxy (krb5_context context,
 	close(s);
 	return 1;
     }
-    ret = send_and_recv_http(s, context->kdc_timeout,
-			     prefix, send_data, receive);
+    ret = send_and_recv_http(s, tmout_secs, tmout_usecs, prefix, send_data,
+			     receive);
     rk_closesocket (s);
     free(prefix);
     if(ret == 0 && receive->length != 0)
@@ -322,6 +331,7 @@ static krb5_error_code
 send_via_plugin(krb5_context context,
 		krb5_krbhst_info *hi,
 		time_t timeout,
+		time_t timeout_us,
 		const krb5_data *send_data,
 		krb5_data *receive)
 {
@@ -342,7 +352,7 @@ send_via_plugin(krb5_context context,
 	
 	(*service->init)(context, &ctx);
 	ret = (*service->send_to_kdc)(context, ctx, hi,
-				      timeout, send_data, receive);
+				      timeout, timeout_us, send_data, receive);
 	(*service->fini)(ctx);
 	if (ret == 0)
 	    break;
@@ -371,13 +381,33 @@ krb5_sendto (krb5_context context,
 {
      krb5_error_code ret;
      krb5_socket_t fd;
+     time_t waited = 0;
+     time_t tmout_secs = context->kdc_timeout;
+     time_t tmout_usecs = context->kdc_timeout_us;
      int i;
 
      krb5_data_zero(receive);
 
+     /* This is where retry logic lives.  For 0..max_retries... */
      for (i = 0; i < context->max_retries; ++i) {
 	 krb5_krbhst_info *hi;
 
+	 /* Exponential backoff, but only for the timeout -- we don't sleep */
+	 tmout_secs = context->kdc_timeout << i;
+	 if (tmout_secs > context->max_kdc_timeout) {
+		tmout_secs = context->max_kdc_timeout;
+		tmout_usecs = 0;
+	 }
+
+	 if (waited + tmout_secs > context->max_kdc_timeout_cumulative) {
+		tmout_usecs = 0;
+		tmout_secs = context->max_kdc_timeout_cumulative - waited;
+		/* XXX assert(tmout_secs > 0); */
+		if (tmout_secs <= 0)
+			tmout_secs = 1;
+	 }
+
+	 /* For each KDC name... */
 	 while (krb5_krbhst_next(context, handle, &hi) == 0) {
 	     struct addrinfo *ai, *a;
 
@@ -388,14 +418,14 @@ krb5_sendto (krb5_context context,
 	     if (context->send_to_kdc) {
 		 struct send_to_kdc *s = context->send_to_kdc;
 
-		 ret = (*s->func)(context, s->data, hi,
-				  context->kdc_timeout, send_data, receive);
+		 ret = (*s->func)(context, s->data, hi, tmout_secs, tmout_usecs,
+				  send_data, receive);
 		 if (ret == 0 && receive->length != 0)
 		     goto out;
 		 continue;
 	     }
 
-	     ret = send_via_plugin(context, hi, context->kdc_timeout,
+	     ret = send_via_plugin(context, hi, tmout_secs, tmout_usecs,
 				   send_data, receive);
 	     if (ret == 0 && receive->length != 0)
 		 goto out;
@@ -403,7 +433,8 @@ krb5_sendto (krb5_context context,
 		 continue;
 
 	     if(hi->proto == KRB5_KRBHST_HTTP && context->http_proxy) {
-		 if (send_via_proxy (context, hi, send_data, receive) == 0) {
+		 if (send_via_proxy(context, hi, tmout_secs, tmout_usecs,
+				    send_data, receive) == 0) {
 		     ret = 0;
 		     goto out;
 		 }
@@ -414,6 +445,7 @@ krb5_sendto (krb5_context context,
 	     if (ret)
 		 continue;
 
+	     /* For each KDC IP address... */
 	     for (a = ai; a != NULL; a = a->ai_next) {
 		 fd = socket (a->ai_family, a->ai_socktype | SOCK_CLOEXEC, a->ai_protocol);
 		 if (rk_IS_BAD_SOCKET(fd))
@@ -425,24 +457,32 @@ krb5_sendto (krb5_context context,
 		 }
 		 switch (hi->proto) {
 		 case KRB5_KRBHST_HTTP :
-		     ret = send_and_recv_http(fd, context->kdc_timeout,
-					      "", send_data, receive);
+		     ret = send_and_recv_http(fd, tmout_secs, tmout_usecs, "",
+					      send_data, receive);
 		     break;
 		 case KRB5_KRBHST_TCP :
-		     ret = send_and_recv_tcp (fd, context->kdc_timeout,
+		     ret = send_and_recv_tcp (fd, tmout_secs, tmout_usecs,
 					      send_data, receive);
 		     break;
 		 case KRB5_KRBHST_UDP :
-		     ret = send_and_recv_udp (fd, context->kdc_timeout,
+		     ret = send_and_recv_udp (fd, tmout_secs, tmout_usecs,
 					      send_data, receive);
 		     break;
 		 }
 		 rk_closesocket (fd);
 		 if(ret == 0 && receive->length != 0)
 		     goto out;
+
+		 waited += tmout_secs;
+		 if (waited > context->max_kdc_timeout_cumulative)
+			break;
 	     }
 	 }
+	 /* Timeout! */
 	 krb5_krbhst_reset(context, handle);
+
+	 if (waited > context->max_kdc_timeout_cumulative)
+		break;
      }
      krb5_clear_error_message (context);
      ret = KRB5_KDC_UNREACH;
@@ -648,6 +688,40 @@ krb5_sendto_context(krb5_context context,
     return ret;
 }
 
+static
+bool
+error_is_retriable_on_master(krb5_context context, krb5_error_code code)
+{
+    /*
+     * We want to retry on the master any KDC-REQ that fails due to
+     * errors that could be transient due to async KDB replication from
+     * a master KDC.  KRB5_KDC_ERR_WRONG_REALM is border-line...
+     */
+    switch(code) {
+    case KRB5KDC_ERR_NONE:
+    case KRB5KDC_ERR_BADOPTION:
+    case KRB5KDC_ERR_TRTYPE_NOSUPP:
+    case KRB5KDC_ERR_KDC_ERR_MUST_USE_USER2USER:
+    case KRB5KRB_AP_ERR_TKT_NYV:
+    case KRB5KRB_AP_ERR_BADMATCH:
+    case KRB5KRB_AP_ERR_SKEW:
+    case KRB5KRB_AP_ERR_TKT_INVALID:
+    case KRB5KRB_AP_ERR_BADVERSION:
+    case KRB5KRB_AP_ERR_MSG_TYPE:
+    case KRB5KRB_AP_ERR_ILL_CR_TKT:
+    case KRB5KRB_AP_ERR_INAPP_CKSUM:
+    case KRB5KRB_AP_PATH_NOT_ACCEPTED:
+    case KRB5_KDC_ERR_INVALID_SIG:
+    case KRB5_KDC_ERR_WRONG_REALM:
+    case KRB5_KDC_ERR_CLIENT_NAME_MISMATCH:
+    case KRB5_KDC_ERR_INCONSISTENT_KEY_PURPOSE:
+    case KRB5KRB_AP_WRONG_PRINC:
+	return (FALSE);
+    default:
+	return (TRUE);
+    }
+}
+
 krb5_error_code KRB5_CALLCONV
 _krb5_kdc_retry(krb5_context context, krb5_sendto_ctx ctx, void *data,
 		const krb5_data *reply, int *action)
@@ -671,6 +745,14 @@ _krb5_kdc_retry(krb5_context context, krb5_sendto_ctx ctx, void *data,
     }
     case KRB5KDC_ERR_SVC_UNAVAILABLE:
 	*action = KRB5_SENDTO_CONTINUE;
+	break;
+    default:
+	if (!error_is_retriable_on_master(context, ret) ||
+	    krb5_sendto_ctx_get_flags(ctx) & KRB5_KRBHST_FLAGS_MASTER ||
+	    !(context->fallback_to_master_kdc))
+	    break;
+	krb5_sendto_ctx_add_flags(ctx, KRB5_KRBHST_FLAGS_MASTER);
+	*action = KRB5_SENDTO_RESTART;
 	break;
     }
     return 0;

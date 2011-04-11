@@ -151,7 +151,16 @@ Maximum time differential (in seconds) allowed when comparing
 times.
 Default is 300 seconds (five minutes).
 .It Li kdc_timeout = Va time
-Maximum time to wait for a reply from the kdc, default is 3 seconds.
+Time (seconds) to wait for a reply from the kdc, per-attempt, default is 3
+seconds.
+.It Li kdc_timeout_us = Va time
+Microseconds component of kdc_timeout (default is 0 microseconds).
+.It Li max_kdc_timeout = Va time
+Maximum time, in seconds, to wait for a reply from the kdc, per-attempt
+(default: 8 seconds).
+.It Li max_kdc_timeout_cumulative = Va time
+Maximum time, in seconds, to wait for a reply from all KDCs (default: 60
+seconds).
 .It Li v4_name_convert
 .It Li v4_instance_resolve
 These are described in the
