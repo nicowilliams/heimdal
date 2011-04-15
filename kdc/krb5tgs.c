@@ -2385,6 +2385,9 @@ against_local_policy_tgs(krb5_context context,
 			 krb5_principal server,
 			 const char **status)
 {
+#ifndef HAVE_DB1
+    return (0);
+#else
     krb5_error_code ret;
     char *cname = NULL;
     DB *db = NULL;
@@ -2438,5 +2441,6 @@ done:
     if (db != NULL)
 	db->close(db);
     return (ret);
+#endif
 }
 
