@@ -168,6 +168,12 @@ hdb_free_entry(krb5_context context, hdb_entry_ex *ent)
 {
     int i;
 
+    /*
+     * XXX Should we return here?  Or should we do this after we free
+     * the keys?  Or what?  Anyways, nothing assigns to free_entry, so
+     * this is dead code.  And shouldn't free_entry() get the ctx field
+     * of the hdb_entry_ex as an argument?
+     */
     if (ent->free_entry)
 	(*ent->free_entry)(context, ent);
 
