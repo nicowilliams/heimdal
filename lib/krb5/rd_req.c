@@ -425,6 +425,8 @@ krb5_verify_ap_req2(krb5_context context,
 
     if (t->ticket.caddr
 	&& ac->remote_address
+	&& krb5_config_get_bool_default(context, NULL, TRUE, "libdefaults",
+	    "check-ticket-addresses", NULL)
 	&& !krb5_address_search (context,
 				 ac->remote_address,
 				 t->ticket.caddr)) {

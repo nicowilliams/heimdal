@@ -407,6 +407,7 @@ struct entry libdefaults_entries[] = {
     { "time_format", krb5_config_string, NULL },
     { "transited_realms_reject", krb5_config_string, NULL },
     { "no-addresses", krb5_config_string, check_boolean },
+    { "check-ticket-addresses", krb5_config_string, check_boolean },
     { "v4_instance_resolve", krb5_config_string, check_boolean },
     { "v4_name_convert", krb5_config_list, v4_name_convert_entries },
     { "verify_ap_req_nofail", krb5_config_string, check_boolean },
