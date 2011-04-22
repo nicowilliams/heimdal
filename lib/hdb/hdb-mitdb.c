@@ -205,6 +205,7 @@ mdb_value2entry(krb5_context context, krb5_data *data, krb5_kvno kvno, hdb_entry
     uint32_t u32;
     uint16_t u16, num_keys, num_tl;
     size_t i, j;
+    off_t key_start;
     char *p;
 
     sp = krb5_storage_from_data(data);
@@ -326,9 +327,11 @@ mdb_value2entry(krb5_context context, krb5_data *data, krb5_kvno kvno, hdb_entry
      * That's right... hold that gag reflex, you can do it.
      */
     for (i = 0; i < num_keys; i++) {
-	int keep = 0;
+	int keep;
 	uint16_t version;
 	void *ptr;
+
+	keep = 0;
 
 	CHECK(ret = krb5_ret_uint16(sp, &u16));
 	version = u16;
@@ -354,14 +357,35 @@ mdb_value2entry(krb5_context context, krb5_data *data, krb5_kvno kvno, hdb_entry
 	    free(entry->keys.val);
 	    entry->keys.len = 0;
 	    entry->keys.val = NULL;
-	} else if (entry->kvno == u16)
+	} else if (entry->kvno == u16) {
 	    /* Accumulate keys */
 	    keep = 1;
+	}
 
+	/*
+	 * Older MIT KDBs may have enctype 0 / length 0 keys, and we
+	 * want to skip them.  So we scan ahead, decide if still want
+	 * to keep this key, then seek back.
+	 */
+	key_start = krb5_storage_seek(sp, 0, SEEK_CUR);
+	/* enctype */
+	CHECK(ret = krb5_ret_uint16(sp, &u16));
+	if (u16 == 0) {
+	    keep = 0;
+	} else {
+	    /* encrypted key length */
+	    CHECK(ret = krb5_ret_uint16(sp, &u16));
+	    if (u16 == 0)
+		keep = 0;
+	}
+	krb5_storage_seek(sp, key_start, SEEK_SET);
+
+	/* Now we read (or skip, in the else clause) the key for realz */
 	if (keep) {
 	    Key *k;
 
-	    ptr = realloc(entry->keys.val, sizeof(entry->keys.val[0]) * (entry->keys.len + 1));
+	    ptr = realloc(entry->keys.val,
+		sizeof(entry->keys.val[0]) * (entry->keys.len + 1));
 	    if (ptr == NULL) {
 		ret = ENOMEM;
 		goto out;
