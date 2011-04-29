@@ -57,33 +57,15 @@ typedef struct hdb_sqlite_db {
 /* This should be used to mark updates which make the code incompatible
  * with databases created with previous versions. Don't update it if
  * compatibility is not broken. */
-#define HDBSQLITE_VERSION 0.1
+#define HDBSQLITE_VERSION 1.1
+
+#define	HDBSQLITE_SCHEMA_FILE	LIBDIR "/hdb-sqlite-schema.sql"
 
 #define _HDBSQLITE_STRINGIFY(x) #x
 #define HDBSQLITE_STRINGIFY(x) _HDBSQLITE_STRINGIFY(x)
 
-#define HDBSQLITE_CREATE_TABLES \
-                 " BEGIN TRANSACTION;" \
-                 " CREATE TABLE Version (number REAL);" \
-                 " INSERT INTO Version (number)" \
-                 " VALUES (" HDBSQLITE_STRINGIFY(HDBSQLITE_VERSION) ");" \
-                 " CREATE TABLE Principal" \
-                 "  (id INTEGER PRIMARY KEY," \
-                 "   principal TEXT UNIQUE NOT NULL," \
-                 "   canonical INTEGER," \
-                 "   entry INTEGER);" \
-                 " CREATE TABLE Entry" \
-                 "  (id INTEGER PRIMARY KEY," \
-                 "   data BLOB);" \
-                 " COMMIT"
-#define HDBSQLITE_CREATE_TRIGGERS \
-                 " CREATE TRIGGER remove_principals AFTER DELETE ON Entry" \
-                 " BEGIN" \
-                 "  DELETE FROM Principal" \
-                 "  WHERE entry = OLD.id;" \
-                 " END"
 #define HDBSQLITE_GET_VERSION \
-                 " SELECT number FROM Version"
+                 " SELECT max(number) FROM Version"
 #define HDBSQLITE_FETCH \
                  " SELECT Entry.data FROM Principal, Entry" \
                  " WHERE Principal.principal = ? AND" \
@@ -126,11 +108,12 @@ static krb5_error_code
 hdb_sqlite_prepare_stmt(krb5_context context,
                         sqlite3 *db,
                         sqlite3_stmt **statement,
-                        const char *str)
+                        const char *str,
+			const char **str_tail)
 {
     int ret, tries = 0;
 
-    ret = sqlite3_prepare_v2(db, str, -1, statement, NULL);
+    ret = sqlite3_prepare_v2(db, str, -1, statement, str_tail);
     while((tries++ < MAX_RETRIES) &&
 	  ((ret == SQLITE_BUSY) ||
            (ret == SQLITE_IOERR_BLOCKED) ||
@@ -148,6 +131,44 @@ hdb_sqlite_prepare_stmt(krb5_context context,
     }
 
     return 0;
+}
+
+/**
+ * Wrapper around hdb_sqlite_prepare_stmt() that executes a string of
+ * many statements.  This is used to run many statements, such as when
+ * loading a schema.
+ */
+static krb5_error_code
+hdb_sqlite_exec_many(krb5_context context,
+		     sqlite3 *db,
+		     const char *str)
+{
+    int ret;
+    const char *str_tail = str;
+    sqlite3_stmt *stmt = NULL;
+
+    do {
+	ret = hdb_sqlite_prepare_stmt(context, db,  &stmt, str, &str_tail);
+	if (ret) goto out;
+	do {
+	    ret = sqlite3_step(stmt);
+	} while (ret == SQLITE_ROW);
+	if (ret != SQLITE_DONE) goto out;
+	(void) sqlite3_finalize(stmt);
+	str = str_tail;
+    } while (str_tail != NULL);
+
+    return (ret);
+
+out:
+    if (stmt != NULL)
+	(void) sqlite3_finalize(stmt);
+
+    krb5_set_error_message(context, EINVAL,
+			   "Failed to execute many statements: %s",
+			   sqlite3_errmsg(db));
+    ret = EINVAL;
+    return (ret);
 }
 
 /**
@@ -288,61 +309,83 @@ hdb_sqlite_make_database(krb5_context context, HDB *db, const char *filename)
 
     ret = hdb_sqlite_open_database(context, db, 0);
     if (ret) {
+	int schema_fd;
+	off_t schema_sz;
+	char *schema_str;
+
         ret = hdb_sqlite_open_database(context, db, SQLITE_OPEN_CREATE);
         if (ret) goto out;
 
         created_file = 1;
 
-        ret = hdb_sqlite_exec_stmt(context, hsdb->db,
-                                   HDBSQLITE_CREATE_TABLES,
-                                   EINVAL);
-        if (ret) goto out;
+	schema_fd = open(HDBSQLITE_SCHEMA_FILE, O_RDONLY);
+	if (schema_fd == -1) goto out;
 
-        ret = hdb_sqlite_exec_stmt(context, hsdb->db,
-                                   HDBSQLITE_CREATE_TRIGGERS,
-                                   EINVAL);
-        if (ret) goto out;
+	schema_sz = lseek(schema_fd, 0, SEEK_END);
+	if (schema_sz == -1) goto out;
+
+	schema_str = calloc(1, schema_sz + 1);
+	if (schema_str == NULL) goto out;
+
+	if (read(schema_fd, schema_str, schema_sz) != schema_sz) {
+	    if (errno == 0)
+		errno = EIO;
+	    goto out;
+	}
+
+	ret = hdb_sqlite_exec_many(context, hsdb->db, schema_str);
+	if (ret) goto out;
     }
 
     ret = hdb_sqlite_prepare_stmt(context, hsdb->db,
                                   &hsdb->get_version,
-                                  HDBSQLITE_GET_VERSION);
+                                  HDBSQLITE_GET_VERSION,
+				  NULL);
     if (ret) goto out;
     ret = hdb_sqlite_prepare_stmt(context, hsdb->db,
                                   &hsdb->fetch,
-                                  HDBSQLITE_FETCH);
+                                  HDBSQLITE_FETCH,
+				  NULL);
     if (ret) goto out;
     ret = hdb_sqlite_prepare_stmt(context, hsdb->db,
                                   &hsdb->get_ids,
-                                  HDBSQLITE_GET_IDS);
+                                  HDBSQLITE_GET_IDS,
+				  NULL);
     if (ret) goto out;
     ret = hdb_sqlite_prepare_stmt(context, hsdb->db,
                                   &hsdb->add_entry,
-                                  HDBSQLITE_ADD_ENTRY);
+                                  HDBSQLITE_ADD_ENTRY,
+				  NULL);
     if (ret) goto out;
     ret = hdb_sqlite_prepare_stmt(context, hsdb->db,
                                   &hsdb->add_principal,
-                                  HDBSQLITE_ADD_PRINCIPAL);
+                                  HDBSQLITE_ADD_PRINCIPAL,
+				  NULL);
     if (ret) goto out;
     ret = hdb_sqlite_prepare_stmt(context, hsdb->db,
                                   &hsdb->add_alias,
-                                  HDBSQLITE_ADD_ALIAS);
+                                  HDBSQLITE_ADD_ALIAS,
+				  NULL);
     if (ret) goto out;
     ret = hdb_sqlite_prepare_stmt(context, hsdb->db,
                                   &hsdb->delete_aliases,
-                                  HDBSQLITE_DELETE_ALIASES);
+                                  HDBSQLITE_DELETE_ALIASES,
+				  NULL);
     if (ret) goto out;
     ret = hdb_sqlite_prepare_stmt(context, hsdb->db,
                                   &hsdb->update_entry,
-                                  HDBSQLITE_UPDATE_ENTRY);
+                                  HDBSQLITE_UPDATE_ENTRY,
+				  NULL);
     if (ret) goto out;
     ret = hdb_sqlite_prepare_stmt(context, hsdb->db,
                                   &hsdb->remove,
-                                  HDBSQLITE_REMOVE);
+                                  HDBSQLITE_REMOVE,
+				  NULL);
     if (ret) goto out;
     ret = hdb_sqlite_prepare_stmt(context, hsdb->db,
                                   &hsdb->get_all_entries,
-                                  HDBSQLITE_GET_ALL_ENTRIES);
+                                  HDBSQLITE_GET_ALL_ENTRIES,
+				  NULL);
     if (ret) goto out;
 
     ret = hdb_sqlite_step(context, hsdb->db, hsdb->get_version);
@@ -362,6 +405,8 @@ hdb_sqlite_make_database(krb5_context context, HDB *db, const char *filename)
     return 0;
     
  out:
+    if (ret == 0)
+	ret = errno;
     if (hsdb->db)
         sqlite3_close(hsdb->db);
     if (created_file)

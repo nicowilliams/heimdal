@@ -13,6 +13,7 @@ endif
 
 BUILT_SOURCES = \
 	$(gen_files_hdb:.x=.c)	\
+	hdb-sqlite-schema.h \
 	hdb_err.c \
 	hdb_err.h
 
@@ -125,6 +126,13 @@ test_dbinfo_LIBS = libhdb.la
 
 test_hdbkeys_LIBS = ../krb5/libkrb5.la libhdb.la
 test_mkey_LIBS = $(test_hdbkeys_LIBS)
+
+.sql.h:
+	@(echo '#define HDB_SQLITE_SCHEMA \\'; \
+	$(SED) -e 's/^/"/' -e 's/$$/" \\/' < $<; \
+	echo '""') > $@
+
+hdb-sqlite-schema.h: hdb-sqlite-schema.sql
 
 # to help stupid solaris make
 
