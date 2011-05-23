@@ -32,6 +32,7 @@
  */
 
 #include "hdb_locl.h"
+#include "hdb-sqlite-schema.h"
 #include "sqlite3.h"
 
 #define MAX_RETRIES 10
@@ -41,6 +42,7 @@ typedef struct hdb_sqlite_db {
     sqlite3 *db;
     char *db_file;
 
+    /* Cached prepared statements */
     sqlite3_stmt *get_version;
     sqlite3_stmt *fetch;
     sqlite3_stmt *get_ids;
@@ -51,6 +53,39 @@ typedef struct hdb_sqlite_db {
     sqlite3_stmt *update_entry;
     sqlite3_stmt *remove;
     sqlite3_stmt *get_all_entries;
+
+    /* Indexes to named parameters for each prepared statement */
+    int add_entry_pidx_canon_name_id;
+    int add_entry_pidx_canon_name;
+    int add_entry_pidx_id;
+    int add_entry_pidx_data;
+    int add_entry_pidx_created_at;
+    int add_entry_pidx_created_by;
+    int add_entry_pidx_modified_at;
+    int add_entry_pidx_modified_by;
+    int add_entry_pidx_valid_start;
+    int add_entry_pidx_valid_end;
+    int add_entry_pidx_pw_end;
+    int add_entry_pidx_last_pw_change;
+    int add_entry_pidx_max_life;
+    int add_entry_pidx_max_renew;
+    int add_entry_pidx_flags;
+
+    int upd_entry_pidx_canon_name_id;
+    int upd_entry_pidx_canon_name;
+    int upd_entry_pidx_id;
+    int upd_entry_pidx_data;
+    int upd_entry_pidx_created_at;
+    int upd_entry_pidx_created_by;
+    int upd_entry_pidx_modified_at;
+    int upd_entry_pidx_modified_by;
+    int upd_entry_pidx_valid_start;
+    int upd_entry_pidx_valid_end;
+    int upd_entry_pidx_pw_end;
+    int upd_entry_pidx_last_pw_change;
+    int upd_entry_pidx_max_life;
+    int upd_entry_pidx_max_renew;
+    int upd_entry_pidx_flags;
 
 } hdb_sqlite_db;
 
@@ -67,25 +102,47 @@ typedef struct hdb_sqlite_db {
 #define HDBSQLITE_GET_VERSION \
                  " SELECT max(number) FROM Version"
 #define HDBSQLITE_FETCH \
-                 " SELECT Entry.data FROM Principal, Entry" \
-                 " WHERE Principal.principal = ? AND" \
-                 "       Entry.id = Principal.entry"
+                 " SELECT ed.data FROM Entry ed" \
+                 " JOIN EntryName en ON en.entry = ed.id" \
+                 " WHERE en.name = @name"
 #define HDBSQLITE_GET_IDS \
-                 " SELECT id, entry FROM Principal" \
-                 " WHERE principal = ?"
-#define HDBSQLITE_ADD_ENTRY \
-                 " INSERT INTO Entry (data) VALUES (?)"
+                 " SELECT en.id, en.entry FROM EntryName en" \
+                 " WHERE en.name = @name AND en.entry IS NOT NULL"
+#define HDBSQLITE_ADD_ENTRY_DETAIL \
+		 " INSERT INTO EntryDetail (canon_name_id, canon_name," \
+		 " id, data, created_at, created_by, modified_at," \
+		 " modified_by, valid_start, valid_end, pw_end," \
+		 " last_pw_change, max_life, max_renew, flags) " \
+		 " VALUES (@canon_name_id, @canon_name, @id, @data," \
+		 "  @created_at, @created_by, @modified_at," \
+		 "  @modified_by, @valid_start, @valid_end, @pw_end," \
+		 "  @last_pw_change, @max_life, @max_renew, @flags)"
 #define HDBSQLITE_ADD_PRINCIPAL \
                  " INSERT INTO Principal (principal, entry, canonical)" \
-                 " VALUES (?, last_insert_rowid(), 1)"
+                 " VALUES (?, last_insert_rowid(), 1)" /* XXX remove */
 #define HDBSQLITE_ADD_ALIAS \
-                 " INSERT INTO Principal (principal, entry, canonical)" \
-                 " VALUES(?, ?, 0)"
+                 " INSERT INTO EntryName (name, entry)" \
+                 " VALUES(@name, @entry)"
 #define HDBSQLITE_DELETE_ALIASES \
                  " DELETE FROM Principal" \
                  " WHERE entry = ? AND canonical = 0"
 #define HDBSQLITE_UPDATE_ENTRY \
-                 " UPDATE Entry SET data = ?" \
+                 " UPDATE Entry SET " \
+		 " canon_name_id = @canon_name_id," \
+		 " canon_name = @canon_name," \
+		 " id = @id," \
+		 " data = @data," \
+		 " created_at = @created_at," \
+		 " created_by = @created_by," \
+		 " modified_at = @modified_at," \
+		 " modified_by = @modified_by," \
+		 " valid_start = @valid_start," \
+		 " valid_end = @valid_end," \
+		 " pw_end = @pw_end," \
+		 " last_pw_change = @last_pw_change," \
+		 " max_life = @max_life," \
+		 " max_renew = @max_renew," \
+		 " flags = @flags" \
                  " WHERE id = ?"
 #define HDBSQLITE_REMOVE \
                  " DELETE FROM ENTRY WHERE id = " \
@@ -150,6 +207,11 @@ hdb_sqlite_exec_many(krb5_context context,
     do {
 	ret = hdb_sqlite_prepare_stmt(context, db,  &stmt, str, &str_tail);
 	if (ret) goto out;
+
+	/*
+	 * We loop over sqlite3_step() just in case we have an INSERT ..
+	 * SELECT .. that needs stepping.
+	 */
 	do {
 	    ret = sqlite3_step(stmt);
 	} while (ret == SQLITE_ROW);
@@ -309,31 +371,17 @@ hdb_sqlite_make_database(krb5_context context, HDB *db, const char *filename)
 
     ret = hdb_sqlite_open_database(context, db, 0);
     if (ret) {
-	int schema_fd;
-	off_t schema_sz;
-	char *schema_str;
-
         ret = hdb_sqlite_open_database(context, db, SQLITE_OPEN_CREATE);
         if (ret) goto out;
 
         created_file = 1;
 
-	schema_fd = open(HDBSQLITE_SCHEMA_FILE, O_RDONLY);
-	if (schema_fd == -1) goto out;
-
-	schema_sz = lseek(schema_fd, 0, SEEK_END);
-	if (schema_sz == -1) goto out;
-
-	schema_str = calloc(1, schema_sz + 1);
-	if (schema_str == NULL) goto out;
-
-	if (read(schema_fd, schema_str, schema_sz) != schema_sz) {
-	    if (errno == 0)
-		errno = EIO;
-	    goto out;
-	}
-
-	ret = hdb_sqlite_exec_many(context, hsdb->db, schema_str);
+	/*
+	 * The way the schema is specified we could do this step even
+	 * when we open an existing DB.  This would mostly only
+	 * re-create TRIGGERs.  It might be worth doing.
+	 */
+	ret = hdb_sqlite_exec_many(context, hsdb->db, HDB_SQLITE_SCHEMA);
 	if (ret) goto out;
     }
 
@@ -354,7 +402,7 @@ hdb_sqlite_make_database(krb5_context context, HDB *db, const char *filename)
     if (ret) goto out;
     ret = hdb_sqlite_prepare_stmt(context, hsdb->db,
                                   &hsdb->add_entry,
-                                  HDBSQLITE_ADD_ENTRY,
+                                  HDBSQLITE_ADD_ENTRY_DETAIL,
 				  NULL);
     if (ret) goto out;
     ret = hdb_sqlite_prepare_stmt(context, hsdb->db,
@@ -567,7 +615,10 @@ hdb_sqlite_store(krb5_context context, HDB *db, unsigned flags,
 
     if(ret == SQLITE_DONE) { /* No such principal */
 
-        sqlite3_bind_blob(hsdb->add_entry, 1,
+	/* XXX add all the other columns too */
+	sqlite3_bind_text(hsdb->add_entry, hsdb->add_entry_pidx_canon_name,
+                          principal_string, -1, SQLITE_STATIC);
+	sqlite3_bind_blob(hsdb->add_entry, hsdb->add_entry_pidx_data,
                           value.data, value.length, SQLITE_STATIC);
         ret = hdb_sqlite_step(context, hsdb->db, hsdb->add_entry);
         sqlite3_clear_bindings(hsdb->add_entry);

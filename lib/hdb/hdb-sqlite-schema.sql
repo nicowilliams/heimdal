@@ -33,17 +33,17 @@ INSERT INTO Version (versnum) VALUES (1.1);
 -- follows:
 --
 --  - Scalar (i.e., single-valued) attributes of Kerberos V5
---    principals are stored in columns of rows of the "Entry"
+--    principals are stored in columns of rows of the 'Entry'
 --    table.
---  - Principal names are stored in the "EntryName" table, and
---    refer to rows of the "Entry" table.  The canonical name of
+--  - Principal names are stored in the 'EntryName' table, and
+--    refer to rows of the 'Entry' table.  The canonical name of
 --    a principal is referred to from Entry rows by the
 --    canon_name_id column.
 --  - All other multi-valued attributes of principals are stored
 --    similarly, in tables named Entry* (not including *Log
 --    tables).
 --     - Ordered multi-valued attributes have ordering columns.
---  - The view named "EntryDetail" has columns bearing
+--  - The view named 'EntryDetail' has columns bearing
 --    aggregated scalar views of all non-BLOB multi-valued
 --    attributes of a principal.
 --  - A table named EntryLog store history for incremental
@@ -304,7 +304,8 @@ CREATE TABLE IF NOT EXISTS EntryLog
   modified_at, modified_by, valid_start, valid_end, pw_end,
   last_pw_change, max_life, max_renew, flags, flags_str, aliases,
   enctype_nums, enctype_names, keys, ok_to_delegatees,
-  pkinit_names, pkinit_cert_digests, pkinit_certs);
+  pkinit_names, pkinit_cert_digests, pkinit_certs
+  CHECK (NOT is_new OR (is_new AND NOT is_delete));
 -- Combined principal name+data history - for documentation
 CREATE INDEX IF NOT EXISTS EntryLog_tx ON EntryLog (tx);
 CREATE INDEX IF NOT EXISTS EntryLog_mtime ON EntryLog (mtime);
@@ -440,6 +441,7 @@ FOR EACH ROW BEGIN
  -- Validate that the app is following our transaction rules
  SELECT RAISE(ROLLBACK, 'EntryDetail: previous transaction is incomplete')
  WHERE EXISTS (SELECT tx.tx FROM TX tx);
+ -- Insert the new Entry
  INSERT INTO Entry (id, canon_name_id, data, created_by,
   modified_at, modified_by, valid_start, valid_end,
   pw_end, last_pw_change, max_life, max_renew, flags, created_at)
@@ -450,6 +452,7 @@ FOR EACH ROW BEGIN
   NEW.last_pw_change, NEW.max_life, NEW.max_renew, NEW.flags,
   coalesce(NEW.created_at,
    (SELECT mtime FROM TX ORDER BY tx DESC LIMIT 1));
+ -- Insert its name
  INSERT INTO EntryName (name, id, entry)
  SELECT NEW.canon_name,
   (SELECT lni.last_id + 1 FROM LastEntryNameID lni),

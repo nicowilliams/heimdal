@@ -95,7 +95,7 @@ dist_libhdb_la_SOURCES =			\
 nodist_libhdb_la_SOURCES = $(BUILT_SOURCES)
 
 include_HEADERS = hdb.h hdb-protos.h
-nodist_include_HEADERS =  hdb_err.h hdb_asn1.h
+nodist_include_HEADERS =  hdb_err.h hdb_asn1.h hdb-sqlite-schema.h
 
 libhdb_la_LIBADD = \
 	$(LIB_com_err) \
@@ -109,7 +109,7 @@ libhdb_la_LIBADD = \
 	$(LIB_NDBM)
 
 $(libhdb_la_OBJECTS): $(srcdir)/hdb-protos.h $(srcdir)/hdb-private.h
-$(libhdb_la_OBJECTS): hdb_asn1.h hdb_asn1-priv.h hdb_err.h
+$(libhdb_la_OBJECTS): hdb_asn1.h hdb_asn1-priv.h hdb_err.h hdb-sqlite-schema.h
 
 $(srcdir)/hdb-protos.h:
 	cd $(srcdir); perl ../../cf/make-proto.pl -q -P comment -o hdb-protos.h $(dist_libhdb_la_SOURCES) || rm -f hdb-protos.h
@@ -128,7 +128,7 @@ test_hdbkeys_LIBS = ../krb5/libkrb5.la libhdb.la
 test_mkey_LIBS = $(test_hdbkeys_LIBS)
 
 .sql.h:
-	@(echo '#define HDB_SQLITE_SCHEMA \\'; \
+	@(echo '#define HDB_SQLITE_SCHEMA \'; \
 	$(SED) -e 's/^/"/' -e 's/$$/" \\/' < $<; \
 	echo '""') > $@
 
