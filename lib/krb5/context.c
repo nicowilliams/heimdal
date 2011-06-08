@@ -150,6 +150,8 @@ init_context_from_config_file(krb5_context context)
     INIT_FIELD(context, bool, log_utc,
 	       FALSE, "log_utc");
 
+    INIT_FIELD(context, bool, log_utc,
+	       FALSE, "rcache_avoindance");
 
 
     /* init dns-proxy slime */

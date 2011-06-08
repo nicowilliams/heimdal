@@ -404,6 +404,7 @@ typedef union {
 /* flags for krb5_verify_ap_req */
 
 #define KRB5_VERIFY_AP_REQ_IGNORE_INVALID	(1 << 0)
+#define KRB5_VERIFY_AP_REQ_CALLER_IS_MECH	(1 << 1)
 
 #define KRB5_GC_CACHED			(1U << 0)
 #define KRB5_GC_USER_USER		(1U << 1)
@@ -590,7 +591,8 @@ enum {
     KRB5_AUTH_CONTEXT_RET_SEQUENCE 		= 8,
     KRB5_AUTH_CONTEXT_PERMIT_ALL   		= 16,
     KRB5_AUTH_CONTEXT_USE_SUBKEY   		= 32,
-    KRB5_AUTH_CONTEXT_CLEAR_FORWARDED_CRED	= 64
+    KRB5_AUTH_CONTEXT_CLEAR_FORWARDED_CRED	= 64,
+    KRB5_AUTH_CONTEXT_EXTRA_AP_PDU_REQUIRED	= 128
 };
 
 /* flags for krb5_auth_con_genaddrs */

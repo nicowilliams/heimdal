@@ -399,6 +399,7 @@ struct entry libdefaults_entries[] = {
     { "kdc_timeout", krb5_config_string, check_time },
     { "kdc_timesync", krb5_config_string, check_boolean },
     { "log_utc", krb5_config_string, check_boolean },
+    { "rcache_avoidance", krb5_config_string, check_boolean },
     { "maxretries", krb5_config_string, check_numeric },
     { "scan_interfaces", krb5_config_string, check_boolean },
     { "srv_lookup", krb5_config_string, check_boolean },

@@ -7,6 +7,7 @@ EXPORTS
 	AD-IF-RELEVANT,
 	AD-KDCIssued,
 	AD-LoginAlias,
+	AD-ExtraAPPDURequired,
 	AP-REP,
 	AP-REQ,
 	AS-REP,
@@ -193,7 +194,8 @@ AUTHDATA-TYPE ::= INTEGER {
 	KRB5-AUTHDATA-GSS-API-ETYPE-NEGOTIATION(129), -- Authenticator only
 	KRB5-AUTHDATA-SIGNTICKET-OLDER(-17),
 	KRB5-AUTHDATA-SIGNTICKET-OLD(142),
-	KRB5-AUTHDATA-SIGNTICKET(512)
+	KRB5-AUTHDATA-SIGNTICKET(512),
+	KRB5-AUTHDATA-EXTRA-AP-PDU-REQUIRED(1234)
 }
 
 -- checksumtypes
@@ -540,7 +542,9 @@ EncAPRepPart ::= [APPLICATION 27]     SEQUENCE {
 	ctime[0]		KerberosTime,
 	cusec[1]		krb5int32,
 	subkey[2]		EncryptionKey OPTIONAL,
-	seq-number[3]		krb5uint32 OPTIONAL
+	seq-number[3]		krb5uint32 OPTIONAL,
+	authorization-data[4]   AuthorizationData OPTIONAL,
+	...
 }
 
 KRB-SAFE-BODY ::= SEQUENCE {
@@ -746,6 +750,8 @@ AD-LoginAlias ::= SEQUENCE { -- ad-type number TBD --
 	login-alias	[0] PrincipalName,
 	checksum	[1] Checksum
 }
+
+AD-ExtraAPPDURequired ::= NULL
 
 -- old ms referral
 PA-SvrReferralData ::= SEQUENCE {

@@ -88,6 +88,28 @@ krb5_mk_rep(krb5_context context,
     } else
 	body.seq_number = NULL;
 
+    if (auth_context->flags & KRB5_AUTH_CONTEXT_EXTRA_AP_PDU_REQUIRED) {
+	AuthorizationDataElement ade;
+
+	ade.ad_type = KRB5_AUTHDATA_EXTRA_AP_PDU_REQUIRED;
+	ade.ad_data.length = 0;
+	ade.ad_data.data = NULL;
+
+	body.authorization_data = calloc(1, sizeof(*body.authorization_data));
+	if (body.authorization_data == NULL) {
+	    krb5_set_error_message(context, ENOMEM, "out of memory");
+	    free_EncAPRepPart(&body);
+	    return ENOMEM;
+	}
+
+	ret = add_AuthorizationData(body.authorization_data, &ade);
+	if (ret) {
+	    krb5_set_error_message(context, ret, "add AuthorizationData failed");
+	    free_EncAPRepPart(&body);
+	    return ret;
+	}
+    }
+
     ap.enc_part.etype = auth_context->keyblock->keytype;
     ap.enc_part.kvno  = NULL;
 

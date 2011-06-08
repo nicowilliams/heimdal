@@ -160,6 +160,7 @@ typedef OM_uint32 gss_qop_t;
 #define GSS_C_IDENTIFY_FLAG 8192
 #define GSS_C_EXTENDED_ERROR_FLAG 16384
 #define GSS_C_DELEG_POLICY_FLAG 32768
+#define GSS_C_RCACHE_AVOIDANCE_OK 65536
 
 /*
  * Credential usage options

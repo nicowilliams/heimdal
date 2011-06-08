@@ -401,6 +401,24 @@ krb5_verify_ap_req2(krb5_context context,
     if (ret)
 	goto out;
 
+    if (ac->authenticator->cksum->cksumtype == CKSUMTYPE_GSSAPI &&
+	!(flags & KRB5_VERIFY_AP_REQ_CALLER_IS_MECH)) {
+
+	/*
+	 * Protect against cut-n-paste of RFC1964/4121 decapsulated
+	 * security context tokens into non-GSS applications.
+	 *
+	 * The mechanism will honor the GSS_C_RCACHE_AVOIDANCE_OK flag
+	 * and avoid a replay cache, but then the same AP-REQ would be
+	 * accepted if played to a non-GSS application.  Since the
+	 * caller here must be a non-GSS app but the Authenticator
+	 * checksum is the 0x8003 checksum, we reject this AP-REQ.
+	 */
+	ret = KRB5KRB_AP_ERR_REPEAT; /* coulda been a replay, so we say that */
+	krb5_clear_error_message (context);
+	goto out;
+    }
+
     {
 	krb5_principal p1, p2;
 	krb5_boolean res;
@@ -519,6 +537,7 @@ struct krb5_rd_req_in_ctx_data {
     krb5_keytab keytab;
     krb5_keyblock *keyblock;
     krb5_boolean check_pac;
+    krb5_boolean caller_is_mech;
 };
 
 struct krb5_rd_req_out_ctx_data {
@@ -606,6 +625,15 @@ krb5_rd_req_in_set_keyblock(krb5_context context,
 {
     in->keyblock = keyblock; /* XXX should make copy */
     return 0;
+}
+
+
+KRB5_LIB_FUNCTION void KRB5_LIB_CALL
+krb5_rd_req_in_set_caller_is_mech(krb5_context context,
+				  krb5_rd_req_in_ctx in)
+{
+    in->caller_is_mech = TRUE;
+    return;
 }
 
 KRB5_LIB_FUNCTION krb5_error_code KRB5_LIB_CALL
@@ -947,7 +975,7 @@ krb5_rd_req_ctx(krb5_context context,
 				  &ap_req,
 				  server,
 				  o->keyblock,
-				  0,
+				  inctx->caller_is_mech,
 				  &o->ap_req_options,
 				  &o->ticket,
 				  KRB5_KU_AP_REQ_AUTH);
@@ -996,7 +1024,7 @@ krb5_rd_req_ctx(krb5_context context,
 				      &ap_req,
 				      server,
 				      &entry.keyblock,
-				      0,
+				      inctx->caller_is_mech,
 				      &o->ap_req_options,
 				      &o->ticket,
 				      KRB5_KU_AP_REQ_AUTH);

@@ -264,6 +264,7 @@ typedef struct krb5_context_data {
     const char *http_proxy;
     const char *time_fmt;
     krb5_boolean log_utc;
+    krb5_boolean rcache_avoidance;
     const char *default_keytab;
     const char *default_keytab_modify;
     krb5_boolean use_admin_kdc;

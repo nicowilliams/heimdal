@@ -522,6 +522,7 @@ HEIMDAL_KRB5_2.0 {
 		krb5_rd_req_ctx;
 		krb5_rd_req_in_ctx_alloc;
 		krb5_rd_req_in_ctx_free;
+		krb5_rd_req_in_set_caller_is_mech;
 		krb5_rd_req_in_set_keyblock;
 		krb5_rd_req_in_set_keytab;
 		krb5_rd_req_in_set_pac_check;

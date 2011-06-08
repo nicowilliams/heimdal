@@ -403,8 +403,10 @@ gsskrb5_acceptor_start(OM_uint32 * minor_status,
 	    server = acceptor_cred->principal;
 
 	kret = krb5_rd_req_in_ctx_alloc(context, &in);
-	if (kret == 0)
+	if (kret == 0) {
+	    krb5_rd_req_in_set_caller_is_mech(context, in);
 	    kret = krb5_rd_req_in_set_keytab(context, in, keytab);
+	}
 	if (kret) {
 	    if (in)
 		krb5_rd_req_in_ctx_free(context, in);
@@ -523,6 +525,11 @@ gsskrb5_acceptor_start(OM_uint32 * minor_status,
 						&ctx->flags,
 						&ctx->fwd_data);
 
+	    if (ctx->flags & GSS_C_RCACHE_AVOIDANCE_OK &&
+		context->rcache_avoidance) {
+		ctx->auth_context->flags |=
+		    KRB5_AUTH_CONTEXT_EXTRA_AP_PDU_REQUIRED;
+	    }
 	    krb5_free_authenticator(context, &authenticator);
 	    if (ret) {
 		return ret;
@@ -650,7 +657,8 @@ gsskrb5_acceptor_start(OM_uint32 * minor_status,
      * When GSS_C_DCE_STYLE is in use, we need ask for a AP-REP from
      * the client.
      */
-    if (IS_DCE_STYLE(ctx)) {
+    if (IS_DCE_STYLE(ctx) ||
+	ctx->auth_context->flags & KRB5_AUTH_CONTEXT_EXTRA_AP_PDU_REQUIRED) {
 	/*
 	 * Return flags to caller, but we haven't processed
 	 * delgations yet
@@ -690,12 +698,22 @@ acceptor_wait_for_dcestyle(OM_uint32 * minor_status,
     krb5_data inbuf;
     int32_t r_seq_number, l_seq_number;
 
-    /*
-     * We know it's GSS_C_DCE_STYLE so we don't need to decapsulate the AP_REP
-     */
+    if (IS_DCE_STYLE(ctx)) {
+	inbuf.length = input_token_buffer->length;
+	inbuf.data = input_token_buffer->value;
+    } else {
+	ret = _gsskrb5_decapsulate (minor_status,
+				    input_token_buffer,
+				    &inbuf,
+				    "\x01\x00",
+				    GSS_KRB5_MECHANISM);
 
-    inbuf.length = input_token_buffer->length;
-    inbuf.data = input_token_buffer->value;
+	if (ret) {
+	    /* Assume that there is no OID wrapping. */
+	    inbuf.length	= input_token_buffer->length;
+	    inbuf.data		= input_token_buffer->value;
+	}
+    }
 
     /*
      * We need to remeber the old remote seq_number, then check if the

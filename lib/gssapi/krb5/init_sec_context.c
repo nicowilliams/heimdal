@@ -592,6 +592,11 @@ init_auth_restart
 	flags |= GSS_C_DCE_STYLE | GSS_C_MUTUAL_FLAG;
 	ap_options |= AP_OPTS_MUTUAL_REQUIRED;
     }
+    if (req_flags & GSS_C_RCACHE_AVOIDANCE_OK) {
+	/* GSS_C_RCACHE_AVOIDANCE_OK implies GSS_C_MUTUAL_FLAG */
+	flags |= GSS_C_RCACHE_AVOIDANCE_OK | GSS_C_MUTUAL_FLAG;
+	ap_options |= AP_OPTS_MUTUAL_REQUIRED;
+    }
     if (req_flags & GSS_C_IDENTIFY_FLAG)
 	flags |= GSS_C_IDENTIFY_FLAG;
     if (req_flags & GSS_C_EXTENDED_ERROR_FLAG)
@@ -674,12 +679,15 @@ init_auth_restart
 	output_token->value = outbuf.data;
 	output_token->length = outbuf.length;
     } else {
-        ret = _gsskrb5_encapsulate (minor_status, &outbuf, output_token,
+        kret = _gsskrb5_encapsulate(minor_status, &outbuf, output_token,
 				    (u_char *)(intptr_t)"\x01\x00",
 				    GSS_KRB5_MECHANISM);
 	krb5_data_free (&outbuf);
-	if (ret)
+	if (kret) {
+	    *minor_status = kret;
+	    ret = GSS_S_FAILURE;
 	    goto failure;
+	}
     }
 
     free_Checksum(&cksum);
@@ -828,7 +836,20 @@ repl_mutual
     if (ret_flags)
 	*ret_flags = ctx->flags;
 
-    if (req_flags & GSS_C_DCE_STYLE) {
+    if (repl->authorization_data) {
+	AuthorizationData *ad = repl->authorization_data;
+	int i;
+
+	for (i = 0; i < ad->len; i++) {
+	    if (ad->val[i].ad_type == KRB5_AUTHDATA_EXTRA_AP_PDU_REQUIRED) {
+		ctx->auth_context->flags |=
+		    KRB5_AUTH_CONTEXT_EXTRA_AP_PDU_REQUIRED;
+		break;
+	    }
+	}
+    }
+    if (req_flags & GSS_C_DCE_STYLE ||
+	ctx->auth_context->flags & KRB5_AUTH_CONTEXT_EXTRA_AP_PDU_REQUIRED) {
 	int32_t local_seq, remote_seq;
 	krb5_data outbuf;
 
@@ -852,8 +873,19 @@ repl_mutual
 	/* reset local seq number */
 	krb5_auth_con_setlocalseqnumber(context, ctx->auth_context, local_seq);
 
-	output_token->length = outbuf.length;
-	output_token->value  = outbuf.data;
+	if (req_flags & GSS_C_DCE_STYLE) {
+	    output_token->length = outbuf.length;
+	    output_token->value  = outbuf.data;
+	} else {
+	    kret = _gsskrb5_encapsulate(minor_status, &outbuf, output_token,
+					(u_char *)(intptr_t)"\x01\x00",
+					GSS_KRB5_MECHANISM);
+	    krb5_data_free (&outbuf);
+	    if (kret) {
+		*minor_status = kret;
+		return GSS_S_FAILURE;
+	    }
+	}
     }
 
     return gsskrb5_initiator_ready(minor_status, ctx, context);
