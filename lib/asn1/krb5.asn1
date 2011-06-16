@@ -58,6 +58,8 @@ EXPORTS
 	PA-DATA,
 	PA-ENC-TS-ENC,
 	PA-PAC-REQUEST,
+	PA-CURVE25519-PACE-AES128,
+	PA-CURVE25519-PACE-AES128-STATE,
 	PA-S4U2Self,
 	PA-SERVER-REFERRAL-DATA,
 	PA-ServerReferralData,
@@ -173,7 +175,8 @@ PADATA-TYPE ::= INTEGER {
 	KRB5-PADATA-PKINIT-KX(147),		-- krb-wg-anon
 	KRB5-PADATA-PKU2U-NAME(148),		-- zhu-pku2u
 	KRB5-PADATA-REQ-ENC-PA-REP(149),	--
-	KRB5-PADATA-SUPPORTED-ETYPES(165)	-- MS-KILE
+	KRB5-PADATA-SUPPORTED-ETYPES(165),	-- MS-KILE
+	KRB5-PADATA-CURVE25519-PACE-AES128(25519)	-- NOT YET ASSIGNED!
 }
 
 AUTHDATA-TYPE ::= INTEGER {
@@ -485,6 +488,34 @@ PA-ENC-TS-ENC ::= SEQUENCE {
 PA-PAC-REQUEST ::= SEQUENCE {
 	include-pac[0]		BOOLEAN -- Indicates whether a PAC
 					-- should be included or not
+}
+
+-- Curve25519 PACE
+PA-CURVE25519-PACE-AES128 ::= SEQUENCE {
+	is-client[0]	BOOLEAN,	       -- TRUE if sender is client
+					       -- FALSE if sender is KDC
+	enonce[1]	OCTET STRING OPTIONAL, -- AES128(K_pw, nonce)
+	map-pk[2]	OCTET STRING OPTIONAL, -- ECDH pub key for map point
+	pk[3]		OCTET STRING OPTIONAL, -- ECDH pub key
+	proof[4]	OCTET STRING OPTIONAL, -- HMAC_SHA1(SK, peer pk)
+	cookie-key[5]	OCTET STRING OPTIONAL, -- Index of key for cookie
+	cookie[6]	OCTET STRING OPTIONAL  -- E(Kkdc_idx, state)
+					       -- with state being,
+					       -- possibly, a DER
+					       -- encoding of the state
+					       -- type defined below.
+}
+
+-- State encoding for PA-CURVE25519-PACE-AES128 cookie plaintext
+PA-CURVE25519-PACE-AES128-STATE ::= SEQUENCE {
+	nonce[0]	OCTET STRING,	       -- Decrypted nonce
+	pa-start[1]	KerberosTime,	       -- Time of start of this PA
+	cname[2]	PrincipalName,	       -- client principal name
+	crealm[3]	Realm,                 -- realm of client principal
+	map-sk[4]	OCTET STRING,	       -- KDC's secret DH map point
+	map-pk[5]	OCTET STRING OPTIONAL, -- client's public DH map point
+	sk[6]		OCTET STRING OPTIONAL, -- KDC's secret DH key
+	other[7]	OCTET STRING OPTIONAL  -- Implementation-private stuff
 }
 
 -- PacketCable provisioning server location, PKT-SP-SEC-I09-030728.pdf
