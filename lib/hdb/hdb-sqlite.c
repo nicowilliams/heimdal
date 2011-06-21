@@ -235,6 +235,49 @@ hdb_sqlite_col2principal(krb5_context context,
  * Function to map a result row for a query into an Event.
  */
 static krb5_error_code
+hdb_sqlite_col2generation(krb5_context context,
+			  sqlite3 *db,
+			  sqlite3_stmt *cursor,
+			  int timeCol,
+			  int usecCol,
+			  int genCol,
+			  GENERATION **generation)
+{
+    sqlite_int64 v;
+
+    *generation = calloc(1, sizeof (**generation));
+    if (*generation == NULL)
+	return errno;
+
+    if (sqlite3_column_type(cursor, timeCol) != SQLITE_NULL) {
+	v = sqlite3_column_int64(cursor, timeCol);
+	(*generation)->time = (KerberosTime)v;
+	if (v != (*generation)->time || v < 0)
+	    (*generation)->time = 0;
+    }
+
+    if (sqlite3_column_type(cursor, usecCol) != SQLITE_NULL) {
+	v = sqlite3_column_int64(cursor, usecCol);
+	(*generation)->usec = (unsigned int)v;
+	if (v != (*generation)->usec || v < 0)
+	    (*generation)->usec = 0;
+    }
+
+    if (sqlite3_column_type(cursor, genCol) != SQLITE_NULL) {
+	v = sqlite3_column_int64(cursor, genCol);
+	(*generation)->gen = (unsigned int)v;
+	if (v != (*generation)->gen || v < 0)
+	    (*generation)->gen = 0;
+    }
+
+    return 0;
+}
+
+
+/**
+ * Function to map a result row for a query into an Event.
+ */
+static krb5_error_code
 hdb_sqlite_col2event(krb5_context context,
 		     sqlite3 *db,
 		     sqlite3_stmt *cursor,
@@ -243,7 +286,7 @@ hdb_sqlite_col2event(krb5_context context,
 		     Event *ev,
 		     Event **evp)
 {
-    int ret;
+    krb5_error_code ret;
     sqlite_int64 tmv;
     KerberosTime tm;
 
@@ -362,7 +405,7 @@ hdb_sqlite_col2etypes(krb5_context context,
 		      int iCol,
 		      struct hdb_entry_etypes **hdb_etypes)
 {
-    int ret = 0;
+    krb5_error_code ret = 0;
     long etype;
     unsigned int *etypes = NULL;
     unsigned int *tmp;
@@ -811,6 +854,7 @@ bottom:
 
     pkinit_acl->len = i;
     tmp.data.element = choice_HDB_extension_data_pkinit_acl;
+    tmp.mandatory = 0;
 
     ret = hdb_replace_extension(context, entry, &tmp);
 
@@ -930,6 +974,7 @@ bottom:
 
     pkinit_cert_hash->len = i;
     tmp.data.element = choice_HDB_extension_data_pkinit_cert_hash;
+    tmp.mandatory = 0;
 
     ret = hdb_replace_extension(context, entry, &tmp);
 
@@ -1031,6 +1076,7 @@ hdb_sqlite_col2pkinit_certs(krb5_context context,
 
     pkinit_cert->len = i;
     tmp.data.element = choice_HDB_extension_data_pkinit_cert;
+    tmp.mandatory = 0;
 
     ret = hdb_replace_extension(context, entry, &tmp);
 
@@ -1107,6 +1153,7 @@ hdb_sqlite_col2deleg_to(krb5_context context,
 
     deleg->len = i;
     tmp.data.element = choice_HDB_extension_data_allowed_to_delegate_to;
+    tmp.mandatory = 0;
 
     ret = hdb_replace_extension(context, entry, &tmp);
 
@@ -1146,7 +1193,7 @@ hdb_sqlite_col2password(krb5_context context,
 			int pwCol,
 			hdb_entry *entry)
 {
-    int ret;
+    krb5_error_code ret;
     int is_blob;
     int mkvno = 0;
     const unsigned char *sql_str;
@@ -1191,6 +1238,7 @@ hdb_sqlite_col2password(krb5_context context,
     pw->password.length = bytes;
     pw->password.data = s;
     tmp.data.element = choice_HDB_extension_data_password;
+    tmp.mandatory = 0;
 
     ret = hdb_replace_extension(context, entry, &tmp);
     if (ret != 0)
@@ -1265,6 +1313,7 @@ hdb_sqlite_col2aliases(krb5_context context,
 
     aliases->aliases.len = i;
     tmp.data.element = choice_HDB_extension_data_aliases;
+    tmp.mandatory = 0;
 
     ret = hdb_replace_extension(context, entry, &tmp);
 
@@ -1306,6 +1355,7 @@ hdb_sqlite_col2last_pw_chg(krb5_context context,
 
     tmp.data.u.last_pw_change = (KerberosTime)tmv;
     tmp.data.element = choice_HDB_extension_data_last_pw_change;
+    tmp.mandatory = 0;
     return hdb_replace_extension(context, entry, &tmp);
 }
 
@@ -1329,48 +1379,62 @@ hdb_sqlite_row2entry(krb5_context context,
 		     hdb_entry *entry)
 {
     krb5_error_code ret;
+    Principal *princ;
+    HDB_extension tmp;
 
     ret = hdb_sqlite_col2principal(context, db, cursor, 0, &entry->principal);
+    if (ret) goto out;
+
+    /* Also set the old-princ extension, so we can detect renames later */
+    ret = hdb_sqlite_col2principal(context, db, cursor, 0, &princ);
+    if (ret) goto out;
+    tmp.data.u.old_principal_name = *princ;
+    free(princ);
+    tmp.data.element = choice_HDB_extension_data_old_principal_name;
+    tmp.mandatory = 0;
+    ret = hdb_replace_extension(context, entry, &tmp);
     if (ret) goto out;
 
     entry->kvno = (unsigned int)sqlite3_column_int(cursor, 1);
 
     if (flags & HDB_F_ADMIN_DATA) {
-	ret = hdb_sqlite_col2event(context, db, cursor, 2, 3,
-				   &entry->created_by,
-				   NULL);
+	ret = hdb_sqlite_col2generation(context, db, cursor, 2, 3, 4,
+				        &entry->generation);
+	if (ret) goto out;
+	ret = hdb_sqlite_col2event(context, db, cursor, 5, 6,
+				   &entry->created_by, NULL);
 	if (ret) goto out;
 
-	ret = hdb_sqlite_col2event(context, db, cursor, 4, 5, NULL,
+	ret = hdb_sqlite_col2event(context, db, cursor, 7, 9, NULL,
 				   &entry->modified_by);
 	if (ret) goto out;
     }
 
-    ret = hdb_sqlite_col2time(context, db, cursor, 5, &entry->valid_start);
+    ret = hdb_sqlite_col2time(context, db, cursor, 10, &entry->valid_start);
     if (ret) goto out;
-    ret = hdb_sqlite_col2time(context, db, cursor, 6, &entry->valid_end);
+    ret = hdb_sqlite_col2time(context, db, cursor, 11, &entry->valid_end);
     if (ret) goto out;
-    ret = hdb_sqlite_col2time(context, db, cursor, 7, &entry->pw_end);
+    ret = hdb_sqlite_col2time(context, db, cursor, 12, &entry->pw_end);
     if (ret) goto out;
-    ret = hdb_sqlite_col2uint31(context, db, cursor, 8, &entry->max_life);
+    ret = hdb_sqlite_col2uint31(context, db, cursor, 13, &entry->max_life);
     if (ret) goto out;
-    ret = hdb_sqlite_col2uint31(context, db, cursor, 9, &entry->max_renew);
+    ret = hdb_sqlite_col2uint31(context, db, cursor, 14, &entry->max_renew);
     if (ret) goto out;
 
-    entry->flags = int2HDBFlags((unsigned int)sqlite3_column_int(cursor, 1));
+    entry->flags = int2HDBFlags((unsigned int)sqlite3_column_int(cursor, 15));
 
-    ret = hdb_sqlite_col2etypes(context, db, cursor, 10, &entry->etypes);
+    ret = hdb_sqlite_col2etypes(context, db, cursor, 16, &entry->etypes);
     if (ret) goto out;
 
     /* We don't keep generation info in the SQLite3 backend yet */
 
-    ret = hdb_sqlite_col2password(context, db, cursor, 11, 12, entry);
+    ret = hdb_sqlite_col2password(context, db, cursor, 17, 18, entry);
     if (ret) goto out;
-    ret = hdb_sqlite_col2last_pw_chg(context, db, cursor, 13, entry);
+    ret = hdb_sqlite_col2last_pw_chg(context, db, cursor, 19, entry);
     if (ret) goto out;
 
     if (flags & HDB_F_ADMIN_DATA) {
-	ret = hdb_sqlite_col2aliases(context, db, cursor, 14, entry);
+	ret = hdb_sqlite_col2aliases(context, db, cursor, 20, entry);
 	if (ret) goto out;
 
 	/*
@@ -1378,15 +1442,15 @@ hdb_sqlite_row2entry(krb5_context context,
 	 * not needed in the KDC fastpath.  We should define a new
 	 * HDB_F_ flag to refer to thse items.
 	 */
-	ret = hdb_sqlite_col2pkinit_acls(context, db, cursor, 15, entry);
+	ret = hdb_sqlite_col2pkinit_acls(context, db, cursor, 21, entry);
 	if (ret) goto out;
-	ret = hdb_sqlite_col2pkinit_cert_hashes(context, db, cursor, 16, entry);
+	ret = hdb_sqlite_col2pkinit_cert_hashes(context, db, cursor, 22, entry);
 	if (ret) goto out;
-	ret = hdb_sqlite_col2pkinit_certs(context, db, cursor, 17, entry);
+	ret = hdb_sqlite_col2pkinit_certs(context, db, cursor, 23, entry);
 	if (ret) goto out;
-	ret = hdb_sqlite_col2deleg_to(context, db, cursor, 18, entry);
+	ret = hdb_sqlite_col2deleg_to(context, db, cursor, 24, entry);
 	if (ret) goto out;
-	ret = hdb_sqlite_col2LM_OWF(context, db, cursor, 19, entry);
+	ret = hdb_sqlite_col2LM_OWF(context, db, cursor, 25, entry);
 	if (ret) goto out;
     }
 
@@ -1804,6 +1868,75 @@ hdb_sqlite_step_once(krb5_context context, HDB *db, sqlite3_stmt *statement)
 }
 
 
+static krb5_error_code
+check_update(krb5_context context,
+	     HDB *db,
+	     hdb_entry_ex *entry,
+	     hdb_entry_ex *previous,
+	     int *is_update,
+	     int *is_rename,
+	     int *is_conflict)
+{
+    krb5_error_code ret;
+    Principal *princ;
+    int i, k;
+
+    *is_update = 0;
+    *is_rename = -1; /* unknown */
+    *is_conflict = 0;
+    /* No old princ, nothing for us to do; probably loading from a dump */
+    if (entry->entry.extensions == NULL)
+	return 0;
+
+    for (k = -1, i = 0; i < entry->entry.extensions->len; i++) {
+	if (entry->entry.extensions->val[i].data.element !=
+	    choice_HDB_extension_data_old_principal_name)
+	    continue;
+	k = i;
+	break;
+    }
+
+    if (k < 0) {
+	print = entry->entry.principal;
+    } else {
+	princ = &entry->entry.extensions->val[i].data.old_principal_name;
+
+	if (krb5_principal_compare(context, entry->entry.principal,
+				   previous->entry.principal) == TRUE)
+	    *is_rename = 0;
+	else
+	    *is_rename = 1;
+
+    }
+
+    ret = hdb_sqlite_fetch_kvno(context, db, princ,
+				HDB_F_GET_CLIENT | HDB_F_REPLACE |
+				HDB_F_GET_CLIENT | HDB_F_GET_SERVER |
+				HDB_F_GET_ANY | HDB_F_ADMIN_DATA,
+				0, previous);
+    if (ret != 0 && ret != HDB_ERR_NOENTRY)
+	return ret;
+
+    *is_update = 1;
+    if (k < 0)
+	return 0;
+
+    assert( previous->entry.extensions != NULL );
+    for (k = 0, i = 0; i < previous->entry.extensions->len; i++) {
+	if (previous->entry.extensions->val[i].data.element !=
+	    choice_HDB_extension_data_old_principal_name)
+	    continue;
+	k = i;
+	goto foundprev;
+    }
+
+    assert( k < 0 );
+
+foundprev:
+
+}
+
+
 /**
  * Stores an hdb_entry in the database. If flags contains HDB_F_REPLACE
  * a previous entry may be replaced.
@@ -1820,13 +1953,14 @@ hdb_sqlite_store(krb5_context context, HDB *db, unsigned flags,
                  hdb_entry_ex *entry)
 {
     int ret;
+    int is_update;
     int i;
     sqlite_int64 entry_id;
     char *principal_string = NULL;
     char *alias_string;
     const HDB_Ext_Aliases *aliases;
 
-    hdb_entry_ex orig;
+    hdb_entry_ex current;
 
     hdb_sqlite_db *hsdb = (hdb_sqlite_db *)(db->hdb_db);
     krb5_data value;
@@ -1854,11 +1988,25 @@ hdb_sqlite_store(krb5_context context, HDB *db, unsigned flags,
 				HDB_F_GET_CLIENT | HDB_F_REPLACE |
 				HDB_F_GET_CLIENT | HDB_F_GET_SERVER |
 				HDB_F_GET_ANY | HDB_F_ADMIN_DATA,
-				0, &orig);
+				0, &current);
+    if (ret != 0 && ret != HDB_ERR_NOENTRY)
+	goto rollback;
+
+    is_update = (ret != HDB_ERR_NOENTRY);
 
     ret = hdb_seal_keys(context, db, &entry->entry);
     if(ret) {
         goto rollback;
+    }
+
+    /*
+     * XXX Here we want to say "if is_update then do update, else insert
+     * new.  If we just do "INSERT OR REPLACE" we can do this in the
+     * same path, except that we'll want to not INSERT nor REPLACE rows
+     * outside the main table that haven't changed.
+     */
+
+    if (is_update) {
     }
 
     ret = hdb_entry2value(context, &entry->entry, &value);

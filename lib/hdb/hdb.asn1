@@ -102,6 +102,8 @@ HDB-extension ::= SEQUENCE {
 		aliases[6]			HDB-Ext-Aliases,
 		last-pw-change[7]		KerberosTime,
 	        pkinit-cert[8]  		HDB-Ext-PKINIT-cert,
+		principal-id[9]			INTEGER (-2147483648..2147483647),
+		old-principal-name[10]		Principal,
 		...
 	},
 	...
