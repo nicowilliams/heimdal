@@ -252,7 +252,7 @@ hdb_sqlite_col2event(krb5_context context,
 	return 0;
 
     tmv = sqlite3_column_int64(cursor, timeCol);
-    tm = (KerberosTime)tm;
+    tm = (KerberosTime)tmv;
 
     if (tmv > tm || tmv < 0)
 	return EOVERFLOW;
@@ -1346,31 +1346,47 @@ hdb_sqlite_row2entry(krb5_context context,
 	if (ret) goto out;
     }
 
-    ret = hdb_sqlite_col2time(context, db, cursor, 4, &entry->valid_start);
+    ret = hdb_sqlite_col2time(context, db, cursor, 5, &entry->valid_start);
     if (ret) goto out;
-    ret = hdb_sqlite_col2time(context, db, cursor, 5, &entry->valid_end);
+    ret = hdb_sqlite_col2time(context, db, cursor, 6, &entry->valid_end);
     if (ret) goto out;
-    ret = hdb_sqlite_col2time(context, db, cursor, 6, &entry->pw_end);
+    ret = hdb_sqlite_col2time(context, db, cursor, 7, &entry->pw_end);
     if (ret) goto out;
-    ret = hdb_sqlite_col2uint31(context, db, cursor, 7, &entry->max_life);
+    ret = hdb_sqlite_col2uint31(context, db, cursor, 8, &entry->max_life);
     if (ret) goto out;
-    ret = hdb_sqlite_col2uint31(context, db, cursor, 8, &entry->max_renew);
+    ret = hdb_sqlite_col2uint31(context, db, cursor, 9, &entry->max_renew);
     if (ret) goto out;
 
     entry->flags = int2HDBFlags((unsigned int)sqlite3_column_int(cursor, 1));
 
-    ret = hdb_sqlite_col2etypes(context, db, cursor, 9, &entry->etypes);
+    ret = hdb_sqlite_col2etypes(context, db, cursor, 10, &entry->etypes);
     if (ret) goto out;
 
     /* We don't keep generation info in the SQLite3 backend yet */
 
-    ret = hdb_sqlite_col2password(context, db, cursor, 10, 11, entry);
+    ret = hdb_sqlite_col2password(context, db, cursor, 11, 12, entry);
     if (ret) goto out;
-    ret = hdb_sqlite_col2last_pw_chg(context, db, cursor, 12, entry);
+    ret = hdb_sqlite_col2last_pw_chg(context, db, cursor, 13, entry);
     if (ret) goto out;
 
     if (flags & HDB_F_ADMIN_DATA) {
-	ret = hdb_sqlite_col2aliases(context, db, cursor, 13, entry);
+	ret = hdb_sqlite_col2aliases(context, db, cursor, 14, entry);
+	if (ret) goto out;
+
+	/*
+	 * XXX These are not admin data, but they are things that are
+	 * not needed in the KDC fastpath.  We should define a new
+	 * HDB_F_ flag to refer to thse items.
+	 */
+	ret = hdb_sqlite_col2pkinit_acls(context, db, cursor, 15, entry);
+	if (ret) goto out;
+	ret = hdb_sqlite_col2pkinit_cert_hashes(context, db, cursor, 16, entry);
+	if (ret) goto out;
+	ret = hdb_sqlite_col2pkinit_certs(context, db, cursor, 17, entry);
+	if (ret) goto out;
+	ret = hdb_sqlite_col2deleg_to(context, db, cursor, 18, entry);
+	if (ret) goto out;
+	ret = hdb_sqlite_col2LM_OWF(context, db, cursor, 19, entry);
 	if (ret) goto out;
     }
 
@@ -1714,7 +1730,6 @@ hdb_sqlite_fetch_kvno(krb5_context context, HDB *db, krb5_const_principal princi
     char *principal_string;
     hdb_sqlite_db *hsdb = (hdb_sqlite_db*)(db->hdb_db);
     sqlite3_stmt *fetch = hsdb->fetch;
-    krb5_data value;
 
     ret = krb5_unparse_name(context, principal, &principal_string);
     if (ret) {
@@ -1743,10 +1758,7 @@ hdb_sqlite_fetch_kvno(krb5_context context, HDB *db, krb5_const_principal princi
         }
     }
 
-    value.length = sqlite3_column_bytes(fetch, 0);
-    value.data = (void *) sqlite3_column_blob(fetch, 0);
-
-    ret = hdb_value2entry(context, &value, &entry->entry);
+    ret = hdb_sqlite_row2entry(context, flags, hsdb->db, fetch, &entry->entry);
     if(ret)
         goto out;
 
@@ -1829,12 +1841,20 @@ hdb_sqlite_store(krb5_context context, HDB *db, unsigned flags,
 			       sqlite3_errmsg(hsdb->db));
         goto rollback;
     }
+
+    /* XXX For now we'll not handle renames */
     
     ret = krb5_unparse_name(context,
                             entry->entry.principal, &principal_string);
     if (ret) {
         goto rollback;
     }
+
+    ret = hdb_sqlite_fetch_kvno(context, db, entry->entry.principal,
+				HDB_F_GET_CLIENT | HDB_F_REPLACE |
+				HDB_F_GET_CLIENT | HDB_F_GET_SERVER |
+				HDB_F_GET_ANY | HDB_F_ADMIN_DATA,
+				0, &orig);
 
     ret = hdb_seal_keys(context, db, &entry->entry);
     if(ret) {
