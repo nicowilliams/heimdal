@@ -34,18 +34,22 @@
 #include "hdb_locl.h"
 #include "hdb-sqlite-schema.h"
 #include "sqlite3.h"
+#include <assert.h>
+#include <der.h>
+#include <malloc.h>
 
 #define MAX_RETRIES 10
 
 /*
  * Some notes regarding the schema.
  *
- * We want a schema that's as normalized as possible, with some
+ * We want a schema that's as normalized as possible so as to enable
+ * better reporting and administration tools, with some degree of
  * denormalization to improve performance by reducing the number of
  * JOINs needed in the common case (which is in the KDC, not admin,
- * load, dump, ...).  This means we'll have one table with
- * columns for all scalar elements of a principal entry, as well as
- * a few non-normal columns:
+ * load, dump, ...).  This means we'll have one table with columns for
+ * all scalar elements of a principal entry, as well as a few non-normal
+ * columns:
  *  - a canonical name column (copied by triggers from the name table)
  *  - a current kvno column (copied by triggers from the keys table)
  *  - a current keys column containing comma-separated quoted key blobs
@@ -92,6 +96,7 @@ typedef struct hdb_sqlite_db {
     /* Cached prepared statements */
     sqlite3_stmt *get_version;
     sqlite3_stmt *fetch;
+    sqlite3_stmt *fetch_kvno;
     sqlite3_stmt *get_ids;
     sqlite3_stmt *add_entry;
     sqlite3_stmt *add_principal;
@@ -203,13 +208,13 @@ typedef struct hdb_sqlite_db {
  * Function to map a result row for a query into a Principal name.
  */
 static krb5_error_code
-hdb_sqlite_row2principal(krb5_context context,
+hdb_sqlite_col2principal(krb5_context context,
 			 sqlite3 *db,
 			 sqlite3_stmt *cursor,
 			 int iCol,
 			 Principal **princ)
 {
-    char *name;
+    const unsigned char *name;
 
     name = sqlite3_column_text(cursor, iCol);
     if (name == NULL) {
@@ -222,7 +227,7 @@ hdb_sqlite_row2principal(krb5_context context,
 	return EINVAL; /* XXX Need a better error code */
     }
 
-    return krb5_parse_name(context, name, princ);
+    return krb5_parse_name(context, (const char *)name, princ);
 }
 
 
@@ -230,7 +235,7 @@ hdb_sqlite_row2principal(krb5_context context,
  * Function to map a result row for a query into an Event.
  */
 static krb5_error_code
-hdb_sqlite_row2event(krb5_context context,
+hdb_sqlite_col2event(krb5_context context,
 		     sqlite3 *db,
 		     sqlite3_stmt *cursor,
 		     int timeCol,
@@ -246,7 +251,7 @@ hdb_sqlite_row2event(krb5_context context,
 	sqlite3_column_type(cursor, nameCol) == SQLITE_NULL)
 	return 0;
 
-    tmv = sqlite3_column_int64(cursor, iCol);
+    tmv = sqlite3_column_int64(cursor, timeCol);
     tm = (KerberosTime)tm;
 
     if (tmv > tm || tmv < 0)
@@ -259,7 +264,7 @@ hdb_sqlite_row2event(krb5_context context,
 
     ev->time = (KerberosTime)tm;
 
-    ret = hdb_sqlite_row2principal(context, db, cursor, nameCol, &ev->principal);
+    ret = hdb_sqlite_col2principal(context, db, cursor, nameCol, &ev->principal);
     if (ret != 0) {
 	free_Event(ev);
 	return ret;
@@ -283,21 +288,20 @@ hdb_sqlite_col2time(krb5_context context,
 		    KerberosTime **tmp)
 {
     sqlite_int64 tmv;
-    KerberosTime tm;
 
-    if (sqlite3_column_type(cursor, timeCol) == SQLITE_NULL) {
+    if (sqlite3_column_type(cursor, iCol) == SQLITE_NULL) {
 	*tmp = NULL;
 	return 0;
     }
 
-    if (sqlite_errcode(db) != SQLITE_OK)
+    if (sqlite3_errcode(db) != SQLITE_OK)
 	return ENOMEM; /* Almost certainly what it is; XXX need a map func */
 
     tmv = sqlite3_column_int64(cursor, iCol);
     if (tmv < 0)
 	return EOVERFLOW;
 
-    if (sqlite_errcode(db) != SQLITE_OK)
+    if (sqlite3_errcode(db) != SQLITE_OK)
 	return ENOMEM; /* Almost certainly what it is; XXX need a map func */
 
     *tmp = malloc(sizeof (**tmp));
@@ -305,6 +309,43 @@ hdb_sqlite_col2time(krb5_context context,
 	return ENOMEM;
 
     **tmp = (KerberosTime)tmv;
+    return 0;
+}
+
+
+/**
+ * Function to map a result row for a query into a max_life-type of
+ * hdb_entry field.
+ */
+static krb5_error_code
+hdb_sqlite_col2uint31(krb5_context context,
+		    sqlite3 *db,
+		    sqlite3_stmt *cursor,
+		    int iCol,
+		    unsigned int **tmp)
+{
+    sqlite_int64 v;
+
+    if (sqlite3_column_type(cursor, iCol) == SQLITE_NULL) {
+	*tmp = NULL;
+	return 0;
+    }
+
+    if (sqlite3_errcode(db) != SQLITE_OK)
+	return ENOMEM; /* Almost certainly what it is; XXX need a map func */
+
+    v = sqlite3_column_int64(cursor, iCol);
+    if (v < 0 || v > ((2^31) - 1))
+	return EOVERFLOW;
+
+    if (sqlite3_errcode(db) != SQLITE_OK)
+	return ENOMEM; /* Almost certainly what it is; XXX need a map func */
+
+    *tmp = malloc(sizeof (**tmp));
+    if (*tmp == NULL)
+	return ENOMEM;
+
+    **tmp = (unsigned int)v;
     return 0;
 }
 
@@ -323,12 +364,12 @@ hdb_sqlite_col2etypes(krb5_context context,
 {
     int ret = 0;
     long etype;
-    int *etypes = NULL;
-    int *tmp;
+    unsigned int *etypes = NULL;
+    unsigned int *tmp;
     int count = 0;
     int allocd = 0;
-    char *s;
-    char *p;
+    const unsigned char *s;
+    const char *p;
 
     *hdb_etypes = NULL;
     s = sqlite3_column_text(cursor, iCol);
@@ -339,10 +380,10 @@ hdb_sqlite_col2etypes(krb5_context context,
     }
 
     /* We expect a colon-separated list of decimals */
-    for (p = s; *p != '\0'; p = strchr(p, ':')) {
+    for (p = (const char *)s; *p != '\0'; p = strchr(p, ':') + 1) {
 	errno = 0;
 	etype = strtol(p, NULL, 10);
-	if (errno != 0)
+	if (errno != 0 || etype < 0)
 	    continue; /* fail gracefully */
 
 	if (allocd == count) {
@@ -352,7 +393,7 @@ hdb_sqlite_col2etypes(krb5_context context,
 		goto out;
 	    }
 	    etypes = tmp;
-	    etypes[count++] = (int)etype;
+	    etypes[count++] = (unsigned int)etype;
 	    allocd += 8;
 	}
     }
@@ -401,21 +442,25 @@ out:
  *       NOT handle numeric values nor NULLs!
  */
 static int
-dequote(const char *s,
-	char **out,
-	const char **nxt,
+dequote(const unsigned char *s,
+	unsigned char **out,
+	const unsigned char **nxt,
 	size_t *szp,
 	int *blobp,
 	int *freep)
 {
-    const char *p;
-    char *n = NULL;
-    char *tmp;
+    const unsigned char *p;
+    unsigned char *n = NULL;
+    unsigned char *tmp;
     size_t sz = 0;
     size_t len = 0;
 
-    if (s[0] != '\'' && s[0] != 'X') return EINVAL;
+    *out = NULL;
+    *nxt = NULL;
+    *freep = 0;
     *blobp = 0;
+
+    if (s[0] != '\'' && s[0] != 'X') return EINVAL;
     if (s[0] == 'X') {
 	*blobp = 1;
 	if (s[1] != '\'') return EINVAL;
@@ -423,7 +468,7 @@ dequote(const char *s,
     }
     s++; /* skip the leading quote */
     *freep = 0;
-    *out = (char *)s;
+    *out = (unsigned char *)s;
 
 repeat:
     for (p = s; *p != '\0'; p++) {
@@ -452,7 +497,7 @@ fast_path:
     }
 
     if (nxt != NULL)
-	*nxt = (char *)p;
+	*nxt = p;
     *szp = (p - s);
     return 0;
 
@@ -504,11 +549,11 @@ slow_path:
  *
  * Blobs are not decoded; they are output as hex strings.
  */
-static char *
-dequote_alloc(const char *in, const char **nxt, int *blobp)
+static unsigned char *
+dequote_alloc(const unsigned char *in, const unsigned char **nxt, int *blobp)
 {
     int ret;
-    char *s;
+    unsigned char *s;
     size_t sz;
     int freeit;
 
@@ -523,7 +568,7 @@ dequote_alloc(const char *in, const char **nxt, int *blobp)
     if (freeit)
 	return s;
 
-    return strndup(s, sz);
+    return (unsigned char *)strndup((const char *)s, sz);
 }
 
 
@@ -540,10 +585,10 @@ dequote_alloc(const char *in, const char **nxt, int *blobp)
  * @param blobp	Set to true if the string is a blob
  */
 static unsigned char *
-dequote_decode(const char *in, const char **nxt, size_t *szp, int *blobp)
+dequote_decode(const unsigned char *in, const unsigned char **nxt, size_t *szp, int *blobp)
 {
     int ret;
-    char *s;
+    unsigned char *s;
     unsigned char *b = NULL;
     size_t sz;
     int freeit;
@@ -559,13 +604,13 @@ dequote_decode(const char *in, const char **nxt, size_t *szp, int *blobp)
     if (freeit && !*blobp)
 	return s;
     if (!freeit && !*blobp)
-	return strndup(s, sz);
+	return (unsigned char *)strndup((const char *)s, sz);
 
     /* We have a blob; decode it */
     if ((sz & 1) == 1)
 	goto einval;
 
-    b = malloc(sz >> 1);
+    b = memalign(sizeof (long), sz >> 1);
     if (b == NULL)
 	return NULL;
 
@@ -607,27 +652,30 @@ hdb_sqlite_col2pkinit_acls(krb5_context context,
 			   hdb_entry *entry)
 {
     krb5_error_code ret;
+    int is_blob;
     int i = 0;
     int alloced = 0;
-    const char *nxt;
-    const char *inner_nxt;
+    heim_utf8_string *str_ptr;
+    const unsigned char *nxt;
+    const unsigned char *inner_nxt;
+    const unsigned char *sql_str = NULL;
     unsigned char *s = NULL;
     unsigned char *inner_s = NULL;
     HDB_extension tmp, tmp2;
-    HDB_Ext_PKINIT_acl *pkinit_acl = &tmp.u.pkinit_acl;
+    HDB_Ext_PKINIT_acl *pkinit_acl = &tmp.data.u.pkinit_acl;
 
     pkinit_acl->len = 0;
     pkinit_acl->val = NULL;
 
-    tmp2.u.pkinit_acl.val = 0;
+    tmp2.data.u.pkinit_acl.val = 0;
 
     /*
      * We expect the ACL to be a comma-separated list of quoted
      * strings, which are themselves a list of three quoted values (none
      * NULL), thus always a string.
      */
-    s = sqlite3_column_text(cursor, iCol);
-    if (s == NULL) {
+    sql_str = sqlite3_column_text(cursor, iCol);
+    if (sql_str == NULL) {
 	if (sqlite3_errcode(db) != SQLITE_OK)
 	    return ENOMEM; /* XXX */
 	return 0;
@@ -659,7 +707,7 @@ hdb_sqlite_col2pkinit_acls(krb5_context context,
      * At the 'out' label we free s and inner_s, and we call the
      * appropriate free_HDB_Ext_*() function.
      */
-    nxt = s;
+    nxt = sql_str;
     do {
 	free(s);
 	s = dequote_alloc(nxt, &nxt, &is_blob);
@@ -675,13 +723,13 @@ hdb_sqlite_col2pkinit_acls(krb5_context context,
 	    break;
 	if (i >= alloced) {
 	    alloced *= 2;
-	    tmp2.u.pkinit_acl.val =
+	    tmp2.data.u.pkinit_acl.val =
 		realloc(pkinit_acl->val, sizeof (*pkinit_acl->val) * alloced);
-	    if (tmp2.u.pkinit_acl.val == NULL) {
+	    if (tmp2.data.u.pkinit_acl.val == NULL) {
 		ret = ENOMEM;
 		goto out;
 	    }
-	    pkinit_acl->val = tmp2.u.pkinit_acl.val;
+	    pkinit_acl->val = tmp2.data.u.pkinit_acl.val;
 	}
 	pkinit_acl->val[i].subject = NULL;
 	pkinit_acl->val[i].issuer = NULL;
@@ -703,13 +751,13 @@ hdb_sqlite_col2pkinit_acls(krb5_context context,
 	    ret = EINVAL;
 	    goto out;
 	}
-	pkinit_acl->val[i].subject = inner_s;
+	pkinit_acl->val[i].subject = (heim_utf8_string)inner_s;
 	inner_s = NULL;
 	if (inner_nxt[1] != ':')
 	    goto bottom;
 
 	/* Get the issuer */
-	inner_s = dequote_alloc(inner_nxt + 2, &inner_nxt[2], &is_blob);
+	inner_s = dequote_alloc(inner_nxt + 2, &inner_nxt, &is_blob);
 	if (inner_s == NULL) {
 	    if (errno != 0) {
 		ret = errno;
@@ -721,13 +769,19 @@ hdb_sqlite_col2pkinit_acls(krb5_context context,
 	    ret = EINVAL;
 	    goto out;
 	}
-	pkinit_acl->val[i].issuer = inner_s;
+	str_ptr = malloc(sizeof (*str_ptr));
+	if (str_ptr == NULL) {
+	    ret = errno;
+	    goto out;
+	}
+	*str_ptr = (heim_utf8_string)inner_s;
+	pkinit_acl->val[i].issuer = str_ptr;
 	inner_s = NULL;
 	if (inner_nxt[1] != ':')
 	    goto bottom;
 
 	/* Get the anchor */
-	inner_s = dequote_alloc(inner_nxt + 2, &inner_nxt[2], &is_blob);
+	inner_s = dequote_alloc(inner_nxt + 2, &inner_nxt, &is_blob);
 	if (inner_s == NULL) {
 	    if (errno != 0) {
 		ret = errno;
@@ -739,7 +793,13 @@ hdb_sqlite_col2pkinit_acls(krb5_context context,
 	    ret = EINVAL;
 	    goto out;
 	}
-	pkinit_acl->val[i].anchor = inner_s;
+	str_ptr = malloc(sizeof (*str_ptr));
+	if (str_ptr == NULL) {
+	    ret = errno;
+	    goto out;
+	}
+	*str_ptr = (heim_utf8_string)inner_s;
+	pkinit_acl->val[i].anchor = str_ptr;
 	inner_s = NULL;
 	/* We ignore any trailing values */
 
@@ -750,13 +810,13 @@ bottom:
     } while (1);
 
     pkinit_acl->len = i;
-    tmp.element = choice_HDB_extension_data_pkinit_acl;
+    tmp.data.element = choice_HDB_extension_data_pkinit_acl;
 
     ret = hdb_replace_extension(context, entry, &tmp);
 
 out:
     if (ret != 0) {
-	free_HDB_Ext_PKINIT_acl(pkinit_val);
+	free_HDB_Ext_PKINIT_acl(pkinit_acl);
 	free(inner_s);
 	free(s);
     }
@@ -777,35 +837,37 @@ hdb_sqlite_col2pkinit_cert_hashes(krb5_context context,
 				  hdb_entry *entry)
 {
     krb5_error_code ret;
+    int is_blob;
     int i = 0;
     int alloced = 0;
-    const char *nxt;
-    const char *inner_nxt;
+    const unsigned char *sql_str;
+    const unsigned char *nxt;
+    const unsigned char *inner_nxt;
     unsigned char *s = NULL;
     unsigned char *inner_s = NULL;
     heim_oid oid;
     size_t bytes;
     HDB_extension tmp, tmp2;
-    HDB_Ext_PKINIT_hash *pkinit_cert_hash = &tmp.u.pkinit_cert_hash;
+    HDB_Ext_PKINIT_hash *pkinit_cert_hash = &tmp.data.u.pkinit_cert_hash;
 
     pkinit_cert_hash->len = 0;
     pkinit_cert_hash->val = NULL;
 
-    tmp2.u.pkinit_cert_hash.val = 0;
+    tmp2.data.u.pkinit_cert_hash.val = 0;
 
     /*
      * We expect the cert hashes to be a comma-separated list of quoted
      * strings, which are themselves a list of three quoted values (none
      * NULL), thus always a string.
      */
-    s = sqlite3_column_text(cursor, iCol);
-    if (s == NULL) {
+    sql_str = sqlite3_column_text(cursor, iCol);
+    if (sql_str == NULL) {
 	if (sqlite3_errcode(db) != SQLITE_OK)
 	    return ENOMEM; /* XXX */
 	return 0;
     }
 
-    nxt = s;
+    nxt = sql_str;
     do {
 	free(s);
 	s = dequote_alloc(nxt, &nxt, &is_blob);
@@ -821,14 +883,14 @@ hdb_sqlite_col2pkinit_cert_hashes(krb5_context context,
 	    break;
 	if (i >= alloced) {
 	    alloced *= 2;
-	    tmp2.u.pkinit_cert_hash.val =
+	    tmp2.data.u.pkinit_cert_hash.val =
 		realloc(pkinit_cert_hash->val,
 			sizeof (*pkinit_cert_hash->val) * alloced);
-	    if (tmp2.u.pkinit_cert_hash.val == NULL) {
+	    if (tmp2.data.u.pkinit_cert_hash.val == NULL) {
 		ret = ENOMEM;
 		goto out;
 	    }
-	    pkinit_cert_hash->val = tmp2.u.pkinit_cert_hash.val;
+	    pkinit_cert_hash->val = tmp2.data.u.pkinit_cert_hash.val;
 	}
 
 	free(inner_s);
@@ -837,10 +899,10 @@ hdb_sqlite_col2pkinit_cert_hashes(krb5_context context,
 	inner_s = dequote_decode(s, &inner_nxt, &bytes, &is_blob);
 	if (is_blob) {
 	    oid.length = bytes;
-	    oid.components = inner_s;
+	    oid.components = (unsigned *)inner_s;
 	    inner_s = NULL;
 	} else {
-	    ret = der_parse_heim_oid(inner_s, ".", &oid);
+	    ret = der_parse_heim_oid((const char *)inner_s, ".", &oid);
 	    if (ret != 0)
 		goto out;
 	}
@@ -849,7 +911,7 @@ hdb_sqlite_col2pkinit_cert_hashes(krb5_context context,
 	    goto bottom;
 	free(inner_s);
 	/* Get the digest */
-	inner_s = dequote_decode(inner_nxt + 2, &inner_nxt[2], &bytes, &is_blob);
+	inner_s = dequote_decode(inner_nxt + 2, &inner_nxt, &bytes, &is_blob);
 	if (!is_blob) {
 	    ret = EINVAL;
 	    goto out;
@@ -867,7 +929,7 @@ bottom:
     } while (1);
 
     pkinit_cert_hash->len = i;
-    tmp.element = choice_HDB_extension_data_pkinit_cert_hash;
+    tmp.data.element = choice_HDB_extension_data_pkinit_cert_hash;
 
     ret = hdb_replace_extension(context, entry, &tmp);
 
@@ -888,35 +950,37 @@ out:
  */
 static krb5_error_code
 hdb_sqlite_col2pkinit_certs(krb5_context context,
-			    sqlite3 *db
+			    sqlite3 *db,
 			    sqlite3_stmt *cursor,
 			    int iCol,
 			    hdb_entry *entry)
 {
     krb5_error_code ret;
+    int is_blob;
     int i = 0;
     int alloced = 0;
-    const char *nxt;
-    const char *inner_nxt;
+    const unsigned char *nxt;
+    const unsigned char *inner_nxt;
+    const unsigned char *sql_str;
     unsigned char *s = NULL;
     unsigned char *inner_s = NULL;
     size_t bytes;
     HDB_extension tmp, tmp2;
-    HDB_Ext_PKINIT_cert *pkinit_cert = &tmp.u.pkinit_cert;
+    HDB_Ext_PKINIT_cert *pkinit_cert = &tmp.data.u.pkinit_cert;
 
     pkinit_cert->len = 0;
     pkinit_cert->val = NULL;
 
-    tmp2.u.pkinit_cert.val = 0;
+    tmp2.data.u.pkinit_cert.val = 0;
 
-    s = sqlite3_column_text(cursor, iCol);
-    if (s == NULL) {
+    sql_str = sqlite3_column_text(cursor, iCol);
+    if (sql_str == NULL) {
 	if (sqlite3_errcode(db) != SQLITE_OK)
 	    return ENOMEM; /* XXX */
 	return 0;
     }
 
-    nxt = s;
+    nxt = sql_str;
     do {
 	free(s);
 	s = dequote_alloc(nxt, &nxt, &is_blob);
@@ -932,20 +996,24 @@ hdb_sqlite_col2pkinit_certs(krb5_context context,
 	    break;
 	if (i >= alloced) {
 	    alloced *= 2;
-	    tmp2.u.pkinit_cert.val =
+	    tmp2.data.u.pkinit_cert.val =
 		realloc(pkinit_cert->val,
 			sizeof (*pkinit_cert->val) * alloced);
-	    if (tmp2.u.pkinit_cert.val == NULL) {
+	    if (tmp2.data.u.pkinit_cert.val == NULL) {
 		ret = ENOMEM;
 		goto out;
 	    }
-	    pkinit_cert->val = tmp2.u.pkinit_cert.val;
+	    pkinit_cert->val = tmp2.data.u.pkinit_cert.val;
 	}
 
+	if (inner_nxt[1] != ':') {
+	    ret = EINVAL;
+	    goto out; /* digest is not optional */
+	}
 	free(inner_s);
 
 	/* Get the digest */
-	inner_s = dequote_decode(s, &inner_nxt[2], &bytes, &is_blob);
+	inner_s = dequote_decode(s, &inner_nxt, &bytes, &is_blob);
 	if (!is_blob) {
 	    ret = EINVAL;
 	    goto out;
@@ -955,7 +1023,6 @@ hdb_sqlite_col2pkinit_certs(krb5_context context,
 	inner_s = NULL;
 	/* We ignore any trailing values */
 
-bottom:
 	assert( nxt[0] != '\0' );
 
 	if (nxt[1] != ',')
@@ -963,7 +1030,7 @@ bottom:
     } while (1);
 
     pkinit_cert->len = i;
-    tmp.element = choice_HDB_extension_data_pkinit_cert;
+    tmp.data.element = choice_HDB_extension_data_pkinit_cert;
 
     ret = hdb_replace_extension(context, entry, &tmp);
 
@@ -990,28 +1057,31 @@ hdb_sqlite_col2deleg_to(krb5_context context,
 			hdb_entry *entry)
 {
     krb5_error_code ret;
+    int is_blob;
     int i = 0;
     int alloced = 0;
-    const char *nxt;
+    const unsigned char *sql_str;
+    const unsigned char *nxt;
     unsigned char *s = NULL;
+    Principal *princ;
     Principal *princs = NULL;
     Principal *tmp_princs;
     HDB_extension tmp;
-    HDB_Ext_Constrained_delegation_acl *deleg = &tmp.u.allowed_to_delegate_to;
+    HDB_Ext_Constrained_delegation_acl *deleg = &tmp.data.u.allowed_to_delegate_to;
 
-    deleg->case_sensitive = 0;
     deleg->len = 0;
     deleg->val = NULL;
 
-    s = sqlite3_column_text(cursor, iCol);
-    if (s == NULL) {
+    sql_str = sqlite3_column_text(cursor, iCol);
+    if (sql_str == NULL) {
 	if (sqlite3_errcode(db) != SQLITE_OK)
 	    return ENOMEM; /* XXX */
 	return 0;
     }
 
+    nxt = sql_str;
     do {
-	s = dequote_alloc(s, &nxt, &is_blob);
+	s = dequote_alloc(nxt, &nxt, &is_blob);
 	if (s == NULL && errno != 0) {
 	    ret = errno;
 	    goto out;
@@ -1028,18 +1098,21 @@ hdb_sqlite_col2deleg_to(krb5_context context,
 	    princs = tmp_princs;
 	    deleg->val = princs;
 	}
-	ret = krb5_parse_name(context, s, &princs[i++]);
+	ret = krb5_parse_name(context, (char *)s, &princ);
+	if (ret != 0)
+	    continue; /* fail gracefully? */
+	princs[i++] = *princ;
 	free(s);
     } while (1);
 
     deleg->len = i;
-    tmp.element = choice_HDB_extension_data_allowed_to_delegate_to;
+    tmp.data.element = choice_HDB_extension_data_allowed_to_delegate_to;
 
     ret = hdb_replace_extension(context, entry, &tmp);
 
 out:
     if (ret != 0) {
-	free_HDB_Ext_Aliases(aliases);
+	free_HDB_Ext_Constrained_delegation_acl(deleg);
 	free(s);
     }
 
@@ -1058,6 +1131,7 @@ hdb_sqlite_col2LM_OWF(krb5_context context,
 		      int iCol,
 		      hdb_entry *entry)
 {
+    return 0;
 }
 
 
@@ -1073,11 +1147,13 @@ hdb_sqlite_col2password(krb5_context context,
 			hdb_entry *entry)
 {
     int ret;
+    int is_blob;
     int mkvno = 0;
+    const unsigned char *sql_str;
     unsigned char *s;
     size_t bytes;
     HDB_extension tmp;
-    HDB_Ext_Password *pw = &tmp.u.password;
+    HDB_Ext_Password *pw = &tmp.data.u.password;
 
     if (sqlite3_column_type(cursor, mkvnoCol) != SQLITE_NULL) {
 	mkvno = sqlite3_column_int(cursor, mkvnoCol);
@@ -1090,8 +1166,8 @@ hdb_sqlite_col2password(krb5_context context,
      * We expect the password to be a quoted blob, or a quoted string,
      * thus always a string, even when encrypted.
      */
-    s = sqlite3_column_text(cursor, pwCol);
-    if (s == NULL) {
+    sql_str = sqlite3_column_text(cursor, pwCol);
+    if (sql_str == NULL) {
 	if (sqlite3_errcode(db) != SQLITE_OK)
 	    return ENOMEM; /* XXX */
 	return 0;
@@ -1102,14 +1178,19 @@ hdb_sqlite_col2password(krb5_context context,
      * SEQUENCE OF.  It'd be useful to have such a thing for password
      * history!
      */
-    s = dequote_decoded(s, NULL, &bytes, &is_blob);
+    s = dequote_decode(sql_str, NULL, &bytes, &is_blob);
     if (s == NULL)
 	return errno; /* might be 0, but then there's nothing to do here */
 
-    pw->mkvno = mkvno;
+    pw->mkvno = malloc(sizeof (*pw->mkvno));
+    if (pw->mkvno == NULL) {
+	free(s);
+	return errno;
+    }
+    *pw->mkvno = mkvno;
     pw->password.length = bytes;
     pw->password.data = s;
-    tmp.element = choice_HDB_extension_data_password;
+    tmp.data.element = choice_HDB_extension_data_password;
 
     ret = hdb_replace_extension(context, entry, &tmp);
     if (ret != 0)
@@ -1125,21 +1206,25 @@ hdb_sqlite_col2password(krb5_context context,
  */
 static krb5_error_code
 hdb_sqlite_col2aliases(krb5_context context,
+		       sqlite3 *db,
 		       sqlite3_stmt *cursor,
 		       int iCol,
 		       hdb_entry *entry)
 {
     krb5_error_code ret;
+    int is_blob;
     int i = 0;
     int alloced = 0;
-    const char *nxt;
+    const unsigned char *sql_str;
+    const unsigned char *nxt;
     unsigned char *s = NULL;
+    Principal *princ;
     Principal *princs = NULL;
     Principal *tmp_princs;
     HDB_extension tmp;
-    HDB_Ext_Aliases *aliases = &tmp.u.aliases;
+    HDB_Ext_Aliases *aliases = &tmp.data.u.aliases;
 
-    aliases->case_sensitive = 0;
+    aliases->case_insensitive = 0;
     aliases->aliases.len = 0;
     aliases->aliases.val = NULL;
 
@@ -1147,15 +1232,16 @@ hdb_sqlite_col2aliases(krb5_context context,
      * We expect the aliases to be a comma-separated list of quoted
      * strings, thus always a string.
      */
-    s = sqlite3_column_text(cursor, iCol);
-    if (s == NULL) {
+    sql_str = sqlite3_column_text(cursor, iCol);
+    if (sql_str == NULL) {
 	if (sqlite3_errcode(db) != SQLITE_OK)
 	    return ENOMEM; /* XXX */
 	return 0;
     }
 
+    nxt = sql_str;
     do {
-	s = dequote_alloc(s, &nxt, &is_blob);
+	s = dequote_alloc(nxt, &nxt, &is_blob);
 	if (s == NULL && errno != 0) {
 	    ret = errno;
 	    goto out;
@@ -1172,12 +1258,13 @@ hdb_sqlite_col2aliases(krb5_context context,
 	    princs = tmp_princs;
 	    aliases->aliases.val = princs;
 	}
-	ret = krb5_parse_name(context, s, &princs[i++]);
+	ret = krb5_parse_name(context, (char *)s, &princ);
+	princs[i++] = *princ; /* XXX */
 	free(s);
     } while (1);
 
     aliases->aliases.len = i;
-    tmp.element = choice_HDB_extension_data_aliases;
+    tmp.data.element = choice_HDB_extension_data_aliases;
 
     ret = hdb_replace_extension(context, entry, &tmp);
 
@@ -1196,28 +1283,29 @@ out:
  */
 static krb5_error_code
 hdb_sqlite_col2last_pw_chg(krb5_context context,
+			   sqlite3 *db,
 			   sqlite3_stmt *cursor,
 			   int iCol,
 			   hdb_entry *entry)
 {
-    HDB_Extension tmp;
+    HDB_extension tmp;
     sqlite_int64 tmv;
 
-    if (sqlite3_column_type(cursor, timeCol) == SQLITE_NULL)
+    if (sqlite3_column_type(cursor, iCol) == SQLITE_NULL)
 	return 0;
 
-    if (sqlite_errcode(db) != SQLITE_OK)
+    if (sqlite3_errcode(db) != SQLITE_OK)
 	return ENOMEM; /* Almost certainly what it is; XXX need a map func */
 
     tmv = sqlite3_column_int64(cursor, iCol);
     if (tmv < 0)
 	return EOVERFLOW;
 
-    if (sqlite_errcode(db) != SQLITE_OK)
+    if (sqlite3_errcode(db) != SQLITE_OK)
 	return ENOMEM; /* Almost certainly what it is; XXX need a map func */
 
-    tmp.u.last_pw_change = (KerberosTime)tmv;
-    tmp.element = choice_HDB_extension_data_last_pw_change;
+    tmp.data.u.last_pw_change = (KerberosTime)tmv;
+    tmp.data.element = choice_HDB_extension_data_last_pw_change;
     return hdb_replace_extension(context, entry, &tmp);
 }
 
@@ -1248,11 +1336,12 @@ hdb_sqlite_row2entry(krb5_context context,
     entry->kvno = (unsigned int)sqlite3_column_int(cursor, 1);
 
     if (flags & HDB_F_ADMIN_DATA) {
-	ret = hdb_sqlite_col2event(context, db, cursor, 2, &entry->created_by,
+	ret = hdb_sqlite_col2event(context, db, cursor, 2, 3,
+				   &entry->created_by,
 				   NULL);
 	if (ret) goto out;
 
-	ret = hdb_sqlite_col2event(context, db, cursor, 3, NULL,
+	ret = hdb_sqlite_col2event(context, db, cursor, 4, 5, NULL,
 				   &entry->modified_by);
 	if (ret) goto out;
     }
@@ -1263,12 +1352,12 @@ hdb_sqlite_row2entry(krb5_context context,
     if (ret) goto out;
     ret = hdb_sqlite_col2time(context, db, cursor, 6, &entry->pw_end);
     if (ret) goto out;
-    ret = hdb_sqlite_col2time(context, db, cursor, 7, &entry->max_life);
+    ret = hdb_sqlite_col2uint31(context, db, cursor, 7, &entry->max_life);
     if (ret) goto out;
-    ret = hdb_sqlite_col2time(context, db, cursor, 8, &entry->max_renew);
+    ret = hdb_sqlite_col2uint31(context, db, cursor, 8, &entry->max_renew);
     if (ret) goto out;
 
-    entry->flags = HDBFlags2int((unsigned int)sqlite3_column_int(cursor, 1));
+    entry->flags = int2HDBFlags((unsigned int)sqlite3_column_int(cursor, 1));
 
     ret = hdb_sqlite_col2etypes(context, db, cursor, 9, &entry->etypes);
     if (ret) goto out;
