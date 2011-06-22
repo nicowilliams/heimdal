@@ -1397,10 +1397,11 @@ hdb_sqlite_row2entry(krb5_context context,
 
     entry->kvno = (unsigned int)sqlite3_column_int(cursor, 1);
 
+    ret = hdb_sqlite_col2generation(context, db, cursor, 2, 3, 4,
+				    &entry->generation);
+    if (ret) goto out;
+
     if (flags & HDB_F_ADMIN_DATA) {
-	ret = hdb_sqlite_col2generation(context, db, cursor, 2, 3, 4,
-				        &entry->generation);
-	if (ret) goto out;
 	ret = hdb_sqlite_col2event(context, db, cursor, 5, 6,
 				   &entry->created_by, NULL);
 	if (ret) goto out;
@@ -1868,72 +1869,117 @@ hdb_sqlite_step_once(krb5_context context, HDB *db, sqlite3_stmt *statement)
 }
 
 
+/**
+ * This function checks if an entry being stored is an update or a new
+ * entry, or whether it's a rename.  It also indicates whether the
+ * update conflicts in some way with either an existing entry or another
+ * transaction.  Some of this could be done with triggers, but it'd be
+ * nice to have a per-operation flag requesting atomicity -- that's
+ * what this function is ultimate aimed at.
+ *
+ * @param context	krb5_context
+ * @param db		HDB DB handle
+ * @param entry		Entry being stored
+ * @param previous	Entry from DB with entry's old name (output,
+ *			optional)
+ * @param target	Entry from DB with entry's new name (output)
+ * @param is_update	True if an entry exists with this name (output)
+ * @param is_rename	True if this is a rename (output)
+ * @param is_conflict	True if this update conflicts with an existing
+ *			entry (output)
+ */
 static krb5_error_code
 check_update(krb5_context context,
 	     HDB *db,
 	     hdb_entry_ex *entry,
 	     hdb_entry_ex *previous,
+	     hdb_entry_ex *target,
 	     int *is_update,
 	     int *is_rename,
 	     int *is_conflict)
 {
     krb5_error_code ret;
+    HDB_extension *exts;
     Principal *princ;
-    int i, k;
+    Principal *oldprinc = NULL;
+    GENERATION entry_gen1, entry_gen2;
+    int i;
 
     *is_update = 0;
     *is_rename = -1; /* unknown */
     *is_conflict = 0;
-    /* No old princ, nothing for us to do; probably loading from a dump */
-    if (entry->entry.extensions == NULL)
-	return 0;
+    if (previous != NULL)
+	memset(&previous->entry, 0, sizeof (previous->entry));
+    memset(&target->entry, 0, sizeof (target->entry));
 
-    for (k = -1, i = 0; i < entry->entry.extensions->len; i++) {
-	if (entry->entry.extensions->val[i].data.element !=
+    princ = entry->entry.principal;
+    exts = entry->entry.extensions->val;
+    memset(&entry_gen2, 0, sizeof (entry_gen1));
+    if (entry->entry.generation != NULL)
+	entry_gen1 = *entry->entry.generation;
+
+    if (entry->entry.extensions == NULL)
+	/* Probably an entry from a dump of an old HDB */
+	goto past_rename;
+
+    for (i = 0; i < entry->entry.extensions->len; i++) {
+	if (exts[i].data.element !=
 	    choice_HDB_extension_data_old_principal_name)
 	    continue;
-	k = i;
+	oldprinc = &exts[i].data.u.old_principal_name;
 	break;
     }
 
-    if (k < 0) {
-	print = entry->entry.principal;
-    } else {
-	princ = &entry->entry.extensions->val[i].data.old_principal_name;
+    if (oldprinc == NULL)
+	/* Probably an entry from a dump of an old HDB */
+	goto past_rename;
 
-	if (krb5_principal_compare(context, entry->entry.principal,
-				   previous->entry.principal) == TRUE)
-	    *is_rename = 0;
-	else
-	    *is_rename = 1;
-
+    *is_rename = 0;
+    if (krb5_principal_compare(context, princ, oldprinc) != TRUE) {
+	*is_rename = 1;
+	if (previous != NULL) {
+	    ret = hdb_sqlite_fetch_kvno(context, db, oldprinc, 0, 0, previous);
+	    if (ret != 0 && ret != HDB_ERR_NOENTRY)
+		return ret;
+	    /*
+	     * XXX Should we check that the previous entry's generation
+	     * matches the new one's?  That would allow us to detect
+	     * races in the admin APIs/apps.
+	     */
+	}
     }
 
-    ret = hdb_sqlite_fetch_kvno(context, db, princ,
-				HDB_F_GET_CLIENT | HDB_F_REPLACE |
-				HDB_F_GET_CLIENT | HDB_F_GET_SERVER |
-				HDB_F_GET_ANY | HDB_F_ADMIN_DATA,
-				0, previous);
+past_rename:
+    /* Check if we'll be overwriting anything */
+    ret = hdb_sqlite_fetch_kvno(context, db, princ, 0, 0, target);
     if (ret != 0 && ret != HDB_ERR_NOENTRY)
 	return ret;
 
-    *is_update = 1;
-    if (k < 0)
+    if (ret == HDB_ERR_NOENTRY)
 	return 0;
 
-    assert( previous->entry.extensions != NULL );
-    for (k = 0, i = 0; i < previous->entry.extensions->len; i++) {
-	if (previous->entry.extensions->val[i].data.element !=
-	    choice_HDB_extension_data_old_principal_name)
-	    continue;
-	k = i;
-	goto foundprev;
+    *is_update = 1;
+    if (*is_rename == 1) {
+	*is_conflict = 1;
+	return 0;
     }
 
-    assert( k < 0 );
+    if (target->entry.generation != NULL)
+	entry_gen2 = *target->entry.generation;
 
-foundprev:
+    if (entry->entry.generation == NULL || target->entry.generation == NULL) {
+	/* Can't tell for sure if this is a conflict or not */
+	*is_conflict = -1;
+	return 0;
+    }
 
+    if (entry_gen1.time != entry_gen2.time ||
+	entry_gen1.usec != entry_gen2.usec ||
+	entry_gen1.gen >= entry_gen2.gen ||
+	(entry_gen1.gen + 1) != entry_gen2.gen)
+	*is_conflict = 1;
+
+    return 0;
 }
 
 
@@ -1953,14 +1999,15 @@ hdb_sqlite_store(krb5_context context, HDB *db, unsigned flags,
                  hdb_entry_ex *entry)
 {
     int ret;
-    int is_update;
+    int is_update, is_rename, is_conflict;
     int i;
     sqlite_int64 entry_id;
     char *principal_string = NULL;
     char *alias_string;
     const HDB_Ext_Aliases *aliases;
 
-    hdb_entry_ex current;
+    hdb_entry_ex previous;
+    hdb_entry_ex target;
 
     hdb_sqlite_db *hsdb = (hdb_sqlite_db *)(db->hdb_db);
     krb5_data value;
@@ -1984,35 +2031,39 @@ hdb_sqlite_store(krb5_context context, HDB *db, unsigned flags,
         goto rollback;
     }
 
-    ret = hdb_sqlite_fetch_kvno(context, db, entry->entry.principal,
-				HDB_F_GET_CLIENT | HDB_F_REPLACE |
-				HDB_F_GET_CLIENT | HDB_F_GET_SERVER |
-				HDB_F_GET_ANY | HDB_F_ADMIN_DATA,
-				0, &current);
-    if (ret != 0 && ret != HDB_ERR_NOENTRY)
+    ret = check_update(context, db, entry, &previous, &target,
+		       &is_update, &is_rename, &is_conflict);
+    if (ret != 0)
 	goto rollback;
-
-    is_update = (ret != HDB_ERR_NOENTRY);
 
     ret = hdb_seal_keys(context, db, &entry->entry);
     if(ret) {
         goto rollback;
     }
 
-    /*
-     * XXX Here we want to say "if is_update then do update, else insert
-     * new.  If we just do "INSERT OR REPLACE" we can do this in the
-     * same path, except that we'll want to not INSERT nor REPLACE rows
-     * outside the main table that haven't changed.
-     */
-
-    if (is_update) {
+    if (is_update && !(flags & HDB_F_REPLACE)) {
+	ret = HDB_ERR_EXISTS;
+	goto rollback;
+    }
+    if (is_rename == 1 && is_conflict == 1) {
+	/* Even if HDB_F_REPLACE... */
+	ret = HDB_ERR_EXISTS;
+	goto rollback;
     }
 
+    /*
+     * XXX So here we want to do INSERT OR REPLACE on everything, but
+     * we'll want to preserve existing rowids so we don't trigger
+     * deferred foreign key constraints when we're just updating
+     * something.  Every little thing will need a statement...  *sigh*
+     */
+
+#if OLD
     ret = hdb_entry2value(context, &entry->entry, &value);
     if(ret) {
         goto rollback;
     }
+#endif
 
     sqlite3_bind_text(get_ids, 1, principal_string, -1, SQLITE_STATIC);
     ret = hdb_sqlite_step(context, hsdb->db, get_ids);
