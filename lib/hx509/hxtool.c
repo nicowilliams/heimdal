@@ -372,9 +372,8 @@ cms_create_sd(struct cms_create_sd_options *opt, int argc, char **argv)
     infile = argv[0];
 
     if (argc < 2) {
-	asprintf(&outfile, "%s.%s", infile,
-		 opt->pem_flag ? "pem" : "cms-signeddata");
-	if (outfile == NULL)
+	if (asprintf(&outfile, "%s.%s", infile,
+		     opt->pem_flag ? "pem" : "cms-signeddata") < 0)
 	    errx(1, "out of memory");
     } else
 	outfile = argv[1];
