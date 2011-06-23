@@ -95,7 +95,8 @@ typedef struct hdb_sqlite_db {
 
     /* Cached prepared statements */
     sqlite3_stmt *get_version;
-    sqlite3_stmt *fetch;
+    sqlite3_stmt *fetch_fast;
+    sqlite3_stmt *fetch_slow;
     sqlite3_stmt *fetch_kvno;
     sqlite3_stmt *get_ids;
     sqlite3_stmt *add_entry;
@@ -107,6 +108,33 @@ typedef struct hdb_sqlite_db {
     sqlite3_stmt *get_all_entries;
 
     /* Indexes to named parameters for each prepared statement */
+    int fetch_pidCol;
+    int fetch_pnameCol;
+    int fetch_kvnoCol;
+    int fetch_gentimeCol;
+    int fetch_genusecCol;
+    int fetch_gengenCol;
+    int fetch_crbytimeCol;
+    int fetch_crbypnameCol;
+    int fetch_modbytimeCol;
+    int fetch_modbypnameCol;
+    int fetch_validstartCol;
+    int fetch_validendCol;
+    int fetch_pwendCol;
+    int fetch_maxlifeCol;
+    int fetch_maxrenewCol;
+    int fetch_hdbflagsCol;
+    int fetch_etypesCol;
+    int fetch_pwmkvnoCol;
+    int fetch_pwpwCol;
+    int fetch_lastpwchgCol;
+    int fetch_aliasesCol;
+    int fetch_pkaclsCol;
+    int fetch_pkcerthashesCol;
+    int fetch_pkcertsCol;
+    int fetch_delegtoCol;
+    int fetch_lmowfCol;
+
     int add_entry_pidx_canon_name_id;
     int add_entry_pidx_canon_name;
     int add_entry_pidx_id;
@@ -361,7 +389,7 @@ hdb_sqlite_col2time(krb5_context context,
  * hdb_entry field.
  */
 static krb5_error_code
-hdb_sqlite_col2uint31(krb5_context context,
+hdb_sqlite_col2uint(krb5_context context,
 		    sqlite3 *db,
 		    sqlite3_stmt *cursor,
 		    int iCol,
@@ -684,8 +712,19 @@ einval:
 
 
 /**
- * Decode stringified, quoted PKINIT ACL list and add it to the
- * HDB_Extensions.
+ * Helper to decode stringified, quoted PKINIT ACL list and add it to
+ * the HDB_Extensions.
+ *
+ * @param context   krb5 context
+ * @param db	    SQLite3 DB handle (used to check for errors)
+ * @param cursor    SQLite3 statement the current row of which to
+ *		    extract the PKINIT ACLs of
+ * @param iCol	    Column of the row that has the PKINIT ACLs
+ * @param entry	    Entry to store the decoded PKINIT ACL into
+ *
+ * This function expects a column whose value is a comma-separated list
+ * of quoted() (SQLite3 function) lists of colon-separated quoted()
+ * subject name, issuer name, and anchor.
  */
 static krb5_error_code
 hdb_sqlite_col2pkinit_acls(krb5_context context,
@@ -872,6 +911,8 @@ out:
 /**
  * Decode stringified, quoted PKINIT certificate hashes list and add it
  * to the HDB_Extensions.
+ *
+ * See hdb_sqlite_col2pkinit_acls() for more details.
  */
 static krb5_error_code
 hdb_sqlite_col2pkinit_cert_hashes(krb5_context context,
@@ -992,6 +1033,8 @@ out:
 /**
  * Decode stringified, quoted PKINIT certificate list and add it to the
  * HDB_Extensions.
+ *
+ * See hdb_sqlite_col2pkinit_acls() for more details.
  */
 static krb5_error_code
 hdb_sqlite_col2pkinit_certs(krb5_context context,
@@ -1094,6 +1137,8 @@ out:
 /**
  * Decode stringified, quoted OK to delegate to principal name list and
  * add it to the HDB_Extensions.
+ *
+ * See hdb_sqlite_col2pkinit_acls() for more details.
  */
 static krb5_error_code
 hdb_sqlite_col2deleg_to(krb5_context context,
@@ -1178,6 +1223,7 @@ hdb_sqlite_col2LM_OWF(krb5_context context,
 		      int iCol,
 		      hdb_entry *entry)
 {
+    /* XXX Implement! */
     return 0;
 }
 
@@ -1251,6 +1297,8 @@ hdb_sqlite_col2password(krb5_context context,
 /**
  * Decode stringified, quoted Principal name alias list and add it to
  * the HDB_Extensions.
+ *
+ * See hdb_sqlite_col2pkinit_acls() for more details.
  */
 static krb5_error_code
 hdb_sqlite_col2aliases(krb5_context context,
@@ -1365,16 +1413,21 @@ hdb_sqlite_col2last_pw_chg(krb5_context context,
  *
  * @param context   The current krb5 context
  * @param flags     HDB_F_*
+ * @param db	    The HDB-SQLite backend handle
  * @param cursor    The SQLite3 statement the current row of which to
  *		    to decode
  * @param entry	    The HDB entry (output)
  *
  * @return	    0 if OK, an error code if not
+ *
+ * This fetches *all* data items, whether HDB_F_ADMIN_DATA is set or not.
+ * It is the caller's job to ensure that the SELECT statement produces NULLs for
+ * those columns which we're not interested in.
  */
 static krb5_error_code
 hdb_sqlite_row2entry(krb5_context context,
 		     int flags,
-		     sqlite3 *db,
+		     hdb_sqlite_db *db,
 		     sqlite3_stmt *cursor,
 		     hdb_entry *entry)
 {
@@ -1382,78 +1435,104 @@ hdb_sqlite_row2entry(krb5_context context,
     Principal *princ;
     HDB_extension tmp;
 
-    ret = hdb_sqlite_col2principal(context, db, cursor, 0, &entry->principal);
-    if (ret) goto out;
-
-    /* Also set the old-princ extension, so we can detect renames later */
-    ret = hdb_sqlite_col2principal(context, db, cursor, 0, &princ);
-    if (ret) goto out;
-    tmp.data.u.old_principal_name = *princ;
-    free(princ);
-    tmp.data.element = choice_HDB_extension_data_old_principal_name;
-    tmp.mandatory = 0;
+    /* Get the principal ID; we need this when we store princs */
+    tmp.data.element = choice_HDB_extension_data_principal_id;
+    tmp.data.u.principal_id = sqlite3_column_int(cursor, db->fetch_pidCol);
+    if (sqlite3_errcode(db->db) != SQLITE_OK) {
+	ret = ENOMEM; /* XXX */
+	goto out;
+    }
     ret = hdb_replace_extension(context, entry, &tmp);
     if (ret) goto out;
 
-    entry->kvno = (unsigned int)sqlite3_column_int(cursor, 1);
-
-    ret = hdb_sqlite_col2generation(context, db, cursor, 2, 3, 4,
-				    &entry->generation);
+    /*
+     * Get the principal's name, and save a copy as an extension, which
+     * we'll need later when we store the entry.
+     */
+    ret = hdb_sqlite_col2principal(context, db->db, cursor, db->fetch_pnameCol,
+				   &entry->principal);
+    if (ret) goto out;
+    ret = krb5_copy_principal(context, entry->principal, &princ);
+    if (ret) goto out;
+    tmp.data.element = choice_HDB_extension_data_old_principal_name;
+    tmp.data.u.old_principal_name = *princ;
+    free(princ);
+    ret = hdb_replace_extension(context, entry, &tmp);
     if (ret) goto out;
 
-    if (flags & HDB_F_ADMIN_DATA) {
-	ret = hdb_sqlite_col2event(context, db, cursor, 5, 6,
-				   &entry->created_by, NULL);
-	if (ret) goto out;
-
-	ret = hdb_sqlite_col2event(context, db, cursor, 7, 9, NULL,
-				   &entry->modified_by);
-	if (ret) goto out;
+    entry->kvno = (unsigned int)sqlite3_column_int(cursor, db->fetch_kvnoCol);
+    if (sqlite3_errcode(db->db) != SQLITE_OK) {
+	ret = ENOMEM; /* XXX */
+	goto out;
     }
 
-    ret = hdb_sqlite_col2time(context, db, cursor, 10, &entry->valid_start);
-    if (ret) goto out;
-    ret = hdb_sqlite_col2time(context, db, cursor, 11, &entry->valid_end);
-    if (ret) goto out;
-    ret = hdb_sqlite_col2time(context, db, cursor, 12, &entry->pw_end);
-    if (ret) goto out;
-    ret = hdb_sqlite_col2uint31(context, db, cursor, 13, &entry->max_life);
-    if (ret) goto out;
-    ret = hdb_sqlite_col2uint31(context, db, cursor, 14, &entry->max_renew);
+    ret = hdb_sqlite_col2generation(context, db->db, cursor,
+				    db->fetch_gentimeCol, db->fetch_genusecCol,
+				    db->fetch_gengenCol, &entry->generation);
     if (ret) goto out;
 
-    entry->flags = int2HDBFlags((unsigned int)sqlite3_column_int(cursor, 15));
+    ret = hdb_sqlite_col2event(context, db->db, cursor, db->fetch_crbytimeCol,
+			       db->fetch_crbypnameCol, &entry->created_by,
+			       NULL);
+    if (ret) goto out;
 
-    ret = hdb_sqlite_col2etypes(context, db, cursor, 16, &entry->etypes);
+    ret = hdb_sqlite_col2event(context, db->db, cursor, db->fetch_modbytimeCol,
+			       db->fetch_modbypnameCol, NULL,
+			       &entry->modified_by);
+    if (ret) goto out;
+
+    ret = hdb_sqlite_col2time(context, db->db, cursor, db->fetch_validstartCol,
+			      &entry->valid_start);
+    if (ret) goto out;
+    ret = hdb_sqlite_col2time(context, db->db, cursor, db->fetch_validendCol,
+			      &entry->valid_end);
+    if (ret) goto out;
+    ret = hdb_sqlite_col2time(context, db->db, cursor, db->fetch_pwendCol,
+			      &entry->pw_end);
+    if (ret) goto out;
+    ret = hdb_sqlite_col2uint(context, db->db, cursor, db->fetch_maxlifeCol,
+			      &entry->max_life);
+    if (ret) goto out;
+    ret = hdb_sqlite_col2uint(context, db->db, cursor, db->fetch_maxrenewCol,
+			      &entry->max_renew);
+    if (ret) goto out;
+
+    entry->flags = int2HDBFlags((unsigned int)sqlite3_column_int(cursor,
+	db->fetch_hdbflagsCol));
+
+    ret = hdb_sqlite_col2etypes(context, db->db, cursor, db->fetch_etypesCol,
+				&entry->etypes);
     if (ret) goto out;
 
     /* We don't keep generation info in the SQLite3 backend yet */
 
-    ret = hdb_sqlite_col2password(context, db, cursor, 17, 18, entry);
+    ret = hdb_sqlite_col2password(context, db->db, cursor, db->fetch_pwmkvnoCol,
+				  db->fetch_pwpwCol, entry);
     if (ret) goto out;
-    ret = hdb_sqlite_col2last_pw_chg(context, db, cursor, 19, entry);
+    ret = hdb_sqlite_col2last_pw_chg(context, db->db, cursor,
+				     db->fetch_lastpwchgCol, entry);
     if (ret) goto out;
 
-    if (flags & HDB_F_ADMIN_DATA) {
-	ret = hdb_sqlite_col2aliases(context, db, cursor, 20, entry);
-	if (ret) goto out;
+    ret = hdb_sqlite_col2aliases(context, db->db, cursor, db->fetch_aliasesCol,
+				 entry);
+    if (ret) goto out;
 
-	/*
-	 * XXX These are not admin data, but they are things that are
-	 * not needed in the KDC fastpath.  We should define a new
-	 * HDB_F_ flag to refer to thse items.
-	 */
-	ret = hdb_sqlite_col2pkinit_acls(context, db, cursor, 21, entry);
-	if (ret) goto out;
-	ret = hdb_sqlite_col2pkinit_cert_hashes(context, db, cursor, 22, entry);
-	if (ret) goto out;
-	ret = hdb_sqlite_col2pkinit_certs(context, db, cursor, 23, entry);
-	if (ret) goto out;
-	ret = hdb_sqlite_col2deleg_to(context, db, cursor, 24, entry);
-	if (ret) goto out;
-	ret = hdb_sqlite_col2LM_OWF(context, db, cursor, 25, entry);
-	if (ret) goto out;
-    }
+    ret = hdb_sqlite_col2pkinit_acls(context, db->db, cursor,
+				     db->fetch_pkaclsCol, entry);
+    if (ret) goto out;
+    ret = hdb_sqlite_col2pkinit_cert_hashes(context, db->db, cursor,
+					    db->fetch_pkcerthashesCol,
+					    entry);
+    if (ret) goto out;
+    ret = hdb_sqlite_col2pkinit_certs(context, db->db, cursor,
+				      db->fetch_pkcertsCol, entry);
+    if (ret) goto out;
+    ret = hdb_sqlite_col2deleg_to(context, db->db, cursor, db->fetch_delegtoCol,
+				  entry);
+    if (ret) goto out;
+    ret = hdb_sqlite_col2LM_OWF(context, db->db, cursor, db->fetch_lmowfCol,
+				entry);
+    if (ret) goto out;
 
 out:
     if (ret)
@@ -1643,7 +1722,8 @@ hdb_sqlite_close_database(krb5_context context, HDB *db)
     hdb_sqlite_db *hsdb = (hdb_sqlite_db *) db->hdb_db;
 
     sqlite3_finalize(hsdb->get_version);
-    sqlite3_finalize(hsdb->fetch);
+    sqlite3_finalize(hsdb->fetch_fast);
+    sqlite3_finalize(hsdb->fetch_slow);
     sqlite3_finalize(hsdb->get_ids);
     sqlite3_finalize(hsdb->add_entry);
     sqlite3_finalize(hsdb->add_principal);
@@ -1701,7 +1781,12 @@ hdb_sqlite_make_database(krb5_context context, HDB *db, const char *filename)
 				  NULL);
     if (ret) goto out;
     ret = hdb_sqlite_prepare_stmt(context, hsdb->db,
-                                  &hsdb->fetch,
+                                  &hsdb->fetch_fast,
+                                  HDBSQLITE_FETCH,
+				  NULL);
+    if (ret) goto out;
+    ret = hdb_sqlite_prepare_stmt(context, hsdb->db,
+                                  &hsdb->fetch_slow,
                                   HDBSQLITE_FETCH,
 				  NULL);
     if (ret) goto out;
@@ -1794,7 +1879,7 @@ hdb_sqlite_fetch_kvno(krb5_context context, HDB *db, krb5_const_principal princi
     krb5_error_code ret;
     char *principal_string;
     hdb_sqlite_db *hsdb = (hdb_sqlite_db*)(db->hdb_db);
-    sqlite3_stmt *fetch = hsdb->fetch;
+    sqlite3_stmt *fetch = hsdb->fetch_fast;
 
     ret = krb5_unparse_name(context, principal, &principal_string);
     if (ret) {
@@ -1823,7 +1908,7 @@ hdb_sqlite_fetch_kvno(krb5_context context, HDB *db, krb5_const_principal princi
         }
     }
 
-    ret = hdb_sqlite_row2entry(context, flags, hsdb->db, fetch, &entry->entry);
+    ret = hdb_sqlite_row2entry(context, flags, hsdb, fetch, &entry->entry);
     if(ret)
         goto out;
 
