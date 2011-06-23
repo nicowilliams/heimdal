@@ -69,7 +69,7 @@ struct string_list {
 %}
 
 %union {
-    int constant;
+    int64_t constant;
     struct value *value;
     struct range *range;
     char *name;
