@@ -54,7 +54,7 @@ integer_symbol(const char *basename, const Type *t)
 	return "heim_integer";
     else if (t->range->min < INT_MIN && t->range->max <= INT64_MAX)
 	return "int64_t";
-    else if (t->range->min >= 0 && t->range->max > INT_MAX)
+    else if (t->range->min >= 0 && t->range->max > UINT_MAX)
 	return "uint64_t";
     else if (t->range->min >= INT_MIN && t->range->max <= INT_MAX)
 	return "int";
@@ -494,7 +494,7 @@ template_members(struct templatehead *temp, const char *basetype, const char *na
 	    itype = "HEIM_INTEGER";
 	else if (t->range->min < INT_MIN && t->range->max <= INT64_MAX)
 	    itype = "INTEGER64";
-	else if (t->range->min >= 0 && t->range->max > INT_MAX)
+	else if (t->range->min >= 0 && t->range->max > UINT_MAX)
 	    itype = "UNSIGNED64";
 	else if (t->range->min >= INT_MIN && t->range->max <= INT_MAX)
 	    itype = "INTEGER";

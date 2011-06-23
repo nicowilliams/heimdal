@@ -131,7 +131,7 @@ encode_type (const char *name, const Type *t, const char *tmpstr)
 	    encode_primitive ("heim_integer", name);
 	} else if (t->range->min < INT_MIN && t->range->max <= INT64_MAX) {
 	    encode_primitive ("integer64", name);
-	} else if (t->range->min >= 0 && t->range->max > INT_MAX) {
+	} else if (t->range->min >= 0 && t->range->max > UINT_MAX) {
 	    encode_primitive ("unsigned64", name);
 	} else if (t->range->min >= INT_MIN && t->range->max <= INT_MAX) {
 	    encode_primitive ("integer", name);

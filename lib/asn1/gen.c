@@ -728,7 +728,7 @@ define_type (int level, const char *name, const char *basename, Type *t, int typ
 	    fprintf (headerfile, "heim_integer %s;\n", name);
 	} else if (t->range->min < INT_MIN && t->range->max <= INT64_MAX) {
 	    fprintf (headerfile, "int64_t %s;\n", name);
-	} else if (t->range->min >= 0 && t->range->max > INT_MAX) {
+	} else if (t->range->min >= 0 && t->range->max > UINT_MAX) {
 	    fprintf (headerfile, "uint64_t %s;\n", name);
 	} else if (t->range->min >= INT_MIN && t->range->max <= INT_MAX) {
 	    fprintf (headerfile, "int %s;\n", name);

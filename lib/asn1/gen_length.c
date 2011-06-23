@@ -82,7 +82,7 @@ length_type (const char *name, const Type *t,
 	    length_primitive ("heim_integer", name, variable);
 	} else if (t->range->min < INT_MIN && t->range->max <= INT64_MAX) {
 	    length_primitive ("integer64", name, variable);
-	} else if (t->range->min >= 0 && t->range->max > INT_MAX) {
+	} else if (t->range->min >= 0 && t->range->max > UINT_MAX) {
 	    length_primitive ("unsigned64", name, variable);
 	} else if (t->range->min >= INT_MIN && t->range->max <= INT_MAX) {
 	    length_primitive ("integer", name, variable);
