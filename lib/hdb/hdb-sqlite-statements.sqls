@@ -1,0 +1,9 @@
+-- Foo
+-- @FETCH
+SELECT a FROM b WHERE a = ?;
+
+-- sdfjsldkfj
+-- @STORE
+INSERT OR REPLACE INTO b (a) SELECT ?;
+
+-- klsdfnlk;sdjfk

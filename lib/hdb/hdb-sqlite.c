@@ -33,6 +33,7 @@
 
 #include "hdb_locl.h"
 #include "hdb-sqlite-schema.h"
+#include "hdb-sqlite-statements.h"
 #include "sqlite3.h"
 #include <assert.h>
 #include <der.h>
@@ -182,6 +183,7 @@ typedef struct hdb_sqlite_db {
 
 #define HDBSQLITE_GET_VERSION \
                  " SELECT max(number) FROM Version"
+/* XXX Update this */
 #define HDBSQLITE_FETCH \
                  " SELECT ed.data FROM Entry ed" \
                  " JOIN EntryName en ON en.entry = ed.id" \

@@ -127,10 +127,19 @@ test_dbinfo_LIBS = libhdb.la
 test_hdbkeys_LIBS = ../krb5/libkrb5.la libhdb.la
 test_mkey_LIBS = $(test_hdbkeys_LIBS)
 
+.sqls.h:
+	$(SED)  -e '/^-- [^@]/d' \
+		-e 's/^-- [@]/#define /' \
+		-e '/^#define/s/$$/ \\/' \
+		-e '/^[^#]/s/^/    "/' \
+		-e '/[^\\]$$/s/$$/" \\/' < $< > $@
+
 .sql.h:
 	@(echo '#define HDB_SQLITE_SCHEMA \'; \
 	$(SED) -e 's/^/"/' -e 's/$$/" \\/' < $<; \
 	echo '""') > $@
+
+# Close the single quote from above, to help the VIM syntax highlighter: '
 
 hdb-sqlite-schema.h: hdb-sqlite-schema.sql
 
