@@ -1,9 +1,12 @@
--- Foo
--- @FETCH
-SELECT a FROM b WHERE a = ?;
+--
+-- This file contains SQL statements.  All comments are stripped, except
+-- for comment likes that start with "-- @", which are turned into
+-- "#define <rest-of-line> \".  One or more empty lines is needed
+-- between statements.
+--
+-- This makes it easy to edit the SQL statements needed by the
+-- HDB-SQLite backend.
+--
+-- @HDBSQLITE_GET_VERSION
+SELECT max(number) FROM Version;
 
--- sdfjsldkfj
--- @STORE
-INSERT OR REPLACE INTO b (a) SELECT ?;
-
--- klsdfnlk;sdjfk

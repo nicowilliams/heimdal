@@ -128,7 +128,8 @@ test_hdbkeys_LIBS = ../krb5/libkrb5.la libhdb.la
 test_mkey_LIBS = $(test_hdbkeys_LIBS)
 
 .sqls.h:
-	$(SED)  -e '/^-- [^@]/d' \
+	$(SED)  -e '/^[\t ]*--[^\t ]*$$/d' \
+		-e '/^[\t ]*-- [^@]/d' \
 		-e 's/^-- [@]/#define /' \
 		-e '/^#define/s/$$/ \\/' \
 		-e '/^[^#]/s/^/    "/' \
