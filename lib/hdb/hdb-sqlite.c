@@ -113,6 +113,7 @@ typedef struct hdb_sqlite_db {
     int fetch_pcnameidCol;
     int fetch_pnameCol;
     int fetch_kvnoCol;
+    int fetch_keysCol;
     int fetch_gentimeCol;
     int fetch_genusecCol;
     int fetch_gengenCol;
@@ -181,8 +182,6 @@ typedef struct hdb_sqlite_db {
 #define _HDBSQLITE_STRINGIFY(x) #x
 #define HDBSQLITE_STRINGIFY(x) _HDBSQLITE_STRINGIFY(x)
 
-#define HDBSQLITE_GET_VERSION \
-                 " SELECT max(number) FROM Version"
 /* XXX Update this */
 #define HDBSQLITE_FETCH \
                  " SELECT ed.data FROM Entry ed" \
@@ -320,6 +319,8 @@ hdb_sqlite_col2event(krb5_context context,
     krb5_error_code ret;
     sqlite_int64 tmv;
     KerberosTime tm;
+
+    assert( ev != NULL || evp != NULL );
 
     if (sqlite3_column_type(cursor, timeCol) == SQLITE_NULL ||
 	sqlite3_column_type(cursor, nameCol) == SQLITE_NULL)
@@ -1795,6 +1796,7 @@ prep_fetch(krb5_context context, hdb_sqlite_db *hsdb)
 		err);
     GET_COL_IDX(hsdb->fetch_fast, "pname", hsdb->fetch_pnameCol, err);
     GET_COL_IDX(hsdb->fetch_fast, "kvno", hsdb->fetch_kvnoCol, err);
+    GET_COL_IDX(hsdb->fetch_fast, "keys", hsdb->fetch_keysCol, err);
     GET_COL_IDX(hsdb->fetch_fast, "gentime", hsdb->fetch_gentimeCol, err);
     GET_COL_IDX(hsdb->fetch_fast, "genusec", hsdb->fetch_genusecCol, err);
     GET_COL_IDX(hsdb->fetch_fast, "gengen", hsdb->fetch_gengenCol, err);
