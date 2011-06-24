@@ -57,6 +57,8 @@ enum hdb_lockop{ HDB_RLOCK, HDB_WLOCK };
 #define HDB_F_CANON		32	/* want canonicalition */
 #define HDB_F_ADMIN_DATA	64	/* want data that kdc don't use  */
 #define HDB_F_KVNO_SPECIFIED	128	/* we want a particular KVNO */
+#define HDB_F_DONT_RACE		256	/* check that we haven't raced */
+#define HDB_F_FORCE		512	/* overwrite the princ no matter what */
 
 /* hdb_capability_flags */
 #define HDB_CAP_F_HANDLE_ENTERPRISE_PRINCIPAL 1

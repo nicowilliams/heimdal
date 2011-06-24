@@ -102,8 +102,15 @@ HDB-extension ::= SEQUENCE {
 		aliases[6]			HDB-Ext-Aliases,
 		last-pw-change[7]		KerberosTime,
 	        pkinit-cert[8]  		HDB-Ext-PKINIT-cert,
+		-- Object ID of the principal (for relational backends only)
 		principal-id[9]			INTEGER (-9223372036854775808..9223372036854775807),
-		old-principal-name[9]		Principal,
+		-- Object ID of the principal's canonical name (for
+		-- relational backends only)
+		canon-name-id[10]		INTEGER (-9223372036854775808..9223372036854775807),
+		-- The principal's name as it was when the entry was
+		-- read.  This is used to detect renames even when
+		-- principal-id is absent.
+		old-principal-name[11]		Principal,
 		...
 	},
 	...

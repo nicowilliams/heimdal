@@ -109,6 +109,7 @@ typedef struct hdb_sqlite_db {
 
     /* Indexes to named parameters for each prepared statement */
     int fetch_pidCol;
+    int fetch_pcnameidCol;
     int fetch_pnameCol;
     int fetch_kvnoCol;
     int fetch_gentimeCol;
@@ -1738,6 +1739,91 @@ hdb_sqlite_close_database(krb5_context context, HDB *db)
     return 0;
 }
 
+
+/**
+ * Utility function that returns the column number of given column name.
+ *
+ * Use the corresponding utility macro GET_COL_IDX().
+ */
+static int
+get_col_idx(sqlite3_stmt *stmt, const char *colname)
+{
+    const char *s;
+    int count;
+    int i;
+
+    count = sqlite3_column_count(stmt);
+
+    for (i = 0; i < count; i++) {
+	s = sqlite3_column_name(stmt, i);
+	if (s == NULL)
+	    return -1;
+	if (strcmp(colname, s) == 0)
+	    return i;
+    }
+
+    assert( s == NULL );
+    return -1;
+}
+
+#define GET_COL_IDX(stmt, c, var, lab) \
+    if (((var) = get_col_idx((stmt), (c))) == -1) \
+	goto lab;
+
+
+static krb5_error_code
+prep_fetch(krb5_context context, hdb_sqlite_db *hsdb)
+{
+    int ret;
+
+    ret = hdb_sqlite_prepare_stmt(context, hsdb->db,
+                                  &hsdb->fetch_fast,
+                                  HDBSQLITE_FETCH,
+				  NULL);
+    return ret;
+
+    ret = hdb_sqlite_prepare_stmt(context, hsdb->db,
+                                  &hsdb->fetch_slow,
+                                  HDBSQLITE_FETCH,
+				  NULL);
+    if (ret) return ret;
+
+    GET_COL_IDX(hsdb->fetch_fast, "pid", hsdb->fetch_pidCol, err);
+    GET_COL_IDX(hsdb->fetch_fast, "canon_name_id", hsdb->fetch_pcnameidCol,
+		err);
+    GET_COL_IDX(hsdb->fetch_fast, "pname", hsdb->fetch_pnameCol, err);
+    GET_COL_IDX(hsdb->fetch_fast, "kvno", hsdb->fetch_kvnoCol, err);
+    GET_COL_IDX(hsdb->fetch_fast, "gentime", hsdb->fetch_gentimeCol, err);
+    GET_COL_IDX(hsdb->fetch_fast, "genusec", hsdb->fetch_genusecCol, err);
+    GET_COL_IDX(hsdb->fetch_fast, "gengen", hsdb->fetch_gengenCol, err);
+    GET_COL_IDX(hsdb->fetch_fast, "crbytime", hsdb->fetch_crbytimeCol, err);
+    GET_COL_IDX(hsdb->fetch_fast, "crbypname", hsdb->fetch_crbypnameCol, err);
+    GET_COL_IDX(hsdb->fetch_fast, "modbytime", hsdb->fetch_modbytimeCol, err);
+    GET_COL_IDX(hsdb->fetch_fast, "modbypname", hsdb->fetch_modbypnameCol, err);
+    GET_COL_IDX(hsdb->fetch_fast, "validstart", hsdb->fetch_validstartCol, err);
+    GET_COL_IDX(hsdb->fetch_fast, "validend", hsdb->fetch_validendCol, err);
+    GET_COL_IDX(hsdb->fetch_fast, "pwend", hsdb->fetch_pwendCol, err);
+    GET_COL_IDX(hsdb->fetch_fast, "maxlife", hsdb->fetch_maxlifeCol, err);
+    GET_COL_IDX(hsdb->fetch_fast, "maxrenew", hsdb->fetch_maxrenewCol, err);
+    GET_COL_IDX(hsdb->fetch_fast, "hdbflags", hsdb->fetch_hdbflagsCol, err);
+    GET_COL_IDX(hsdb->fetch_fast, "etypes", hsdb->fetch_etypesCol, err);
+    GET_COL_IDX(hsdb->fetch_fast, "pwmkvno", hsdb->fetch_pwmkvnoCol, err);
+    GET_COL_IDX(hsdb->fetch_fast, "pwpw", hsdb->fetch_pwpwCol, err);
+    GET_COL_IDX(hsdb->fetch_fast, "lastpwchg", hsdb->fetch_lastpwchgCol, err);
+    GET_COL_IDX(hsdb->fetch_fast, "aliases", hsdb->fetch_aliasesCol, err);
+    GET_COL_IDX(hsdb->fetch_fast, "pkacls", hsdb->fetch_pkaclsCol, err);
+    GET_COL_IDX(hsdb->fetch_fast, "pkcerthashes", hsdb->fetch_pkcerthashesCol,
+		err);
+    GET_COL_IDX(hsdb->fetch_fast, "pkcerts", hsdb->fetch_pkcertsCol, err);
+    GET_COL_IDX(hsdb->fetch_fast, "delegto", hsdb->fetch_delegtoCol, err);
+    GET_COL_IDX(hsdb->fetch_fast, "lmowf", hsdb->fetch_lmowfCol, err);
+
+    return 0;
+
+err:
+    return ENOMEM; /* Most likely the issue */
+}
+
 /**
  * Opens an sqlite database file and prepares it for use.
  * If the file does not exist it will be created.
@@ -1780,15 +1866,7 @@ hdb_sqlite_make_database(krb5_context context, HDB *db, const char *filename)
                                   HDBSQLITE_GET_VERSION,
 				  NULL);
     if (ret) goto out;
-    ret = hdb_sqlite_prepare_stmt(context, hsdb->db,
-                                  &hsdb->fetch_fast,
-                                  HDBSQLITE_FETCH,
-				  NULL);
-    if (ret) goto out;
-    ret = hdb_sqlite_prepare_stmt(context, hsdb->db,
-                                  &hsdb->fetch_slow,
-                                  HDBSQLITE_FETCH,
-				  NULL);
+    ret = prep_fetch(context, hsdb);
     if (ret) goto out;
     ret = hdb_sqlite_prepare_stmt(context, hsdb->db,
                                   &hsdb->get_ids,
@@ -1881,18 +1959,27 @@ hdb_sqlite_fetch_kvno(krb5_context context, HDB *db, krb5_const_principal princi
     hdb_sqlite_db *hsdb = (hdb_sqlite_db*)(db->hdb_db);
     sqlite3_stmt *fetch = hsdb->fetch_fast;
 
-    ret = krb5_unparse_name(context, principal, &principal_string);
-    if (ret) {
-        free(principal_string);
-        return ret;
-    }
+    /* Rest doesn't clear bindings, watch out! */
+    (void) sqlite3_clear_bindings(fetch);
+    (void) sqlite3_reset(fetch);
 
     if (flags & HDB_F_KVNO_SPECIFIED && kvno != 0) {
 	fetch = hsdb->fetch_kvno;
-	sqlite3_bind_int(fetch, 2, kvno);
+	sqlite_error = sqlite3_bind_int(fetch, 2, kvno);
+	if (sqlite_error != SQLITE_OK)
+	    return HDB_ERR_NOENTRY; /* XXX Need a better error */
     }
 
-    sqlite3_bind_text(fetch, 1, principal_string, -1, SQLITE_STATIC);
+    ret = krb5_unparse_name(context, principal, &principal_string);
+    if (ret) return ret;
+
+    sqlite_error = sqlite3_bind_text(fetch, 1, principal_string, -1, SQLITE_TRANSIENT);
+    free(principal_string);
+    if (sqlite_error != SQLITE_OK) {
+	ret = HDB_ERR_NOENTRY; /* XXX Need a better error */
+	goto out;
+    }
+
 
     sqlite_error = hdb_sqlite_step(context, hsdb->db, fetch);
     if (sqlite_error != SQLITE_ROW) {
@@ -1923,17 +2010,16 @@ hdb_sqlite_fetch_kvno(krb5_context context, HDB *db, krb5_const_principal princi
     ret = 0;
 
 out:
+    /* Rest doesn't clear bindings, watch out! */
     sqlite3_clear_bindings(fetch);
     sqlite3_reset(fetch);
-
-    free(principal_string);
 
     return ret;
 }
 
 /**
- * Convenience function to step a prepared statement with no
- * value once.
+ * Convenience function to step a prepared statement once.  Useful for
+ * statements with no expected result rows.
  *
  * @param context   The current krb5_context
  * @param statement A prepared sqlite3 statement
@@ -1956,11 +2042,10 @@ hdb_sqlite_step_once(krb5_context context, HDB *db, sqlite3_stmt *statement)
 
 /**
  * This function checks if an entry being stored is an update or a new
- * entry, or whether it's a rename.  It also indicates whether the
- * update conflicts in some way with either an existing entry or another
- * transaction.  Some of this could be done with triggers, but it'd be
- * nice to have a per-operation flag requesting atomicity -- that's
- * what this function is ultimate aimed at.
+ * entry, whether it's a rename, and whether there is some sort of race
+ * or conflict.  Some of this could be done with triggers, but it'd be
+ * nice to have a per-operation flag requesting atomicity -- that's what
+ * this function is ultimate aimed at.
  *
  * @param context	krb5_context
  * @param db		HDB DB handle
@@ -1968,10 +2053,39 @@ hdb_sqlite_step_once(krb5_context context, HDB *db, sqlite3_stmt *statement)
  * @param previous	Entry from DB with entry's old name (output,
  *			optional)
  * @param target	Entry from DB with entry's new name (output)
+ * @param princid	Pointer to principal ID to use for updates (output)
  * @param is_update	True if an entry exists with this name (output)
  * @param is_rename	True if this is a rename (output)
  * @param is_conflict	True if this update conflicts with an existing
  *			entry (output)
+ *
+ * This function must be called in an immediate transaction, so that the
+ * DB is locked, so that we can check for updates where two threads
+ * fetch the same principal concurrently (so they get the same
+ * hdb_entry) and then race to update it.
+ *
+ * The princid, is_rename, and is_conflict output parameters will be set
+ * to -1 if the principal ID or type of update cannot be determined,
+ * respectively.  Otherwise *is_update, *is_rename, and *is_conflict are
+ * set to 0 (false) or 1 (true).
+ *
+ * Returns 0 on success, even if the update conditions are such that the
+ * caller should return an error; the caller must check the boolean
+ * output parameters.
+ *
+ * The princid cannot be determined when the entry being set came from a
+ * non-HDB-SQLite backend.
+ *
+ * The is_rename condition cannot be determined if the entry came from a
+ * non-HDB-SQLite backend (though this could be fixed in the other
+ * backends) or from a dump.
+ *
+ * The is_confict condition cannot be determined if either the given
+ * entry or the existing one on in the HDB do not have a generation.  If
+ * *is_conflict == 1 then either this thread raced with another in
+ * reading the original entry or updating the new one.  In this case a
+ * caller that wants atomic updates should return an error to its
+ * caller.
  */
 static krb5_error_code
 check_update(krb5_context context,
@@ -1979,17 +2093,23 @@ check_update(krb5_context context,
 	     hdb_entry_ex *entry,
 	     hdb_entry_ex *previous,
 	     hdb_entry_ex *target,
+	     sqlite_int64 *princid,
+	     sqlite_int64 *targ_princid,
 	     int *is_update,
 	     int *is_rename,
 	     int *is_conflict)
 {
     krb5_error_code ret;
+    HDB_extension ext;
+    HDB_extension *extp;
     HDB_extension *exts;
+    sqlite_int64 prev_princid = -1LL;
     Principal *princ;
     Principal *oldprinc = NULL;
     GENERATION entry_gen1, entry_gen2;
-    int i;
 
+    *princid = -1LL;
+    *targ_princid = -1LL;
     *is_update = 0;
     *is_rename = -1; /* unknown */
     *is_conflict = 0;
@@ -1997,28 +2117,27 @@ check_update(krb5_context context,
 	memset(&previous->entry, 0, sizeof (previous->entry));
     memset(&target->entry, 0, sizeof (target->entry));
 
+    if (entry->entry.principal == NULL)
+	return HDB_ERR_NOENTRY; /* XXX Need an EINVAL type code here */
+
     princ = entry->entry.principal;
     exts = entry->entry.extensions->val;
-    memset(&entry_gen2, 0, sizeof (entry_gen1));
-    if (entry->entry.generation != NULL)
-	entry_gen1 = *entry->entry.generation;
 
-    if (entry->entry.extensions == NULL)
+    /* Get the principal ID */
+    ext.data.element = choice_HDB_extension_data_principal_id;
+    extp = hdb_find_extension(&entry->entry, ext.data.element);
+    if (extp != NULL)
+	*princid = extp->data.u.principal_id;
+
+    /* Get the old principal name, so we can check for renames */
+    ext.data.element = choice_HDB_extension_data_old_principal_name;
+    extp = hdb_find_extension(&entry->entry, ext.data.element);
+    if (extp == NULL)
 	/* Probably an entry from a dump of an old HDB */
 	goto past_rename;
+    oldprinc = &extp->data.u.old_principal_name;
 
-    for (i = 0; i < entry->entry.extensions->len; i++) {
-	if (exts[i].data.element !=
-	    choice_HDB_extension_data_old_principal_name)
-	    continue;
-	oldprinc = &exts[i].data.u.old_principal_name;
-	break;
-    }
-
-    if (oldprinc == NULL)
-	/* Probably an entry from a dump of an old HDB */
-	goto past_rename;
-
+    /* Check if this is a rename */
     *is_rename = 0;
     if (krb5_principal_compare(context, princ, oldprinc) != TRUE) {
 	*is_rename = 1;
@@ -2026,16 +2145,31 @@ check_update(krb5_context context,
 	    ret = hdb_sqlite_fetch_kvno(context, db, oldprinc, 0, 0, previous);
 	    if (ret != 0 && ret != HDB_ERR_NOENTRY)
 		return ret;
-	    /*
-	     * XXX Should we check that the previous entry's generation
-	     * matches the new one's?  That would allow us to detect
-	     * races in the admin APIs/apps.
-	     */
+	    ext.data.element = choice_HDB_extension_data_principal_id;
+	    extp = hdb_find_extension(&entry->entry, ext.data.element);
+	    assert( extp != NULL );
+	    prev_princid = extp->data.u.principal_id;
+	    /* Check if we raced with an update/replace of the previous entry */
+	    if (*princid != -1LL && prev_princid == *princid)
+		*is_conflict = 1;
+
+	    if (entry->entry.generation == NULL ||
+		previous->entry.generation == NULL)
+		goto past_rename;
+	    entry_gen1 = *entry->entry.generation;
+	    entry_gen2 = *previous->entry.generation;
+	    if (entry_gen1.time != entry_gen2.time ||
+		entry_gen1.usec != entry_gen2.usec ||
+		entry_gen1.gen != entry_gen2.gen)
+		*is_conflict = 1;
 	}
     }
 
 past_rename:
-    /* Check if we'll be overwriting anything */
+    /*
+     * Check if we'll be overwriting anything.  It's the caller's job to
+     * check for HDB_F_REPLACE.
+     */
     ret = hdb_sqlite_fetch_kvno(context, db, princ, 0, 0, target);
     if (ret != 0 && ret != HDB_ERR_NOENTRY)
 	return ret;
@@ -2049,14 +2183,24 @@ past_rename:
 	return 0;
     }
 
-    if (target->entry.generation != NULL)
-	entry_gen2 = *target->entry.generation;
+    /* Get the principal ID of the entry that will be overwritten */
+    ext.data.element = choice_HDB_extension_data_principal_id;
+    extp = hdb_find_extension(&target->entry, ext.data.element);
+    assert( extp != NULL );
+    *targ_princid = extp->data.u.principal_id;
 
+    if (*targ_princid != *princid && *princid != -1LL)
+	*is_conflict = 1;
+
+    /* Check for non-atomicity */
     if (entry->entry.generation == NULL || target->entry.generation == NULL) {
 	/* Can't tell for sure if this is a conflict or not */
 	*is_conflict = -1;
 	return 0;
     }
+
+    entry_gen1 = *entry->entry.generation;
+    entry_gen2 = *target->entry.generation;
 
     if (entry_gen1.time != entry_gen2.time ||
 	entry_gen1.usec != entry_gen2.usec ||
@@ -2086,17 +2230,16 @@ hdb_sqlite_store(krb5_context context, HDB *db, unsigned flags,
     int ret;
     int is_update, is_rename, is_conflict;
     int i;
-    sqlite_int64 entry_id;
+    sqlite_int64 entry_id = -1LL;
+    sqlite_int64 del_entry_id = -1LL;
     char *principal_string = NULL;
     char *alias_string;
     const HDB_Ext_Aliases *aliases;
-
-    hdb_entry_ex previous;
-    hdb_entry_ex target;
-
     hdb_sqlite_db *hsdb = (hdb_sqlite_db *)(db->hdb_db);
     krb5_data value;
     sqlite3_stmt *get_ids = hsdb->get_ids;
+    hdb_entry_ex previous;
+    hdb_entry_ex target;
 
     ret = hdb_sqlite_exec_stmt(context, hsdb->db,
                                "BEGIN IMMEDIATE TRANSACTION", EINVAL);
@@ -2108,33 +2251,33 @@ hdb_sqlite_store(krb5_context context, HDB *db, unsigned flags,
         goto rollback;
     }
 
-    /* XXX For now we'll not handle renames */
-    
     ret = krb5_unparse_name(context,
                             entry->entry.principal, &principal_string);
-    if (ret) {
-        goto rollback;
-    }
+    if (ret) goto rollback;
 
+    /* Check to see if we should go ahead with this update */
     ret = check_update(context, db, entry, &previous, &target,
+		       &entry_id, &del_entry_id,
 		       &is_update, &is_rename, &is_conflict);
-    if (ret != 0)
-	goto rollback;
+    if (ret != 0) goto rollback;
 
-    ret = hdb_seal_keys(context, db, &entry->entry);
-    if(ret) {
-        goto rollback;
+    if (is_conflict != 0 && (flags & HDB_F_DONT_RACE)) {
+	ret = HDB_ERR_RACED;
+	goto rollback;
     }
 
     if (is_update && !(flags & HDB_F_REPLACE)) {
 	ret = HDB_ERR_EXISTS;
 	goto rollback;
     }
-    if (is_rename == 1 && is_conflict == 1) {
-	/* Even if HDB_F_REPLACE... */
+
+    if (!(flags & HDB_F_FORCE) && is_rename == 1 && is_conflict == 1) {
 	ret = HDB_ERR_EXISTS;
 	goto rollback;
     }
+
+    ret = hdb_seal_keys(context, db, &entry->entry);
+    if(ret) goto rollback;
 
     /*
      * XXX So here we want to do INSERT OR REPLACE on everything, but
