@@ -36,6 +36,7 @@
 #include "hdb-sqlite-statements.h"
 #include "sqlite3.h"
 #include <assert.h>
+#include <ctype.h>
 #include <der.h>
 #include <malloc.h>
 
@@ -716,6 +717,135 @@ einval:
 
 
 /**
+ * Decode stringified, quoted symmetric key sets.
+ *
+ * See hdb_sqlite_col2pkinit_acls() below for more details.
+ */
+static krb5_error_code
+hdb_sqlite_col2keys(krb5_context context,
+		    sqlite3 *db,
+		    sqlite3_stmt *cursor,
+		    int kvno,
+		    int iCol,
+		    hdb_entry *entry)
+{
+    krb5_error_code ret;
+    int is_blob;
+    int i = 0;
+    int alloced = 0;
+    const unsigned char *sql_str;
+    const unsigned char *nxt;
+    const unsigned char *inner_nxt;
+    unsigned char *s = NULL;
+    const char *e = NULL;
+    unsigned char *inner_s = NULL;
+    heim_oid oid;
+    size_t bytes;
+    krb5int32 kvno;
+    unsigned int mkvno;
+    int count;
+    Key *keys = NULL;
+
+    /*
+     * We expect keys to be a comma-separated list of quoted strings,
+     * which are themselves a list of three values, two of them quoted,
+     * thus always a string.
+     */
+    sql_str = sqlite3_column_text(cursor, iCol);
+    if (sql_str == NULL) {
+	if (sqlite3_errcode(db) != SQLITE_OK)
+	    return ENOMEM; /* XXX */
+	return 0;
+    }
+
+    errno = 0;
+    kvno = strtol((const char *)sql_str, &e, 10);
+    if (errno != 0)
+	return errno; /* XXX better code */
+
+    if (kvno = 0 && e == (const char *)sql_str)
+	return 0;
+
+    nxt = (const unsigned char *)e;
+    do {
+	free(s);
+	s = dequote_alloc(nxt, &nxt, &is_blob);
+	if (is_blob) {
+	    ret = EINVAL;
+	    goto out;
+	}
+	if (s == NULL && errno != 0) {
+	    ret = errno;
+	    goto out;
+	}
+	if (s == NULL)
+	    break;
+	if (i >= alloced) {
+	    alloced *= 2;
+	    tmp2.data.u.pkinit_cert_hash.val =
+		realloc(pkinit_cert_hash->val,
+			sizeof (*pkinit_cert_hash->val) * alloced);
+	    if (tmp2.data.u.pkinit_cert_hash.val == NULL) {
+		ret = ENOMEM;
+		goto out;
+	    }
+	    pkinit_cert_hash->val = tmp2.data.u.pkinit_cert_hash.val;
+	}
+
+	free(inner_s);
+
+	/* Get the digest OID */
+	inner_s = dequote_decode(s, &inner_nxt, &bytes, &is_blob);
+	if (is_blob) {
+	    oid.length = bytes;
+	    oid.components = (unsigned *)inner_s;
+	    inner_s = NULL;
+	} else {
+	    ret = der_parse_heim_oid((const char *)inner_s, ".", &oid);
+	    if (ret != 0)
+		goto out;
+	}
+	pkinit_cert_hash->val[i].digest_type = oid;
+	if (!isascii(inner_nxt[1]))
+	    goto bottom;
+	free(inner_s);
+	/* Get the digest */
+	inner_s = dequote_decode(inner_nxt + 2, &inner_nxt, &bytes, &is_blob);
+	if (!is_blob) {
+	    ret = EINVAL;
+	    goto out;
+	}
+	pkinit_cert_hash->val[i].digest.length = bytes;
+	pkinit_cert_hash->val[i].digest.data = inner_s;
+	inner_s = NULL;
+	/* We ignore any trailing values */
+
+bottom:
+	assert( nxt[0] != '\0' );
+
+	if (!isascii(nxt[1]))
+	    break;
+	nxt += 2;
+    } while (1);
+
+    pkinit_cert_hash->len = i;
+    tmp.data.element = choice_HDB_extension_data_pkinit_cert_hash;
+    tmp.mandatory = 0;
+
+    ret = hdb_replace_extension(context, entry, &tmp);
+
+out:
+    if (ret != 0) {
+	free_HDB_Ext_PKINIT_hash(pkinit_cert_hash);
+	free(inner_s);
+	free(s);
+    }
+
+    return ret;
+}
+
+
+/**
  * Helper to decode stringified, quoted PKINIT ACL list and add it to
  * the HDB_Extensions.
  *
@@ -839,7 +969,9 @@ hdb_sqlite_col2pkinit_acls(krb5_context context,
 	}
 	pkinit_acl->val[i].subject = (heim_utf8_string)inner_s;
 	inner_s = NULL;
-	if (inner_nxt[1] != ':')
+
+	/* Skip separator character; we don't really care what it is */
+	if (!isascii(inner_nxt[1]))
 	    goto bottom;
 
 	/* Get the issuer */
@@ -863,7 +995,7 @@ hdb_sqlite_col2pkinit_acls(krb5_context context,
 	*str_ptr = (heim_utf8_string)inner_s;
 	pkinit_acl->val[i].issuer = str_ptr;
 	inner_s = NULL;
-	if (inner_nxt[1] != ':')
+	if (!isascii(inner_nxt[1]))
 	    goto bottom;
 
 	/* Get the anchor */
@@ -891,8 +1023,9 @@ hdb_sqlite_col2pkinit_acls(krb5_context context,
 
 bottom:
 	assert( nxt[0] != '\0' );
-	if (nxt[1] != ',')
+	if (!isascii(nxt[1]))
 	    break;
+	nxt += 2;
     } while (1);
 
     pkinit_acl->len = i;
@@ -996,7 +1129,7 @@ hdb_sqlite_col2pkinit_cert_hashes(krb5_context context,
 		goto out;
 	}
 	pkinit_cert_hash->val[i].digest_type = oid;
-	if (inner_nxt[1] != ':')
+	if (!isascii(inner_nxt[1]))
 	    goto bottom;
 	free(inner_s);
 	/* Get the digest */
@@ -1013,8 +1146,9 @@ hdb_sqlite_col2pkinit_cert_hashes(krb5_context context,
 bottom:
 	assert( nxt[0] != '\0' );
 
-	if (nxt[1] != ',')
+	if (!isascii(nxt[1]))
 	    break;
+	nxt += 2;
     } while (1);
 
     pkinit_cert_hash->len = i;
@@ -1098,7 +1232,7 @@ hdb_sqlite_col2pkinit_certs(krb5_context context,
 	    pkinit_cert->val = tmp2.data.u.pkinit_cert.val;
 	}
 
-	if (inner_nxt[1] != ':') {
+	if (!isascii(inner_nxt[1])) {
 	    ret = EINVAL;
 	    goto out; /* digest is not optional */
 	}
@@ -1117,8 +1251,9 @@ hdb_sqlite_col2pkinit_certs(krb5_context context,
 
 	assert( nxt[0] != '\0' );
 
-	if (nxt[1] != ',')
+	if (!isascii(nxt[1]))
 	    break;
+	nxt += 2;
     } while (1);
 
     pkinit_cert->len = i;
@@ -1781,13 +1916,13 @@ prep_fetch(krb5_context context, hdb_sqlite_db *hsdb)
 
     ret = hdb_sqlite_prepare_stmt(context, hsdb->db,
                                   &hsdb->fetch_fast,
-                                  HDBSQLITE_FETCH,
+                                  HDBSQLITE_FETCH_FAST,
 				  NULL);
     return ret;
 
     ret = hdb_sqlite_prepare_stmt(context, hsdb->db,
                                   &hsdb->fetch_slow,
-                                  HDBSQLITE_FETCH,
+                                  HDBSQLITE_FETCH_SLOW,
 				  NULL);
     if (ret) return ret;
 
