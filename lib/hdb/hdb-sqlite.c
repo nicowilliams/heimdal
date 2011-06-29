@@ -613,106 +613,143 @@ slow_path:
     return 0;
 }
 
+#define DQSQLV_TYPE_NULL        0
+#define DQSQLV_TYPE_INT64       1
+#define DQSQLV_TYPE_STR         2
+#define DQSQLV_TYPE_BLOB        3
+#define DQSQLV_TYPE_OTHER       4
+
 
 /**
- * A wrapper around dequote() that always returns a NUL-terminated
- * string that must be freed by calling free().
+ * A wrapper around dequote() that always returns a allocated strings
+ * and blobs when the value dequoted is a string or a blob.  Also
+ * supports integers and SQL NULL values.
  *
  * @param in	A SQLite3 quote()ed string
  * @param nxt	Pointer to the ending single quote in the original
  *		(useful for iterating over concatenated quoted strings)
- * @param blobp	Set to true if the string is a blob
- *
- * Blobs are not decoded; they are output as hex strings.
- */
-static unsigned char *
-dequote_alloc(const unsigned char *in, const unsigned char **nxt, int *blobp)
-{
-    int ret;
-    unsigned char *s;
-    size_t sz;
-    int freeit;
-
-    errno = 0;
-    ret = dequote(in, &s, nxt, &sz, blobp, &freeit);
-    if (ret != 0) {
-	if (ret > 0)
-	    errno = ret;
-	return NULL;
-    }
-
-    if (freeit)
-	return s;
-
-    return (unsigned char *)strndup((const char *)s, sz);
-}
-
-
-/**
- * A wrapper around dequote() that always returns a NUL-terminated
- * string that must be freed by calling free(), except for blobs, which
- * are decoded and NOT NUL-terminated.
- *
- * @param in	A SQLite3 quote()ed string
- * @param nxt	Pointer to the ending single quote in the original
- *		(useful for iterating over concatenated quoted strings)
- * @param szp	Set to the length, in bytes, of the ouput string (not
+ * @param typ	Indicates the type of the value dequoted (output)
+ * @param str	Dequoted string, if type is text (output)
+ * @param blob	Dequoted blob, if type is blob (output)
+ * @param sz	Set to the length, in bytes, of the ouput string (not
  *              counting NUL) or blob (not NUL-terminated).
- * @param blobp	Set to true if the string is a blob
+ * @param nump	64-bit signed integer value, if type is integer (output)
  */
-static unsigned char *
-dequote_decode(const unsigned char *in, const unsigned char **nxt, size_t *szp, int *blobp)
+static int
+dequote_decode(const unsigned char *in,
+	       const unsigned char **nxt,
+	       int *typ,
+	       unsigned char **str,
+	       void **blob,
+	       size_t *szp,
+	       int64_t *nump)
 {
     int ret;
-    unsigned char *s;
+    unsigned char *s = NULL;
     unsigned char *b = NULL;
     size_t sz;
-    int freeit;
+    char *e;
+    int freeit, is_blob;
     int i, k;
+    int64_t num;
 
-    ret = dequote(in, &s, nxt, &sz, blobp, &freeit);
-    errno = ret;
-    if (ret != 0)
-	return NULL;
+    if (str != NULL)
+	*str = NULL;
+    if (blob != NULL)
+	*blob = NULL;
+    if (szp != NULL)
+	*szp = 0;
+    if (typ != NULL)
+	*typ = DQSQLV_TYPE_OTHER;
 
-    *szp = sz;
+    if (in[0] == '\'' || (in[0] == 'X' && in[1] == '\'')) {
+	ret = dequote(in, &s, nxt, &sz, &is_blob, &freeit);
+	if (ret != 0)
+	    return ret;
+	if (szp != NULL)
+	    *szp = sz;
 
-    if (freeit && !*blobp)
-	return s;
-    if (!freeit && !*blobp)
-	return (unsigned char *)strndup((const char *)s, sz);
+	(*nxt)++;
+	if (freeit && !is_blob) {
+	    if (str != NULL)
+		*str = s;
+	    else
+		free(s);
+	    if (typ != NULL)
+		*typ = DQSQLV_TYPE_STR;
+	    return 0;
+	}
+	if (!freeit && !is_blob) {
+	    if (str != NULL)
+		*str = (unsigned char *)strndup((const char *)s, sz);
+	    if (typ != NULL)
+	    *typ = DQSQLV_TYPE_STR;
+	    return 0;
+	}
 
-    /* We have a blob; decode it */
-    if ((sz & 1) == 1)
-	goto einval;
-
-    b = memalign(sizeof (long), sz >> 1);
-    if (b == NULL)
-	return NULL;
-
-    for (i = 0, k = 0; i < sz; i++, k++) {
-	if (s[i] >= '0' && s[i] <= '9')
-	    b[k] = (s[i] - '0') << 4;
-	else if (s[i] >= 'A' && s[i] <= 'F')
-	    b[k] = (10 + (s[i] - '0')) << 4;
-	else
+	/* We have a blob; decode it */
+	if ((sz & 1) == 1)
 	    goto einval;
-	i++;
-	if (s[i] >= '0' && s[i] <= '9')
-	    b[k] |= s[i] - '0';
-	else if (s[i] >= 'A' && s[i] <= 'F')
-	    b[k] |= 10 + (s[i] - '0');
-	else
-	    goto einval;
+
+	if (blob != NULL) {
+	    b = memalign(sizeof (long), sz >> 1);
+	    if (b == NULL)
+		return errno;
+	}
+
+	for (i = 0, k = 0; i < sz; i++, k++) {
+	    if (s[i] >= '0' && s[i] <= '9') {
+		if (blob != NULL)
+		    b[k] = (s[i] - '0') << 4;
+	    } else if (s[i] >= 'A' && s[i] <= 'F') {
+		if (blob != NULL)
+		    b[k] = (10 + (s[i] - '0')) << 4;
+	    } else
+		goto einval;
+	    i++;
+	    if (s[i] >= '0' && s[i] <= '9') {
+		if (blob != NULL)
+		    b[k] |= s[i] - '0';
+	    } else if (s[i] >= 'A' && s[i] <= 'F') {
+		if (blob != NULL)
+		    b[k] |= 10 + (s[i] - '0');
+	    } else
+		goto einval;
+	}
+
+	sz >>= 1;
+
+	if (blob != NULL) {
+	    *blob = b;
+	    *szp = sz;
+	}
+	if (typ != NULL)
+	    *typ = DQSQLV_TYPE_BLOB;
+	return 0;
+    } else if (strncmp((char *)in, "NULL", 4) == 0 &&
+	       isascii(in[4]) &&
+	       (ispunct(in[4]) || isspace(in[4]))) {
+	if (typ != NULL)
+	    *typ = DQSQLV_TYPE_NULL;
+	*nxt = in + 4;
+	return 0;
     }
 
-    *szp = sz >> 1;
-    return b;
+    /* Must be something else, say, a number, but we don't handle reals */
+    num = strtoll((char *)in, &e, 10);
+    if (errno != 0 || e == (char *)in || e[0] == '.')
+	return EINVAL;
+
+    *nxt = (const unsigned char *)e;
+    if (typ != NULL)
+	*typ = DQSQLV_TYPE_INT64;
+    if (nump != NULL)
+	*nump = num;
+    return 0;
 
 einval:
     free(b);
-    errno = EINVAL;
-    return NULL;
+    return EINVAL;
 }
 
 
@@ -739,12 +776,18 @@ hdb_sqlite_col2keys(krb5_context context,
     unsigned char *s = NULL;
     const char *e = NULL;
     unsigned char *inner_s = NULL;
+    unsigned char *salt = NULL;
+    void *inner_b = NULL;
+    void *key = NULL;
     heim_oid oid;
     size_t bytes;
-    krb5int32 kvno;
+    krb5int32 entry_kvno = -1;
+    krb5int32 etype = -1;
+    krb5int32 salttype = -1;
     unsigned int mkvno;
-    int count;
+    int count = 0;
     Key *keys = NULL;
+    Key *tmp;
 
     /*
      * We expect keys to be a comma-separated list of quoted strings,
@@ -758,66 +801,116 @@ hdb_sqlite_col2keys(krb5_context context,
 	return 0;
     }
 
-    errno = 0;
-    kvno = strtol((const char *)sql_str, &e, 10);
-    if (errno != 0)
-	return errno; /* XXX better code */
-
-    if (kvno = 0 && e == (const char *)sql_str)
-	return 0;
-
-    nxt = (const unsigned char *)e;
+    nxt = sql_str;
     do {
+	int typ;
+	int64_t num;
+	void *key;
+
 	free(s);
-	s = dequote_alloc(nxt, &nxt, &is_blob);
-	if (is_blob) {
+	ret = dequote_decode(nxt, &nxt, NULL, &s, NULL, NULL, NULL);
+	if (ret != 0) goto out;
+	if (s == NULL) {
 	    ret = EINVAL;
 	    goto out;
 	}
-	if (s == NULL && errno != 0) {
-	    ret = errno;
+
+	/* Get the kvno from the entry */
+	free(inner_s);
+	ret = dequote_decode(s, &inner_nxt, &typ, NULL, NULL, NULL, &num);
+	if (typ != DQSQLV_TYPE_INT64) {
+	    ret = EINVAL;
 	    goto out;
 	}
-	if (s == NULL)
-	    break;
+
+	if (num != kvno)
+	    goto bottom;
+
+	/* Get the mkvno */
+	num = 0;
+	ret = dequote_decode(inner_nxt + 2, &inner_nxt, &typ, NULL, NULL, NULL, &num);
+	if (ret != 0) goto out;
+	if ((typ != DQSQLV_TYPE_INT64 && typ != DQSQLV_TYPE_NULL) || num < 0) {
+	    ret = EINVAL;
+	    goto out;
+	}
+	mkvno = (krb5int32)num;
+	if (mkvno != num) {
+	    ret = EOVERFLOW;
+	    goto out;
+	}
+
+	/* Get the enctype */
+	ret = dequote_decode(inner_nxt + 2, &inner_nxt, &typ, NULL, NULL, NULL, &num);
+	if (ret != 0) goto out;
+	if (typ != DQSQLV_TYPE_INT64) {
+	    ret = EINVAL;
+	    goto out;
+	}
+	etype = (krb5int32)num;
+	if (etype != num) {
+	    ret = EOVERFLOW;
+	    goto out;
+	}
+
+	/* Get the key */
+	ret = dequote_decode(inner_nxt + 2, &inner_nxt, NULL, NULL, &inner_b, &bytes, NULL);
+	if (ret != 0) goto out;
+	if (inner_b == NULL) {
+	    ret = EINVAL;
+	    goto out;
+	}
+	key = inner_b;
+	keybytes = bytes;
+	inner_b = NULL;
+
+	/* Get the salttype */
+	ret = dequote_decode(inner_nxt + 2, &inner_nxt, &typ, NULL, NULL, NULL, &num);
+	if (ret != 0) goto out;
+	if (typ != DQSQLV_TYPE_INT64 && typ != DQSQLV_TYPE_NULL) {
+	    ret = EINVAL;
+	    goto out;
+	}
+	salttype = (krb5int32)num;
+	if (salttype != num) {
+	    ret = EOVERFLOW;
+	    goto out;
+	}
+
+	/* Get the salt */
+	ret = dequote_decode(inner_nxt + 2, &inner_nxt, NULL, &inner_s, NULL, NULL, NULL);
+	if (ret != 0) goto out;
+	if (inner_s != NULL) {
+	    salt = inner_s;
+	    inner_s = NULL;
+	}
+
+	i++;
 	if (i >= alloced) {
 	    alloced *= 2;
-	    tmp2.data.u.pkinit_cert_hash.val =
-		realloc(pkinit_cert_hash->val,
-			sizeof (*pkinit_cert_hash->val) * alloced);
-	    if (tmp2.data.u.pkinit_cert_hash.val == NULL) {
-		ret = ENOMEM;
+	    if (alloced == 0)
+		alloced = 2;
+	    tmp = realloc(keys, sizeof (*keys) * alloced);
+	    if (tmp == NULL) {
+		ret = errno;
 		goto out;
 	    }
-	    pkinit_cert_hash->val = tmp2.data.u.pkinit_cert_hash.val;
+	    keys[i - 1].mkvno = mkvno;
+	    keys[i - 1].key.keytype = etype;
+	    keys[i - 1].key.keyvalue.data = key;
+	    keys[i - 1].key.keyvalue.length = keybytes;
+	    if (salt != NULL) {
+		keys[i - 1].salt = calloc(1, sizeof (*(keys[i - 1].salt)));
+		if (keys[i - 1].salt == NULL) {
+		    ret = errno;
+		    goto out;
+		}
+		keys[i - 1].salt->type = salttype;
+		keys[i - 1].salt->salt.data = salttype;
+		keys[i - 1].salt->salt.length = strlen(salttype);
+	    }
 	}
 
-	free(inner_s);
-
-	/* Get the digest OID */
-	inner_s = dequote_decode(s, &inner_nxt, &bytes, &is_blob);
-	if (is_blob) {
-	    oid.length = bytes;
-	    oid.components = (unsigned *)inner_s;
-	    inner_s = NULL;
-	} else {
-	    ret = der_parse_heim_oid((const char *)inner_s, ".", &oid);
-	    if (ret != 0)
-		goto out;
-	}
-	pkinit_cert_hash->val[i].digest_type = oid;
-	if (!isascii(inner_nxt[1]))
-	    goto bottom;
-	free(inner_s);
-	/* Get the digest */
-	inner_s = dequote_decode(inner_nxt + 2, &inner_nxt, &bytes, &is_blob);
-	if (!is_blob) {
-	    ret = EINVAL;
-	    goto out;
-	}
-	pkinit_cert_hash->val[i].digest.length = bytes;
-	pkinit_cert_hash->val[i].digest.data = inner_s;
-	inner_s = NULL;
 	/* We ignore any trailing values */
 
 bottom:
@@ -828,16 +921,10 @@ bottom:
 	nxt += 2;
     } while (1);
 
-    pkinit_cert_hash->len = i;
-    tmp.data.element = choice_HDB_extension_data_pkinit_cert_hash;
-    tmp.mandatory = 0;
-
-    ret = hdb_replace_extension(context, entry, &tmp);
-
 out:
     if (ret != 0) {
-	free_HDB_Ext_PKINIT_hash(pkinit_cert_hash);
 	free(inner_s);
+	free(inner_b);
 	free(s);
     }
 
@@ -926,19 +1013,17 @@ hdb_sqlite_col2pkinit_acls(krb5_context context,
     nxt = sql_str;
     do {
 	free(s);
-	s = dequote_alloc(nxt, &nxt, &is_blob);
-	if (is_blob) {
+	ret = dequote_decode(nxt, &nxt, NULL, &s, NULL, NULL, NULL);
+	if (ret != 0) goto out;
+	if (s == NULL) {
 	    ret = EINVAL;
 	    goto out;
 	}
-	if (s == NULL && errno != 0) {
-	    ret = errno;
-	    goto out;
-	}
-	if (s == NULL)
-	    break;
+	i++;
 	if (i >= alloced) {
 	    alloced *= 2;
+	    if (alloced == 0)
+		alloced = 2;
 	    tmp2.data.u.pkinit_acl.val =
 		realloc(pkinit_acl->val, sizeof (*pkinit_acl->val) * alloced);
 	    if (tmp2.data.u.pkinit_acl.val == NULL) {
@@ -947,27 +1032,21 @@ hdb_sqlite_col2pkinit_acls(krb5_context context,
 	    }
 	    pkinit_acl->val = tmp2.data.u.pkinit_acl.val;
 	}
-	pkinit_acl->val[i].subject = NULL;
-	pkinit_acl->val[i].issuer = NULL;
-	pkinit_acl->val[i].anchor = NULL;
+	pkinit_acl->val[i - 1].subject = NULL;
+	pkinit_acl->val[i - 1].issuer = NULL;
+	pkinit_acl->val[i - 1].anchor = NULL;
 
 	free(inner_s);
 
 	/* Get the subject name */
 	inner_nxt = s;
-	inner_s = dequote_alloc(inner_nxt, &inner_nxt, &is_blob);
+	ret = dequote_decode(inner_nxt, &inner_nxt, NULL, &inner_s, NULL, NULL, NULL);
+	if (ret != 0) goto out;
 	if (inner_s == NULL) {
-	    if (errno != 0) {
-		ret = errno;
-		goto out;
-	    }
-	    goto bottom;
-	}
-	if (is_blob) {
 	    ret = EINVAL;
 	    goto out;
 	}
-	pkinit_acl->val[i].subject = (heim_utf8_string)inner_s;
+	pkinit_acl->val[i - 1].subject = (heim_utf8_string)inner_s;
 	inner_s = NULL;
 
 	/* Skip separator character; we don't really care what it is */
@@ -975,15 +1054,9 @@ hdb_sqlite_col2pkinit_acls(krb5_context context,
 	    goto bottom;
 
 	/* Get the issuer */
-	inner_s = dequote_alloc(inner_nxt + 2, &inner_nxt, &is_blob);
+	ret = dequote_decode(inner_nxt + 2, &inner_nxt, NULL, &inner_s, NULL, NULL, NULL);
+	if (ret != 0) goto out;
 	if (inner_s == NULL) {
-	    if (errno != 0) {
-		ret = errno;
-		goto out;
-	    }
-	    goto bottom;
-	}
-	if (is_blob) {
 	    ret = EINVAL;
 	    goto out;
 	}
@@ -993,19 +1066,17 @@ hdb_sqlite_col2pkinit_acls(krb5_context context,
 	    goto out;
 	}
 	*str_ptr = (heim_utf8_string)inner_s;
-	pkinit_acl->val[i].issuer = str_ptr;
+	pkinit_acl->val[i - 1].issuer = str_ptr;
 	inner_s = NULL;
 	if (!isascii(inner_nxt[1]))
 	    goto bottom;
 
 	/* Get the anchor */
-	inner_s = dequote_alloc(inner_nxt + 2, &inner_nxt, &is_blob);
+	ret = dequote_decode(inner_nxt + 2, &inner_nxt, NULL, &inner_s, NULL, NULL, NULL);
+	if (ret != 0) goto out;
 	if (inner_s == NULL) {
-	    if (errno != 0) {
-		ret = errno;
-		goto out;
-	    }
-	    goto bottom;
+	    ret = EINVAL;
+	    goto out;
 	}
 	if (is_blob) {
 	    ret = EINVAL;
@@ -1017,7 +1088,7 @@ hdb_sqlite_col2pkinit_acls(krb5_context context,
 	    goto out;
 	}
 	*str_ptr = (heim_utf8_string)inner_s;
-	pkinit_acl->val[i].anchor = str_ptr;
+	pkinit_acl->val[i - 1].anchor = str_ptr;
 	inner_s = NULL;
 	/* We ignore any trailing values */
 
@@ -1059,7 +1130,7 @@ hdb_sqlite_col2pkinit_cert_hashes(krb5_context context,
 				  hdb_entry *entry)
 {
     krb5_error_code ret;
-    int is_blob;
+    int typ;
     int i = 0;
     int alloced = 0;
     const unsigned char *sql_str;
@@ -1067,6 +1138,7 @@ hdb_sqlite_col2pkinit_cert_hashes(krb5_context context,
     const unsigned char *inner_nxt;
     unsigned char *s = NULL;
     unsigned char *inner_s = NULL;
+    void *inner_b = NULL;
     heim_oid oid;
     size_t bytes;
     HDB_extension tmp, tmp2;
@@ -1092,8 +1164,10 @@ hdb_sqlite_col2pkinit_cert_hashes(krb5_context context,
     nxt = sql_str;
     do {
 	free(s);
-	s = dequote_alloc(nxt, &nxt, &is_blob);
-	if (is_blob) {
+	ret = dequote_decode(nxt, &nxt, NULL, &s, NULL, NULL, NULL);
+	if (ret != 0)
+	    goto out;
+	if (s == NULL) {
 	    ret = EINVAL;
 	    goto out;
 	}
@@ -1103,6 +1177,7 @@ hdb_sqlite_col2pkinit_cert_hashes(krb5_context context,
 	}
 	if (s == NULL)
 	    break;
+	i++;
 	if (i >= alloced) {
 	    alloced *= 2;
 	    tmp2.data.u.pkinit_cert_hash.val =
@@ -1118,29 +1193,40 @@ hdb_sqlite_col2pkinit_cert_hashes(krb5_context context,
 	free(inner_s);
 
 	/* Get the digest OID */
-	inner_s = dequote_decode(s, &inner_nxt, &bytes, &is_blob);
-	if (is_blob) {
+	ret = dequote_decode(s, &inner_nxt, &typ, &inner_s, &inner_b,
+				 &bytes, NULL);
+	if (ret != 0)
+	    goto out;
+	if (typ == DQSQLV_TYPE_BLOB) {
 	    oid.length = bytes;
-	    oid.components = (unsigned *)inner_s;
+	    oid.components = (unsigned *)inner_b;
 	    inner_s = NULL;
-	} else {
+	} else if (typ == DQSQLV_TYPE_STR) {
 	    ret = der_parse_heim_oid((const char *)inner_s, ".", &oid);
 	    if (ret != 0)
 		goto out;
-	}
-	pkinit_cert_hash->val[i].digest_type = oid;
-	if (!isascii(inner_nxt[1]))
-	    goto bottom;
-	free(inner_s);
-	/* Get the digest */
-	inner_s = dequote_decode(inner_nxt + 2, &inner_nxt, &bytes, &is_blob);
-	if (!is_blob) {
+	} else {
 	    ret = EINVAL;
 	    goto out;
 	}
-	pkinit_cert_hash->val[i].digest.length = bytes;
-	pkinit_cert_hash->val[i].digest.data = inner_s;
+	pkinit_cert_hash->val[i - 1].digest_type = oid;
+	if (!isascii(inner_nxt[1]))
+	    goto bottom;
+	free(inner_s);
+	free(inner_b);
+
+	/* Get the digest */
+	ret = dequote_decode(inner_nxt + 2, &inner_nxt, NULL, NULL, &inner_b, &bytes, NULL);
+	if (ret != 0)
+	    goto out;
+	if (inner_b == NULL) {
+	    ret = EINVAL;
+	    goto out;
+	}
+	pkinit_cert_hash->val[i - 1].digest.length = bytes;
+	pkinit_cert_hash->val[i - 1].digest.data = inner_s;
 	inner_s = NULL;
+	inner_b = NULL;
 	/* We ignore any trailing values */
 
 bottom:
@@ -1182,7 +1268,6 @@ hdb_sqlite_col2pkinit_certs(krb5_context context,
 			    hdb_entry *entry)
 {
     krb5_error_code ret;
-    int is_blob;
     int i = 0;
     int alloced = 0;
     const unsigned char *nxt;
@@ -1190,6 +1275,7 @@ hdb_sqlite_col2pkinit_certs(krb5_context context,
     const unsigned char *sql_str;
     unsigned char *s = NULL;
     unsigned char *inner_s = NULL;
+    void *inner_b = NULL;
     size_t bytes;
     HDB_extension tmp, tmp2;
     HDB_Ext_PKINIT_cert *pkinit_cert = &tmp.data.u.pkinit_cert;
@@ -1209,17 +1295,14 @@ hdb_sqlite_col2pkinit_certs(krb5_context context,
     nxt = sql_str;
     do {
 	free(s);
-	s = dequote_alloc(nxt, &nxt, &is_blob);
-	if (is_blob) {
+	ret = dequote_decode(nxt, &nxt, NULL, &s, NULL, NULL, NULL);
+	if (ret != 0)
+	    goto out;
+	if (inner_s == NULL) {
 	    ret = EINVAL;
 	    goto out;
 	}
-	if (s == NULL && errno != 0) {
-	    ret = errno;
-	    goto out;
-	}
-	if (s == NULL)
-	    break;
+	i++;
 	if (i >= alloced) {
 	    alloced *= 2;
 	    tmp2.data.u.pkinit_cert.val =
@@ -1237,15 +1320,18 @@ hdb_sqlite_col2pkinit_certs(krb5_context context,
 	    goto out; /* digest is not optional */
 	}
 	free(inner_s);
+	inner_s = NULL;
 
 	/* Get the digest */
-	inner_s = dequote_decode(s, &inner_nxt, &bytes, &is_blob);
-	if (!is_blob) {
+	ret = dequote_decode(s, &inner_nxt, NULL, NULL, &inner_b, &bytes, NULL);
+	if (ret != 0)
+	    goto out;
+	if (inner_b == NULL) {
 	    ret = EINVAL;
 	    goto out;
 	}
-	pkinit_cert->val[i].cert.length = bytes;
-	pkinit_cert->val[i].cert.data = inner_s;
+	pkinit_cert->val[i - 1].cert.length = bytes;
+	pkinit_cert->val[i - 1].cert.data = inner_s;
 	inner_s = NULL;
 	/* We ignore any trailing values */
 
@@ -1287,7 +1373,6 @@ hdb_sqlite_col2deleg_to(krb5_context context,
 			hdb_entry *entry)
 {
     krb5_error_code ret;
-    int is_blob;
     int i = 0;
     int alloced = 0;
     const unsigned char *sql_str;
@@ -1311,13 +1396,15 @@ hdb_sqlite_col2deleg_to(krb5_context context,
 
     nxt = sql_str;
     do {
-	s = dequote_alloc(nxt, &nxt, &is_blob);
-	if (s == NULL && errno != 0) {
-	    ret = errno;
+	ret = dequote_decode(nxt, &nxt, NULL, &s, NULL, NULL, NULL);
+	if (ret == 0) goto out;
+	if (s == NULL) {
+	    ret = EINVAL;
 	    goto out;
 	}
 	if (s == NULL)
 	    break;
+	i++;
 	if (i >= alloced) {
 	    alloced *= 2;
 	    tmp_princs = realloc(princs, sizeof (*princs) * alloced);
@@ -1331,7 +1418,7 @@ hdb_sqlite_col2deleg_to(krb5_context context,
 	ret = krb5_parse_name(context, (char *)s, &princ);
 	if (ret != 0)
 	    continue; /* fail gracefully? */
-	princs[i++] = *princ;
+	princs[i - 1] = *princ;
 	free(s);
     } while (1);
 
@@ -1379,7 +1466,6 @@ hdb_sqlite_col2password(krb5_context context,
 			hdb_entry *entry)
 {
     krb5_error_code ret;
-    int is_blob;
     int mkvno = 0;
     const unsigned char *sql_str;
     unsigned char *s;
@@ -1410,9 +1496,11 @@ hdb_sqlite_col2password(krb5_context context,
      * SEQUENCE OF.  It'd be useful to have such a thing for password
      * history!
      */
-    s = dequote_decode(sql_str, NULL, &bytes, &is_blob);
+    ret = dequote_decode(sql_str, NULL, NULL, &s, NULL, &bytes, NULL);
+    if (ret != 0)
+	return ret;
     if (s == NULL)
-	return errno; /* might be 0, but then there's nothing to do here */
+	return 0; /* well, there's nothing to do here */
 
     pw->mkvno = malloc(sizeof (*pw->mkvno));
     if (pw->mkvno == NULL) {
@@ -1447,7 +1535,6 @@ hdb_sqlite_col2aliases(krb5_context context,
 		       hdb_entry *entry)
 {
     krb5_error_code ret;
-    int is_blob;
     int i = 0;
     int alloced = 0;
     const unsigned char *sql_str;
@@ -1476,13 +1563,13 @@ hdb_sqlite_col2aliases(krb5_context context,
 
     nxt = sql_str;
     do {
-	s = dequote_alloc(nxt, &nxt, &is_blob);
-	if (s == NULL && errno != 0) {
-	    ret = errno;
+	ret = dequote_decode(nxt, &nxt, NULL, &s, NULL, NULL, NULL);
+	if (ret != 0) goto out;
+	if (s == NULL) {
+	    ret = EINVAL;
 	    goto out;
 	}
-	if (s == NULL)
-	    break;
+	i++;
 	if (i >= alloced) {
 	    alloced *= 2;
 	    tmp_princs = realloc(princs, sizeof (*princs) * alloced);
@@ -1494,7 +1581,7 @@ hdb_sqlite_col2aliases(krb5_context context,
 	    aliases->aliases.val = princs;
 	}
 	ret = krb5_parse_name(context, (char *)s, &princ);
-	princs[i++] = *princ; /* XXX */
+	princs[i - 1] = *princ; /* XXX */
 	free(s);
     } while (1);
 
