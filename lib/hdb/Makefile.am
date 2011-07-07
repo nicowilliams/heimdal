@@ -14,6 +14,7 @@ endif
 BUILT_SOURCES = \
 	$(gen_files_hdb:.x=.c)	\
 	hdb-sqlite-schema.h \
+	hdb-sqlite-statements.h \
 	hdb_err.c \
 	hdb_err.h
 
@@ -127,22 +128,20 @@ test_dbinfo_LIBS = libhdb.la
 test_hdbkeys_LIBS = ../krb5/libkrb5.la libhdb.la
 test_mkey_LIBS = $(test_hdbkeys_LIBS)
 
-.sqls.h:
-	$(SED)  -e '/^[\t ]*--[^\t ]*$$/d' \
-		-e '/^[\t ]*-- [^@]/d' \
-		-e 's/^-- [@]/#define /' \
-		-e '/^#define/s/$$/ \\/' \
-		-e '/^[^#]/s/^/    "/' \
-		-e '/[^\\]$$/s/$$/" \\/' < $< > $@
-
-.sql.h:
+hdb-sqlite-schema.h: hdb-sqlite-schema.sql
 	@(echo '#define HDB_SQLITE_SCHEMA \'; \
 	$(SED) -e 's/^/"/' -e 's/$$/" \\/' < $<; \
 	echo '""') > $@
 
 # Close the single quote from above, to help the VIM syntax highlighter: '
 
-hdb-sqlite-schema.h: hdb-sqlite-schema.sql
+hdb-sqlite-statements.h: hdb-sqlite-statements.sql
+	$(SED)  -e '/^[\t ]*--[^\t ]*$$/d' \
+		-e '/^[\t ]*-- [^@]/d' \
+		-e 's/^-- [@]/#define /' \
+		-e '/^#define/s/$$/ \\/' \
+		-e '/^[^#]/s/^/    "/' \
+		-e '/[^\\]$$/s/$$/" \\/' < $< > $@
 
 # to help stupid solaris make
 

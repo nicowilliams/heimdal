@@ -767,26 +767,21 @@ hdb_sqlite_col2keys(krb5_context context,
 		    hdb_entry *entry)
 {
     krb5_error_code ret;
-    int is_blob;
-    int i = 0;
+    int i = -1;
+    int count = 0;
     int alloced = 0;
     const unsigned char *sql_str;
     const unsigned char *nxt;
     const unsigned char *inner_nxt;
     unsigned char *s = NULL;
-    const char *e = NULL;
     unsigned char *inner_s = NULL;
-    unsigned char *salt = NULL;
     void *inner_b = NULL;
-    void *key = NULL;
-    heim_oid oid;
     size_t bytes;
-    krb5int32 entry_kvno = -1;
     krb5int32 etype = -1;
     krb5int32 salttype = -1;
     unsigned int mkvno;
-    int count = 0;
     Key *keys = NULL;
+    Key *key = NULL;
     Key *tmp;
 
     /*
@@ -805,15 +800,25 @@ hdb_sqlite_col2keys(krb5_context context,
     do {
 	int typ;
 	int64_t num;
-	void *key;
 
 	free(s);
 	ret = dequote_decode(nxt, &nxt, NULL, &s, NULL, NULL, NULL);
+	if (s == NULL && ret == 0) ret = EINVAL;
 	if (ret != 0) goto out;
-	if (s == NULL) {
-	    ret = EINVAL;
-	    goto out;
+
+	i++;
+	count++;
+	if (count >= alloced) {
+	    alloced *= 2;
+	    if (alloced == 0)
+		alloced = 2;
+	    tmp = realloc(keys, sizeof (*keys) * alloced);
+	    if (tmp == NULL) {
+		ret = errno;
+		goto out;
+	    }
 	}
+	key = &keys[i];
 
 	/* Get the kvno from the entry */
 	free(inner_s);
@@ -826,7 +831,7 @@ hdb_sqlite_col2keys(krb5_context context,
 	if (num != kvno)
 	    goto bottom;
 
-	/* Get the mkvno */
+	/* Get the mkvno (which is optional) */
 	num = 0;
 	ret = dequote_decode(inner_nxt + 2, &inner_nxt, &typ, NULL, NULL, NULL, &num);
 	if (ret != 0) goto out;
@@ -838,6 +843,15 @@ hdb_sqlite_col2keys(krb5_context context,
 	if (mkvno != num) {
 	    ret = EOVERFLOW;
 	    goto out;
+	}
+	if (typ == DQSQLV_TYPE_INT64 && num > 0) {
+	    key->mkvno = malloc(sizeof (*key->mkvno));
+	    if (key->mkvno == NULL) {
+		ret = errno;
+		goto out;
+	    }
+	} else {
+	    key->mkvno = NULL;
 	}
 
 	/* Get the enctype */
@@ -852,6 +866,7 @@ hdb_sqlite_col2keys(krb5_context context,
 	    ret = EOVERFLOW;
 	    goto out;
 	}
+	key->key.keytype = etype;
 
 	/* Get the key */
 	ret = dequote_decode(inner_nxt + 2, &inner_nxt, NULL, NULL, &inner_b, &bytes, NULL);
@@ -860,8 +875,8 @@ hdb_sqlite_col2keys(krb5_context context,
 	    ret = EINVAL;
 	    goto out;
 	}
-	key = inner_b;
-	keybytes = bytes;
+	key->key.keyvalue.data = inner_b;;
+	key->key.keyvalue.length = bytes;
 	inner_b = NULL;
 
 	/* Get the salttype */
@@ -881,34 +896,15 @@ hdb_sqlite_col2keys(krb5_context context,
 	ret = dequote_decode(inner_nxt + 2, &inner_nxt, NULL, &inner_s, NULL, NULL, NULL);
 	if (ret != 0) goto out;
 	if (inner_s != NULL) {
-	    salt = inner_s;
-	    inner_s = NULL;
-	}
-
-	i++;
-	if (i >= alloced) {
-	    alloced *= 2;
-	    if (alloced == 0)
-		alloced = 2;
-	    tmp = realloc(keys, sizeof (*keys) * alloced);
-	    if (tmp == NULL) {
+	    key->salt = calloc(1, sizeof (*key->salt));
+	    if (key->salt == NULL) {
 		ret = errno;
 		goto out;
 	    }
-	    keys[i - 1].mkvno = mkvno;
-	    keys[i - 1].key.keytype = etype;
-	    keys[i - 1].key.keyvalue.data = key;
-	    keys[i - 1].key.keyvalue.length = keybytes;
-	    if (salt != NULL) {
-		keys[i - 1].salt = calloc(1, sizeof (*(keys[i - 1].salt)));
-		if (keys[i - 1].salt == NULL) {
-		    ret = errno;
-		    goto out;
-		}
-		keys[i - 1].salt->type = salttype;
-		keys[i - 1].salt->salt.data = salttype;
-		keys[i - 1].salt->salt.length = strlen(salttype);
-	    }
+	    key->salt->type = salttype;
+	    key->salt->salt.data = inner_s;
+	    key->salt->salt.length = strlen((char *)inner_s);
+	    inner_s = NULL;
 	}
 
 	/* We ignore any trailing values */
@@ -926,6 +922,8 @@ out:
 	free(inner_s);
 	free(inner_b);
 	free(s);
+	for (i = 0; i < count; i++)
+	    free_Key(&keys[i]);
     }
 
     return ret;
@@ -1691,6 +1689,8 @@ hdb_sqlite_row2entry(krb5_context context,
 	ret = ENOMEM; /* XXX */
 	goto out;
     }
+    hdb_sqlite_col2keys(context, db->db, cursor, entry->kvno, db->fetch_keysCol,
+			entry);
 
     ret = hdb_sqlite_col2generation(context, db->db, cursor,
 				    db->fetch_gentimeCol, db->fetch_genusecCol,

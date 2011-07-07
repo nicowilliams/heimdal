@@ -220,16 +220,16 @@ CREATE TABLE IF NOT EXISTS EntryKeys
   mkvno INTEGER NOT NULL,
   salt TEXT,
   s2kparams BLOB,
-  encrypted_pw BLOB,
-  encrypted_key BLOB,
-  CHECK ((encrypted_pw IS NULL AND
-    encrypted_key IS NOT NULL AND etype IS NOT NULL) OR
-   (encrypted_pw IS NOT NULL AND
-    encrypted_key IS NULL AND etype IS NULL)));
+  pw BLOB,
+  key BLOB,
+  CHECK ((pw IS NULL AND
+    key IS NOT NULL AND etype IS NOT NULL) OR
+   (pw IS NOT NULL AND
+    key IS NULL AND etype IS NULL)));
 CREATE UNIQUE INDEX IF NOT EXISTS EntryKeys_etype
 ON EntryKeys (entry, kvno, etype);
 CREATE UNIQUE INDEX IF NOT EXISTS EntryKeys_etype
-ON EntryKeys (encrypted_pw, entry, kvno);
+ON EntryKeys (pw, entry, kvno);
 --
 -- Principal relations for OK-to-delegate
 CREATE TABLE IF NOT EXISTS EntryOKToDelegate
@@ -291,7 +291,7 @@ VALUES ('hist_retain_count', '10000');
 -- auditing purposes.
 CREATE TABLE IF NOT EXISTS EntryLog
  (tx INTEGER,
-  mtime INTEGER NOT NULL DEFAULT(strftime('%s', 'now')),
+  mtime INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
   is_new INTEGER NOT NULL DEFAULT (0),
   is_insert INTEGER NOT NULL DEFAULT (0),
   is_update INTEGER NOT NULL DEFAULT (0),
@@ -305,7 +305,7 @@ CREATE TABLE IF NOT EXISTS EntryLog
   last_pw_change, max_life, max_renew, flags, flags_str, aliases,
   enctype_nums, enctype_names, keys, ok_to_delegatees,
   pkinit_names, pkinit_cert_digests, pkinit_certs
-  CHECK (NOT is_new OR (is_new AND NOT is_delete));
+  CHECK (NOT is_new OR (is_new AND NOT is_delete)));
 -- Combined principal name+data history - for documentation
 CREATE INDEX IF NOT EXISTS EntryLog_tx ON EntryLog (tx);
 CREATE INDEX IF NOT EXISTS EntryLog_mtime ON EntryLog (mtime);
@@ -359,7 +359,7 @@ SELECT
   ORDER BY et.list_order ASC) AS enctype_names,
  (SELECT group_concat(ek.kvno || ':' || ek.etype || ':' || ek.mkvno || ':' ||
    quote(ek.salt) || ':' || quote(ek.s2kparams) || ':' ||
-   quote(ek.encrypted_pw) || ':' || quote(ek.encrypted_key), '; ')
+   quote(ek.pw) || ':' || quote(ek.key), '; ')
   FROM EntryKeys ek
   WHERE ek.entry = e.id) AS keys,
  -- OK-to-delegate to
