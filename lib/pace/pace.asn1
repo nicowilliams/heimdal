@@ -1,0 +1,166 @@
+-- $Id$
+HDB DEFINITIONS ::=
+BEGIN
+
+-- Curve25519 pubkeys are 32 bytes
+Curve25519-Key ::= OCTET STRING
+
+-- Servers should mostly return Success or Other; the other status codes
+-- are defined for debugging purposes.  There's a very limited set of
+-- error codes possible, so there's no need to send a localized error
+-- string (unless we ever add expired password changing inline in these
+-- messages, but let's not).
+PACE-StatusCode ::= INTEGER {
+	PC25519Success(0),
+	PC25519NoRoute2Domain(1),
+	PC25519UserUnknown(2),
+	PC25519UserLocked(3),
+	PC25519InvalidNonce1(4),
+	PC25519InvalidStateCookie(5),
+	PC25519PubKey1Rejected(6),
+	PC25519PubKey2Rejected(7),
+	PC25519VerifyFailed(8),
+	PC25519ChannelBindingMismatch(9),
+	PC25519WrongCipherSuite(10),
+	PC25519Other(11),
+	...
+}
+
+id-pace OBJECT IDENTIFIER ::= {iso(1) member-body(2) UnitedStates(840)
+				mit(113554) infosys(1) gssapi(2) pace(2)}
+id-pace-ecdh25519 OBJECT IDENTIFIER ::= { id-pace 1 }
+
+-- Cipher suite 1 is:
+--
+--  - Curve25519 (obviously).
+--
+--  - scrypt with parameters corresponding to maxmem 32MB and maxtime 3
+--    seconds on an i7 core.  This means using PBKDF2 with HMAC-SHA256
+--    as the PRF and Salsa20.
+--
+--    This is executed twice, once for the PACE password equivalent
+--    (K_pw), and once for the augmented private key.
+--
+--    The salt will be the hex-encoded SHA-256 hash of
+--    ${username}@${domain}, with '@' and '\' in username quoted with '\'.
+--
+--  - AES-128 for E(K_pw, nonce).
+--
+--  - The base protocol key from PACE will be
+--    random-to-key(truncate(PACE-shared-secret)), where random-to-key()
+--    is from RFC3961 using AES-CTS-128-HMAC-SHA-1 (RFC3962).
+--
+--    The key usage values TBD1 and TBD2 will be used to derive keys for
+--    the proof-of-possession MACs.
+--
+--  - The MAC will be an RFC3961 get_mic(), using AES-CTS-128-HMAC-SHA-1
+--    (RFC3962).
+--
+--  - For GSS per-message tokens the Kerberos V5 AES-CTS-128-HMAC-SHA1
+--    enctype.  The tokens will be those of RFC4121.
+--
+id-pace-ecdh25519-cs1 OBJECT IDENTIFIER ::= { id-pace-ecdh25519 1 }
+
+
+-- Error/Status message
+PACE-ECDH25519-M0 ::= [APPLICATION 2] SEQUENCE {
+	nonce1[0]	INTEGER (0..4294967295), -- copied from M1, M2, ...
+	status[1]	PACE-StatusCode,
+	cbinding[2]	OCTET STRING OPTIONAL,
+	...
+}
+
+PACE-ECDH25519-M1 ::= [APPLICATION 1] SEQUENCE {
+	mech[0]		OBJECT IDENTIFIER OPTIONAL, -- missing in GSS case
+	username[1]	UTF8String,
+	domain[2]	UTF8String,
+	dh-pk-clnt1[3]	Curve25519-Key,
+	cbinding[4]	OCTET STRING OPTIONAL,
+	...
+}
+
+-- The server can generate enonce as a random 128-bit number and can
+-- decrypt it later, after a return routability test.
+PACE-ECDH25519-M2 ::= [APPLICATION 2] SEQUENCE {
+	timestamp[0]	GeneralizedTime,
+	nonce1[1]	INTEGER (0..4294967295),  -- change to 64-bit
+	enonce[2]	OCTET STRING,		  -- E(K_pw, nonce2)
+	augment[3]	BOOLEAN OPTIONAL,	  -- client's choice if missing
+	salt[4]		OCTET STRING OPTIONAL,	  -- SHA-256(username@domain)
+	dh-pk-srv1[5]	Curve25519-Key,
+	dh-pk-srv2[6]	Curve25519-Key OPTIONAL,  -- missing if srv
+						  -- wants routability
+						  -- check first
+	e-state-key[7]	INTEGER OPTIONAL,	  -- key vno for:
+	e-state[8]	OCTET STRING OPTIONAL,	  -- state cookie (which
+						  -- might be encrypted state)
+	...
+}
+
+PACE-ECDH25519-M3 ::= [APPLICATION 3] SEQUENCE {
+	nonce1[0]	INTEGER (0..4294967295), -- return routability
+	dh-pk-clnt2[1]	Curve25519-Key,
+	augmented[2]	BOOLEAN OPTIONAL,
+	mac[3]		OCTET STRING OPTIONAL,
+	e-state-key[4]	INTEGER OPTIONAL,	  -- copied from M2 if present
+	e-state[5]	OCTET STRING OPTIONAL,	  -- copied from M2 if present
+	...
+}
+
+PACE-ECDH25519-M4 ::= [APPLICATION 4] SEQUENCE {
+	nonce1[0]	INTEGER (0..4294967295), -- copied from M1, M2, M3
+	dh-pk-srv2[1]	Curve25519-Key,
+	mac[2]		OCTET STRING,		  -- if present success
+	e-state-key[3]	INTEGER OPTIONAL,	  -- copied from M2 if present
+	e-state[4]	OCTET STRING OPTIONAL,	  -- copied from M2 if present
+	...
+}
+
+-- Used only if the server wanted a return routability check before
+-- computing G' and dh-pk-srv2.
+PACE-ECDH25519-M5 ::= [APPLICATION 5] SEQUENCE {
+	nonce1[0]	INTEGER (0..4294967295), -- copied from M1, M2, M3, M4
+	dh-pk-clnt2[1]	Curve25519-Key,
+	augmented[2]	BOOLEAN,
+	mac[3]		OCTET STRING,
+	e-state-key[4]	INTEGER OPTIONAL,	  -- copied from M2 if present
+	e-state[5]	OCTET STRING OPTIONAL,	  -- copied from M2 if present
+	...
+}
+
+-- Used only if the server wanted a return routability check before
+-- computing G' and dh-pk-srv2.  Indicates success.
+PACE-ECDH25519-M6 ::= [APPLICATION 6] SEQUENCE {
+	nonce1[0]	INTEGER (0..4294967295), -- copied from M1, M2, M3, M4
+	...
+}
+
+-- This is what gets MACed
+PACE-ECDH25519-MAC-Input ::= [APPLICATION 7] SEQUENCE {
+	nonce1[0]	INTEGER (0..4294967295), -- from M1
+	mech[1]		OBJECT IDENTIFIER,	 -- from M1
+	username[2]	UTF8String,
+	domain[3]	UTF8String,
+	timestamp[4]	GeneralizedTime,
+	enonce[5]	OCTET STRING,
+	...
+}
+
+-- This is a suggested encrypted state cookie plaintext
+PACE-ECDH25519-State ::= [APPLICATION 7] SEQUENCE {
+	nonce1[0]	INTEGER (0..4294967295),
+	mech[1]		OBJECT IDENTIFIER,
+	username[2]	UTF8String,
+	domain[3]	UTF8String,
+	salt[4]		OCTET STRING,
+	timestamp[5]	GeneralizedTime,
+	enonce[6]	OCTET STRING,
+	dh-privkey1[7]	Curve25519-Key,
+	dh-pk-clnt1[8]	Curve25519-Key OPTIONAL,
+	dh-pk-clnt2[9]	Curve25519-Key OPTIONAL,
+	gprime[10]	Curve25519-Key OPTIONAL,
+	verifier[11]	Curve25519-Key OPTIONAL,
+	...
+}
+
+END
