@@ -46,6 +46,17 @@ kadm5_chpass_principal(void *server_handle,
 }
 
 kadm5_ret_t
+kadm5_chpass_principal_3(void *server_handle,
+		         krb5_principal princ,
+		         krb5_boolean keepold,
+		         int n_ks_tuple,
+		         krb5_key_salt_tuple *ks_tuple,
+		         const char *password)
+{
+    return __CALL(chpass_principal, (server_handle, princ, password));
+}
+
+kadm5_ret_t
 kadm5_chpass_principal_with_key(void *server_handle,
 				krb5_principal princ,
 				int n_key_data,
