@@ -168,6 +168,44 @@ check_transited(krb5_context context, Ticket *ticket, EncTicketPart *enc)
 }
 
 static krb5_error_code
+rcache_avoidance_flag_setp(krb5_context context,
+			   krb5_auth_context auth_context,
+			   int *rcache_avoindance)
+{
+    krb5_error_code ret;
+    krb5_authdata *ad;
+    krb5_authdata adIfRelevant;
+    unsigned i;
+
+    krb5_ticket_get_authorization_data_type(context, auth_context);
+
+    *rcache_avoindance = 0;
+    memset(&adIfRelevant, 0, sizeof(adIfRelevant));
+    ad = auth_context->authenticator->authorization_data;
+    if (ad == NULL)
+	return 0;
+
+    for (i = 0; i < ad->len; i++) {
+	if (ad->val[i].ad_type == KRB5_AUTHDATA_IF_RELEVANT) {
+	    ret = decode_AD_IF_RELEVANT(ad->val[i].ad_data.data,
+					ad->val[i].ad_data.length,
+					&adIfRelevant,
+					NULL);
+	    if (ret)
+		return ret;
+
+	    if (adIfRelevant.len == 1 &&
+		adIfRelevant.val[0].ad_type ==
+			KRB5_AUTHDATA_GSS_API_ETYPE_NEGOTIATION) {
+		break;
+	    }
+	    free_AD_IF_RELEVANT(&adIfRelevant);
+	    adIfRelevant.len = 0;
+	}
+    }
+}
+
+static krb5_error_code
 find_etypelist(krb5_context context,
 	       krb5_auth_context auth_context,
 	       EtypeList *etypes)
