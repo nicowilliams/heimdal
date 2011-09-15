@@ -2478,7 +2478,6 @@ against_local_policy_tgs(krb5_context context,
     char *cname = NULL;
     char foldprefix[4] = "...";
     char *foldkey;
-    char *p;
     int fold = 0;
     size_t i;
     size_t cname_len;
@@ -2492,7 +2491,7 @@ against_local_policy_tgs(krb5_context context,
     /* In all other cases we check a DB */
     dbpath = krb5_config_get_string(context, NULL, "kdc", "xrealm-policy-db", NULL);
     if (dbpath == NULL)
-	return (0);
+	return (0); /* Policy DB not configured?  Allow */
     db = dbopen(dbpath, O_RDONLY, 0, DB_HASH, NULL);
     if (db == NULL)
 	return (KRB5KDC_ERR_POLICY); /* fail closed */
