@@ -2452,10 +2452,10 @@ policy_db_check(DB *db,
 	return (KRB5KDC_ERR_POLICY);	/* db2 error -> fail closed */
 
 #define	ALLOW_STR   "ALLOW"
-    if (v.size == strlen(ALLOW_STR) && strcmp(v.data, ALLOW_STR) == 0)
+    if (v.size == strlen(ALLOW_STR) && strncmp(v.data, ALLOW_STR, v.size) == 0)
 	return (0);
 #define	DENY_STR   "DENY"
-    if (v.size == strlen(DENY_STR) && strcmp(v.data, DENY_STR) == 0)
+    if (v.size == strlen(DENY_STR) && strncmp(v.data, DENY_STR, v.size) == 0)
 	return (KRB5KDC_ERR_POLICY);
     return (-1); /* value not understood; fall through */
 }
@@ -2469,7 +2469,7 @@ against_local_policy_tgs(krb5_context context,
 {
     krb5_error_code ret;
     char *cname = NULL;
-    char foldprefix[4];
+    char foldprefix[4] = "...";
     char *foldkey;
     char *p;
     int fold = 0;
