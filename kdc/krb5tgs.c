@@ -32,6 +32,7 @@
  */
 
 #include "kdc_locl.h"
+#include <ctype.h>
 
 static krb5_error_code against_local_policy_tgs(krb5_context context,
 						krb5_principal client,
@@ -2468,6 +2469,11 @@ against_local_policy_tgs(krb5_context context,
 {
     krb5_error_code ret;
     char *cname = NULL;
+    char foldprefix[4];
+    char *foldkey;
+    char *p;
+    int fold = 0;
+    size_t crealm_len;
     DB *db = NULL;
 
 #define GOOD_REALM1     "is1.morgan"
@@ -2484,8 +2490,33 @@ against_local_policy_tgs(krb5_context context,
     if (db == NULL)
 	return (KRB5KDC_ERR_POLICY); /* fail closed */
 
-    ret = policy_db_check(db, client->realm, strlen(client->realm));
+    crealm_len = strlen(client->realm);
+    ret = policy_db_check(db, client->realm, crealm_len);
     if (ret != -1)
+	/* Either we allow all or no clients from this realm */
+	goto done;
+
+    /*
+     * If we get here we must lookup the client princ name in the policy
+     * DB because we don't blindly allow all clients from this client's
+     * realm.
+     *
+     * But for some realms we must make this lookup case-insensitive.
+     * We configure case-insensitive client principal lookups in the
+     * policy DB by having an entry key of "...<realm>".
+     */
+    foldkey = calloc(1, sizeof (foldprefix) + crealm_len + 1);
+    if (foldkey == NULL) {
+	ret = ENOMEM;
+	goto done;
+    }
+    strncat(foldkey, foldprefix, sizeof (foldprefix));
+    strncat(foldkey, client->realm, crealm_len);
+    ret = policy_db_check(db, foldkey, strlen(foldkey));
+    free(foldkey);
+    if (ret == 0)
+	fold = 1; /* ...REALM exists -> case-fold cname */
+    else if (ret != -1)
 	goto done;
 
     ret = krb5_unparse_name(context, client, &cname);
@@ -2493,6 +2524,11 @@ against_local_policy_tgs(krb5_context context,
 	*status = "MALFORMED CLIENT NAME";
 	ret = KRB5KDC_ERR_POLICY;
 	goto done;
+    }
+
+    if (fold) {
+	for (p = cname; *p; p++)
+	    *p = tolower(cname[*p]);
     }
 
     ret = policy_db_check(db, cname, strlen(cname));
