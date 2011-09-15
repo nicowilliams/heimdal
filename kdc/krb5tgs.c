@@ -2534,7 +2534,7 @@ against_local_policy_tgs(krb5_context context,
 
     if (fold) {
 	for (p = cname; *p; p++)
-	    *p = tolower(cname[*p]);
+	    *p = tolower(*p);
     }
 
     ret = policy_db_check(db, cname, strlen(cname));
