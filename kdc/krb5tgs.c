@@ -2468,25 +2468,26 @@ against_local_policy_tgs(krb5_context context,
 			 const char **status)
 {
     krb5_error_code ret;
+    char *dbpath;
     char *cname = NULL;
     char foldprefix[4] = "...";
     char *foldkey;
     char *p;
     int fold = 0;
+    size_t i;
+    size_t cname_len;
     size_t crealm_len;
     DB *db = NULL;
 
-#define GOOD_REALM1     "is1.morgan"
-#define GOOD_REALM2     "MSAD.MS.COM"
-
-    /* Realms we like */
-    if (strcmp(client->realm, GOOD_REALM1) == 0 ||
-	strcmp(client->realm, GOOD_REALM2) == 0)
+    /* Not cross-realm?  Allowed */
+    if (strcmp(client->realm, server->realm) == 0)
 	return (0);
 
     /* In all other cases we check a DB */
-#define	DB_PATH	"/var/kerberos/policy.db"
-    db = dbopen(DB_PATH, O_RDONLY, 0, DB_HASH, NULL);
+    dbpath = krb5_config_get_string(context, NULL, "kdc", "xrealm-policy-db", NULL);
+    if (dbpath == NULL)
+	return (0);
+    db = dbopen(dbpath, O_RDONLY, 0, DB_HASH, NULL);
     if (db == NULL)
 	return (KRB5KDC_ERR_POLICY); /* fail closed */
 
@@ -2527,8 +2528,9 @@ against_local_policy_tgs(krb5_context context,
     }
 
     if (fold) {
-	for (p = cname; *p; p++)
-	    *p = tolower(*p);
+	cname_len = strlen(cname) - crealm_len;
+	for (i = 0; i < cname_len; i++)
+	    cname[i] = tolower(cname[i]);
     }
 
     ret = policy_db_check(db, cname, strlen(cname));
