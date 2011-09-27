@@ -48,6 +48,11 @@ HDBFlags ::= BIT STRING {
 	allow-digest(16),		-- Allow digest requests
 	locked-out(17),			-- Account is locked out,
 					-- authentication will be denied
+	requires-small-tickets(18),	-- The service principal chokes
+					-- on "large" tickets, which
+					-- means we will filter out any
+					-- PACs from service tickets at the
+					-- TGS.
 	do-not-store(31)		-- Not to be modified and stored in HDB
 }
 

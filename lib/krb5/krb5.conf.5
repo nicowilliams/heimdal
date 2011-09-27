@@ -450,6 +450,12 @@ If the kdc is allowed to hand out anonymous tickets.
 .It Li encode_as_rep_as_tgs_rep = Va BOOL
 Encode as-rep as tgs-rep tobe compatible with mistakes older DCE secd did.
 .\" XXX
+.It Li remove-pac-by-default = Va BOOL
+If set to true the TGS will not pass any PAC from the TGT to service
+tickets.  This is useful when using the mitdb HDB backend and there are
+services that cannot handle large tickets.  There's also an HDB
+principal entry flag for indicating that service cannot handle large
+tickets.
 .It Li kdc_warn_pwexpire = Va TIME
 The time before expiration that the user should be warned that her
 password is about to expire.

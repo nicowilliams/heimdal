@@ -59,6 +59,7 @@ krb5_kdc_get_config(krb5_context context, krb5_kdc_configuration **config)
     c->allow_null_ticket_addresses = TRUE;
     c->allow_anonymous = FALSE;
     c->trpolicy = TRPOLICY_ALWAYS_CHECK;
+    c->remove_pac_by_default = FALSE;
     c->enable_pkinit = FALSE;
     c->pkinit_princ_in_cert = TRUE;
     c->pkinit_require_binding = TRUE;
@@ -187,6 +188,12 @@ krb5_kdc_get_config(krb5_context context, krb5_kdc_configuration **config)
 		    trpolicy_str);
 	}
     }
+
+    c->remove_pac_by_default =
+	krb5_config_get_bool_default(context, NULL,
+				     c->remove_pac_by_default,
+				     "kdc",
+				     "remove-pac-by-default", NULL);
 
     c->encode_as_rep_as_tgs_rep =
 	krb5_config_get_bool_default(context, NULL,
