@@ -867,7 +867,9 @@ tgs_make_reply(krb5_context context,
     et.flags.anonymous   = tgt->flags.anonymous;
     et.flags.ok_as_delegate = server->entry.flags.ok_as_delegate;
 
-    if(rspac->length) {
+    if (rspac->length &&
+	(server->entry.flags.requires_small_tickets ||
+	 config->remove_pac_by_default)) {
 	/*
 	 * No not need to filter out the any PAC from the
 	 * auth_data since it's signed by the KDC.
