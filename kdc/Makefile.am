@@ -12,7 +12,7 @@ sbin_PROGRAMS = kstash
 
 libexec_PROGRAMS = hprop hpropd kdc digest-service
 
-noinst_PROGRAMS = kdc-replay
+noinst_PROGRAMS = kdc-replay makedb dumpdb
 
 man_MANS = kdc.8 kstash.8 hprop.8 hpropd.8 string2key.8
 
