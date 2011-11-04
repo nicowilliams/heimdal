@@ -129,7 +129,7 @@ check-kpasswdd: check-kpasswdd.in Makefile
 	chmod +x check-kpasswdd.tmp
 	mv check-kpasswdd.tmp check-kpasswdd
 
-check-xrealm-policy: check-xrealm-policy.in Makefile krb5-canon.conf krb5-canon2.conf
+check-xrealm-policy: check-xrealm-policy.in Makefile krb5-xrealm-policy.conf
 	$(do_subst) < $(srcdir)/check-xrealm-policy.in > check-xrealm-policy.tmp
 	chmod +x check-xrealm-policy.tmp
 	mv check-xrealm-policy.tmp check-xrealm-policy
@@ -175,6 +175,13 @@ krb5-slave.conf: krb5.conf.in Makefile
 	   -e 's,[@]dk[@],,g' \
 	   -e 's,[@]kdc[@],.slave,g' < $(srcdir)/krb5.conf.in > krb5-slave.conf.tmp
 	mv krb5-slave.conf.tmp krb5-slave.conf
+
+krb5-xrealm-policy.conf: krb5-xrealm-policy.conf.in Makefile
+	$(do_subst) \
+	   -e 's,[@]WEAK[@],false,g' \
+	   -e 's,[@]dk[@],,g' \
+	   -e 's,[@]kdc[@],,g' < $(srcdir)/krb5-xrealm-policy.conf.in > krb5-xrealm-policy.conf.tmp
+	mv krb5-xrealm-policy.conf.tmp krb5-xrealm-policy.conf
 
 krb5-pkinit.conf: krb5-pkinit.conf.in Makefile
 	$(do_subst) -e 's,[@]w2k[@],no,g' < $(srcdir)/krb5-pkinit.conf.in > krb5-pkinit.conf.tmp

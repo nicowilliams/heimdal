@@ -41,6 +41,7 @@ R1=TEST.H5L.SE
 R2=TEST2.H5L.SE
 R3=TEST3.H5L.SE
 R4=TEST4.H5L.SE
+R5=TEST5.H5L.SE
 
 port=@port@
 
@@ -54,7 +55,7 @@ klist="${klist} -c $cache"
 kgetcred="${kgetcred} -c $cache"
 kdestroy="${kdestroy} -c $cache ${afs_no_unlog}"
 
-KRB5_CONFIG="${objdir}/krb5-canon.conf"
+KRB5_CONFIG="${objdir}/krb5-xrealm-policy.conf"
 export KRB5_CONFIG
 
 testfailed="echo test failed; ${klist}; exit 1"
@@ -73,6 +74,7 @@ ${kadmin} ${initflags} ${R1} || exit 1
 ${kadmin} ${initflags} ${R2} || exit 1
 ${kadmin} ${initflags} ${R3} || exit 1
 ${kadmin} ${initflags} ${R4} || exit 1
+${kadmin} ${initflags} ${R5} || exit 1
 
 ${kadmin} add -p cross1 --use-defaults krbtgt/${R1}@${R2} || exit 1
 ${kadmin} add -p cross2 --use-defaults krbtgt/${R2}@${R1} || exit 1
@@ -80,6 +82,8 @@ ${kadmin} add -p cross3 --use-defaults krbtgt/${R3}@${R1} || exit 1
 ${kadmin} add -p cross4 --use-defaults krbtgt/${R1}@${R3} || exit 1
 ${kadmin} add -p cross1 --use-defaults krbtgt/${R1}@${R4} || exit 1
 ${kadmin} add -p cross2 --use-defaults krbtgt/${R4}@${R1} || exit 1
+${kadmin} add -p cross1 --use-defaults krbtgt/${R1}@${R5} || exit 1
+${kadmin} add -p cross2 --use-defaults krbtgt/${R5}@${R1} || exit 1
 
 ${kadmin} add -p foo --use-defaults foo@${R1} || exit 1
 ${kadmin} add -p foo --use-defaults foo@${R2} || exit 1
@@ -88,6 +92,7 @@ ${kadmin} add -p foo --use-defaults Bar@${R3} || exit 1
 ${kadmin} add -p foo --use-defaults foobar@${R3} || exit 1
 ${kadmin} add -p foo --use-defaults Foo@${R4} || exit 1
 ${kadmin} add -p foo --use-defaults Foobar@${R4} || exit 1
+${kadmin} add -p foo --use-defaults foo@${R5} || exit 1
 ${kadmin} add -p foo --use-defaults host/t1.test1.h5l.se@${R1} || exit 1
 
 echo "Doing database check"
@@ -99,12 +104,15 @@ echo foo > ${objdir}/foopassword
 
 cat > ${objdir}/xrealm-policy.txt <<EOF
 ${R2} ALLOW
-${R3} DENY
-...${R4} DENY
+${R5} DENY
 foo@${R3} ALLOW
 bar@${R3} ALLOW
 foo@${R4} ALLOW
 EOF
+
+echo "Making x-realm policy DB"
+${makedb} ${objdir}/xrealm-policy.db ${objdir}/xrealm-policy.txt ||
+	{ ec=1 ; eval "${testfailed}"; }
 
 echo "Starting kdc"
 ${kdc} &
@@ -140,23 +148,15 @@ echo "Getting client initial tickets for cross-realm TGS request";
 ${kinit} --password-file=${objdir}/foopassword foo@${R3} || \
 	{ ec=1 ; eval "${testfailed}"; }
 
-echo "Test cross-realm TGS exchange for DENYed realm"
+echo "Test cross-realm TGS exchange for ALLOWed princ"
 ${kgetcred} host/t1.test1.h5l.se@${R1} || { ec=1 ; eval "${testfailed}"; }
 ${kdestroy}
 
 echo "Getting client initial tickets for cross-realm TGS request";
-${kinit} --password-file=${objdir}/foopassword Bar@${R3} || \
+${kinit} --password-file=${objdir}/foopassword Bar@${R3} && \
 	{ ec=1 ; eval "${testfailed}"; }
 
-echo "Test cross-realm TGS exchange for DENYed realm"
-${kgetcred} host/t1.test1.h5l.se@${R1} && { ec=1 ; eval "${testfailed}"; }
-${kdestroy}
-
-echo "Getting client initial tickets for cross-realm TGS request";
-${kinit} --password-file=${objdir}/foopassword Foobar@${R3} || \
-	{ ec=1 ; eval "${testfailed}"; }
-
-echo "Test cross-realm TGS exchange for DENYed realm"
+echo "Test cross-realm TGS exchange for implictly DENYed princ (case sensitive)"
 ${kgetcred} host/t1.test1.h5l.se@${R1} && { ec=1 ; eval "${testfailed}"; }
 ${kdestroy}
 
@@ -164,7 +164,7 @@ echo "Getting client initial tickets for cross-realm TGS request";
 ${kinit} --password-file=${objdir}/foopassword Foo@${R4} || \
 	{ ec=1 ; eval "${testfailed}"; }
 
-echo "Test cross-realm TGS exchange for DENYed realm (case-insensitive)"
+echo "Test cross-realm TGS exchange for ALLOWed princ (case-insensitive)"
 ${kgetcred} host/t1.test1.h5l.se@${R1} || { ec=1 ; eval "${testfailed}"; }
 ${kdestroy}
 
@@ -172,7 +172,15 @@ echo "Getting client initial tickets for cross-realm TGS request";
 ${kinit} --password-file=${objdir}/foopassword Foobar@${R4} || \
 	{ ec=1 ; eval "${testfailed}"; }
 
-echo "Test cross-realm TGS exchange for DENYed realm (case-insensitive)"
+echo "Test cross-realm TGS exchange for implicitly DENYed princ (case-insensitive)"
+${kgetcred} host/t1.test1.h5l.se@${R1} && { ec=1 ; eval "${testfailed}"; }
+${kdestroy}
+
+echo "Getting client initial tickets for cross-realm TGS request";
+${kinit} --password-file=${objdir}/foopassword foo@${R5} || \
+	{ ec=1 ; eval "${testfailed}"; }
+
+echo "Test cross-realm TGS exchange for DENYed realm)"
 ${kgetcred} host/t1.test1.h5l.se@${R1} && { ec=1 ; eval "${testfailed}"; }
 ${kdestroy}
 
