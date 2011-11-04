@@ -13,6 +13,7 @@ noinst_DATA = \
 check_SCRIPTS = $(SCRIPT_TESTS) 
 
 SCRIPT_TESTS = \
+	check-xrealm-policy \
 	check-canon \
 	check-cc \
 	check-delegation \
@@ -127,6 +128,11 @@ check-kpasswdd: check-kpasswdd.in Makefile
 	$(do_subst) < $(srcdir)/check-kpasswdd.in > check-kpasswdd.tmp
 	chmod +x check-kpasswdd.tmp
 	mv check-kpasswdd.tmp check-kpasswdd
+
+check-xrealm-policy: check-xrealm-policy.in Makefile krb5-canon.conf krb5-canon2.conf
+	$(do_subst) < $(srcdir)/check-xrealm-policy.in > check-xrealm-policy.tmp
+	chmod +x check-xrealm-policy.tmp
+	mv check-xrealm-policy.tmp check-xrealm-policy
 
 krb5.conf: krb5.conf.in Makefile
 	$(do_subst) \
