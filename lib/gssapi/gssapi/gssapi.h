@@ -165,6 +165,7 @@ typedef OM_uint32 gss_qop_t;
 #define GSS_C_IDENTIFY_FLAG 8192
 #define GSS_C_EXTENDED_ERROR_FLAG 16384
 #define GSS_C_DELEG_POLICY_FLAG 32768
+#define GSS_C_INTERACT_OK_FLAG 65536
 
 /*
  * Credential usage options
@@ -460,6 +461,7 @@ extern GSSAPI_LIB_VARIABLE gss_OID_desc __gss_c_nt_export_name_oid_desc;
 #define GSS_S_OLD_TOKEN (1ul << (GSS_C_SUPPLEMENTARY_OFFSET + 2))
 #define GSS_S_UNSEQ_TOKEN (1ul << (GSS_C_SUPPLEMENTARY_OFFSET + 3))
 #define GSS_S_GAP_TOKEN (1ul << (GSS_C_SUPPLEMENTARY_OFFSET + 4))
+#define GSS_S_PROMPT_NEEDED (1ul << (GSS_C_SUPPLEMENTARY_OFFSET + 5))
 
 /*
  * Finally, function prototypes for the GSS-API routines.
@@ -1104,6 +1106,64 @@ GSSAPI_LIB_FUNCTION OM_uint32 GSSAPI_LIB_CALL gss_export_name_composite (
     OM_uint32 *,	/* minor_status */
     gss_name_t,		/* name */
     gss_buffer_t	/* exp_composite_name */
+    );
+
+/*
+ * Prompting extensions
+ */
+typedef enum gss_prompt_action {
+    GSS_C_PA_INFO = 0,
+    GSS_C_PA_WARN = 1,
+    GSS_C_PA_ERROR = 2,
+    GSS_C_PA_INSERT_TOKEN = 3,
+    GSS_C_PA_ECHO_ON = 4,
+    GSS_C_PA_ECHO_OFF = 5,
+    GSS_C_PA_OK = 6,
+    GSS_C_PA_CANCEL = 7,
+} gss_prompt_action_t;
+
+typedef enum gss_prompt_type {
+    GSS_C_PT_NAME = 0,
+    GSS_C_PT_PASSWORD = 1,
+    GSS_C_PT_PIN = 2,
+    GSS_C_PT_INSERT_TOKEN = 3,
+    GSS_C_PT_NEW_PASSWORD = 4,
+    GSS_C_PT_NEW_PASSWORD_AGAIN = 5,
+    GSS_C_PT_NEW_PIN = 6,
+    GSS_C_PT_PASSWORD_EXPIRED = 7,
+    GSS_C_PT_PASSWORD_EXPIRY_WARNING = 8,
+} gss_prompt_type_t;
+
+typedef struct gss_prompt_desc {
+    gss_prompt_action_t action;
+    gss_prompt_type_t type;
+    gss_buffer_desc prompt;
+    int optional;
+    int hidden;
+} gss_prompt_desc, *gss_prompt_t;
+
+typedef struct gss_prompt_set_desc_struct {
+    size_t count;
+    gss_prompt_desc *elements;
+    gss_buffer_desc title;
+} gss_prompt_set_desc, *gss_prompt_set_t;
+
+typedef OM_uint32 (*gss_prompt_cancellation_cb_fct)(void *);
+
+GSSAPI_LIB_FUNCTION OM_uint32 GSSAPI_LIB_CALL gss_get_prompts (
+    OM_uint32 *,	             /* minor_status */
+    gss_cred_id_t,	             /* cred */
+    gss_ctx_id_t,	             /* ctx */
+    gss_prompt_cancellation_cb_fct,  /* cancel_callback_func */
+    void *,                          /* cancel_callback_data */
+    gss_prompt_set_t *               /* prompts */
+    );
+
+GSSAPI_LIB_FUNCTION OM_uint32 GSSAPI_LIB_CALL gss_set_prompt_answers (
+    OM_uint32 *,	             /* minor_status */
+    gss_cred_id_t,	             /* cred */
+    gss_ctx_id_t,	             /* ctx */
+    gss_buffer_set_t *               /* answers */
     );
 
 /*
