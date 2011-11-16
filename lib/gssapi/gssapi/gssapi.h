@@ -1112,57 +1112,72 @@ GSSAPI_LIB_FUNCTION OM_uint32 GSSAPI_LIB_CALL gss_export_name_composite (
  * Prompting extensions
  */
 typedef enum gss_prompt_action {
-    GSS_C_PA_INFO = 0,
-    GSS_C_PA_WARN = 1,
-    GSS_C_PA_ERROR = 2,
-    GSS_C_PA_INSERT_TOKEN = 3,
-    GSS_C_PA_ECHO_ON = 4,
-    GSS_C_PA_ECHO_OFF = 5,
-    GSS_C_PA_OK = 6,
-    GSS_C_PA_CANCEL = 7,
+    GSS_C_PA_INFO = 0,         /* no answer needed */
+    GSS_C_PA_WARN = 1,         /* no answer needed */
+    GSS_C_PA_ERROR = 2,        /* no answer needed */
+    GSS_C_PA_INSERT_TOKEN = 3, /* no answer needed */
+    GSS_C_PA_ECHO_ON = 4,      /* answer needed */
+    GSS_C_PA_ECHO_OFF = 5,     /* answer needed */
+    GSS_C_PA_OK = 6,           /* no answer needed */
+    GSS_C_PA_CANCEL = 7,       /* no answer needed */
 } gss_prompt_action_t;
 
 typedef enum gss_prompt_type {
-    GSS_C_PT_NAME = 0,
+    GSS_C_PT_NAME = 0,         /* user/princ name */
+    GSS_C_PT_EMAIL_ADDRESS = 0,
     GSS_C_PT_PASSWORD = 1,
     GSS_C_PT_PIN = 2,
-    GSS_C_PT_INSERT_TOKEN = 3,
+    GSS_C_PT_INSERT_TOKEN = 3, /* insert smartcard */
+    GSS_C_PT_NEW_NAME = 4,     /* for enrolment */
+    GSS_C_PT_NEW_NAME_AGAIN = 4,
     GSS_C_PT_NEW_PASSWORD = 4,
     GSS_C_PT_NEW_PASSWORD_AGAIN = 5,
     GSS_C_PT_NEW_PIN = 6,
     GSS_C_PT_PASSWORD_EXPIRED = 7,
     GSS_C_PT_PASSWORD_EXPIRY_WARNING = 8,
+    /* What else?? I bet PIN stuff needs more types */
 } gss_prompt_type_t;
 
-typedef struct gss_prompt_desc {
+typedef struct gss_prompt_desc_struct {
     gss_prompt_action_t action;
     gss_prompt_type_t type;
     gss_buffer_desc prompt;
-    int optional;
-    int hidden;
+    gss_buffer_desc prompt_mime_type; /* a MIME type if not set */
+    gss_buffer_desc help;       /* for help bubbles */
+    unsigned long optional:1;
+    unsigned long hidden:1;     /* copy prompt text to answer */
 } gss_prompt_desc, *gss_prompt_t;
 
 typedef struct gss_prompt_set_desc_struct {
+    gss_buffer_desc title;      /* for titling dialog */
+    gss_buffer_desc name;       /* for indexing keyring lookup */
+    gss_buffer_desc help;       /* for help bubbles */
+    gss_OID mech;
+    gss_buffer_desc auth_method;/* e.g., EAP method, krb5 pre-auth method */
+    unsigned long cacheable:1;  /* answers can be saved in a keyring */
+    unsigned long one_time:1;   /* not worth saving in a keyring */
+    unsigned long enrolment:1;  /* not worth saving in a keyring */
     size_t count;
     gss_prompt_desc *elements;
-    gss_buffer_desc title;
 } gss_prompt_set_desc, *gss_prompt_set_t;
 
 typedef OM_uint32 (*gss_prompt_cancellation_cb_fct)(void *);
 
 GSSAPI_LIB_FUNCTION OM_uint32 GSSAPI_LIB_CALL gss_get_prompts (
-    OM_uint32 *,	             /* minor_status */
-    gss_cred_id_t,	             /* cred */
-    gss_ctx_id_t,	             /* ctx */
+    OM_uint32 *,                     /* minor_status */
+    gss_cred_id_t,                   /* cred */
+    gss_ctx_id_t,                    /* ctx */
+    gss_buffer_t,                    /* language tag */
+    gss_buffer_t,                    /* codeset */
     gss_prompt_cancellation_cb_fct,  /* cancel_callback_func */
     void *,                          /* cancel_callback_data */
     gss_prompt_set_t *               /* prompts */
     );
 
 GSSAPI_LIB_FUNCTION OM_uint32 GSSAPI_LIB_CALL gss_set_prompt_answers (
-    OM_uint32 *,	             /* minor_status */
-    gss_cred_id_t,	             /* cred */
-    gss_ctx_id_t,	             /* ctx */
+    OM_uint32 *,                     /* minor_status */
+    gss_cred_id_t,                   /* cred */
+    gss_ctx_id_t,                    /* ctx */
     gss_buffer_set_t *               /* answers */
     );
 
