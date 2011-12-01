@@ -124,8 +124,8 @@ is_default_salt_p(const krb5_salt *default_salt, const Key *key)
 
 krb5_error_code
 _kdc_find_etype(krb5_context context, krb5_boolean use_strongest_session_key,
-		krb5_boolean is_preauth, hdb_entry_ex *princ,
-		krb5_enctype *etypes, unsigned len,
+		krb5_boolean is_preauth, krb5_boolean assume_1des_support,
+		hdb_entry_ex *princ, krb5_enctype *etypes, unsigned len,
 		krb5_enctype *ret_enctype, Key **ret_key)
 {
     krb5_error_code ret;
@@ -172,6 +172,12 @@ _kdc_find_etype(krb5_context context, krb5_boolean use_strongest_session_key,
 		/* save best of union of { client, crypto system } */
 		if (clientbest == (krb5_enctype)ETYPE_NULL)
 		    clientbest = p[i];
+
+		if (p[i] == KRB5_ENCTYPE_DES_CBC_CRC && !is_preauth &&
+		    ret_key == NULL && assume_1des_support) {
+		    enctype = p[i];
+		    continue;
+		}
 		/* check target princ support */
 		ret = hdb_enctype2key(context, &princ->entry, NULL, p[i], &key);
 		if (ret)
@@ -200,11 +206,19 @@ _kdc_find_etype(krb5_context context, krb5_boolean use_strongest_session_key,
 	 * weak enctypes in krb5.conf and selects this key selection
 	 * algorithm, then we get exactly what RFC4120 says.
 	 */
-	for(key = NULL, i = 0; ret != 0 && i < len; i++, key = NULL) {
+	for (key = NULL, i = 0; ret != 0 && i < len; i++, key = NULL) {
 
 	    if (krb5_enctype_valid(context, etypes[i]) != 0 &&
 		!_kdc_is_weak_exception(princ->entry.principal, etypes[i]))
 		continue;
+
+	    if (etypes[i] == KRB5_ENCTYPE_DES_CBC_CRC && !is_preauth &&
+		ret_key == NULL && assume_1des_support) {
+		if (ret_enctype != NULL)
+		    *ret_enctype = etypes[i];
+		ret = 0;
+		goto out;
+	    }
 
 	    while (hdb_next_enctype2key(context, &princ->entry, NULL,
 					etypes[i], &key) == 0) {
@@ -224,7 +238,7 @@ _kdc_find_etype(krb5_context context, krb5_boolean use_strongest_session_key,
     }
 
 out:
-    krb5_free_salt (context, def_salt);
+    krb5_free_salt(context, def_salt);
     return ret;
 }
 
@@ -1693,6 +1707,7 @@ _kdc_as_rep(kdc_request_t r,
 			  krb5_principal_is_krbtgt(context, r->server_princ) ?
 			  config->tgt_use_strongest_session_key :
 			  config->svc_use_strongest_session_key, FALSE,
+			  config->assume_svcs_support_des_cbc_crc,
 			  r->client, b->etype.val, b->etype.len, &r->sessionetype,
 			  NULL);
     if (ret) {
@@ -1754,8 +1769,9 @@ _kdc_as_rep(kdc_request_t r,
 	 * If there is a client key, send ETYPE_INFO{,2}
 	 */
 	ret = _kdc_find_etype(context,
-			      config->preauth_use_strongest_session_key, TRUE,
-			      r->client, b->etype.val, b->etype.len, NULL, &ckey);
+			      config->preauth_use_strongest_session_key,
+			      TRUE, FALSE, r->client, b->etype.val,
+			      b->etype.len, NULL, &ckey);
 	if (ret == 0) {
 
 	    /*

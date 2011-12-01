@@ -51,6 +51,7 @@ krb5_kdc_get_config(krb5_context context, krb5_kdc_configuration **config)
     c->require_preauth = TRUE;
     c->kdc_warn_pwexpire = 0;
     c->encode_as_rep_as_tgs_rep = FALSE;
+    c->assume_svcs_support_des_cbc_crc = FALSE;
     c->tgt_use_strongest_session_key = FALSE;
     c->preauth_use_strongest_session_key = FALSE;
     c->svc_use_strongest_session_key = FALSE;
@@ -120,6 +121,11 @@ krb5_kdc_get_config(krb5_context context, krb5_kdc_configuration **config)
     }
 #endif
 
+    c->assume_svcs_support_des_cbc_crc =
+	krb5_config_get_bool_default(context, NULL,
+				     c->assume_svcs_support_des_cbc_crc,
+				     "kdc",
+				     "assume-svcs-support-des-cbc-crc", NULL);
     c->tgt_use_strongest_session_key =
 	krb5_config_get_bool_default(context, NULL,
 				     c->tgt_use_strongest_session_key,

@@ -1732,6 +1732,7 @@ server_lookup:
 				  krb5_principal_is_krbtgt(context, sp) ?
 				  config->tgt_use_strongest_session_key :
 				  config->svc_use_strongest_session_key, FALSE,
+				  config->assume_svcs_support_des_cbc_crc,
 				  server, b->etype.val, b->etype.len, &etype,
 				  NULL);
 	    if(ret) {
