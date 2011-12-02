@@ -307,52 +307,33 @@ dup_similar_keys_in_keyset(krb5_context context, Keys *keys)
     krb5_error_code ret;
     size_t i, k;
     Key key;
-    int keyset_has_1des = 0;
-    int keyset_has_1des_crc = 0;
-    int keyset_has_1des_md4 = 0;
-    int keyset_has_1des_md5 = 0;
 
     memset(&key, 0, sizeof (key));
     k = keys->len;
     for (i = 0; i < keys->len; i++) {
 	if (keys->val[i].key.keytype == ETYPE_DES_CBC_CRC) {
-	    keyset_has_1des_crc = 1;
-	    if (k == keys->len)
-		k = i;
+	    return 0;
 	} else if (keys->val[i].key.keytype == ETYPE_DES_CBC_MD4) {
-	    keyset_has_1des_crc = 1;
-	    if (k == keys->len)
+	    if (k == keys->len) {
 		k = i;
+		break;
+	    }
 	} else if (keys->val[i].key.keytype == ETYPE_DES_CBC_MD5) {
-	    keyset_has_1des_crc = 1;
-	    if (k == keys->len)
+	    if (k == keys->len) {
 		k = i;
+		break;
+	    }
 	}
     }
     if (k == keys->len)
 	return 0;
 
-    keyset_has_1des = 1;
     ret = copy_Key(&keys->val[k], &key);
     if (ret)
 	return ret;
-    if (!keyset_has_1des_crc) {
-	ret = add_1des_dup(context, keys, &key, ETYPE_DES_CBC_CRC);
-	if (ret)
-	    goto out;
-    }
-    if (!keyset_has_1des_md4) {
-	ret = add_1des_dup(context, keys, &key, ETYPE_DES_CBC_MD4);
-	if (ret)
-	    goto out;
-    }
-    if (!keyset_has_1des_md5) {
-	ret = add_1des_dup(context, keys, &key, ETYPE_DES_CBC_MD5);
-	if (ret)
-	    goto out;
-    }
 
-out:
+    ret = add_1des_dup(context, keys, &key, ETYPE_DES_CBC_CRC);
+
     free_Key(&key);
     return ret;
 }
