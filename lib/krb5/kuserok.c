@@ -34,6 +34,22 @@
 #include "krb5_locl.h"
 #include <dirent.h>
 
+struct plctx {
+    const char           *luser;
+    krb5_const_principal principal;
+    krb5_boolean         result;
+}
+
+static krb5_error_code
+plcallback(krb5_context context, const void *plug, void *plugctx, void *userctx)
+{
+    const krb5plugin_kuserok_ftable *locate = plug;
+    struct plctx *plctx = userctx;
+
+    return locate->kuserok(plugctx, context, plctx->luser, plctx->principal,
+			   &plctx->result);
+}
+
 #ifndef _WIN32
 
 /* see if principal is mentioned in the filename access file, return
@@ -177,7 +193,7 @@ match_local_principals(krb5_context context,
     krb5_boolean result = FALSE;
 
     /* multi-component principals can never match */
-    if(krb5_principal_get_comp_string(context, principal, 1) != NULL)
+    if (krb5_principal_get_comp_string(context, principal, 1) != NULL)
 	return FALSE;
 
     ret = krb5_get_default_realms (context, &realms);
@@ -185,16 +201,16 @@ match_local_principals(krb5_context context,
 	return FALSE;
 
     for (r = realms; *r != NULL; ++r) {
-	if(strcmp(krb5_principal_get_realm(context, principal),
+	if (strcmp(krb5_principal_get_realm(context, principal),
 		  *r) != 0)
 	    continue;
-	if(strcmp(krb5_principal_get_comp_string(context, principal, 0),
+	if (strcmp(krb5_principal_get_comp_string(context, principal, 0),
 		  luser) == 0) {
 	    result = TRUE;
 	    break;
 	}
     }
-    krb5_free_host_realm (context, realms);
+    krb5_free_host_realm(context, realms);
     return result;
 }
 
@@ -238,15 +254,60 @@ krb5_kuserok (krb5_context context,
 	      krb5_principal principal,
 	      const char *luser)
 {
-#ifndef _WIN32
+    krb5_error_code ret;
+    ret = _krb5_plugin_run_f(context, "krb5", KRB5_PLUGIN_KUSEROK,
+			     KRB5_PLUGIN_KUSEROK_VERSION_0, 0,
+			     &ctx, plcallback);
+    if (ret != KRB5_PLUGIN_NO_HANDLE)
+	return ctx->result;
+    return FALSE;
+}
+
+static krb5_error_code
+kuserok_simple_plug(void *plug_ctx, krb5_context context, const char *rule,
+		    const char *luser, krb5_const_principal principal,
+		    krb5_boolean *result)
+{
+    if (strcmp(rule, "SIMPLE") != 0)
+	return KRB5_PLUGIN_NO_HANDLE;
+    *result = match_local_principals(context, principal, luser);
+    return 0;
+}
+
+static krb5_error_code
+kuserok_user_k5login_plug(void *plug_ctx, krb5_context context,
+			  const char *rule, const char *luser,
+			  krb5_const_principal principal, krb5_boolean *result)
+{
+
+}
+
+static krb5_error_code
+kuserok_user_k5login_plug(void *plug_ctx, krb5_context context,
+			  const char *rule, const char *luser,
+			  krb5_const_principal principal, krb5_boolean *result)
+{
+#ifdef _WIN32
+    return KRB5_PLUGIN_NO_HANDLE;
+#else
     char *buf;
     size_t buflen;
     struct passwd *pwd = NULL;
     char *profile_dir = NULL;
     krb5_error_code ret;
     krb5_boolean result = FALSE;
-
     krb5_boolean found_file = FALSE;
+    struct plctx ctx;
+
+    ctx.luser = luser;
+    ctx.principal = principal;
+    ctx.result = FALSE;
+
+    ret = _krb5_plugin_run_f(context, "krb5", KRB5_PLUGIN_KUSEROK,
+			     KRB5_PLUGIN_KUSEROK_VERSION_0, 0,
+			     &ctx, plcallback);
+    if (ret != KRB5_PLUGIN_NO_HANDLE)
+	return ctx->result;
 
 #ifdef POSIX_GETPWNAM_R
     char pwbuf[2048];
@@ -294,10 +355,5 @@ krb5_kuserok (krb5_context context,
 	return match_local_principals(context, principal, luser);
 
     return FALSE;
-#else
-    /* The .k5login file may be on a remote profile and we don't have
-       access to the profile until we have a token handle for the
-       user's credentials. */
-    return match_local_principals(context, principal, luser);
 #endif
 }
