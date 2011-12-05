@@ -338,7 +338,7 @@ kuserok_sys_k5login_plug_f(void *plug_ctx, krb5_context context,
 			   const char *rule, const char *luser,
 			   krb5_const_principal principal, krb5_boolean *result)
 {
-    char *buf;
+    char *path = NULL;
     char *profile_dir = NULL;
     krb5_error_code ret;
 #if 0
@@ -355,30 +355,18 @@ kuserok_sys_k5login_plug_f(void *plug_ctx, krb5_context context,
 	profile_dir = SYSTEM_K5LOGIN_DIR;
 
     /* XXX expand tokens */
+    ret = _krb5_expand_path_tokens(context, profile_dir, luser, &path);
+    if (ret)
+	return ret;
 
-    ret = check_one_file(context, profile_dir, NULL, principal, result);
+    ret = check_one_file(context, path, NULL, principal, result);
 
     if (ret == 0 && *result == TRUE) {
-	free(buf);
-	return TRUE;
+	free(path);
+	return 0;
     }
 
-    /* XXX */
-#if 0
-    if(ret != ENOENT)
-	found_file = TRUE;
-
-    strlcat(buf, ".d", buflen);
-    ret = check_directory(context, buf, NULL, principal, result);
-    free(buf);
-    if(ret == 0 && *result == TRUE)
-	return TRUE;
-
-    if(ret != ENOENT && ret != ENOTDIR)
-	found_file = TRUE;
-#endif
-
-    return FALSE;
+    return KRB5_PLUGIN_NO_HANDLE;
 }
 static krb5_error_code
 kuserok_user_k5login_plug_f(void *plug_ctx, krb5_context context,
