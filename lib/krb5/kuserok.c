@@ -32,13 +32,19 @@
  */
 
 #include "krb5_locl.h"
+#include "kuserok_plugin.h"
 #include <dirent.h>
 
+#ifndef SYSTEM_K5LOGIN_DIR
+#define SYSTEM_K5LOGIN_DIR SYSCONFDIR "/k5login.d"
+#endif
+
 struct plctx {
+    const char           *rule;
     const char           *luser;
     krb5_const_principal principal;
     krb5_boolean         result;
-}
+};
 
 static krb5_error_code
 plcallback(krb5_context context, const void *plug, void *plugctx, void *userctx)
@@ -46,8 +52,37 @@ plcallback(krb5_context context, const void *plug, void *plugctx, void *userctx)
     const krb5plugin_kuserok_ftable *locate = plug;
     struct plctx *plctx = userctx;
 
-    return locate->kuserok(plugctx, context, plctx->luser, plctx->principal,
-			   &plctx->result);
+    return locate->kuserok(plugctx, context, plctx->rule, plctx->luser,
+			   plctx->principal, &plctx->result);
+}
+
+static krb5_error_code kuserok_user_k5login_plug_f(void *, krb5_context,
+						   const char *, const char *,
+						   krb5_const_principal,
+						   krb5_boolean *);
+
+static krb5_error_code plugin_reg_ret;
+static krb5plugin_kuserok_ftable kuserok_simple_plug;
+static krb5plugin_kuserok_ftable kuserok_sys_k5login_plug;
+static krb5plugin_kuserok_ftable kuserok_user_k5login_plug;
+
+static void
+reg_def_plugins_once(void *ctx)
+{
+    krb5_error_code ret;
+    krb5_context context = ctx;
+
+    plugin_reg_ret = krb5_plugin_register(context, PLUGIN_TYPE_DATA,
+					  KRB5_PLUGIN_KUSEROK,
+					  &kuserok_simple_plug);
+    ret = krb5_plugin_register(context, PLUGIN_TYPE_DATA,
+                               KRB5_PLUGIN_KUSEROK, &kuserok_sys_k5login_plug);
+    if (!plugin_reg_ret)
+	plugin_reg_ret = ret;
+    ret = krb5_plugin_register(context, PLUGIN_TYPE_DATA,
+                               KRB5_PLUGIN_KUSEROK, &kuserok_user_k5login_plug);
+    if (!plugin_reg_ret)
+	plugin_reg_ret = ret;
 }
 
 #ifndef _WIN32
@@ -59,7 +94,7 @@ static krb5_error_code
 check_one_file(krb5_context context,
 	       const char *filename,
 	       struct passwd *pwd,
-	       krb5_principal principal,
+	       krb5_const_principal principal,
 	       krb5_boolean *result)
 {
     FILE *f;
@@ -125,7 +160,7 @@ static krb5_error_code
 check_directory(krb5_context context,
 		const char *dirname,
 		struct passwd *pwd,
-		krb5_principal principal,
+		krb5_const_principal principal,
 		krb5_boolean *result)
 {
     DIR *d;
@@ -185,7 +220,7 @@ check_directory(krb5_context context,
 
 static krb5_boolean
 match_local_principals(krb5_context context,
-		       krb5_principal principal,
+		       krb5_const_principal principal,
 		       const char *luser)
 {
     krb5_error_code ret;
@@ -254,19 +289,43 @@ krb5_kuserok (krb5_context context,
 	      krb5_principal principal,
 	      const char *luser)
 {
+    static heim_base_once_t reg_def_plugins = HEIM_BASE_ONCE_INIT;
     krb5_error_code ret;
-    ret = _krb5_plugin_run_f(context, "krb5", KRB5_PLUGIN_KUSEROK,
-			     KRB5_PLUGIN_KUSEROK_VERSION_0, 0,
-			     &ctx, plcallback);
-    if (ret != KRB5_PLUGIN_NO_HANDLE)
-	return ctx->result;
+    krb5_boolean result = FALSE;
+    size_t i;
+    char **rules;
+    struct plctx ctx;
+
+    heim_base_once_f(&reg_def_plugins, context, reg_def_plugins_once);
+
+    ctx.luser = luser;
+    ctx.principal = principal;
+    ctx.result = FALSE;
+
+    rules = krb5_config_get_strings(context, NULL, "libdefault",
+				    "kuserok", NULL);
+    if (rules == NULL) {
+	/* Default: check ~/.k5login */
+	ret = kuserok_user_k5login_plug_f(NULL, context, "USER_K5LOGIN", luser,
+					  principal, &result);
+	return result;
+    }
+
+    for (i = 0; rules[i]; i++) {
+	ctx.rule = rules[i];
+	ret = _krb5_plugin_run_f(context, "krb5", KRB5_PLUGIN_KUSEROK,
+				 KRB5_PLUGIN_KUSEROK_VERSION_0, 0,
+				 &ctx, plcallback);
+	if (ret != KRB5_PLUGIN_NO_HANDLE)
+	    return ctx.result;
+    }
     return FALSE;
 }
 
 static krb5_error_code
-kuserok_simple_plug(void *plug_ctx, krb5_context context, const char *rule,
-		    const char *luser, krb5_const_principal principal,
-		    krb5_boolean *result)
+kuserok_simple_plug_f(void *plug_ctx, krb5_context context, const char *rule,
+		      const char *luser, krb5_const_principal principal,
+		      krb5_boolean *result)
 {
     if (strcmp(rule, "SIMPLE") != 0)
 	return KRB5_PLUGIN_NO_HANDLE;
@@ -275,17 +334,56 @@ kuserok_simple_plug(void *plug_ctx, krb5_context context, const char *rule,
 }
 
 static krb5_error_code
-kuserok_user_k5login_plug(void *plug_ctx, krb5_context context,
-			  const char *rule, const char *luser,
-			  krb5_const_principal principal, krb5_boolean *result)
+kuserok_sys_k5login_plug_f(void *plug_ctx, krb5_context context,
+			   const char *rule, const char *luser,
+			   krb5_const_principal principal, krb5_boolean *result)
 {
+    char *buf;
+    char *profile_dir = NULL;
+    krb5_error_code ret;
+#if 0
+    krb5_boolean found_file = FALSE;
+#endif
 
+    *result = FALSE;
+    if (strcmp(rule, "SYSTEM-K5LOGIN") != 0 &&
+	strncmp(rule, "SYSTEM-K5LOGIN:", strlen("SYSTEM-K5LOGIN:")) != 0)
+	return KRB5_PLUGIN_NO_HANDLE;
+
+    profile_dir = strchr(rule, ':');
+    if (profile_dir == NULL)
+	profile_dir = SYSTEM_K5LOGIN_DIR;
+
+    /* XXX expand tokens */
+
+    ret = check_one_file(context, profile_dir, NULL, principal, result);
+
+    if (ret == 0 && *result == TRUE) {
+	free(buf);
+	return TRUE;
+    }
+
+    /* XXX */
+#if 0
+    if(ret != ENOENT)
+	found_file = TRUE;
+
+    strlcat(buf, ".d", buflen);
+    ret = check_directory(context, buf, NULL, principal, result);
+    free(buf);
+    if(ret == 0 && *result == TRUE)
+	return TRUE;
+
+    if(ret != ENOENT && ret != ENOTDIR)
+	found_file = TRUE;
+#endif
+
+    return FALSE;
 }
-
 static krb5_error_code
-kuserok_user_k5login_plug(void *plug_ctx, krb5_context context,
-			  const char *rule, const char *luser,
-			  krb5_const_principal principal, krb5_boolean *result)
+kuserok_user_k5login_plug_f(void *plug_ctx, krb5_context context,
+			    const char *rule, const char *luser,
+			    krb5_const_principal principal, krb5_boolean *result)
 {
 #ifdef _WIN32
     return KRB5_PLUGIN_NO_HANDLE;
@@ -295,19 +393,10 @@ kuserok_user_k5login_plug(void *plug_ctx, krb5_context context,
     struct passwd *pwd = NULL;
     char *profile_dir = NULL;
     krb5_error_code ret;
-    krb5_boolean result = FALSE;
     krb5_boolean found_file = FALSE;
-    struct plctx ctx;
 
-    ctx.luser = luser;
-    ctx.principal = principal;
-    ctx.result = FALSE;
-
-    ret = _krb5_plugin_run_f(context, "krb5", KRB5_PLUGIN_KUSEROK,
-			     KRB5_PLUGIN_KUSEROK_VERSION_0, 0,
-			     &ctx, plcallback);
-    if (ret != KRB5_PLUGIN_NO_HANDLE)
-	return ctx->result;
+    if (strcmp(rule, "USER_K5LOGIN") != 0)
+	return KRB5_PLUGIN_NO_HANDLE;
 
 #ifdef POSIX_GETPWNAM_R
     char pwbuf[2048];
@@ -330,9 +419,9 @@ kuserok_user_k5login_plug(void *plug_ctx, krb5_context context,
     /* check user's ~/.k5login */
     strlcpy(buf, profile_dir, buflen);
     strlcat(buf, KLOGIN, buflen);
-    ret = check_one_file(context, buf, pwd, principal, &result);
+    ret = check_one_file(context, buf, pwd, principal, result);
 
-    if(ret == 0 && result == TRUE) {
+    if(ret == 0 && *result == TRUE) {
 	free(buf);
 	return TRUE;
     }
@@ -341,9 +430,9 @@ kuserok_user_k5login_plug(void *plug_ctx, krb5_context context,
 	found_file = TRUE;
 
     strlcat(buf, ".d", buflen);
-    ret = check_directory(context, buf, pwd, principal, &result);
+    ret = check_directory(context, buf, pwd, principal, result);
     free(buf);
-    if(ret == 0 && result == TRUE)
+    if(ret == 0 && *result == TRUE)
 	return TRUE;
 
     if(ret != ENOENT && ret != ENOTDIR)
@@ -357,3 +446,38 @@ kuserok_user_k5login_plug(void *plug_ctx, krb5_context context,
     return FALSE;
 #endif
 }
+
+static krb5_error_code
+kuser_ok_null_plugin_init(krb5_context context, void **ctx)
+{
+    *ctx = NULL;
+    return 0;
+}
+
+static void
+kuser_ok_null_plugin_fini(void *ctx)
+{
+    return;
+}
+
+static krb5plugin_kuserok_ftable kuserok_simple_plug = {
+    0,
+    kuser_ok_null_plugin_init,
+    kuser_ok_null_plugin_fini,
+    kuserok_simple_plug_f,
+};
+
+static krb5plugin_kuserok_ftable kuserok_sys_k5login_plug = {
+    0,
+    kuser_ok_null_plugin_init,
+    kuser_ok_null_plugin_fini,
+    kuserok_sys_k5login_plug_f,
+};
+
+static krb5plugin_kuserok_ftable kuserok_user_k5login_plug = {
+    0,
+    kuser_ok_null_plugin_init,
+    kuser_ok_null_plugin_fini,
+    kuserok_user_k5login_plug_f,
+};
+
