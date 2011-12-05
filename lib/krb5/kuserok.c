@@ -36,8 +36,15 @@
 #include <dirent.h>
 
 #ifndef SYSTEM_K5LOGIN_DIR
+/*
+ * System k5login location.  File namess in this directory are expected
+ * to be usernames and to contain a list of principals allowed to login
+ * as the user named the same as the file.
+ */
 #define SYSTEM_K5LOGIN_DIR SYSCONFDIR "/k5login.d"
 #endif
+
+/* Plugin framework bits */
 
 struct plctx {
     const char           *rule;
@@ -118,7 +125,7 @@ check_one_file(krb5_context context,
 	fclose (f);
 	return EISDIR;
     }
-    if (st.st_uid != pwd->pw_uid && st.st_uid != 0) {
+    if (pwd != NULL && st.st_uid != pwd->pw_uid && st.st_uid != 0) {
 	fclose (f);
 	return EACCES;
     }
@@ -177,7 +184,7 @@ check_directory(krb5_context context,
     if (!S_ISDIR(st.st_mode))
 	return ENOTDIR;
 
-    if (st.st_uid != pwd->pw_uid && st.st_uid != 0)
+    if (pwd != NULL && st.st_uid != pwd->pw_uid && st.st_uid != 0)
 	return EACCES;
     if ((st.st_mode & (S_IWGRP | S_IWOTH)) != 0)
 	return EACCES;
@@ -296,6 +303,13 @@ krb5_kuserok (krb5_context context,
     char **rules;
     struct plctx ctx;
 
+    /*
+     * XXX we should have a struct with a krb5_context field and a
+     * krb5_error_code fied and pass the address of that as the ctx
+     * argument of heim_base_once_f().  For now we use a static to
+     * communicate failures.  Actually, we ignore failures anyways,
+     * since we can't return them.
+     */
     heim_base_once_f(&reg_def_plugins, context, reg_def_plugins_once);
 
     ctx.luser = luser;
@@ -322,6 +336,10 @@ krb5_kuserok (krb5_context context,
     return FALSE;
 }
 
+/*
+ * Simple kuserok: check that the lname for the aname matches luser.
+ */
+
 static krb5_error_code
 kuserok_simple_plug_f(void *plug_ctx, krb5_context context, const char *rule,
 		      const char *luser, krb5_const_principal principal,
@@ -333,6 +351,11 @@ kuserok_simple_plug_f(void *plug_ctx, krb5_context context, const char *rule,
     return 0;
 }
 
+/*
+ * Check k5login files in a system location, rather than in home
+ * directories.
+ */
+
 static krb5_error_code
 kuserok_sys_k5login_plug_f(void *plug_ctx, krb5_context context,
 			   const char *rule, const char *luser,
@@ -341,9 +364,6 @@ kuserok_sys_k5login_plug_f(void *plug_ctx, krb5_context context,
     char *path = NULL;
     char *profile_dir = NULL;
     krb5_error_code ret;
-#if 0
-    krb5_boolean found_file = FALSE;
-#endif
 
     *result = FALSE;
     if (strcmp(rule, "SYSTEM-K5LOGIN") != 0 &&
@@ -354,7 +374,6 @@ kuserok_sys_k5login_plug_f(void *plug_ctx, krb5_context context,
     if (profile_dir == NULL)
 	profile_dir = SYSTEM_K5LOGIN_DIR;
 
-    /* XXX expand tokens */
     ret = _krb5_expand_path_tokens(context, profile_dir, luser, &path);
     if (ret)
 	return ret;
@@ -368,6 +387,11 @@ kuserok_sys_k5login_plug_f(void *plug_ctx, krb5_context context,
 
     return KRB5_PLUGIN_NO_HANDLE;
 }
+
+/*
+ * Check ~luser/.k5login and/or ~/luser/.k5login.d
+ */
+
 static krb5_error_code
 kuserok_user_k5login_plug_f(void *plug_ctx, krb5_context context,
 			    const char *rule, const char *luser,
