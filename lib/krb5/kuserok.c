@@ -334,7 +334,7 @@ _krb5_kuserok(krb5_context context,
 	ret = kuserok_user_k5login_plug_f(NULL, context, "USER_K5LOGIN", luser,
 					  principal, an2ln_ok, &ctx.result);
 	if (ret == KRB5_PLUGIN_NO_HANDLE && an2ln_ok) {
-	    ret = kuserok_simple_plug_f(NULL, context, "USER_K5LOGIN", luser,
+	    ret = kuserok_simple_plug_f(NULL, context, "SIMPLE", luser,
 					principal, an2ln_ok, &ctx.result);
 	    if (ret == KRB5_PLUGIN_NO_HANDLE)
 		ctx.result = FALSE;
