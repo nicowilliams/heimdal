@@ -50,6 +50,7 @@ struct plctx {
     const char           *rule;
     const char           *luser;
     krb5_const_principal principal;
+    krb5_boolean         an2ln_ok;
     krb5_boolean         result;
 };
 
@@ -60,12 +61,16 @@ plcallback(krb5_context context, const void *plug, void *plugctx, void *userctx)
     struct plctx *plctx = userctx;
 
     return locate->kuserok(plugctx, context, plctx->rule, plctx->luser,
-			   plctx->principal, &plctx->result);
+			   plctx->principal, plctx->an2ln_ok, &plctx->result);
 }
 
+static krb5_error_code kuserok_simple_plug_f(void *, krb5_context, const char *,
+					     const char *, krb5_const_principal,
+					     krb5_boolean, krb5_boolean *);
 static krb5_error_code kuserok_user_k5login_plug_f(void *, krb5_context,
 						   const char *, const char *,
 						   krb5_const_principal,
+						   krb5_boolean,
 						   krb5_boolean *);
 
 static krb5_error_code plugin_reg_ret;
@@ -226,34 +231,30 @@ check_directory(krb5_context context,
 #endif  /* !_WIN32 */
 
 static krb5_boolean
-match_local_principals(krb5_context context,
-		       krb5_const_principal principal,
-		       const char *luser)
+check_an2ln(krb5_context context,
+	    krb5_const_principal principal,
+	    const char *luser)
 {
     krb5_error_code ret;
-    krb5_realm *realms, *r;
-    krb5_boolean result = FALSE;
+    char *lname;
 
     /* multi-component principals can never match */
     if (krb5_principal_get_comp_string(context, principal, 1) != NULL)
 	return FALSE;
 
-    ret = krb5_get_default_realms (context, &realms);
+    lname = malloc(strlen(luser) + 1);
+    if (lname == NULL)
+	return FALSE;
+    ret = krb5_aname_to_localname(context, principal, strlen(luser)+1, lname);
     if (ret)
 	return FALSE;
-
-    for (r = realms; *r != NULL; ++r) {
-	if (strcmp(krb5_principal_get_realm(context, principal),
-		  *r) != 0)
-	    continue;
-	if (strcmp(krb5_principal_get_comp_string(context, principal, 0),
-		  luser) == 0) {
-	    result = TRUE;
-	    break;
-	}
+    if (strcmp(lname, luser) == 0) {
+	free(lname);
+	return TRUE;
     }
-    krb5_free_host_realm(context, realms);
-    return result;
+    free(lname);
+    return FALSE;
+
 }
 
 /**
@@ -292,13 +293,22 @@ match_local_principals(krb5_context context,
  */
 
 KRB5_LIB_FUNCTION krb5_boolean KRB5_LIB_CALL
-krb5_kuserok (krb5_context context,
+krb5_kuserok(krb5_context context,
+	     krb5_principal principal,
+	     const char *luser)
+{
+    return _krb5_kuserok(context, principal, luser, TRUE);
+}
+
+
+KRB5_LIB_FUNCTION krb5_boolean KRB5_LIB_CALL
+_krb5_kuserok(krb5_context context,
 	      krb5_principal principal,
-	      const char *luser)
+	      const char *luser,
+	      krb5_boolean an2ln_ok)
 {
     static heim_base_once_t reg_def_plugins = HEIM_BASE_ONCE_INIT;
     krb5_error_code ret;
-    krb5_boolean result = FALSE;
     size_t i;
     char **rules;
     struct plctx ctx;
@@ -314,6 +324,7 @@ krb5_kuserok (krb5_context context,
 
     ctx.luser = luser;
     ctx.principal = principal;
+    ctx.an2ln_ok = an2ln_ok;
     ctx.result = FALSE;
 
     rules = krb5_config_get_strings(context, NULL, "libdefault",
@@ -321,8 +332,14 @@ krb5_kuserok (krb5_context context,
     if (rules == NULL) {
 	/* Default: check ~/.k5login */
 	ret = kuserok_user_k5login_plug_f(NULL, context, "USER_K5LOGIN", luser,
-					  principal, &result);
-	return result;
+					  principal, an2ln_ok, &ctx.result);
+	if (ret == KRB5_PLUGIN_NO_HANDLE && an2ln_ok) {
+	    ret = kuserok_simple_plug_f(NULL, context, "USER_K5LOGIN", luser,
+					principal, an2ln_ok, &ctx.result);
+	    if (ret == KRB5_PLUGIN_NO_HANDLE)
+		ctx.result = FALSE;
+	}
+	return ctx.result;
     }
 
     for (i = 0; rules[i]; i++) {
@@ -343,11 +360,11 @@ krb5_kuserok (krb5_context context,
 static krb5_error_code
 kuserok_simple_plug_f(void *plug_ctx, krb5_context context, const char *rule,
 		      const char *luser, krb5_const_principal principal,
-		      krb5_boolean *result)
+		      krb5_boolean an2ln_ok, krb5_boolean *result)
 {
     if (strcmp(rule, "SIMPLE") != 0)
 	return KRB5_PLUGIN_NO_HANDLE;
-    *result = match_local_principals(context, principal, luser);
+    *result = check_an2ln(context, principal, luser);
     return 0;
 }
 
@@ -359,7 +376,8 @@ kuserok_simple_plug_f(void *plug_ctx, krb5_context context, const char *rule,
 static krb5_error_code
 kuserok_sys_k5login_plug_f(void *plug_ctx, krb5_context context,
 			   const char *rule, const char *luser,
-			   krb5_const_principal principal, krb5_boolean *result)
+			   krb5_const_principal principal,
+			   krb5_boolean an2ln_ok, krb5_boolean *result)
 {
     char *path = NULL;
     char *profile_dir = NULL;
@@ -395,7 +413,8 @@ kuserok_sys_k5login_plug_f(void *plug_ctx, krb5_context context,
 static krb5_error_code
 kuserok_user_k5login_plug_f(void *plug_ctx, krb5_context context,
 			    const char *rule, const char *luser,
-			    krb5_const_principal principal, krb5_boolean *result)
+			    krb5_const_principal principal,
+			    krb5_boolean an2ln_ok, krb5_boolean *result)
 {
 #ifdef _WIN32
     return KRB5_PLUGIN_NO_HANDLE;
@@ -452,8 +471,8 @@ kuserok_user_k5login_plug_f(void *plug_ctx, krb5_context context,
 
     /* finally if no files exist, allow all principals matching
        <localuser>@<LOCALREALM> */
-    if(found_file == FALSE)
-	return match_local_principals(context, principal, luser);
+    if(found_file == FALSE && an2ln_ok)
+	return check_an2ln(context, principal, luser);
 
     return FALSE;
 #endif

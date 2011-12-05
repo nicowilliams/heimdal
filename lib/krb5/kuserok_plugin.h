@@ -43,7 +43,7 @@ typedef struct krb5plugin_kuserok_ftable_desc {
     void		(*fini)(void *);
     krb5_error_code	(*kuserok)(void *, krb5_context, const char *,
 				   const char *, krb5_const_principal,
-				   krb5_boolean *);
+				   krb5_boolean, krb5_boolean *);
 } krb5plugin_kuserok_ftable;
 
 #endif /* HEIMDAL_KRB5_KUSEROK_PLUGIN_H */
