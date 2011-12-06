@@ -62,6 +62,8 @@ struct string_list {
     struct string_list *next;
 };
 
+int implicit_tagging = 0;
+
 /* Declarations for Bison */
 #define YYMALLOC malloc
 #define YYFREE   free
@@ -245,7 +247,7 @@ ModuleDefinition: IDENTIFIER objid_opt kw_DEFINITIONS TagDefault ExtensionDefaul
 
 TagDefault	: kw_EXPLICIT kw_TAGS
 		| kw_IMPLICIT kw_TAGS
-		      { lex_error_message("implicit tagging is not supported"); }
+		      { implicit_tagging = 1; }
 		| kw_AUTOMATIC kw_TAGS
 		      { lex_error_message("automatic tagging is not supported"); }
 		| /* empty */
@@ -648,7 +650,10 @@ Tag		: '[' Class NUMBER ']'
 		{
 			$$.tagclass = $2;
 			$$.tagvalue = $3;
-			$$.tagenv = TE_EXPLICIT;
+			if (implicit_tagging)
+			    $$.tagenv = TE_IMPLICIT;
+			else
+			    $$.tagenv = TE_EXPLICIT;
 		}
 		;
 
@@ -672,7 +677,10 @@ Class		: /* */
 
 tagenv		: /* */
 		{
-			$$ = TE_EXPLICIT;
+			if (implicit_tagging)
+			    $$ = TE_IMPLICIT;
+			else
+			    $$ = TE_EXPLICIT;
 		}
 		| kw_EXPLICIT
 		{
