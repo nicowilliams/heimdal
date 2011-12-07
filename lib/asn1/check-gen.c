@@ -682,6 +682,17 @@ cmp_TESTLargeTag (void *a, void *b)
 }
 
 static int
+cmp_TEST2LargeTag (void *a, void *b)
+{
+    TEST2LargeTag *aa = a;
+    TEST2LargeTag *ab = b;
+
+    COMPARE_INTEGER(aa,ab,foo);
+    COMPARE_INTEGER(aa,ab,bar);
+    return 0;
+}
+
+static int
 test_large_tag (void)
 {
     struct test_case tests[] = {
@@ -704,6 +715,31 @@ test_large_tag (void)
 			 (generic_free)free_TESTLargeTag,
 			 cmp_TESTLargeTag,
 			 (generic_copy)copy_TESTLargeTag);
+}
+
+static int
+test2_large_tag (void)
+{
+    struct test_case tests[] = {
+	{ NULL,  11,  "\x30\x09\x9f\x7f\x01\x01\x9f\x81\x00\x01\x02", "large tag 1" }
+    };
+
+    int ntests = sizeof(tests) / sizeof(*tests);
+    TEST2LargeTag lt1;
+
+    memset(&lt1, 0, sizeof(lt1));
+    lt1.foo = 1;
+    lt1.bar = 2;
+
+    tests[0].val = &lt1;
+
+    return generic_test (tests, ntests, sizeof(TEST2LargeTag),
+			 (generic_encode)encode_TEST2LargeTag,
+			 (generic_length)length_TEST2LargeTag,
+			 (generic_decode)decode_TEST2LargeTag,
+			 (generic_free)free_TEST2LargeTag,
+			 cmp_TEST2LargeTag,
+			 (generic_copy)copy_TEST2LargeTag);
 }
 
 struct test_data {
@@ -1293,6 +1329,7 @@ main(int argc, char **argv)
 
     ret += check_tag_length();
     ret += test_large_tag();
+    ret += test2_large_tag();
     ret += test_choice();
 
     ret += test_implicit();
