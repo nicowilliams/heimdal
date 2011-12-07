@@ -316,7 +316,7 @@ _expand_userid(krb5_context context, PTYPE param, const char *postfix, char **st
 static int
 _expand_luser(krb5_context context, const char *luser, char **ret)
 {
-    *ret = strdup("");
+    *ret = strdup(luser);
     if (*ret == NULL) {
 	if (context)
 	    krb5_set_error_message(context, ENOMEM, "Out of memory");

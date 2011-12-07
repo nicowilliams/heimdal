@@ -48,9 +48,10 @@
 
 struct plctx {
     const char           *rule;
+    const char           *k5login_dir;
     const char           *luser;
     krb5_const_principal principal;
-    krb5_boolean         an2ln_ok;
+    unsigned int         flags;
     krb5_boolean         result;
 };
 
@@ -60,18 +61,10 @@ plcallback(krb5_context context, const void *plug, void *plugctx, void *userctx)
     const krb5plugin_kuserok_ftable *locate = plug;
     struct plctx *plctx = userctx;
 
-    return locate->kuserok(plugctx, context, plctx->rule, plctx->luser,
-			   plctx->principal, plctx->an2ln_ok, &plctx->result);
+    return locate->kuserok(plugctx, context, plctx->rule, plctx->flags,
+			   plctx->k5login_dir, plctx->luser, plctx->principal,
+			   &plctx->result);
 }
-
-static krb5_error_code kuserok_simple_plug_f(void *, krb5_context, const char *,
-					     const char *, krb5_const_principal,
-					     krb5_boolean, krb5_boolean *);
-static krb5_error_code kuserok_user_k5login_plug_f(void *, krb5_context,
-						   const char *, const char *,
-						   krb5_const_principal,
-						   krb5_boolean,
-						   krb5_boolean *);
 
 static krb5_error_code plugin_reg_ret;
 static krb5plugin_kuserok_ftable kuserok_simple_plug;
@@ -97,7 +90,83 @@ reg_def_plugins_once(void *ctx)
 	plugin_reg_ret = ret;
 }
 
-#ifndef _WIN32
+/**
+ * This function is designed to be portable for Win32 and POSIX.  The
+ * design does lead to multiple getpwnam_r() calls, but this is probably
+ * not a big deal.
+ *
+ * Inputs:
+ *
+ * @context            A krb5_context
+ * @is_system_location TRUE if the dir/file are system locations or
+ *                     FALSE if they are user home directory locations
+ * @dir                Directory (optional)
+ * @dirlstat           A pointer to struct stat for the directory (optional)
+ * @file               File (optional)
+ * @owner              Name of user that is expected to own the file
+ */
+static krb5_error_code
+check_owner(krb5_context context, krb5_boolean is_system_location,
+	    DIR *dir, struct stat *dirlstat, FILE *file, const char *owner)
+{
+#ifdef _WIN32
+    /*
+     * XXX Implement this!
+     *
+     * The thing to do is to call _get_osfhandle() on fileno(file) and
+     * dirfd(dir) to get HANDLEs to the same, then call
+     * GetSecurityInfo() on those HANDLEs to get the security descriptor
+     * (SD), then check the owner and DACL.  Checking the DACL sounds
+     * like a lot of work (what, derive a mode from the ACL the way
+     * NFSv4 servers do?).  Checking the owner means doing an LSARPC
+     * lookup at least (to get the user's SID). 
+     */
+    if (is_system_location || owner == NULL)
+	return 0;
+    return EACCES;
+#else
+    struct stat st;
+    struct passwd *pwd = NULL;
+#ifdef POSIX_GETPWNAM_R
+    char pwbuf[2048];
+    struct passwd pw;
+#endif
+#endif
+
+#ifdef POSIX_GETPWNAM_R
+    if (owner != NULL && getpwnam_r(owner, &pw, pwbuf, sizeof(pwbuf), &pwd) != 0)
+	return EACCES;
+#else
+    pwd = getpwnam(luser);
+    if (owner != NULL && pwd == NULL)
+	return EACCES;
+#endif
+    if (dir) {
+	if (fstat(dirfd(dir), &st) == -1)
+	    return errno;
+	if (S_ISDIR(st.st_mode))
+	    return ENOTDIR;
+	if (st.st_dev != dirlstat->st_dev || st.st_ino != dirlstat->st_ino)
+	    return EACCES;
+	if ((st.st_mode & (S_IWGRP | S_IWOTH)) != 0)
+	    return EACCES; /* XXX We should have a better code */
+	if (pwd != NULL && pwd->pw_uid != st.st_uid && st.st_uid != 0)
+	    return EACCES;
+	if (file == NULL)
+	    return 0;
+    }
+    if (file) {
+	if (fstat(fileno(file), &st) == -1)
+	    return errno;
+	if (S_ISDIR(st.st_mode))
+	    return EISDIR;
+	if ((st.st_mode & (S_IWGRP | S_IWOTH)) != 0)
+	    return EACCES; /* XXX We should have a better code */
+	if (pwd == NULL || pwd->pw_uid == st.st_uid || st.st_uid == 0)
+	    return 0;
+    }
+    return EACCES;
+}
 
 /* see if principal is mentioned in the filename access file, return
    TRUE (in result) if so, FALSE otherwise */
@@ -105,73 +174,60 @@ reg_def_plugins_once(void *ctx)
 static krb5_error_code
 check_one_file(krb5_context context,
 	       const char *filename,
-	       struct passwd *pwd,
+	       const char *owner,
 	       krb5_const_principal principal,
 	       krb5_boolean *result)
 {
     FILE *f;
     char buf[BUFSIZ];
     krb5_error_code ret;
-    struct stat st;
 
     *result = FALSE;
 
-    f = fopen (filename, "r");
+    f = fopen(filename, "r");
     if (f == NULL)
 	return errno;
     rk_cloexec_file(f);
 
-    /* check type and mode of file */
-    if (fstat(fileno(f), &st) != 0) {
-	fclose (f);
-	return errno;
-    }
-    if (S_ISDIR(st.st_mode)) {
-	fclose (f);
-	return EISDIR;
-    }
-    if (pwd != NULL && st.st_uid != pwd->pw_uid && st.st_uid != 0) {
-	fclose (f);
-	return EACCES;
-    }
-    if ((st.st_mode & (S_IWGRP | S_IWOTH)) != 0) {
-	fclose (f);
-	return EACCES;
-    }
+    ret = check_owner(context, 0, NULL, NULL, f, owner);
+    if (!ret)
+	goto out;
 
-    while (fgets (buf, sizeof(buf), f) != NULL) {
+    while (fgets(buf, sizeof(buf), f) != NULL) {
 	krb5_principal tmp;
 	char *newline = buf + strcspn(buf, "\n");
 
 	if(*newline != '\n') {
 	    int c;
 	    c = fgetc(f);
-	    if(c != EOF) {
-		while(c != EOF && c != '\n')
+	    if (c != EOF) {
+		while (c != EOF && c != '\n')
 		    c = fgetc(f);
 		/* line was too long, so ignore it */
 		continue;
 	    }
 	}
 	*newline = '\0';
-	ret = krb5_parse_name (context, buf, &tmp);
+	ret = krb5_parse_name(context, buf, &tmp);
 	if (ret)
 	    continue;
-	*result = krb5_principal_compare (context, principal, tmp);
-	krb5_free_principal (context, tmp);
+	*result = krb5_principal_compare(context, principal, tmp);
+	krb5_free_principal(context, tmp);
 	if (*result) {
 	    fclose (f);
 	    return 0;
 	}
     }
-    fclose (f);
+
+out:
+    fclose(f);
     return 0;
 }
 
 static krb5_error_code
 check_directory(krb5_context context,
 		const char *dirname,
-		struct passwd *pwd,
+		const char *owner,
 		krb5_const_principal principal,
 		krb5_boolean *result)
 {
@@ -183,52 +239,36 @@ check_directory(krb5_context context,
 
     *result = FALSE;
 
-    if(lstat(dirname, &st) < 0)
+    if (lstat(dirname, &st) < 0)
 	return errno;
 
     if (!S_ISDIR(st.st_mode))
 	return ENOTDIR;
 
-    if (pwd != NULL && st.st_uid != pwd->pw_uid && st.st_uid != 0)
-	return EACCES;
-    if ((st.st_mode & (S_IWGRP | S_IWOTH)) != 0)
-	return EACCES;
-
-    if((d = opendir(dirname)) == NULL)
+    if ((d = opendir(dirname)) == NULL)
 	return errno;
 
-    {
-	int fd;
-	struct stat st2;
+    ret = check_owner(context, 0, d, &st, NULL, owner);
+    if (!ret)
+	goto out;
 
-	fd = dirfd(d);
-	if(fstat(fd, &st2) < 0) {
-	    closedir(d);
-	    return errno;
-	}
-	if(st.st_dev != st2.st_dev || st.st_ino != st2.st_ino) {
-	    closedir(d);
-	    return EACCES;
-	}
-    }
-
-    while((dent = readdir(d)) != NULL) {
-	if(strcmp(dent->d_name, ".") == 0 ||
+    while ((dent = readdir(d)) != NULL) {
+	if (strcmp(dent->d_name, ".") == 0 ||
 	   strcmp(dent->d_name, "..") == 0 ||
 	   dent->d_name[0] == '#' ||			  /* emacs autosave */
 	   dent->d_name[strlen(dent->d_name) - 1] == '~') /* emacs backup */
 	    continue;
 	snprintf(filename, sizeof(filename), "%s/%s", dirname, dent->d_name);
-	ret = check_one_file(context, filename, pwd, principal, result);
-	if(ret == 0 && *result == TRUE)
+	ret = check_one_file(context, filename, owner, principal, result);
+	if (ret == 0 && *result == TRUE)
 	    break;
 	ret = 0; /* don't propagate errors upstream */
     }
+
+out:
     closedir(d);
     return ret;
 }
-
-#endif  /* !_WIN32 */
 
 static krb5_boolean
 check_an2ln(krb5_context context,
@@ -238,9 +278,12 @@ check_an2ln(krb5_context context,
     krb5_error_code ret;
     char *lname;
 
+#if 0
+    /* XXX We should probably make this an option */
     /* multi-component principals can never match */
     if (krb5_principal_get_comp_string(context, principal, 1) != NULL)
 	return FALSE;
+#endif
 
     lname = malloc(strlen(luser) + 1);
     if (lname == NULL)
@@ -322,24 +365,35 @@ _krb5_kuserok(krb5_context context,
      */
     heim_base_once_f(&reg_def_plugins, context, reg_def_plugins_once);
 
+    ctx.flags = 0;
     ctx.luser = luser;
     ctx.principal = principal;
-    ctx.an2ln_ok = an2ln_ok;
     ctx.result = FALSE;
 
-    rules = krb5_config_get_strings(context, NULL, "libdefault",
+    ctx.k5login_dir = krb5_config_get_string(context, NULL, "libdefaults",
+					     "k5login_directory", NULL);
+
+    if (an2ln_ok)
+	ctx.flags |= KUSEROK_ANAME_TO_LNAME_OK;
+    if (krb5_config_get_bool_default(context, NULL, FALSE, "libdefaults",
+				     "k5login_authoritative", NULL))
+	ctx.flags |= KUSEROK_K5LOGIN_IS_AUTHORITATIVE;
+
+
+    rules = krb5_config_get_strings(context, NULL, "libdefaults",
 				    "kuserok", NULL);
     if (rules == NULL) {
 	/* Default: check ~/.k5login */
-	ret = kuserok_user_k5login_plug_f(NULL, context, "USER_K5LOGIN", luser,
-					  principal, an2ln_ok, &ctx.result);
-	if (ret == KRB5_PLUGIN_NO_HANDLE && an2ln_ok) {
-	    ret = kuserok_simple_plug_f(NULL, context, "SIMPLE", luser,
-					principal, an2ln_ok, &ctx.result);
-	    if (ret == KRB5_PLUGIN_NO_HANDLE)
-		ctx.result = FALSE;
-	}
-	return ctx.result;
+	ctx.rule = "USER_K5LOGIN";
+	ret = plcallback(context, &kuserok_user_k5login_plug, NULL, &ctx);
+	if (ret == 0)
+	    goto out;
+	ctx.rule = "SIMPLE";
+	ret = plcallback(context, &kuserok_simple_plug, NULL, &ctx);
+	if (ret == 0)
+	    goto out;
+	ctx.result = FALSE;
+	goto out;
     }
 
     for (i = 0; rules[i]; i++) {
@@ -347,10 +401,14 @@ _krb5_kuserok(krb5_context context,
 	ret = _krb5_plugin_run_f(context, "krb5", KRB5_PLUGIN_KUSEROK,
 				 KRB5_PLUGIN_KUSEROK_VERSION_0, 0,
 				 &ctx, plcallback);
-	if (ret != KRB5_PLUGIN_NO_HANDLE)
-	    return ctx.result;
+	if (ret != KRB5_PLUGIN_NO_HANDLE) 
+	    goto out;
     }
-    return FALSE;
+
+out:
+    krb5_config_free_strings(rules);
+    free((char *)ctx.k5login_dir);
+    return ctx.result;
 }
 
 /*
@@ -359,12 +417,14 @@ _krb5_kuserok(krb5_context context,
 
 static krb5_error_code
 kuserok_simple_plug_f(void *plug_ctx, krb5_context context, const char *rule,
+		      unsigned int flags, const char *k5login_dir,
 		      const char *luser, krb5_const_principal principal,
-		      krb5_boolean an2ln_ok, krb5_boolean *result)
+		      krb5_boolean *result)
 {
     if (strcmp(rule, "SIMPLE") != 0)
 	return KRB5_PLUGIN_NO_HANDLE;
-    *result = check_an2ln(context, principal, luser);
+    if (flags & KUSEROK_ANAME_TO_LNAME_OK)
+	*result = check_an2ln(context, principal, luser);
     return 0;
 }
 
@@ -375,12 +435,12 @@ kuserok_simple_plug_f(void *plug_ctx, krb5_context context, const char *rule,
 
 static krb5_error_code
 kuserok_sys_k5login_plug_f(void *plug_ctx, krb5_context context,
-			   const char *rule, const char *luser,
-			   krb5_const_principal principal,
-			   krb5_boolean an2ln_ok, krb5_boolean *result)
+			   const char *rule, unsigned int flags,
+			   const char *k5login_dir, const char *luser,
+			   krb5_const_principal principal, krb5_boolean *result)
 {
     char *path = NULL;
-    char *profile_dir = NULL;
+    const char *profile_dir = NULL;
     krb5_error_code ret;
 
     *result = FALSE;
@@ -390,18 +450,21 @@ kuserok_sys_k5login_plug_f(void *plug_ctx, krb5_context context,
 
     profile_dir = strchr(rule, ':');
     if (profile_dir == NULL)
-	profile_dir = SYSTEM_K5LOGIN_DIR;
+	profile_dir = k5login_dir ? k5login_dir : SYSTEM_K5LOGIN_DIR;
+    else
+	profile_dir++;
 
     ret = _krb5_expand_path_tokens(context, profile_dir, luser, &path);
     if (ret)
 	return ret;
 
     ret = check_one_file(context, path, NULL, principal, result);
+    free(path);
 
-    if (ret == 0 && *result == TRUE) {
-	free(path);
+    if (ret == 0 && (flags & KUSEROK_K5LOGIN_IS_AUTHORITATIVE))
 	return 0;
-    }
+    if (ret == 0 && *result == TRUE)
+	return 0;
 
     return KRB5_PLUGIN_NO_HANDLE;
 }
@@ -412,9 +475,10 @@ kuserok_sys_k5login_plug_f(void *plug_ctx, krb5_context context,
 
 static krb5_error_code
 kuserok_user_k5login_plug_f(void *plug_ctx, krb5_context context,
-			    const char *rule, const char *luser,
+			    const char *rule, unsigned int flags,
+			    const char *k5login_dir, const char *luser,
 			    krb5_const_principal principal,
-			    krb5_boolean an2ln_ok, krb5_boolean *result)
+			    krb5_boolean *result)
 {
 #ifdef _WIN32
     return KRB5_PLUGIN_NO_HANDLE;
@@ -433,7 +497,7 @@ kuserok_user_k5login_plug_f(void *plug_ctx, krb5_context context,
     char pwbuf[2048];
     struct passwd pw;
 
-    if(getpwnam_r(luser, &pw, pwbuf, sizeof(pwbuf), &pwd) != 0)
+    if (getpwnam_r(luser, &pw, pwbuf, sizeof(pwbuf), &pwd) != 0)
 	return FALSE;
 #else
     pwd = getpwnam (luser);
@@ -445,34 +509,32 @@ kuserok_user_k5login_plug_f(void *plug_ctx, krb5_context context,
 #define KLOGIN "/.k5login"
     buflen = strlen(profile_dir) + sizeof(KLOGIN) + 2; /* 2 for .d */
     buf = malloc(buflen);
-    if(buf == NULL)
+    if (buf == NULL)
 	return FALSE;
     /* check user's ~/.k5login */
     strlcpy(buf, profile_dir, buflen);
     strlcat(buf, KLOGIN, buflen);
-    ret = check_one_file(context, buf, pwd, principal, result);
+    ret = check_one_file(context, buf, luser, principal, result);
 
-    if(ret == 0 && *result == TRUE) {
+    if (ret == 0 && *result == TRUE) {
 	free(buf);
 	return TRUE;
     }
 
-    if(ret != ENOENT)
+    if (ret != ENOENT)
 	found_file = TRUE;
 
     strlcat(buf, ".d", buflen);
-    ret = check_directory(context, buf, pwd, principal, result);
+    ret = check_directory(context, buf, luser, principal, result);
     free(buf);
-    if(ret == 0 && *result == TRUE)
+    if (ret == 0 && *result == TRUE)
 	return TRUE;
 
-    if(ret != ENOENT && ret != ENOTDIR)
+    if (ret != ENOENT && ret != ENOTDIR)
 	found_file = TRUE;
 
-    /* finally if no files exist, allow all principals matching
-       <localuser>@<LOCALREALM> */
-    if(found_file == FALSE && an2ln_ok)
-	return check_an2ln(context, principal, luser);
+    if (found_file == FALSE)
+	return KRB5_PLUGIN_NO_HANDLE;
 
     return FALSE;
 #endif
@@ -492,21 +554,21 @@ kuser_ok_null_plugin_fini(void *ctx)
 }
 
 static krb5plugin_kuserok_ftable kuserok_simple_plug = {
-    0,
+    KRB5_PLUGIN_KUSEROK_VERSION_0,
     kuser_ok_null_plugin_init,
     kuser_ok_null_plugin_fini,
     kuserok_simple_plug_f,
 };
 
 static krb5plugin_kuserok_ftable kuserok_sys_k5login_plug = {
-    0,
+    KRB5_PLUGIN_KUSEROK_VERSION_0,
     kuser_ok_null_plugin_init,
     kuser_ok_null_plugin_fini,
     kuserok_sys_k5login_plug_f,
 };
 
 static krb5plugin_kuserok_ftable kuserok_user_k5login_plug = {
-    0,
+    KRB5_PLUGIN_KUSEROK_VERSION_0,
     kuser_ok_null_plugin_init,
     kuser_ok_null_plugin_fini,
     kuserok_user_k5login_plug_f,
