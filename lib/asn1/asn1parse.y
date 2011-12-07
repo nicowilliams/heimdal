@@ -62,7 +62,7 @@ struct string_list {
     struct string_list *next;
 };
 
-int implicit_tagging = 0;
+extern int implicit_tagging;
 
 /* Declarations for Bison */
 #define YYMALLOC malloc

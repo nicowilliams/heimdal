@@ -48,6 +48,7 @@
 #include <heim_asn1.h>
 #include <rfc2459_asn1.h>
 #include <test_asn1.h>
+#include <test2_asn1.h>
 
 #include "check-common.h"
 

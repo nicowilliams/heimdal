@@ -90,6 +90,8 @@ usage(int code)
     exit(code);
 }
 
+int implicit_tagging = 0;
+
 int error_flag;
 
 int
