@@ -628,6 +628,13 @@ _krb5_plugin_run_f(krb5_context context,
     HEIMDAL_MUTEX_unlock(&plugin_mutex);
 
     /* Invoke registered plugins */
+    /*
+     * XXX This is the wrong way to do it.  Instead we should call
+     * something like search_results() for each one then let
+     * eval_results() do the invocation for us.  What we do here will
+     * work until we have a registered plugin whose init/fini entry
+     * points are not no-ops!
+     */
     for (p = registered_plugins; p; p = p->next) {
 	if (s.ret != KRB5_PLUGIN_NO_HANDLE)
 	    break;
