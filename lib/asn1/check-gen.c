@@ -904,6 +904,7 @@ test_implicit (void)
 			 (generic_copy)copy_TESTImplicit);
 
 #ifdef IMPLICIT_TAGGING_WORKS
+    tests[0].name = "implicit 1 v2";
     ret += generic_test (tests, ntests, sizeof(TESTImplicit2),
 			 (generic_encode)encode_TESTImplicit2,
 			 (generic_length)length_TESTImplicit2,
@@ -911,8 +912,8 @@ test_implicit (void)
 			 (generic_free)free_TESTImplicit2,
 			 cmp_TESTImplicit,
 			 NULL);
-
 #endif /* IMPLICIT_TAGGING_WORKS */
+
     return ret;
 }
 
