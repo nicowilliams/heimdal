@@ -175,6 +175,7 @@ static krb5_error_code
 check_one_file(krb5_context context,
 	       const char *filename,
 	       const char *owner,
+	       krb5_boolean is_system_location,
 	       krb5_const_principal principal,
 	       krb5_boolean *result)
 {
@@ -228,6 +229,7 @@ static krb5_error_code
 check_directory(krb5_context context,
 		const char *dirname,
 		const char *owner,
+	        krb5_boolean is_system_location,
 		krb5_const_principal principal,
 		krb5_boolean *result)
 {
@@ -248,7 +250,7 @@ check_directory(krb5_context context,
     if ((d = opendir(dirname)) == NULL)
 	return errno;
 
-    ret = check_owner(context, 0, d, &st, NULL, owner);
+    ret = check_owner(context, is_system_location, d, &st, NULL, owner);
     if (!ret)
 	goto out;
 
@@ -259,7 +261,8 @@ check_directory(krb5_context context,
 	   dent->d_name[strlen(dent->d_name) - 1] == '~') /* emacs backup */
 	    continue;
 	snprintf(filename, sizeof(filename), "%s/%s", dirname, dent->d_name);
-	ret = check_one_file(context, filename, owner, principal, result);
+	ret = check_one_file(context, filename, owner, is_system_location,
+			     principal, result);
 	if (ret == 0 && *result == TRUE)
 	    break;
 	ret = 0; /* don't propagate errors upstream */
@@ -458,14 +461,14 @@ kuserok_sys_k5login_plug_f(void *plug_ctx, krb5_context context,
     if (ret)
 	return ret;
 
-    ret = check_one_file(context, path, NULL, principal, result);
+    ret = check_one_file(context, path, NULL, TRUE, principal, result);
     free(path);
 
-    if (ret == 0 && (flags & KUSEROK_K5LOGIN_IS_AUTHORITATIVE))
-	return 0;
-    if (ret == 0 && *result == TRUE)
+    if (ret == 0 &&
+	((flags & KUSEROK_K5LOGIN_IS_AUTHORITATIVE) || *result == TRUE))
 	return 0;
 
+    *result = FALSE;
     return KRB5_PLUGIN_NO_HANDLE;
 }
 
@@ -483,60 +486,64 @@ kuserok_user_k5login_plug_f(void *plug_ctx, krb5_context context,
 #ifdef _WIN32
     return KRB5_PLUGIN_NO_HANDLE;
 #else
-    char *buf;
-    size_t buflen;
-    struct passwd *pwd = NULL;
-    char *profile_dir = NULL;
+    char *path;
+    const char *profile_dir = NULL;
     krb5_error_code ret;
     krb5_boolean found_file = FALSE;
+    struct passwd *pwd = NULL;
+#ifdef POSIX_GETPWNAM_R
+    struct passwd pw;
+    char pwbuf[2048];
+#endif
 
     if (strcmp(rule, "USER_K5LOGIN") != 0)
 	return KRB5_PLUGIN_NO_HANDLE;
 
+    profile_dir = k5login_dir;
+    if (profile_dir == NULL) {
 #ifdef POSIX_GETPWNAM_R
-    char pwbuf[2048];
-    struct passwd pw;
-
-    if (getpwnam_r(luser, &pw, pwbuf, sizeof(pwbuf), &pwd) != 0)
-	return FALSE;
+	if (getpwnam_r(luser, &pw, pwbuf, sizeof(pwbuf), &pwd) != 0)
+	    return KRB5_PLUGIN_NO_HANDLE;
 #else
-    pwd = getpwnam (luser);
+	pwd = getpwnam (luser);
 #endif
-    if (pwd == NULL)
-	return FALSE;
-    profile_dir = pwd->pw_dir;
+	if (pwd == NULL)
+	    return KRB5_PLUGIN_NO_HANDLE;
+	profile_dir = pwd->pw_dir;
+    }
 
 #define KLOGIN "/.k5login"
-    buflen = strlen(profile_dir) + sizeof(KLOGIN) + 2; /* 2 for .d */
-    buf = malloc(buflen);
-    if (buf == NULL)
-	return FALSE;
-    /* check user's ~/.k5login */
-    strlcpy(buf, profile_dir, buflen);
-    strlcat(buf, KLOGIN, buflen);
-    ret = check_one_file(context, buf, luser, principal, result);
 
-    if (ret == 0 && *result == TRUE) {
-	free(buf);
-	return TRUE;
+    if (asprintf(&path, "%s/.k5login.d", profile_dir) == -1)
+	return ENOMEM;
+    /* check user's ~/.k5login */
+    path[strlen(path) - strlen(".d")] = '\0';
+    ret = check_one_file(context, path, luser, FALSE, principal, result);
+
+    if (ret == 0 &&
+	((flags & KUSEROK_K5LOGIN_IS_AUTHORITATIVE) || *result == TRUE)) {
+	free(path);
+	return 0;
     }
 
     if (ret != ENOENT)
 	found_file = TRUE;
 
-    strlcat(buf, ".d", buflen);
-    ret = check_directory(context, buf, luser, principal, result);
-    free(buf);
-    if (ret == 0 && *result == TRUE)
-	return TRUE;
+    path[strlen(path)] = '.';
+    ret = check_directory(context, path, luser, FALSE, principal, result);
+    free(path);
+    if (ret == 0 &&
+	((flags & KUSEROK_K5LOGIN_IS_AUTHORITATIVE) || *result == TRUE))
+	return 0;
 
     if (ret != ENOENT && ret != ENOTDIR)
 	found_file = TRUE;
 
+    *result = FALSE;
     if (found_file == FALSE)
 	return KRB5_PLUGIN_NO_HANDLE;
 
-    return FALSE;
+    return 0;
 #endif
 }
 
