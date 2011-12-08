@@ -144,7 +144,7 @@ check_owner(krb5_context context, krb5_boolean is_system_location,
     if (dir) {
 	if (fstat(dirfd(dir), &st) == -1)
 	    return errno;
-	if (S_ISDIR(st.st_mode))
+	if (!S_ISDIR(st.st_mode))
 	    return ENOTDIR;
 	if (st.st_dev != dirlstat->st_dev || st.st_ino != dirlstat->st_ino)
 	    return EACCES;
@@ -198,7 +198,7 @@ check_one_file(krb5_context context,
 	krb5_principal tmp;
 	char *newline = buf + strcspn(buf, "\n");
 
-	if(*newline != '\n') {
+	if (*newline != '\n') {
 	    int c;
 	    c = fgetc(f);
 	    if (c != EOF) {
@@ -385,6 +385,8 @@ _krb5_kuserok(krb5_context context,
 				     "k5login_authoritative", NULL))
 	ctx.flags |= KUSEROK_K5LOGIN_IS_AUTHORITATIVE;
 
+    if ((ctx.flags & KUSEROK_K5LOGIN_IS_AUTHORITATIVE) && plugin_reg_ret)
+	return plugin_reg_ret; /* fail safe */
 
     rules = krb5_config_get_strings(context, NULL, "libdefaults",
 				    "kuserok", NULL);
