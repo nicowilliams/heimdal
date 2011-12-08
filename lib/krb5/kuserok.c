@@ -191,7 +191,7 @@ check_one_file(krb5_context context,
     rk_cloexec_file(f);
 
     ret = check_owner(context, 0, NULL, NULL, f, owner);
-    if (!ret)
+    if (ret)
 	goto out;
 
     while (fgets(buf, sizeof(buf), f) != NULL) {
@@ -251,7 +251,7 @@ check_directory(krb5_context context,
 	return errno;
 
     ret = check_owner(context, is_system_location, d, &st, NULL, owner);
-    if (!ret)
+    if (ret)
 	goto out;
 
     while ((dent = readdir(d)) != NULL) {
@@ -273,33 +273,36 @@ out:
     return ret;
 }
 
-static krb5_boolean
+static krb5_error_code
 check_an2ln(krb5_context context,
 	    krb5_const_principal principal,
-	    const char *luser)
+	    const char *luser,
+	    krb5_boolean *result)
 {
     krb5_error_code ret;
     char *lname;
 
 #if 0
-    /* XXX We should probably make this an option */
+    /* XXX Should we make this an option? */
     /* multi-component principals can never match */
-    if (krb5_principal_get_comp_string(context, principal, 1) != NULL)
-	return FALSE;
+    if (krb5_principal_get_comp_string(context, principal, 1) != NULL) {
+	*result =  FALSE;
+	return 0;
+    }
 #endif
 
     lname = malloc(strlen(luser) + 1);
     if (lname == NULL)
-	return FALSE;
+	return ENOMEM;
     ret = krb5_aname_to_localname(context, principal, strlen(luser)+1, lname);
     if (ret)
-	return FALSE;
-    if (strcmp(lname, luser) == 0) {
-	free(lname);
-	return TRUE;
-    }
+	return ret;
+    if (strcmp(lname, luser) == 0)
+	*result = TRUE;
+    else
+	*result = FALSE;
     free(lname);
-    return FALSE;
+    return 0;
 
 }
 
@@ -387,7 +390,7 @@ _krb5_kuserok(krb5_context context,
 				    "kuserok", NULL);
     if (rules == NULL) {
 	/* Default: check ~/.k5login */
-	ctx.rule = "USER_K5LOGIN";
+	ctx.rule = "USER-K5LOGIN";
 	ret = plcallback(context, &kuserok_user_k5login_plug, NULL, &ctx);
 	if (ret == 0)
 	    goto out;
@@ -424,10 +427,12 @@ kuserok_simple_plug_f(void *plug_ctx, krb5_context context, const char *rule,
 		      const char *luser, krb5_const_principal principal,
 		      krb5_boolean *result)
 {
-    if (strcmp(rule, "SIMPLE") != 0)
+    krb5_error_code ret;
+    if (strcmp(rule, "SIMPLE") != 0 || (flags & KUSEROK_ANAME_TO_LNAME_OK) == 0)
 	return KRB5_PLUGIN_NO_HANDLE;
-    if (flags & KUSEROK_ANAME_TO_LNAME_OK)
-	*result = check_an2ln(context, principal, luser);
+    ret = check_an2ln(context, principal, luser, result);
+    if (ret == 0 && *result == FALSE)
+	return KRB5_PLUGIN_NO_HANDLE;
     return 0;
 }
 
@@ -496,7 +501,7 @@ kuserok_user_k5login_plug_f(void *plug_ctx, krb5_context context,
     char pwbuf[2048];
 #endif
 
-    if (strcmp(rule, "USER_K5LOGIN") != 0)
+    if (strcmp(rule, "USER-K5LOGIN") != 0)
 	return KRB5_PLUGIN_NO_HANDLE;
 
     profile_dir = k5login_dir;
@@ -529,7 +534,7 @@ kuserok_user_k5login_plug_f(void *plug_ctx, krb5_context context,
     if (ret != ENOENT)
 	found_file = TRUE;
 
-    path[strlen(path)] = '.';
+    path[strlen(path)] = '.'; /* put back the .d; clever|hackish? you decide */
     ret = check_directory(context, path, luser, FALSE, principal, result);
     free(path);
     if (ret == 0 &&
