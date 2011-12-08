@@ -440,7 +440,7 @@ _krb5_expand_path_tokens(krb5_context context,
 			 const char *path_in,
 			 char **ppath_out)
 {
-    return _krb5_expand_path_tokensv(context, path_in, ppath_out);
+    return _krb5_expand_path_tokensv(context, path_in, ppath_out, NULL);
 }
 
 static void
