@@ -129,8 +129,9 @@ if test -n "${HOME}" -a -n "${USER:-${LOGNAME}}" -a -s "${HOME}/.k5login"; then
 fi
 if test -n "${HOME}" -a -n "${USER:-${LOGNAME}}" -a -d "${HOME}/.k5login.d"; then
     echo "Checking ~/.k5login.d"
-    ls -f "${HOME}/.k5login.d" | egrep -v '^(\.|\.\.|#.*|.*~|\.*.sw.)@' | while read f; do
+    ls -f "${HOME}/.k5login.d" | egrep -v '^(\.|\.\.|#.*|.*~|\.*.sw.)$' | while read f; do
 	f="${HOME}/.k5login.d/$f"
+	test -d "${f}" && continue
 	while read princ; do
 	    ${test_kuserok} "${princ}" "${USER:-${LOGNAME}}" > /dev/null || exit 1
 	done < "${f}" || exit 1
