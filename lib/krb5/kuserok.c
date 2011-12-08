@@ -296,11 +296,13 @@ check_an2ln(krb5_context context,
 	return ENOMEM;
     ret = krb5_aname_to_localname(context, principal, strlen(luser)+1, lname);
     if (ret)
-	return ret;
+	goto out;
     if (strcmp(lname, luser) == 0)
 	*result = TRUE;
     else
 	*result = FALSE;
+
+out:
     free(lname);
     return 0;
 
@@ -415,7 +417,6 @@ _krb5_kuserok(krb5_context context,
 
 out:
     krb5_config_free_strings(rules);
-    free((char *)ctx.k5login_dir);
     return ctx.result;
 }
 
