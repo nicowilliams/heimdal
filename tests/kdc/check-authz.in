@@ -69,7 +69,7 @@ R2=TEST2.H5L.SE
 R3=TEST3.H5L.SE
 R4=TEST4.H5L.SE
 
-KRB5_CONFIG="${objdir}/krb5-an2ln.conf"
+KRB5_CONFIG="${objdir}/krb5-authz.conf"
 export KRB5_CONFIG
 
 echo "Checking 1-component principal names in default realms"
@@ -137,6 +137,16 @@ if test -n "${HOME}" -a -n "${USER:-${LOGNAME}}" -a -d "${HOME}/.k5login.d"; the
 	done < "${f}" || exit 1
     done || exit 1
 fi
+
+KRB5_CONFIG="${objdir}/krb5-authz2.conf"
+export KRB5_CONFIG
+
+echo "Checking krb5_kuserok() (with authoritative k5login files)"
+${test_kuserok} random-princ@RANDOM-REALM foo > /dev/null || exit 1
+${test_kuserok} mapped1@${R} foo > /dev/null && exit 1
+${test_kuserok} mapped1@${R2} m1 > /dev/null || exit 1
+${test_kuserok} notmapped1@${R3} notmapped1 > /dev/null || exit 1
+${test_kuserok} this-better-not-exist@NOR-THIS foo > /dev/null && exit 1
 
 rm -f messages.log
 
