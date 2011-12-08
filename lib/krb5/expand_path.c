@@ -443,6 +443,16 @@ _krb5_expand_path_tokens(krb5_context context,
     return _krb5_expand_path_tokensv(context, path_in, ppath_out);
 }
 
+static void
+free_extra_tokens(char **extra_tokens)
+{
+    char **p;
+
+    for (p = extra_tokens; p && *p; p++)
+	free(*p);
+    free(extra_tokens);
+}
+
 /**
  * Internal function to expand tokens in paths.
  *
@@ -471,6 +481,13 @@ _krb5_expand_path_tokensv(krb5_context context,
     size_t len = 0;
     va_list ap;
 
+    if (path_in == NULL || *path_in == '\0') {
+        *ppath_out = strdup("");
+        return 0;
+    }
+
+    *ppath_out = NULL;
+
     va_start(ap, ppath_out);
     while ((s = va_arg(ap, const char *))) {
 	nextra_tokens++;
@@ -484,32 +501,28 @@ _krb5_expand_path_tokensv(krb5_context context,
 
 	extra_tokens = calloc(nextra_tokens + 2, sizeof (*extra_tokens));
 	if (extra_tokens == NULL)
-	    return ENOMEM;
+	    return context ? krb5_enomem(context) : ENOMEM;
 	va_start(ap, ppath_out);
 	for (i = 0; i < nextra_tokens; i++) {
 	    s = va_arg(ap, const char *);
 	    if (s == NULL)
 		break;
 	    extra_tokens[i] = strdup(s);
-	    if (extra_tokens[i++] == NULL)
-		break; /* XXX ENOMEM */
+	    if (extra_tokens[i++] == NULL) {
+		free_extra_tokens(extra_tokens);
+		return context ? krb5_enomem(context) : ENOMEM;
+	    }
 	    s = va_arg(ap, const char *);
 	    if (s == NULL)
 		break;
 	    extra_tokens[i] = strdup(s);
-	    if (extra_tokens[i] == NULL)
-		break; /* XXX ENOMEM */
+	    if (extra_tokens[i] == NULL) {
+		free_extra_tokens(extra_tokens);
+		return context ? krb5_enomem(context) : ENOMEM;
+	    }
 	}
 	va_end(ap);
     }
-    /* XXX free extra_tokens */
-
-    if (path_in == NULL || *path_in == '\0') {
-        *ppath_out = strdup("");
-        return 0;
-    }
-
-    *ppath_out = NULL;
 
     for (path_left = path_in; path_left && *path_left; ) {
 
@@ -528,6 +541,7 @@ _krb5_expand_path_tokensv(krb5_context context,
 
 	    tok_end = strchr(tok_begin, '}');
 	    if (tok_end == NULL) {
+		free_extra_tokens(extra_tokens);
 		if (*ppath_out)
 		    free(*ppath_out);
 		*ppath_out = NULL;
@@ -538,6 +552,7 @@ _krb5_expand_path_tokensv(krb5_context context,
 
 	    if (_expand_token(context, tok_begin, tok_end, extra_tokens,
 			      &append)) {
+		free_extra_tokens(extra_tokens);
 		if (*ppath_out)
 		    free(*ppath_out);
 		*ppath_out = NULL;
@@ -554,6 +569,7 @@ _krb5_expand_path_tokensv(krb5_context context,
 
 	if (append == NULL) {
 
+	    free_extra_tokens(extra_tokens);
 	    if (*ppath_out)
 		free(*ppath_out);
 	    *ppath_out = NULL;
@@ -568,6 +584,7 @@ _krb5_expand_path_tokensv(krb5_context context,
 	    char * new_str = realloc(*ppath_out, len + append_len + 1);
 
 	    if (new_str == NULL) {
+		free_extra_tokens(extra_tokens);
 		free(append);
 		if (*ppath_out)
 		    free(*ppath_out);
@@ -594,5 +611,6 @@ _krb5_expand_path_tokensv(krb5_context context,
     }
 #endif
 
+    free_extra_tokens(extra_tokens);
     return 0;
 }
