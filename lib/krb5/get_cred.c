@@ -274,12 +274,16 @@ krb5_error_code
 _krb5_get_krbtgt(krb5_context context,
 		 krb5_ccache  id,
 		 krb5_realm realm,
+		 krb5_realm target_realm,
 		 krb5_creds **cred)
 {
     krb5_error_code ret;
     krb5_creds tmp_cred;
 
     memset(&tmp_cred, 0, sizeof(tmp_cred));
+
+    if (target_realm == NULL)
+	target_realm = realm;
 
     ret = krb5_cc_get_principal(context, id, &tmp_cred.client);
     if (ret)
@@ -289,7 +293,7 @@ _krb5_get_krbtgt(krb5_context context,
 			      &tmp_cred.server,
 			      realm,
 			      KRB5_TGS_NAME,
-			      realm,
+			      target_realm,
 			      NULL);
     if(ret) {
 	krb5_free_principal(context, tmp_cred.client);
@@ -300,6 +304,7 @@ _krb5_get_krbtgt(krb5_context context,
 			       id,
 			       &tmp_cred,
 			       cred);
+    /* XXX if ret then do it again w/ capaths */
     krb5_free_principal(context, tmp_cred.client);
     krb5_free_principal(context, tmp_cred.server);
     if(ret)
@@ -636,6 +641,7 @@ krb5_get_kdc_cred(krb5_context context,
     ret = _krb5_get_krbtgt (context,
 			    id,
 			    in_creds->server->realm,
+			    NULL,
 			    &krbtgt);
     if(ret) {
 	free(*out_creds);
@@ -1069,6 +1075,27 @@ _krb5_get_cred_kdc_any(krb5_context context,
 {
     krb5_error_code ret;
     krb5_deltat offset;
+    krb5_creds *last_hop_tgt;
+    char *server_realm = in_creds->server->realm;
+    krb5_boolean server_realm_is_known = TRUE;
+
+    /* Handle "referral realm" */
+    if (server_realm == '\0') {
+	in_creds->server->realm = in_creds->client->realm;
+	server_realm_is_known = FALSE;
+    } else {
+	ret = _krb5_get_krbtgt(context, ccache, in_creds->client->realm,
+			       in_creds->server->realm, &last_hop_tgt);
+	/*
+	 * XXX Now what do we do with last_hop_tgt?  We can't pass that
+	 * down to our utility functions below, not yet.  We probably
+	 * don't always want to store this last_hop_tgt, so we'll need
+	 * to modify get_cred_kdc_referral() to take last_hop_tgt as an
+	 * argument.
+	 */
+	if (ret)
+	    return ret; /* No path to server's realm */
+    }
 
     ret = krb5_cc_get_kdc_offset(context, ccache, &offset);
     if (ret) {
