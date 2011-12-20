@@ -1088,6 +1088,11 @@ _krb5_get_cred_kdc_any(krb5_context context,
 	if (!ret)
 	    return 0;
     }
+    /*
+     * XXX For now we turn off referrals; before we used to not bother
+     * with capath.
+     */
+    flags.b.canonicalize = 0;
     return get_cred_kdc_capath(context,
 				flags,
 				ccache,

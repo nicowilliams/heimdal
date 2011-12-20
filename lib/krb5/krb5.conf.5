@@ -331,13 +331,16 @@ be allowed to run.
 One or more name canonicalization rules.  Each rule consists of one or
 more tokens separated by colon (':').  The first token must be a rule
 type, one of: as-is, qualify, use-resolver-searchlist, or nss.  The
-remaining tokens must be options tokens: secure, ccache_only,
-use_referrals, no_referrals, mindots=
+remaining tokens must be options tokens: secure, ccache-only,
+no-referrals, mindots=
+.Va number
+, maxdots=
 .Va number
 , domain=
 .Va domain
 , and realm=
 .Va realm.
+.Pp
 These rules are applied to host-based service principal names in order
 until one rule succeeds or all fail.  The as-is rules match on number of
 dots in the hostname or domain suffix of the hostname and attempt the
@@ -347,8 +350,9 @@ resulting hostname.  The resolver searchlist rule expands to qualify
 rules using the corresponding domainnames from the DNS resolver's
 searchlist.  The "nss" rule performs a hostname lookup.  The secure
 option indicates that an insecure service principal unknown error will
-result in immediate failure.  Name canonicalization is deferred unless
-only the default rule is given.  Default: nss.
+result in immediate failure.  Name canonicalization via name services is
+deferred until a ticket is needed unless only the default rule is given.
+Default: nss.
 .El
 .It Li [domain_realm]
 This is a list of mappings from DNS domain to Kerberos realm.

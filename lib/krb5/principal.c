@@ -1153,6 +1153,7 @@ struct krb5_name_canon_rule {
 	char *domain;
 	char *realm;
 	unsigned int mindots;
+	int maxdots;
 };
 
 /**
@@ -1219,12 +1220,12 @@ krb5_sname_to_principal(krb5_context context,
 
 	ret = _krb5_get_name_canon_rules(context, &rules);
 	if (ret) {
-	    _krb5_debug(context, 5, "Failed to get name canon rules: ret = %d",
+	    _krb5_debug(context, 10, "Failed to get name canon rules: ret = %d",
 			ret);
 	    return ret;
 	}
 	if (rules->type == KRB5_NCRT_NSS && rules->next == NULL) {
-	    _krb5_debug(context, 5, "Using nss for name canon immediately "
+	    _krb5_debug(context, 10, "Using nss for name canon immediately "
 			"(without reverse lookups)");
 	    /* For the default rule we'll just canonicalize here */
 	    ret = krb5_sname_to_principal_old(context, NULL,
@@ -1261,7 +1262,7 @@ krb5_sname_to_principal(krb5_context context,
 	 */
 	(*ret_princ)->name.name_type = KRB5_NT_SRV_HST_NEEDS_CANON;
 
-	_krb5_debug(context, 5, "Building a delayed canon principal for %s/%s@",
+	_krb5_debug(context, 10, "Building a delayed canon principal for %s/%s@",
 		sname, remote_host);
     }
 
@@ -1299,9 +1300,9 @@ rule_parse_token(krb5_context context, krb5_name_canon_rule rule,
     /* Rule options: */
     } else if (strcmp(tok, "secure") == 0) {
 	rule->options |= KRB5_NCRO_SECURE;
-    } else if (strcmp(tok, "ccache_only") == 0) {
+    } else if (strcmp(tok, "ccache-only") == 0) {
 	rule->options |= KRB5_NCRO_GC_ONLY;
-    } else if (strcmp(tok, "no_referrals") == 0) {
+    } else if (strcmp(tok, "no-referrals") == 0) {
 	rule->options |= KRB5_NCRO_NO_REFERRALS;
     /* Rule ancilliary data: */
     } else if (strncmp(tok, "domain=", strlen("domain=")) == 0) {
@@ -1315,10 +1316,17 @@ rule_parse_token(krb5_context context, krb5_name_canon_rule rule,
 	if (!rule->realm)
 	    return krb5_enomem(context);
     } else if (strncmp(tok, "mindots=", strlen("mindots=")) == 0) {
+	char *endptr;
 	errno = 0;
-	n = strtol(tok + strlen("mindots="), NULL, 10);
-	if (errno == 0 && n > 0 && n < 8)
+	n = strtol(tok + strlen("mindots="), &endptr, 10);
+	if (errno == 0 && *endptr == '\0' && n > 0 && n < 8)
 	    rule->mindots = n;
+    } else if (strncmp(tok, "maxdots=", strlen("maxdots=")) == 0) {
+	char *endptr;
+	errno = 0;
+	n = strtol(tok + strlen("maxdots="), &endptr, 10);
+	if (errno == 0 && *endptr == '\0' && n > -1 && n < 8)
+	    rule->maxdots = n;
     }
     /* ignore bogus tokens; it's not like we can print to stderr */
     /* XXX Trace bogus tokens! */
@@ -1415,7 +1423,7 @@ expand_search_list(krb5_context context, krb5_name_canon_rule *r, size_t *n,
 
     /* Make room for the new rules */
     if (insert_point < (*n) - 1) {
-	_krb5_debug(context, 5, "Inserting %ld qualify rules in place of a "
+	_krb5_debug(context, 10, "Inserting %ld qualify rules in place of a "
 		    "resolver searchlist rule", (unsigned long)search_list_len);
 	/*
 	 * Move the rules that follow the search list rule down by
@@ -1434,7 +1442,7 @@ expand_search_list(krb5_context context, krb5_name_canon_rule *r, size_t *n,
 
     /* Setup the new rules */
     for (i = 0; i < search_list_len; i++) {
-	_krb5_debug(context, 5, "Inserting qualify rule with domain=%s",
+	_krb5_debug(context, 10, "Inserting qualify rule with domain=%s",
 		    dnsrch[i]);
 	new_r[insert_point + i].type = KRB5_NCRT_QUALIFY;
 	new_r[insert_point + i].domain = domains[i];
@@ -1592,11 +1600,11 @@ _krb5_get_name_canon_rules(krb5_context context, krb5_name_canon_rule *rules)
 	size_t k;
 	krb5_name_canon_rule r;
 	for (k = 0, r = *rules; r; r = r->next, k++) {
-	    _krb5_debug(context, 5,
+	    _krb5_debug(context, 10,
 		    "Name canon rule %ld type=%d, options=%x, mindots=%d, "
-		    "domain=%s, realm=%s",
+		    "maxdots=%d, domain=%s, realm=%s",
 		    (unsigned long)k, r->type, r->options, r->mindots,
-		    r->domain ? r->domain : "<none>",
+		    r->maxdots, r->domain ? r->domain : "<none>",
 		    r->realm ? r->realm : "<none>"
 		   );
 	}
@@ -1607,7 +1615,7 @@ _krb5_get_name_canon_rules(krb5_context context, krb5_name_canon_rule *rules)
     free(*rules);
     *rules = NULL;
     /* fall through to return default rule */
-    _krb5_debug(context, 5, "All name canon rules are bogus!");
+    _krb5_debug(context, 10, "All name canon rules are bogus!");
 
     return 0;
 }
@@ -1666,25 +1674,26 @@ _krb5_apply_name_canon_rule(krb5_context context, krb5_name_canon_rule rule,
     sname = krb5_principal_get_comp_string(context, in_princ, 0);
     hostname = krb5_principal_get_comp_string(context, in_princ, 1);
 
-    _krb5_debug(context, 5, "Applying a name rule (type %d) to %s", rule->type,
+    _krb5_debug(context, 10, "Applying a name rule (type %d) to %s", rule->type,
 		hostname);
     if (rule_opts)
 	*rule_opts = rule->options;
 
+    for (cp = strchr(hostname, '.'); cp && *cp; cp = strchr(cp, '.'))
+	ndots++;
+    if (rule->mindots > 0 && ndots < rule->mindots)
+	goto out; /* *out_princ == NULL; rule doesn't apply */
+    if (rule->maxdots > -1 && ndots > rule->maxdots)
+	goto out;
+
     ret = 0;
     switch (rule->type) {
     case KRB5_NCRT_AS_IS:
-	if (rule->mindots > 0) {
-	    for (cp = strchr(hostname, '.'); cp && *cp; cp = strchr(cp, '.'))
-		ndots++;
-	    if (ndots < rule->mindots)
-		goto out; /* *out_princ == NULL; rule doesn't apply */
-	}
 	if (rule->domain) {
 	    cp = strstr(hostname, rule->domain);
 	    if (cp == NULL)
 		goto out; /* *out_princ == NULL; rule doesn't apply */
-	    if (cp != hostname && cp[-1] != '.')
+	    if ((cp != hostname && cp[-1] != '.') || strcmp(cp, rule->domain))
 		goto out;
 	}
 	/* Rule matches, copy princ with hostname as-is, with normal magic */
@@ -1694,7 +1703,7 @@ _krb5_apply_name_canon_rule(krb5_context context, krb5_name_canon_rule rule,
 	    if (ret)
 		goto out;
 	}
-	_krb5_debug(context, 5, "As-is rule building a princ with realm=%s, "
+	_krb5_debug(context, 10, "As-is rule building a princ with realm=%s, "
 		    "sname=%s, and hostname=%s", rule->realm, sname, hostname);
 	ret = krb5_build_principal(context, out_princ,
 				      strlen(rule->realm),
@@ -1710,6 +1719,7 @@ _krb5_apply_name_canon_rule(krb5_context context, krb5_name_canon_rule rule,
 	 */
 	heim_assert(rule->domain != NULL,
 		    "missing domain for qualify name canon rule");
+
 	cp = strchr(hostname, '.');
 	if (cp && (cp = strstr(cp, rule->domain))) {
 	    new_hostname = strdup(hostname);
@@ -1738,7 +1748,7 @@ _krb5_apply_name_canon_rule(krb5_context context, krb5_name_canon_rule rule,
 	    if (ret)
 		goto out;
 	}
-	_krb5_debug(context, 5, "Building a princ with realm=%s, sname=%s, "
+	_krb5_debug(context, 10, "Building a princ with realm=%s, sname=%s, "
 		    "and hostname=%s", rule->realm, sname, new_hostname);
 	ret = krb5_build_principal(context, out_princ,
 				      strlen(realm), realm,
@@ -1748,7 +1758,7 @@ _krb5_apply_name_canon_rule(krb5_context context, krb5_name_canon_rule rule,
 	break;
 
     case KRB5_NCRT_NSS:
-	_krb5_debug(context, 5, "Using name service lookups (without "
+	_krb5_debug(context, 10, "Using name service lookups (without "
 		    "reverse lookups)");
 	ret = krb5_sname_to_principal_old(context, rule->realm,
 					     hostname, sname,
@@ -1779,17 +1789,17 @@ out:
 
 	ret2 = krb5_unparse_name(context, *out_princ, &unparsed);
 	if (ret2) {
-	    _krb5_debug(context, 5, "Couldn't unparse resulting princ! (%d)",
+	    _krb5_debug(context, 10, "Couldn't unparse resulting princ! (%d)",
 			ret);
 	} else {
-	    _krb5_debug(context, 5, "Name canon rule application yields this "
+	    _krb5_debug(context, 10, "Name canon rule application yields this "
 			"unparsed princ: %s", unparsed);
 	    free(unparsed);
 	}
     } else if (!ret) {
-	_krb5_debug(context, 5, "Name canon rule did not apply");
+	_krb5_debug(context, 10, "Name canon rule did not apply");
     } else {
-	_krb5_debug(context, 5, "Name canon rule application error: %d", ret);
+	_krb5_debug(context, 10, "Name canon rule application error: %d", ret);
     }
     if (realm != rule->realm)
 	free(realm);
