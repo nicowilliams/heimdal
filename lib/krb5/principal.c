@@ -1034,7 +1034,8 @@ krb5_sname_to_principal_old(krb5_context context,
 {
     krb5_error_code ret;
     char localhost[MAXHOSTNAMELEN];
-    char **realms, *host = NULL;
+    char **realms = NULL;
+    char *host = NULL;
 
     if(type != KRB5_NT_SRV_HST && type != KRB5_NT_UNKNOWN) {
 	krb5_set_error_message(context, KRB5_SNAME_UNSUPP_NAMETYPE,
@@ -1056,17 +1057,11 @@ krb5_sname_to_principal_old(krb5_context context,
     if(sname == NULL)
 	sname = "host";
     if(type == KRB5_NT_SRV_HST) {
-	if (realm)
-	    ret = krb5_expand_hostname(context, hostname, &host);
-	else
-	    ret = krb5_expand_hostname_realms(context, hostname,
-					      &host, &realms);
+	ret = krb5_expand_hostname(context, hostname, &host);
 	if (ret)
 	    return ret;
 	strlwr(host);
 	hostname = host;
-	if (!realm)
-	    realm = realms[0];
     } else if (!realm) {
 	ret = krb5_get_host_realm(context, hostname, &realms);
 	if(ret)
@@ -1074,7 +1069,8 @@ krb5_sname_to_principal_old(krb5_context context,
 	realm = realms[0];
     }
 
-    ret = krb5_make_principal(context, ret_princ, realm, sname,
+    /* If the caller provided no realm then we use the referral realm (""). */
+    ret = krb5_make_principal(context, ret_princ, realm ? realm : "", sname,
 			      hostname, NULL);
     if(host)
 	free(host);
@@ -1679,12 +1675,21 @@ _krb5_apply_name_canon_rule(krb5_context context, krb5_name_canon_rule rule,
     if (rule_opts)
 	*rule_opts = rule->options;
 
-    for (cp = strchr(hostname, '.'); cp && *cp; cp = strchr(cp, '.'))
+    for (cp = strchr(hostname, '.'); cp && *cp; cp = strchr(cp + 1, '.'))
 	ndots++;
     if (rule->mindots > 0 && ndots < rule->mindots)
 	goto out; /* *out_princ == NULL; rule doesn't apply */
     if (rule->maxdots > -1 && ndots > rule->maxdots)
 	goto out;
+
+    if (rule->realm) {
+	realm = rule->realm;
+    } if ((rule->options & KRB5_NCRO_NO_REFERRALS) &&
+	  (!in_princ->realm || *in_princ->realm == '\0')) {
+	ret = get_host_realm(context, hostname, &realm);
+	if (ret)
+	    goto out;
+    }
 
     ret = 0;
     switch (rule->type) {
@@ -1697,12 +1702,6 @@ _krb5_apply_name_canon_rule(krb5_context context, krb5_name_canon_rule rule,
 		goto out;
 	}
 	/* Rule matches, copy princ with hostname as-is, with normal magic */
-	realm = rule->realm;
-	if (!realm) {
-	    ret = get_host_realm(context, hostname, &realm);
-	    if (ret)
-		goto out;
-	}
 	_krb5_debug(context, 10, "As-is rule building a princ with realm=%s, "
 		    "sname=%s, and hostname=%s", rule->realm, sname, hostname);
 	ret = krb5_build_principal(context, out_princ,
@@ -1741,12 +1740,6 @@ _krb5_apply_name_canon_rule(krb5_context context, krb5_name_canon_rule rule,
 	    if (rule->domain[0] != '.')
 		strcat(new_hostname, ".");
 	    strcat(new_hostname, rule->domain);
-	}
-	realm = rule->realm;
-	if (!realm) {
-	    ret = get_host_realm(context, new_hostname, &realm);
-	    if (ret)
-		goto out;
 	}
 	_krb5_debug(context, 10, "Building a princ with realm=%s, sname=%s, "
 		    "and hostname=%s", rule->realm, sname, new_hostname);

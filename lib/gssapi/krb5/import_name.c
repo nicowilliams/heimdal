@@ -111,7 +111,6 @@ _gsskrb5_canon_name(OM_uint32 *minor_status, krb5_context context,
 				      out);
     }
 
- out:
     if (ret) {
 	*minor_status = ret;
 	return GSS_S_FAILURE;

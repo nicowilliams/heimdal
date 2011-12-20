@@ -70,8 +70,7 @@ _gsskrb5_export_cred(OM_uint32 *minor_status,
 	}
 
 	ret = _krb5_get_krbtgt(context, handle->ccache,
-			       handle->principal->realm,
-			       &creds);
+			       handle->principal->realm, &creds);
 	if (ret) {
 	    krb5_storage_free(sp);
 	    *minor_status = ret;

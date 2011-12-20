@@ -873,6 +873,8 @@ get_cred_kdc_capath(krb5_context context,
     krb5_error_code ret;
     krb5_const_realm client_realm, server_realm, try_realm;
 
+    flags.b.canonicalize = 0;
+
     client_realm = krb5_principal_get_realm(context, in_creds->client);
     server_realm = krb5_principal_get_realm(context, in_creds->server);
 
@@ -1076,23 +1078,16 @@ _krb5_get_cred_kdc_any(krb5_context context,
 	context->kdc_usec_offset = 0;
     }
 
-    if (flags.b.canonicalize) {
-	ret = get_cred_kdc_referral(context,
-				    flags,
-				    ccache,
-				    in_creds,
-				    impersonate_principal,
-				    second_ticket,
-				    out_creds,
-				    ret_tgts);
-	if (!ret)
-	    return 0;
-    }
-    /*
-     * XXX For now we turn off referrals; before we used to not bother
-     * with capath.
-     */
-    flags.b.canonicalize = 0;
+    ret = get_cred_kdc_referral(context,
+				flags,
+				ccache,
+				in_creds,
+				impersonate_principal,
+				second_ticket,
+				out_creds,
+				ret_tgts);
+    if (ret == 0)
+	return ret;
     return get_cred_kdc_capath(context,
 				flags,
 				ccache,
@@ -1181,6 +1176,38 @@ krb5_get_credentials_with_flags(krb5_context context,
     krb5_creds *try_creds;
     krb5_creds *res_creds;
     int i;
+
+    if (!krb5_principal_is_krbtgt(context, in_creds->server) &&
+	*in_creds->server->realm != '\0') {
+	krb5_creds tmp_increds;
+	krb5_creds *last_hop_tgt = NULL;
+	krb5_flags options2 = options;
+
+	/*
+	 * We know the target's realm, so first try to get a TGT for it.
+	 * We ignore failure here, and we store the TGT(s) in the
+	 * ccache.
+	 */
+	memset(&tmp_increds, 0, sizeof(tmp_increds));
+	options2 &= ~(KRB5_GC_NO_STORE);
+
+	tmp_increds.client = in_creds->client;
+	ret = krb5_make_principal(context, &tmp_increds.server,
+				  in_creds->client->realm, KRB5_TGS_NAME,
+				  in_creds->server->realm, NULL);
+	if (ret)
+	    return ret;
+
+	/* And... re-enter */
+	(void) krb5_get_credentials(context, options2, ccache, &tmp_increds, &last_hop_tgt);
+	krb5_free_principal(context, tmp_increds.server);
+	if (last_hop_tgt)
+	    krb5_free_creds(context, last_hop_tgt); /* stored in ccache */
+	/*
+	 * We ignore failure here because we'll just fall down the
+	 * capath code if need be.
+	 */
+    }
 
     if (in_creds->session.keytype) {
 	ret = krb5_enctype_valid(context, in_creds->session.keytype);
@@ -1404,6 +1431,45 @@ krb5_get_creds(krb5_context context,
 	options = 0;
     flags.i = 0;
 
+    if (!krb5_principal_is_krbtgt(context, inprinc) &&
+	*inprinc->realm != '\0') {
+	krb5_principal xrealm_princ;
+	krb5_creds *last_hop_tgt = NULL;
+	krb5_get_creds_opt opt2 = NULL;
+
+	/*
+	 * We know the target's realm, so first try to get a TGT for it.
+	 * We ignore failure here, and we store the TGT(s) in the
+	 * ccache.
+	 */
+	if (opt) {
+	    opt->options &= ~(KRB5_GC_NO_STORE); /* must restore below */
+	    opt2 = opt;
+	}
+
+	ret = krb5_make_principal(context, &xrealm_princ,
+				  in_creds.client->realm, KRB5_TGS_NAME,
+				  inprinc->realm, NULL);
+	if (ret) {
+	    krb5_free_principal(context, in_creds.client);
+	    return ret;
+	}
+
+	/* And... re-enter */
+	(void) krb5_get_creds(context, opt, ccache, xrealm_princ, &last_hop_tgt);
+	krb5_free_principal(context, xrealm_princ);
+	if (last_hop_tgt)
+	    krb5_free_creds(context, last_hop_tgt); /* stored in ccache */
+	if (opt2)
+	    krb5_get_creds_opt_free(context, opt2);
+	else
+	    opt->options = options; /* restored */
+	/*
+	 * We ignore failure here because we'll just fall down the
+	 * capath code if need be.
+	 */
+    }
+
     *out_creds = NULL;
     res_creds = calloc(1, sizeof(*res_creds));
     if (res_creds == NULL) {
@@ -1452,18 +1518,6 @@ next_rule:
     if(options & KRB5_GC_CACHED)
 	goto next_rule;
 
-    /*
-     * Try referrals if asked or if the server is a host-based service.
-     *
-     * Name rules provide a way to disable referrals, but that only
-     * applies to KRB5_NT_SRV_HST principals.  We should not default to
-     * using referrals unless asked or unless there's an override.
-     */
-    if ((options & KRB5_GC_CANONICALIZE) ||
-        try_creds->server->name.name_type == KRB5_NT_SRV_HST)
-	flags.b.canonicalize = 1;
-    if (rule_opts & KRB5_NCRO_NO_REFERRALS)
-	flags.b.canonicalize = 0; /* Name canon rule referrals override */
     if(options & KRB5_GC_USER_USER) {
 	flags.b.enc_tkt_in_skey = 1;
 	options |= KRB5_GC_NO_STORE;
