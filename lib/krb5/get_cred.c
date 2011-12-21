@@ -270,46 +270,162 @@ fail:
     return ret;
 }
 
+/*
+ * Utility function to set krb5_kdc_flags from krb5_get_credentials()
+ * options.
+ */
+static void
+kdc_flags_from_options(krb5_flags *options, krb5_kdc_flags *flags)
+{
+    flags->i = 0;
+    if ((*options) & KRB5_GC_CANONICALIZE)
+	flags->b.canonicalize = 1;
+    if ((*options) & KRB5_GC_USER_USER) {
+	flags->b.enc_tkt_in_skey = 1;
+	/*
+	 * We can't store u2u tix because we'll have no way to find them
+	 * in the ccache given the server's u2u TGT, so u2u always
+	 * involves a trip to the TGS :(
+	 */
+	*options |= KRB5_GC_NO_STORE;
+    }
+    if ((*options) & KRB5_GC_FORWARDABLE)
+	flags->b.forwardable = 1;
+    if ((*options) & KRB5_GC_NO_TRANSIT_CHECK)
+	flags->b.disable_transited_check = 1;
+    if ((*options) & KRB5_GC_CONSTRAINED_DELEGATION) {
+	flags->b.request_anonymous = 1; /* XXX ARGH confusion */
+	flags->b.constrained_delegation = 1;
+    }
+}
+
+/**
+ * Internal function to get a TGT from a ccache and/or ensure that the
+ * desired TGT is present in the ccache.
+ *
+ * This function is called with non-NULL target_realm in the
+ * krb5_get_creds/credentials() path, via _krb5_get_cred_kdc_any(), to
+ * get a TGT for the target principal's realm when we know the
+ * principal's realm, in which case we use referrals so that the
+ * client's realm's KDCs can help us walk the cross-realm relations
+ * without having to have [capaths] configuration on the client.
+ *
+ * In all other cases this is called just to get a plain TGT for the
+ * client's realm.
+ *
+ * Inputs:
+ *
+ * @context           context
+ * @ccache            credentials cache
+ * @options           krb5_get_credentials options
+ * @realm             client realm
+ * @target_realm      target realm (optional; NULL -> get plain TGT)
+ * @impersonate_princ Principal to impersonate (optional) (XXX do we need this?)
+ *
+ * Outputs:
+ *
+ * @out_cred          Desired TGT
+ */
 krb5_error_code
 _krb5_get_krbtgt(krb5_context context,
-		 krb5_ccache  id,
+		 krb5_ccache ccache,
+		 krb5_flags options,
 		 krb5_realm realm,
 		 krb5_realm target_realm,
-		 krb5_creds **cred)
+		 krb5_principal impersonate_princ,
+		 krb5_creds **out_cred)
 {
     krb5_error_code ret;
+    krb5_get_creds_opt opt;
+    krb5_kdc_flags flags;
+    krb5_principal tgt_princ = NULL;
     krb5_creds tmp_cred;
-
-    memset(&tmp_cred, 0, sizeof(tmp_cred));
+    krb5_creds *tmp_creds = NULL;
+    krb5_creds **tgts;
+    size_t i;
 
     if (target_realm == NULL)
 	target_realm = realm;
 
-    ret = krb5_cc_get_principal(context, id, &tmp_cred.client);
-    if (ret)
-	return ret;
-
     ret = krb5_make_principal(context,
-			      &tmp_cred.server,
+			      &tgt_princ,
 			      realm,
 			      KRB5_TGS_NAME,
 			      target_realm,
 			      NULL);
-    if(ret) {
-	krb5_free_principal(context, tmp_cred.client);
+    if (ret)
+	return ret;
+
+    ret = krb5_get_creds_opt_alloc(context, &opt);
+    if (ret) {
+	krb5_free_principal(context, tgt_princ);
 	return ret;
     }
-    ret = krb5_get_credentials(context,
-			       KRB5_GC_CACHED,
-			       id,
-			       &tmp_cred,
-			       cred);
-    /* XXX if ret then do it again w/ capaths */
-    krb5_free_principal(context, tmp_cred.client);
-    krb5_free_principal(context, tmp_cred.server);
-    if(ret)
+
+    krb5_get_creds_opt_set_options(context, opt, options);
+
+    if (target_realm != realm)
+	/* Use referrals for the cross-realm TGT we want */
+	krb5_get_creds_opt_add_options(context, opt, KRB5_GC_CANONICALIZE);
+
+    if (impersonate_princ) {
+	krb5_get_creds_opt_set_impersonate(context, opt, impersonate_princ);
+	krb5_get_creds_opt_add_options(context, opt, KRB5_GC_NO_STORE);
+    }
+
+    ret = krb5_get_creds(context, opt, ccache, tgt_princ,
+			 out_cred ? out_cred : &tmp_creds);
+    if (tmp_creds)
+	krb5_free_creds(context, tmp_creds);
+    krb5_get_creds_opt_free(context, opt);
+    if (ret == 0 || target_realm == realm) {
+	/* We're done if success or if we weren't looking for an x-realm TGT */
+	krb5_free_principal(context, tgt_princ);
 	return ret;
-    return 0;
+    }
+    /*
+     * else do it again w/ capaths instead...
+     *
+     * We shouldn't have to reset flags.b.canonicalize, but for now the
+     * capath code doesn't know how to handle referrals.  Even if that
+     * were fixed it may help to avoid referrals if we fall down this
+     * path for the simple reason that since referrals didn't work
+     * earlier we might not want to try again out of paranoia.  This
+     * paranoia is probably not justified as we'll be asking for
+     * different krbtgt principals than earlier, but for now it saves us
+     * the bother of fixing the capath code to handle referrals.
+     *
+     * Which error code to return if this fails? the one from the above
+     * referrals attempt or this one?  Hard to say.  If the problem was
+     * finding a path to the target's realm then this error code is more
+     * likely to reflect that.
+     */
+    kdc_flags_from_options(&options, &flags);
+    flags.b.canonicalize = 0;
+    memset(&tmp_cred, 0, sizeof(tmp_cred));
+    tmp_cred.server = tgt_princ;
+    ret = krb5_cc_get_principal(context, ccache, &tmp_cred.client);
+    if (ret)
+	return ret;
+    /*
+     * XXX It'd be nice to re-work get_cred_kdc_capath() so it takes
+     * krb5_get_creds_opt instead of flags and creds.
+     */
+    ret = get_cred_kdc_capath(context,
+			      flags,
+			      ccache,
+			      &tmp_cred,
+			      impersonate_princ,
+			      NULL,
+			      out_cred,
+			      &tgts);
+    for (i = 0; tgts && tgts[i]; i++) {
+	krb5_cc_store_cred(context, ccache, tgts[i]);
+	krb5_free_creds(context, tgts[i]);
+    }
+    krb5_free_principal(context, tmp_cred.client);
+    krb5_free_principal(context, tgt_princ);
+    return ret;
 }
 
 /* DCE compatible decrypt proc */
@@ -638,11 +754,8 @@ krb5_get_kdc_cred(krb5_context context,
     *out_creds = calloc(1, sizeof(**out_creds));
     if(*out_creds == NULL)
 	return krb5_enomem(context);
-    ret = _krb5_get_krbtgt (context,
-			    id,
-			    in_creds->server->realm,
-			    NULL,
-			    &krbtgt);
+    ret = _krb5_get_krbtgt(context, id, KRB5_GC_CACHED,
+			   in_creds->server->realm, NULL, NULL, &krbtgt);
     if(ret) {
 	free(*out_creds);
 	*out_creds = NULL;
@@ -906,6 +1019,7 @@ get_cred_kdc_referral(krb5_context context,
 		      krb5_kdc_flags flags,
 		      krb5_ccache ccache,
 		      krb5_creds *in_creds,
+		      krb5_creds *last_hop_tgt,
 		      krb5_principal impersonate_principal,
 		      Ticket *second_ticket,
 		      krb5_creds **out_creds,
@@ -914,6 +1028,7 @@ get_cred_kdc_referral(krb5_context context,
     krb5_const_realm client_realm;
     krb5_error_code ret;
     krb5_creds tgt, referral, ticket;
+    krb5_creds *tgtp = last_hop_tgt;
     int loop = 0;
     int ok_as_delegate = 1;
 
@@ -932,10 +1047,19 @@ get_cred_kdc_referral(krb5_context context,
 
     client_realm = krb5_principal_get_realm(context, in_creds->client);
 
-    /* find tgt for the clients base realm */
-    {
+    if (tgtp == NULL) {
 	krb5_principal tgtname;
 
+	/*
+	 * The caller did not provide a last hop [cross-realm] TGT, so
+	 * we'll ask the client's realm's KDC(s).  For that we need a
+	 * TGT for the client's realm, which we get it here.
+	 *
+	 * (If the caller did provide a last hop TGT we go straight to
+	 * that TGT's realm.  This happens when the user/app provided a
+	 * target principal with a realm, or when a name canonicalization
+	 * rule specifies a realm for the target principal.)
+	 */
 	ret = krb5_make_principal(context, &tgtname,
 				  client_realm,
 				  KRB5_TGS_NAME,
@@ -948,6 +1072,8 @@ get_cred_kdc_referral(krb5_context context,
 	krb5_free_principal(context, tgtname);
 	if (ret)
 	    return ret;
+
+	tgtp = &tgt;
     }
 
     referral = *in_creds;
@@ -978,7 +1104,7 @@ get_cred_kdc_referral(krb5_context context,
 
 	if (ret) {
 	    ret = get_cred_kdc_address(context, ccache, flags, NULL,
-				       &referral, &tgt, impersonate_principal,
+				       &referral, tgtp, impersonate_principal,
 				       second_ticket, &ticket);
 	    if (ret)
 		goto out;
@@ -1015,7 +1141,7 @@ get_cred_kdc_referral(krb5_context context,
 		krb5_set_error_message(context, KRB5_GET_IN_TKT_LOOP,
 				       N_("Referral from %s "
 					  "loops back to realm %s", ""),
-				       tgt.server->realm,
+				       tgtp->server->realm,
 				       referral_realm);
 		ret = KRB5_GET_IN_TKT_LOOP;
                 goto out;
@@ -1058,11 +1184,6 @@ out:
 }
 
 
-/*
- * Glue function between referrals version and old client chasing
- * codebase.
- */
-
 krb5_error_code
 _krb5_get_cred_kdc_any(krb5_context context,
 		       krb5_kdc_flags flags,
@@ -1075,27 +1196,8 @@ _krb5_get_cred_kdc_any(krb5_context context,
 {
     krb5_error_code ret;
     krb5_deltat offset;
-    krb5_creds *last_hop_tgt;
+    krb5_creds *last_hop_tgt = NULL;
     char *server_realm = in_creds->server->realm;
-    krb5_boolean server_realm_is_known = TRUE;
-
-    /* Handle "referral realm" */
-    if (server_realm == '\0') {
-	in_creds->server->realm = in_creds->client->realm;
-	server_realm_is_known = FALSE;
-    } else {
-	ret = _krb5_get_krbtgt(context, ccache, in_creds->client->realm,
-			       in_creds->server->realm, &last_hop_tgt);
-	/*
-	 * XXX Now what do we do with last_hop_tgt?  We can't pass that
-	 * down to our utility functions below, not yet.  We probably
-	 * don't always want to store this last_hop_tgt, so we'll need
-	 * to modify get_cred_kdc_referral() to take last_hop_tgt as an
-	 * argument.
-	 */
-	if (ret)
-	    return ret; /* No path to server's realm */
-    }
 
     ret = krb5_cc_get_kdc_offset(context, ccache, &offset);
     if (ret) {
@@ -1103,31 +1205,39 @@ _krb5_get_cred_kdc_any(krb5_context context,
 	context->kdc_usec_offset = 0;
     }
 
-    if (flags.b.canonicalize) {
-	ret = get_cred_kdc_referral(context,
-				    flags,
-				    ccache,
-				    in_creds,
-				    impersonate_principal,
-				    second_ticket,
-				    out_creds,
-				    ret_tgts);
-	if (!ret)
-	    return 0;
-    }
     /*
-     * XXX For now we turn off referrals; before we used to not bother
-     * with capath.
+     * Handle "referral realm", which really means: "I don't know the
+     * server's realm and I want my KDC to help me with that via
+     * referrals".
      */
-    flags.b.canonicalize = 0;
-    return get_cred_kdc_capath(context,
+    if (*in_creds->server->realm == '\0') {
+	in_creds->server->realm = in_creds->client->realm;
+    } else if (strcmp(in_creds->client->realm, in_creds->server->realm) != 0) {
+	/*
+	 * We do know the target principal's realm and it's not the same
+	 * as the client principal's.  We need a cross-realm TGT for it,
+	 * so go get it.
+	 */
+	ret = _krb5_get_krbtgt(context, ccache, 0, in_creds->client->realm,
+			       in_creds->server->realm, impersonate_principal,
+			       &last_hop_tgt);
+	if (ret)
+	    return ret; /* No path to server's realm */
+    }
+
+    ret = get_cred_kdc_referral(context,
 				flags,
 				ccache,
 				in_creds,
+				last_hop_tgt,
 				impersonate_principal,
 				second_ticket,
 				out_creds,
 				ret_tgts);
+    in_creds->server->realm = server_realm;
+    if (last_hop_tgt)
+	krb5_free_creds(context, last_hop_tgt);
+    return ret;
 }
 
 static krb5_error_code
@@ -1393,7 +1503,6 @@ krb5_get_creds_opt_set_ticket(krb5_context context,
     return 0;
 }
 
-
 KRB5_LIB_FUNCTION krb5_error_code KRB5_LIB_CALL
 krb5_get_creds(krb5_context context,
 	       krb5_get_creds_opt opt,
@@ -1486,23 +1595,7 @@ next_rule:
      * applies to KRB5_NT_SRV_HST principals.  We should not default to
      * using referrals unless asked or unless there's an override.
      */
-    if ((options & KRB5_GC_CANONICALIZE) ||
-        try_creds->server->name.name_type == KRB5_NT_SRV_HST)
-	flags.b.canonicalize = 1;
-    if (rule_opts & KRB5_NCRO_NO_REFERRALS)
-	flags.b.canonicalize = 0; /* Name canon rule referrals override */
-    if(options & KRB5_GC_USER_USER) {
-	flags.b.enc_tkt_in_skey = 1;
-	options |= KRB5_GC_NO_STORE;
-    }
-    if (options & KRB5_GC_FORWARDABLE)
-	flags.b.forwardable = 1;
-    if (options & KRB5_GC_NO_TRANSIT_CHECK)
-	flags.b.disable_transited_check = 1;
-    if (options & KRB5_GC_CONSTRAINED_DELEGATION) {
-	flags.b.request_anonymous = 1; /* XXX ARGH confusion */
-	flags.b.constrained_delegation = 1;
-    }
+    kdc_flags_from_options(&options, &flags);
 
     tgts = NULL;
     ret = _krb5_get_cred_kdc_any(context, flags, ccache,
