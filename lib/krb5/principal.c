@@ -1675,7 +1675,7 @@ _krb5_apply_name_canon_rule(krb5_context context, krb5_name_canon_rule rule,
     if (rule_opts)
 	*rule_opts = rule->options;
 
-    for (cp = strchr(hostname, '.'); cp && *cp; cp = strchr(cp, '.'))
+    for (cp = strchr(hostname, '.'); cp && *cp; cp = strchr(cp + 1, '.'))
 	ndots++;
     if (rule->mindots > 0 && ndots < rule->mindots)
 	goto out; /* *out_princ == NULL; rule doesn't apply */
