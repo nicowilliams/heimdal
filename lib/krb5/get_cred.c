@@ -1175,6 +1175,40 @@ krb5_get_credentials_with_flags(krb5_context context,
     krb5_creds *res_creds;
     int i;
 
+    if (!krb5_principal_is_krbtgt(context, in_creds->server) &&
+	*in_creds->server->realm != '\0') {
+	krb5_creds tmp_increds;
+	krb5_creds *last_hop_tgt = NULL;
+	krb5_flags options2 = options;
+
+	/*
+	 * We know the target's realm, so first try to get a TGT for it,
+	 * using referrals from the client's realm and work that way.
+	 * We ignore failure here, and we store the TGT(s) in the
+	 * ccache.
+	 */
+	memset(&tmp_increds, 0, sizeof(tmp_increds));
+	options2 &= ~(KRB5_GC_NO_STORE);
+	options2 |= KRB5_GC_CANONICALIZE;
+
+	tmp_increds.client = in_creds->client;
+	ret = krb5_make_principal(context, &tmp_increds.server,
+				  in_creds->client->realm, KRB5_TGS_NAME,
+				  in_creds->server->realm, NULL);
+	if (ret)
+	    return ret;
+
+	/* And... re-enter */
+	(void) krb5_get_credentials(context, options2, ccache, &tmp_increds, &last_hop_tgt);
+	krb5_free_principal(context, tmp_increds.server);
+	if (last_hop_tgt)
+	    krb5_free_creds(context, last_hop_tgt); /* stored in ccache */
+	/*
+	 * We ignore failure here because we'll just fall down the
+	 * capath code if need be.
+	 */
+    }
+
     if (in_creds->session.keytype) {
 	ret = krb5_enctype_valid(context, in_creds->session.keytype);
 	if (ret)
@@ -1400,8 +1434,8 @@ krb5_get_creds(krb5_context context,
     if (!krb5_principal_is_krbtgt(context, inprinc) &&
 	*inprinc->realm != '\0') {
 	krb5_principal xrealm_princ;
-	krb5_creds *last_hop_tgt;
-	krb5_get_creds_opt opt2 = NULL;;
+	krb5_creds *last_hop_tgt = NULL;
+	krb5_get_creds_opt opt2 = NULL;
 	krb5_flags options2 = options;
 
 	/*
@@ -1423,12 +1457,15 @@ krb5_get_creds(krb5_context context,
 	ret = krb5_make_principal(context, &xrealm_princ,
 				  in_creds.client->realm, KRB5_TGS_NAME,
 				  inprinc->realm, NULL);
-	if (ret)
+	if (ret) {
+	    krb5_free_principal(context, in_creds.client);
 	    return ret;
+	}
 
 	/* And... re-enter */
-	ret = krb5_get_creds(context, opt, ccache, xrealm_princ, &last_hop_tgt);
-	if (ret)
+	(void) krb5_get_creds(context, opt, ccache, xrealm_princ, &last_hop_tgt);
+	krb5_free_principal(context, xrealm_princ);
+	if (last_hop_tgt)
 	    krb5_free_creds(context, last_hop_tgt); /* stored in ccache */
 	if (opt2)
 	    krb5_get_creds_opt_free(context, opt2);
