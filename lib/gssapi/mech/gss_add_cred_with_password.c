@@ -43,12 +43,14 @@ gss_add_cred_with_password(OM_uint32 *minor_status,
     OM_uint32 *acceptor_time_rec)
 {
 	OM_uint32 major_status;
-	gssapi_mech_interface m;
+	OM_uint32 *mech_min_stat;
+	_gss_call_context cc = NULL;
+	gssapi_mech_interface m = NULL;
 	struct _gss_cred *cred = (struct _gss_cred *) input_cred_handle;
 	struct _gss_cred *new_cred;
 	struct _gss_mechanism_cred *mc;
 	struct _gss_mechanism_name *mn = NULL;
-	OM_uint32 junk, time_req;
+	OM_uint32 save, time_req;
 
 	*minor_status = 0;
 	*output_cred_handle = GSS_C_NO_CREDENTIAL;
@@ -59,11 +61,10 @@ gss_add_cred_with_password(OM_uint32 *minor_status,
 	if (actual_mechs)
 	    *actual_mechs = GSS_C_NO_OID_SET;
 
-	m = __gss_get_mechanism(desired_mech);
-	if (m == NULL) {
-		*minor_status = 0;
-		return (GSS_S_BAD_MECH);
-	}
+	major_status = _gss_get_cc_glue_and_mech(desired_mech, &minor_status,
+						 &cc, &m, &mech_min_stat);
+	if (major_status != GSS_S_COMPLETE)
+		return major_status;
 
 	new_cred = calloc(1, sizeof(struct _gss_cred));
 	if (new_cred == NULL) {
@@ -84,7 +85,8 @@ gss_add_cred_with_password(OM_uint32 *minor_status,
 			}
 			copy_mc = _gss_copy_cred(mc);
 			if (copy_mc == NULL) {
-				gss_release_cred(&junk, (gss_cred_id_t *)&new_cred);
+				gss_release_cred(minor_status,
+						 (gss_cred_id_t *)&new_cred);
 				*minor_status = ENOMEM;
 				return (GSS_S_FAILURE);
 			}
@@ -101,7 +103,9 @@ gss_add_cred_with_password(OM_uint32 *minor_status,
 					    desired_mech,
 					    &mn);
 		if (major_status != GSS_S_COMPLETE) {
-			gss_release_cred(&junk, (gss_cred_id_t *)&new_cred);
+			save = *minor_status;
+			gss_release_cred(minor_status, (gss_cred_id_t *)&new_cred);
+			*minor_status = save;
 			return (major_status);
 		}
 	}
@@ -113,12 +117,15 @@ gss_add_cred_with_password(OM_uint32 *minor_status,
 	else
 		time_req = acceptor_time_req;
 
-	major_status = _gss_acquire_mech_cred(minor_status, m, mn,
+	major_status = _gss_acquire_mech_cred(mech_min_stat, m, mn,
 					      GSS_C_CRED_PASSWORD, password,
 					      time_req, desired_mech,
 					      cred_usage, &mc);
+	*minor_status = *mech_min_stat;
 	if (major_status != GSS_S_COMPLETE) {
-		gss_release_cred(&junk, (gss_cred_id_t *)&new_cred);
+		save = *minor_status;
+		gss_release_cred(minor_status, (gss_cred_id_t *)&new_cred);
+		*minor_status = save;
 		return (major_status);
 	}
 
@@ -134,7 +141,9 @@ gss_add_cred_with_password(OM_uint32 *minor_status,
 						NULL,
 						actual_mechs);
 		if (GSS_ERROR(major_status)) {
-			gss_release_cred(&junk, (gss_cred_id_t *)&new_cred);
+			save = *minor_status;
+			gss_release_cred(minor_status, (gss_cred_id_t *)&new_cred);
+			*minor_status = save;
 			return (major_status);
 		}
 		if (initiator_time_rec &&

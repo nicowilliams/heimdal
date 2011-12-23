@@ -34,7 +34,9 @@ gss_import_sec_context(OM_uint32 *minor_status,
     gss_ctx_id_t *context_handle)
 {
 	OM_uint32 major_status;
-	gssapi_mech_interface m;
+	OM_uint32 *mech_min_stat;
+	_gss_call_context cc = NULL;
+	gssapi_mech_interface m = NULL;
 	struct _gss_context *ctx;
 	gss_OID_desc mech_oid;
 	gss_buffer_desc buf;
@@ -59,9 +61,10 @@ gss_import_sec_context(OM_uint32 *minor_status,
 	buf.length = len - 2 - mech_oid.length;
 	buf.value = p + 2 + mech_oid.length;
 
-	m = __gss_get_mechanism(&mech_oid);
-	if (!m)
-		return (GSS_S_DEFECTIVE_TOKEN);
+	major_status = _gss_get_cc_glue_and_mech(&mech_oid, &minor_status,
+						 &cc, &m, &mech_min_stat);
+	if (major_status != GSS_S_COMPLETE)
+		return major_status;
 
 	ctx = malloc(sizeof(struct _gss_context));
 	if (!ctx) {
@@ -69,8 +72,9 @@ gss_import_sec_context(OM_uint32 *minor_status,
 		return (GSS_S_FAILURE);
 	}
 	ctx->gc_mech = m;
-	major_status = m->gm_import_sec_context(minor_status,
+	major_status = m->gm_import_sec_context(mech_min_stat,
 	    &buf, &ctx->gc_ctx);
+	*minor_status = *mech_min_stat;
 	if (major_status != GSS_S_COMPLETE) {
 		_gss_mg_error(m, major_status, *minor_status);
 		free(ctx);

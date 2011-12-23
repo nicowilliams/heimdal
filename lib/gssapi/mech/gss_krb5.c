@@ -188,21 +188,29 @@ out:
 GSSAPI_LIB_FUNCTION OM_uint32 GSSAPI_LIB_CALL
 gsskrb5_register_acceptor_identity(const char *identity)
 {
-	gssapi_mech_interface m;
+	OM_uint32 major_status;
+	OM_uint32 *mech_min_stat;
+	_gss_call_context cc;
+	gssapi_mech_interface m = NULL;
 	gss_buffer_desc buffer;
-	OM_uint32 junk;
 
-	_gss_load_mech();
+	cc = _gss_get_thr_best_call_context();
+	if (!cc)
+		return GSS_S_UNAVAILABLE;
+	major_status = _gss_get_cc_glue_and_mech(GSS_KRB5_MECHANISM, NULL,
+						 &cc, &m, &mech_min_stat);
+	if (major_status != GSS_S_COMPLETE)
+	    return major_status;
+	if (m->gm_set_sec_context_option == NULL)
+	    return GSS_S_FAILURE;
 
 	buffer.value = rk_UNCONST(identity);
 	buffer.length = strlen(identity);
 
-	m = __gss_get_mechanism(GSS_KRB5_MECHANISM);
-	if (m == NULL || m->gm_set_sec_context_option == NULL)
-	    return GSS_S_FAILURE;
-
-	return m->gm_set_sec_context_option(&junk, NULL,
+	major_status = m->gm_set_sec_context_option(mech_min_stat, NULL,
 	        GSS_KRB5_REGISTER_ACCEPTOR_IDENTITY_X, &buffer);
+	cc->cc_minor_status = *mech_min_stat;
+	return major_status;
 }
 
 GSSAPI_LIB_FUNCTION OM_uint32 GSSAPI_LIB_CALL
@@ -215,20 +223,33 @@ krb5_gss_register_acceptor_identity(const char *identity)
 GSSAPI_LIB_FUNCTION OM_uint32 GSSAPI_LIB_CALL
 gsskrb5_set_dns_canonicalize(int flag)
 {
+	OM_uint32 major_status;
+	OM_uint32 *mech_min_stat;
+	_gss_call_context cc;
+	struct _gss_mech_switch_list *mech_list;
         struct _gss_mech_switch	*m;
+	gssapi_mech_interface mi;
 	gss_buffer_desc buffer;
-	OM_uint32 junk;
 	char b = (flag != 0);
 
-	_gss_load_mech();
+	cc = _gss_get_thr_best_call_context();
+	if (!cc)
+		return GSS_S_UNAVAILABLE;;
+	mech_list = _gss_get_mech_list(cc);
 
 	buffer.value = &b;
 	buffer.length = sizeof(b);
 
-	HEIM_SLIST_FOREACH(m, &_gss_mechs, gm_link) {
+	HEIM_SLIST_FOREACH(m, mech_list, gm_link) {
+		mi = &m->gm_mech;
+		major_status = _gss_get_cc_glue_and_mech(&mi->gm_mech_oid,
+							 NULL, &cc, &mi,
+							 &mech_min_stat);
+		if (major_status != GSS_S_COMPLETE)
+			continue;
 		if (m->gm_mech.gm_set_sec_context_option == NULL)
 			continue;
-		m->gm_mech.gm_set_sec_context_option(&junk, NULL,
+		m->gm_mech.gm_set_sec_context_option(mech_min_stat, NULL,
 		    GSS_KRB5_SET_DNS_CANONICALIZE_X, &buffer);
 	}
 
@@ -485,11 +506,18 @@ out:
 GSSAPI_LIB_FUNCTION OM_uint32 GSSAPI_LIB_CALL
 gsskrb5_set_send_to_kdc(struct gsskrb5_send_to_kdc *c)
 {
+    OM_uint32 major_status;
+    OM_uint32 *mech_min_stat;
+    _gss_call_context cc;
+    struct _gss_mech_switch_list *mech_list;
     struct _gss_mech_switch *m;
+    gssapi_mech_interface mi;
     gss_buffer_desc buffer;
-    OM_uint32 junk;
 
-    _gss_load_mech();
+    cc = _gss_get_thr_best_call_context();
+    if (!cc)
+	return GSS_S_UNAVAILABLE;;
+    mech_list = _gss_get_mech_list(cc);
 
     if (c) {
 	buffer.value = c;
@@ -499,10 +527,16 @@ gsskrb5_set_send_to_kdc(struct gsskrb5_send_to_kdc *c)
 	buffer.length = 0;
     }
 
-    HEIM_SLIST_FOREACH(m, &_gss_mechs, gm_link) {
+    HEIM_SLIST_FOREACH(m, mech_list, gm_link) {
+	mi = &m->gm_mech;
+	major_status = _gss_get_cc_glue_and_mech(&mi->gm_mech_oid,
+						 NULL, &cc, &mi,
+						 &mech_min_stat);
+	if (major_status != GSS_S_COMPLETE)
+	    continue;
 	if (m->gm_mech.gm_set_sec_context_option == NULL)
 	    continue;
-	m->gm_mech.gm_set_sec_context_option(&junk, NULL,
+	m->gm_mech.gm_set_sec_context_option(mech_min_stat, NULL,
 	    GSS_KRB5_SEND_TO_KDC_X, &buffer);
     }
 
@@ -518,11 +552,18 @@ gss_krb5_ccache_name(OM_uint32 *minor_status,
 		     const char *name,
 		     const char **out_name)
 {
+    OM_uint32 major_status;
+    OM_uint32 *mech_min_stat;
+    _gss_call_context cc;
+    struct _gss_mech_switch_list *mech_list;
     struct _gss_mech_switch *m;
+    gssapi_mech_interface mi;
     gss_buffer_desc buffer;
-    OM_uint32 junk;
 
-    _gss_load_mech();
+    major_status = _gss_get_call_context(minor_status, &cc);
+    if (major_status != GSS_S_COMPLETE)
+	return major_status;
+    mech_list = _gss_get_mech_list(cc);
 
     if (out_name)
 	*out_name = NULL;
@@ -530,10 +571,16 @@ gss_krb5_ccache_name(OM_uint32 *minor_status,
     buffer.value = rk_UNCONST(name);
     buffer.length = strlen(name);
 
-    HEIM_SLIST_FOREACH(m, &_gss_mechs, gm_link) {
+    HEIM_SLIST_FOREACH(m, mech_list, gm_link) {
+	mi = &m->gm_mech;
+	major_status = _gss_get_cc_glue_and_mech(&mi->gm_mech_oid,
+						 NULL, &cc, &mi,
+						 &mech_min_stat);
+	if (major_status != GSS_S_COMPLETE)
+	    continue;
 	if (m->gm_mech.gm_set_sec_context_option == NULL)
 	    continue;
-	m->gm_mech.gm_set_sec_context_option(&junk, NULL,
+	m->gm_mech.gm_set_sec_context_option(mech_min_stat, NULL,
 	    GSS_KRB5_CCACHE_NAME_X, &buffer);
     }
 
@@ -809,19 +856,32 @@ gsskrb5_get_subkey(OM_uint32 *minor_status,
 GSSAPI_LIB_FUNCTION OM_uint32 GSSAPI_LIB_CALL
 gsskrb5_set_default_realm(const char *realm)
 {
+	OM_uint32 major_status;
+	OM_uint32 *mech_min_stat;
+	_gss_call_context cc;
+	struct _gss_mech_switch_list *mech_list;
+	gssapi_mech_interface mi;
         struct _gss_mech_switch	*m;
 	gss_buffer_desc buffer;
-	OM_uint32 junk;
 
-	_gss_load_mech();
+	cc = _gss_get_thr_best_call_context();
+	if (!cc)
+		return GSS_S_UNAVAILABLE;;
+	mech_list = _gss_get_mech_list(cc);
 
 	buffer.value = rk_UNCONST(realm);
 	buffer.length = strlen(realm);
 
-	HEIM_SLIST_FOREACH(m, &_gss_mechs, gm_link) {
+	HEIM_SLIST_FOREACH(m, mech_list, gm_link) {
+		mi = &m->gm_mech;
+		major_status = _gss_get_cc_glue_and_mech(&mi->gm_mech_oid,
+							 NULL, &cc, &mi,
+							 &mech_min_stat);
+		if (major_status != GSS_S_COMPLETE)
+			continue;
 		if (m->gm_mech.gm_set_sec_context_option == NULL)
 			continue;
-		m->gm_mech.gm_set_sec_context_option(&junk, NULL,
+		m->gm_mech.gm_set_sec_context_option(mech_min_stat, NULL,
 		    GSS_KRB5_SET_DEFAULT_REALM_X, &buffer);
 	}
 
@@ -870,20 +930,33 @@ gss_krb5_get_tkt_flags(OM_uint32 *minor_status,
 GSSAPI_LIB_FUNCTION OM_uint32 GSSAPI_LIB_CALL
 gsskrb5_set_time_offset(int offset)
 {
+	OM_uint32 major_status;
+	OM_uint32 *mech_min_stat;
+	_gss_call_context cc;
+	struct _gss_mech_switch_list *mech_list;
         struct _gss_mech_switch	*m;
+	gssapi_mech_interface mi;
 	gss_buffer_desc buffer;
-	OM_uint32 junk;
 	int32_t o = offset;
 
-	_gss_load_mech();
+	cc = _gss_get_thr_best_call_context();
+	if (!cc)
+		return GSS_S_UNAVAILABLE;;
+	mech_list = _gss_get_mech_list(cc);
 
 	buffer.value = &o;
 	buffer.length = sizeof(o);
 
-	HEIM_SLIST_FOREACH(m, &_gss_mechs, gm_link) {
+	HEIM_SLIST_FOREACH(m, mech_list, gm_link) {
+		mi = &m->gm_mech;
+		major_status = _gss_get_cc_glue_and_mech(&mi->gm_mech_oid,
+							 NULL, &cc, &mi,
+							 &mech_min_stat);
+		if (major_status != GSS_S_COMPLETE)
+			continue;
 		if (m->gm_mech.gm_set_sec_context_option == NULL)
 			continue;
-		m->gm_mech.gm_set_sec_context_option(&junk, NULL,
+		m->gm_mech.gm_set_sec_context_option(mech_min_stat, NULL,
 		    GSS_KRB5_SET_TIME_OFFSET_X, &buffer);
 	}
 
@@ -893,25 +966,38 @@ gsskrb5_set_time_offset(int offset)
 GSSAPI_LIB_FUNCTION OM_uint32 GSSAPI_LIB_CALL
 gsskrb5_get_time_offset(int *offset)
 {
+	OM_uint32 major_status;
+	OM_uint32 *mech_min_stat;
+	_gss_call_context cc;
+	struct _gss_mech_switch_list *mech_list;
         struct _gss_mech_switch	*m;
+	gssapi_mech_interface mi;
 	gss_buffer_desc buffer;
-	OM_uint32 maj_stat, junk;
 	int32_t o;
 
-	_gss_load_mech();
+	cc = _gss_get_thr_best_call_context();
+	if (!cc)
+		return GSS_S_UNAVAILABLE;;
+	mech_list = _gss_get_mech_list(cc);
 
 	buffer.value = &o;
 	buffer.length = sizeof(o);
 
-	HEIM_SLIST_FOREACH(m, &_gss_mechs, gm_link) {
+	HEIM_SLIST_FOREACH(m, mech_list, gm_link) {
+		mi = &m->gm_mech;
+		major_status = _gss_get_cc_glue_and_mech(&mi->gm_mech_oid,
+							 NULL, &cc, &mi,
+							 &mech_min_stat);
+		if (major_status != GSS_S_COMPLETE)
+			continue;
 		if (m->gm_mech.gm_set_sec_context_option == NULL)
 			continue;
-		maj_stat = m->gm_mech.gm_set_sec_context_option(&junk, NULL,
-		    GSS_KRB5_GET_TIME_OFFSET_X, &buffer);
+		major_status = m->gm_mech.gm_set_sec_context_option(mech_min_stat,
+		    NULL, GSS_KRB5_GET_TIME_OFFSET_X, &buffer);
 
-		if (maj_stat == GSS_S_COMPLETE) {
+		if (major_status == GSS_S_COMPLETE) {
 			*offset = o;
-			return maj_stat;
+			return major_status;
 		}
 	}
 
@@ -921,21 +1007,35 @@ gsskrb5_get_time_offset(int *offset)
 GSSAPI_LIB_FUNCTION OM_uint32 GSSAPI_LIB_CALL
 gsskrb5_plugin_register(struct gsskrb5_krb5_plugin *c)
 {
-    struct _gss_mech_switch *m;
+    OM_uint32 major_status;
+    OM_uint32 *mech_min_stat;
+    _gss_call_context cc;
+    struct _gss_mech_switch_list *mech_list;
+    struct _gss_mech_switch	*m;
+    gssapi_mech_interface mi;
     gss_buffer_desc buffer;
-    OM_uint32 junk;
 
-    _gss_load_mech();
+    cc = _gss_get_thr_best_call_context();
+    if (!cc)
+	return GSS_S_UNAVAILABLE;;
+    mech_list = _gss_get_mech_list(cc);
 
     buffer.value = c;
     buffer.length = sizeof(*c);
 
-    HEIM_SLIST_FOREACH(m, &_gss_mechs, gm_link) {
+    HEIM_SLIST_FOREACH(m, mech_list, gm_link) {
+	mi = &m->gm_mech;
+	major_status = _gss_get_cc_glue_and_mech(&mi->gm_mech_oid,
+						 NULL, &cc, &mi,
+						 &mech_min_stat);
+	if (major_status != GSS_S_COMPLETE)
+	    continue;
 	if (m->gm_mech.gm_set_sec_context_option == NULL)
 	    continue;
-	m->gm_mech.gm_set_sec_context_option(&junk, NULL,
+	m->gm_mech.gm_set_sec_context_option(mech_min_stat, NULL,
 	    GSS_KRB5_PLUGIN_REGISTER_X, &buffer);
     }
 
     return (GSS_S_COMPLETE);
 }
+

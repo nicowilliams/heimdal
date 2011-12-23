@@ -32,27 +32,43 @@ GSSAPI_LIB_FUNCTION OM_uint32 GSSAPI_LIB_CALL
 gss_indicate_mechs(OM_uint32 *minor_status,
     gss_OID_set *mech_set)
 {
-	struct _gss_mech_switch *m;
 	OM_uint32 major_status;
+	OM_uint32 *mech_min_stat;
+	_gss_call_context cc;
+	struct _gss_mech_switch_list *mech_list;
+        struct _gss_mech_switch	*m;
+	gssapi_mech_interface mi;
+	OM_uint32 save;
 	gss_OID_set set;
 	size_t i;
 
-	_gss_load_mech();
+	major_status = _gss_get_call_context(minor_status, &cc);
+	if (major_status != GSS_S_COMPLETE)
+	    return major_status;
+	mech_list = _gss_get_mech_list(cc);
 
 	major_status = gss_create_empty_oid_set(minor_status, mech_set);
 	if (major_status)
 		return (major_status);
 
-	HEIM_SLIST_FOREACH(m, &_gss_mechs, gm_link) {
+	HEIM_SLIST_FOREACH(m, mech_list, gm_link) {
+		mi = &m->gm_mech;
+		major_status = _gss_get_cc_glue_and_mech(&mi->gm_mech_oid,
+							 NULL, &cc, &mi,
+							 &mech_min_stat);
+		if (major_status != GSS_S_COMPLETE)
+			continue;
 		if (m->gm_mech.gm_indicate_mechs) {
 			major_status = m->gm_mech.gm_indicate_mechs(
-			    minor_status, &set);
+			    mech_min_stat, &set);
 			if (major_status)
 				continue;
 			for (i = 0; i < set->count; i++)
 				major_status = gss_add_oid_set_member(
 				    minor_status, &set->elements[i], mech_set);
+			save = *minor_status;
 			gss_release_oid_set(minor_status, &set);
+			*minor_status = save;
 		} else {
 			major_status = gss_add_oid_set_member(
 			    minor_status, &m->gm_mech_oid, mech_set);

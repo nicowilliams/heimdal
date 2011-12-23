@@ -35,13 +35,18 @@ gss_inquire_mechs_for_name(OM_uint32 *minor_status,
 {
 	OM_uint32		major_status;
 	struct _gss_name	*name = (struct _gss_name *) input_name;
+	_gss_call_context cc;
+	struct _gss_mech_switch_list *mech_list;
 	struct _gss_mech_switch	*m;
 	gss_OID_set		name_types;
 	int			present;
 
 	*minor_status = 0;
 
-	_gss_load_mech();
+	major_status = _gss_get_call_context(minor_status, &cc);
+	if (major_status != GSS_S_COMPLETE)
+	    return major_status;
+	mech_list = _gss_get_mech_list(cc);
 
 	major_status = gss_create_empty_oid_set(minor_status, mech_types);
 	if (major_status)
@@ -52,7 +57,7 @@ gss_inquire_mechs_for_name(OM_uint32 *minor_status,
 	 * name's type is supported by the mechanism. If it is, add
 	 * the mechanism to the set.
 	 */
-	HEIM_SLIST_FOREACH(m, &_gss_mechs, gm_link) {
+	HEIM_SLIST_FOREACH(m, mech_list, gm_link) {
 		major_status = gss_inquire_names_for_mech(minor_status,
 		    &m->gm_mech_oid, &name_types);
 		if (major_status) {
@@ -66,7 +71,9 @@ gss_inquire_mechs_for_name(OM_uint32 *minor_status,
 			major_status = gss_add_oid_set_member(minor_status,
 			    &m->gm_mech_oid, mech_types);
 			if (major_status) {
+				OM_uint32 save = *minor_status;
 				gss_release_oid_set(minor_status, mech_types);
+				*minor_status = save;
 				return (major_status);
 			}
 		}

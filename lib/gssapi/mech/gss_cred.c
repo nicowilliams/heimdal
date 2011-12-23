@@ -112,11 +112,14 @@ gss_import_cred(OM_uint32 * minor_status,
 		gss_buffer_t token,
 		gss_cred_id_t * cred_handle)
 {
+    OM_uint32 major_status;
+    OM_uint32 *mech_min_stat;
+    _gss_call_context cc = NULL;
     gssapi_mech_interface m;
     krb5_error_code ret;
     struct _gss_cred *cred;
     krb5_storage *sp = NULL;
-    OM_uint32 major, junk;
+    OM_uint32 save;
     krb5_data data;
 
     *cred_handle = GSS_C_NO_CREDENTIAL;
@@ -153,47 +156,46 @@ gss_import_cred(OM_uint32 * minor_status,
 	    break;
 	} else if (ret) {
 	    *minor_status = ret;
-	    major = GSS_S_FAILURE;
+	    major_status = GSS_S_FAILURE;
 	    goto out;
 	}
 	oid.elements = data.data;
 	oid.length = data.length;
 
-	m = __gss_get_mechanism(&oid);
+	m = NULL;
+	major_status = _gss_get_cc_glue_and_mech(&oid, &minor_status,
+						 &cc, &m, &mech_min_stat);
 	krb5_data_free(&data);
-	if (!m) {
-	    *minor_status = 0;
-	    major = GSS_S_BAD_MECH;
+	if (major_status != GSS_S_COMPLETE)
 	    goto out;
-	}
 
 	if (m->gm_import_cred == NULL) {
 	    *minor_status = 0;
-	    major = GSS_S_BAD_MECH;
+	    major_status = GSS_S_BAD_MECH;
 	    goto out;
 	}
 
 	ret = krb5_ret_data(sp, &data);
 	if (ret) {
 	    *minor_status = ret;
-	    major = GSS_S_FAILURE;
+	    major_status = GSS_S_FAILURE;
 	    goto out;
 	}
 
 	buffer.value = data.data;
 	buffer.length = data.length;
 
-	major = m->gm_import_cred(minor_status,
-				  &buffer, &mcred);
+	major_status = m->gm_import_cred(mech_min_stat,
+					 &buffer, &mcred);
 	krb5_data_free(&data);
-	if (major) {
+	*minor_status = *mech_min_stat;
+	if (major_status)
 	    goto out;
-	}
 
 	mc = malloc(sizeof(struct _gss_mechanism_cred));
 	if (mc == NULL) {
 	    *minor_status = EINVAL;
-	    major = GSS_S_FAILURE;
+	    major_status = GSS_S_FAILURE;
 	    goto out;
 	}
 
@@ -207,7 +209,7 @@ gss_import_cred(OM_uint32 * minor_status,
     sp = NULL;
 
     if (HEIM_SLIST_EMPTY(&cred->gc_mc)) {
-	major = GSS_S_NO_CRED;
+	major_status = GSS_S_NO_CRED;
 	goto out;
     }
 
@@ -217,8 +219,11 @@ gss_import_cred(OM_uint32 * minor_status,
     if (sp)
 	krb5_storage_free(sp);
 
-    gss_release_cred(&junk, cred_handle);
+    save = *minor_status;
+    gss_release_cred(minor_status, cred_handle);
+    *minor_status = save;
+    gss_release_cred(minor_status, cred_handle);
 
-    return major;
+    return major_status;
 
 }

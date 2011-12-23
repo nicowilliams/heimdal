@@ -38,17 +38,24 @@ gss_set_cred_option (OM_uint32 *minor_status,
 		     const gss_OID object,
 		     const gss_buffer_t value)
 {
+	OM_uint32 major_status = GSS_S_COMPLETE;
+	OM_uint32 *mech_min_stat;
+	_gss_call_context cc;
+	struct _gss_mech_switch_list *mech_list;
 	struct _gss_cred *cred = (struct _gss_cred *) *cred_handle;
-	OM_uint32	major_status = GSS_S_COMPLETE;
 	struct _gss_mechanism_cred *mc;
 	int one_ok = 0;
 
 	*minor_status = 0;
 
-	_gss_load_mech();
+	major_status = _gss_get_call_context(minor_status, &cc);
+	if (major_status != GSS_S_COMPLETE)
+		return major_status;
+	mech_list = _gss_get_mech_list(cc);
 
 	if (cred == NULL) {
 		struct _gss_mech_switch *m;
+		gssapi_mech_interface mi;
 
 		cred = malloc(sizeof(*cred));
 		if (cred == NULL)
@@ -56,9 +63,17 @@ gss_set_cred_option (OM_uint32 *minor_status,
 
 		HEIM_SLIST_INIT(&cred->gc_mc);
 
-		HEIM_SLIST_FOREACH(m, &_gss_mechs, gm_link) {
+		HEIM_SLIST_FOREACH(m, mech_list, gm_link) {
 
 			if (m->gm_mech.gm_set_cred_option == NULL)
+				continue;
+
+			mi = &m->gm_mech;
+			major_status =
+			    _gss_get_cc_glue_and_mech(&m->gm_mech_oid,
+						      &minor_status,
+						      &cc, &mi, &mech_min_stat);
+			if (major_status != GSS_S_COMPLETE)
 				continue;
 
 			mc = malloc(sizeof(*mc));
@@ -74,12 +89,12 @@ gss_set_cred_option (OM_uint32 *minor_status,
 			mc->gmc_cred = GSS_C_NO_CREDENTIAL;
 
 			major_status = m->gm_mech.gm_set_cred_option(
-			    minor_status, &mc->gmc_cred, object, value);
-
+			    mech_min_stat, &mc->gmc_cred, object, value);
 			if (major_status) {
 				free(mc);
 				continue;
 			}
+
 			one_ok = 1;
 			HEIM_SLIST_INSERT_HEAD(&cred->gc_mc, mc, gmc_link);
 		}
@@ -100,19 +115,24 @@ gss_set_cred_option (OM_uint32 *minor_status,
 			if (m->gm_set_cred_option == NULL)
 				continue;
 
-			major_status = m->gm_set_cred_option(minor_status,
+			major_status =
+			    _gss_get_cc_glue_and_mech(&m->gm_mech_oid,
+						      &minor_status,
+						      &cc, &m,
+						      &mech_min_stat);
+			if (major_status != GSS_S_COMPLETE)
+				continue;
+
+			major_status = m->gm_set_cred_option(mech_min_stat,
 			    &mc->gmc_cred, object, value);
 			if (major_status == GSS_S_COMPLETE)
 				one_ok = 1;
-			else
-				_gss_mg_error(m, major_status, *minor_status);
 
 		}
 	}
-	if (one_ok) {
-		*minor_status = 0;
+	*minor_status = 0;
+	if (one_ok)
 		return GSS_S_COMPLETE;
-	}
 	return major_status;
 }
 

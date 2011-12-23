@@ -84,7 +84,9 @@ gss_add_cred(OM_uint32 *minor_status,
     OM_uint32 *acceptor_time_rec)
 {
 	OM_uint32 major_status;
-	gssapi_mech_interface m;
+	OM_uint32 *mech_min_stat;
+	_gss_call_context cc = NULL;
+	gssapi_mech_interface m = NULL;
 	struct _gss_cred *cred = (struct _gss_cred *) input_cred_handle;
 	struct _gss_cred *new_cred;
 	gss_cred_id_t release_cred;
@@ -100,6 +102,11 @@ gss_add_cred(OM_uint32 *minor_status,
 	    *acceptor_time_rec = 0;
 	if (actual_mechs)
 	    *actual_mechs = GSS_C_NO_OID_SET;
+
+	major_status = _gss_get_cc_glue_and_mech(desired_mech, &minor_status,
+						 &cc, &m, &mech_min_stat);
+	if (major_status != GSS_S_COMPLETE)
+		return major_status;
 
 	new_cred = malloc(sizeof(struct _gss_cred));
 	if (!new_cred) {
@@ -147,8 +154,6 @@ gss_add_cred(OM_uint32 *minor_status,
 		mn = 0;
 	}
 
-	m = __gss_get_mechanism(desired_mech);
-
 	mc = malloc(sizeof(struct _gss_mechanism_cred));
 	if (!mc) {
 		release_cred = (gss_cred_id_t)new_cred;
@@ -159,7 +164,7 @@ gss_add_cred(OM_uint32 *minor_status,
 	mc->gmc_mech = m;
 	mc->gmc_mech_oid = &m->gm_mech_oid;
 
-	major_status = m->gm_add_cred(minor_status,
+	major_status = m->gm_add_cred(mech_min_stat,
 	    target_mc ? target_mc->gmc_cred : GSS_C_NO_CREDENTIAL,
 	    desired_name ? mn->gmn_name : GSS_C_NO_NAME,
 	    desired_mech,
@@ -170,6 +175,7 @@ gss_add_cred(OM_uint32 *minor_status,
 	    actual_mechs,
 	    initiator_time_rec,
 	    acceptor_time_rec);
+	*minor_status = *mech_min_stat;
 
 	if (major_status) {
 		_gss_mg_error(m, major_status, *minor_status);

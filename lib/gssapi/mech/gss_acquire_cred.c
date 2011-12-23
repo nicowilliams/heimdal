@@ -39,9 +39,12 @@ gss_acquire_cred(OM_uint32 *minor_status,
     OM_uint32 *time_rec)
 {
 	OM_uint32 major_status;
+	OM_uint32 *mech_min_stat;
 	gss_OID_set mechs = desired_mechs;
 	gss_OID_set_desc set;
 	struct _gss_name *name = (struct _gss_name *) desired_name;
+	_gss_call_context cc;
+	struct _gss_mech_switch_list *mech_list;
 	gssapi_mech_interface m;
 	struct _gss_cred *cred;
 	struct _gss_mechanism_cred *mc;
@@ -56,7 +59,10 @@ gss_acquire_cred(OM_uint32 *minor_status,
 	if (time_rec)
 	    *time_rec = 0;
 
-	_gss_load_mech();
+	major_status = _gss_get_call_context(minor_status, &cc);
+	if (major_status != GSS_S_COMPLETE)
+	    return major_status;
+	mech_list = _gss_get_mech_list(cc);
 
 	/*
 	 * First make sure that at least one of the requested
@@ -100,16 +106,20 @@ gss_acquire_cred(OM_uint32 *minor_status,
 	for (i = 0; i < mechs->count; i++) {
 		struct _gss_mechanism_name *mn = NULL;
 
-		m = __gss_get_mechanism(&mechs->elements[i]);
-		if (!m)
-			continue;
-
 		if (desired_name != GSS_C_NO_NAME) {
 			major_status = _gss_find_mn(minor_status, name,
 						    &mechs->elements[i], &mn);
 			if (major_status != GSS_S_COMPLETE)
 				continue;
 		}
+
+		m = NULL;
+		major_status = _gss_get_cc_glue_and_mech(&mechs->elements[i],
+							 &minor_status,
+							 &cc, &m,
+							 &mech_min_stat);
+		if (major_status != GSS_S_COMPLETE)
+			continue;
 
 		mc = malloc(sizeof(struct _gss_mechanism_cred));
 		if (!mc) {
@@ -122,7 +132,7 @@ gss_acquire_cred(OM_uint32 *minor_status,
 		 * XXX Probably need to do something with actual_mechs.
 		 */
 		set.elements = &mechs->elements[i];
-		major_status = m->gm_acquire_cred(minor_status,
+		major_status = m->gm_acquire_cred(mech_min_stat,
 		    (desired_name != GSS_C_NO_NAME
 			? mn->gmn_name : GSS_C_NO_NAME),
 		    time_req, &set, cred_usage,
@@ -138,7 +148,7 @@ gss_acquire_cred(OM_uint32 *minor_status,
 			major_status = gss_add_oid_set_member(minor_status,
 			    mc->gmc_mech_oid, actual_mechs);
 			if (major_status) {
-				m->gm_release_cred(minor_status,
+				m->gm_release_cred(mech_min_stat,
 				    &mc->gmc_cred);
 				free(mc);
 				continue;

@@ -34,7 +34,14 @@ gss_inquire_names_for_mech(OM_uint32 *minor_status,
     gss_OID_set *name_types)
 {
 	OM_uint32 major_status;
-	gssapi_mech_interface m = __gss_get_mechanism(mechanism);
+	OM_uint32 *mech_min_stat;
+	_gss_call_context cc = NULL;
+	gssapi_mech_interface m = NULL;
+
+	major_status = _gss_get_cc_glue_and_mech(mechanism, &minor_status,
+						 &cc, &m, &mech_min_stat);
+	if (major_status != GSS_S_COMPLETE)
+		return major_status;
 
 	*minor_status = 0;
 	*name_types = GSS_C_NO_OID_SET;
@@ -46,8 +53,10 @@ gss_inquire_names_for_mech(OM_uint32 *minor_status,
 	 * names, otherwise fake it.
 	 */
 	if (m->gm_inquire_names_for_mech) {
-		return (m->gm_inquire_names_for_mech(minor_status,
-			    mechanism, name_types));
+		major_status = m->gm_inquire_names_for_mech(mech_min_stat,
+			    mechanism, name_types);
+		*minor_status = *mech_min_stat;
+		return major_status;
 	} else {
 		major_status = gss_create_empty_oid_set(minor_status,
 		    name_types);
@@ -56,15 +65,17 @@ gss_inquire_names_for_mech(OM_uint32 *minor_status,
 		major_status = gss_add_oid_set_member(minor_status,
 		    GSS_C_NT_HOSTBASED_SERVICE, name_types);
 		if (major_status) {
-			OM_uint32 junk;
-			gss_release_oid_set(&junk, name_types);
+			OM_uint32 save = *minor_status;
+			gss_release_oid_set(minor_status, name_types);
+			*minor_status = save;
 			return (major_status);
 		}
 		major_status = gss_add_oid_set_member(minor_status,
 		    GSS_C_NT_USER_NAME, name_types);
 		if (major_status) {
-			OM_uint32 junk;
-			gss_release_oid_set(&junk, name_types);
+			OM_uint32 save = *minor_status;
+			gss_release_oid_set(minor_status, name_types);
+			*minor_status = save;
 			return (major_status);
 		}
 	}

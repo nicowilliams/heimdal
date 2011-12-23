@@ -111,6 +111,7 @@ mechsrc = \
 	mech/gss_import_name.c \
 	mech/gss_import_sec_context.c \
 	mech/gss_indicate_mechs.c \
+	mech/gss_init_call_context.c \
 	mech/gss_init_sec_context.c \
 	mech/gss_inquire_context.c \
 	mech/gss_inquire_cred.c \

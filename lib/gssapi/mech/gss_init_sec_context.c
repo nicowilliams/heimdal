@@ -121,9 +121,11 @@ gss_init_sec_context(OM_uint32 * minor_status,
     OM_uint32 * time_rec)
 {
 	OM_uint32 major_status;
-	gssapi_mech_interface m;
-	struct _gss_name *name = (struct _gss_name *) target_name;
+	OM_uint32 *mech_min_stat;       /* for PGSS */
+	_gss_call_context cc = NULL;    /* for PGSS */
+	gssapi_mech_interface m = NULL; /* for PGSS */
 	struct _gss_mechanism_name *mn;
+	struct _gss_name *name = (struct _gss_name *) target_name;
 	struct _gss_context *ctx = (struct _gss_context *) *context_handle;
 	gss_cred_id_t cred_handle;
 	int allocated_ctx;
@@ -148,13 +150,19 @@ gss_init_sec_context(OM_uint32 * minor_status,
 		if (mech_type == NULL)
 			mech_type = GSS_KRB5_MECHANISM;
 
+		major_status = _gss_get_cc_glue_and_mech(mech_type,
+							 &minor_status, &cc, &m,
+							 &mech_min_stat);
+		if (major_status != GSS_S_COMPLETE)
+		    return major_status;
+
 		ctx = malloc(sizeof(struct _gss_context));
 		if (!ctx) {
 			*minor_status = ENOMEM;
 			return (GSS_S_FAILURE);
 		}
 		memset(ctx, 0, sizeof(struct _gss_context));
-		m = ctx->gc_mech = __gss_get_mechanism(mech_type);
+		ctx->gc_mech = m;
 		if (!m) {
 			free(ctx);
 			return (GSS_S_BAD_MECH);
@@ -164,6 +172,12 @@ gss_init_sec_context(OM_uint32 * minor_status,
 		m = ctx->gc_mech;
 		mech_type = &ctx->gc_mech->gm_mech_oid;
 		allocated_ctx = 0;
+
+		major_status = _gss_get_cc_glue_and_mech(mech_type,
+							 &minor_status, &cc, &m,
+							 &mech_min_stat);
+		if (major_status != GSS_S_COMPLETE)
+		    return major_status;
 	}
 
 	/*
@@ -184,7 +198,7 @@ gss_init_sec_context(OM_uint32 * minor_status,
 	else
 		cred_handle = _gss_mech_cred_find(initiator_cred_handle, mech_type);
 
-	major_status = m->gm_init_sec_context(minor_status,
+	major_status = m->gm_init_sec_context(mech_min_stat,
 	    cred_handle,
 	    &ctx->gc_ctx,
 	    mn->gmn_name,
@@ -198,6 +212,7 @@ gss_init_sec_context(OM_uint32 * minor_status,
 	    ret_flags,
 	    time_rec);
 
+	*minor_status = *mech_min_stat;
 	if (major_status != GSS_S_COMPLETE
 	    && major_status != GSS_S_CONTINUE_NEEDED) {
 		if (allocated_ctx)

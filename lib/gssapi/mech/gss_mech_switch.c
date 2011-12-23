@@ -189,7 +189,7 @@ do {									\
  *
  */
 static int
-add_builtin(gssapi_mech_interface mech)
+add_builtin(struct _gss_mech_switch_list *mech_list, gssapi_mech_interface mech)
 {
     struct _gss_mech_switch *m;
     OM_uint32 minor_status;
@@ -216,7 +216,7 @@ add_builtin(gssapi_mech_interface mech)
     if (m->gm_name_types == NULL)
 	gss_create_empty_oid_set(&minor_status, &m->gm_name_types);
 
-    HEIM_SLIST_INSERT_HEAD(&_gss_mechs, m, gm_link);
+    HEIM_SLIST_INSERT_HEAD(mech_list, m, gm_link);
     return 0;
 }
 
@@ -224,7 +224,7 @@ add_builtin(gssapi_mech_interface mech)
  * Load the mechanisms file (/etc/gss/mech).
  */
 void
-_gss_load_mech(void)
+_gss_load_mech(struct _gss_mech_switch_list *mech_list)
 {
 	OM_uint32	major_status, minor_status;
 	FILE		*fp;
@@ -236,29 +236,35 @@ _gss_load_mech(void)
 	gss_OID_desc	mech_oid;
 	int		found;
 
+	if (!mech_list)
+		mech_list = &_gss_mechs;
 
-	HEIMDAL_MUTEX_lock(&_gss_mech_mutex);
+	if (mech_list == &_gss_mechs)
+	    HEIMDAL_MUTEX_lock(&_gss_mech_mutex);
 
-	if (HEIM_SLIST_FIRST(&_gss_mechs)) {
-		HEIMDAL_MUTEX_unlock(&_gss_mech_mutex);
+	if (HEIM_SLIST_FIRST(mech_list)) {
+		if (mech_list == &_gss_mechs)
+			HEIMDAL_MUTEX_unlock(&_gss_mech_mutex);
 		return;
 	}
 
 	major_status = gss_create_empty_oid_set(&minor_status,
 	    &_gss_mech_oids);
 	if (major_status) {
-		HEIMDAL_MUTEX_unlock(&_gss_mech_mutex);
+		if (mech_list == &_gss_mechs)
+		    HEIMDAL_MUTEX_unlock(&_gss_mech_mutex);
 		return;
 	}
 
-	add_builtin(__gss_krb5_initialize());
-	add_builtin(__gss_spnego_initialize());
-	add_builtin(__gss_ntlm_initialize());
+	add_builtin(mech_list, __gss_krb5_initialize());
+	add_builtin(mech_list, __gss_spnego_initialize());
+	add_builtin(mech_list, __gss_ntlm_initialize());
 
 #ifdef HAVE_DLOPEN
 	fp = fopen(_PATH_GSS_MECH, "r");
 	if (!fp) {
-		HEIMDAL_MUTEX_unlock(&_gss_mech_mutex);
+		if (mech_list == &_gss_mechs)
+			HEIMDAL_MUTEX_unlock(&_gss_mech_mutex);
 		return;
 	}
 	rk_cloexec_file(fp);
@@ -286,7 +292,7 @@ _gss_load_mech(void)
 		 * Check for duplicates, already loaded mechs.
 		 */
 		found = 0;
-		HEIM_SLIST_FOREACH(m, &_gss_mechs, gm_link) {
+		HEIM_SLIST_FOREACH(m, mech_list, gm_link) {
 			if (gss_oid_equal(&m->gm_mech.gm_mech_oid, &mech_oid)) {
 				found = 1;
 				free(mech_oid.elements);
@@ -407,7 +413,7 @@ _gss_load_mech(void)
 		if (m->gm_name_types == NULL)
 			gss_create_empty_oid_set(&minor_status, &m->gm_name_types);
 
-		HEIM_SLIST_INSERT_HEAD(&_gss_mechs, m, gm_link);
+		HEIM_SLIST_INSERT_HEAD(mech_list, m, gm_link);
 		continue;
 
 	bad:
@@ -421,16 +427,20 @@ _gss_load_mech(void)
 	}
 	fclose(fp);
 #endif
-	HEIMDAL_MUTEX_unlock(&_gss_mech_mutex);
+	if (mech_list == &_gss_mechs)
+		HEIMDAL_MUTEX_unlock(&_gss_mech_mutex);
 }
 
 gssapi_mech_interface
-__gss_get_mechanism(gss_const_OID mech)
+__gss_get_mechanism(struct _gss_mech_switch_list *mech_list, gss_const_OID mech)
 {
         struct _gss_mech_switch	*m;
 
-	_gss_load_mech();
-	HEIM_SLIST_FOREACH(m, &_gss_mechs, gm_link) {
+	if (!mech_list)
+	    mech_list = &_gss_mechs;
+
+	_gss_load_mech(mech_list);
+	HEIM_SLIST_FOREACH(m, mech_list, gm_link) {
 		if (gss_oid_equal(&m->gm_mech.gm_mech_oid, mech))
 			return &m->gm_mech;
 	}

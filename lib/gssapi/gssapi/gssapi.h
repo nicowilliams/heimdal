@@ -446,6 +446,7 @@ extern GSSAPI_LIB_VARIABLE gss_OID_desc __gss_c_nt_export_name_oid_desc;
 #define GSS_S_DUPLICATE_ELEMENT (17ul << GSS_C_ROUTINE_ERROR_OFFSET)
 #define GSS_S_NAME_NOT_MN (18ul << GSS_C_ROUTINE_ERROR_OFFSET)
 #define GSS_S_BAD_MECH_ATTR (19ul << GSS_C_ROUTINE_ERROR_OFFSET)
+#define GSS_S_BAD_CALL_CONTEXT (20ul << GSS_C_ROUTINE_ERROR_OFFSET)
 
 /*
  * Apparently awating spec fix.
@@ -895,7 +896,8 @@ GSSAPI_LIB_FUNCTION OM_uint32 GSSAPI_LIB_CALL gss_unseal
            )  GSSAPI_DEPRECATED_FUNCTION("Use gss_unwrap");
 
 /**
- *
+ * XXX Nooo!  These have no minor_status argument!  We might want a call
+ * context by which to refer to allocators!
  */
 
 GSSAPI_LIB_FUNCTION OM_uint32 GSSAPI_LIB_CALL
@@ -947,6 +949,8 @@ gss_import_cred(OM_uint32 * /* minor_status */,
 
 /*
  * mech option
+ *
+ * XXX Noooo!  These have no OM_uint32 *minor_status argument!
  */
 
 GSSAPI_LIB_FUNCTION int GSSAPI_LIB_CALL
@@ -961,6 +965,19 @@ gss_mo_list(gss_const_OID mech, gss_OID_set *options);
 
 GSSAPI_LIB_FUNCTION OM_uint32 GSSAPI_LIB_CALL
 gss_mo_name(gss_const_OID mech, gss_const_OID options, gss_buffer_t name);
+
+GSSAPI_LIB_FUNCTION OM_uint32 GSSAPI_LIB_CALL
+gss_mo_set2(OM_uint32 *minor_status, gss_const_OID mech, gss_const_OID option,
+	   int enable, gss_buffer_t value);
+
+GSSAPI_LIB_FUNCTION OM_uint32 GSSAPI_LIB_CALL
+gss_mo_get2(OM_uint32 *minor_status, gss_const_OID mech, gss_const_OID option, gss_buffer_t value);
+
+GSSAPI_LIB_FUNCTION OM_uint32 GSSAPI_LIB_CALL
+gss_mo_list2(OM_uint32 *minor_status, gss_const_OID mech, gss_OID_set *options);
+
+GSSAPI_LIB_FUNCTION OM_uint32 GSSAPI_LIB_CALL
+gss_mo_name2(OM_uint32 *minor_status, gss_const_OID mech, gss_const_OID options, gss_buffer_t name);
 
 /*
  * SASL glue functions and mech inquire
@@ -1049,6 +1066,7 @@ gss_authorize_localname(
         const gss_name_t name,
         const gss_name_t user);
 
+/* XXX Nooooo!  This lacks a minor_status argument! */
 GSSAPI_LIB_FUNCTION int GSSAPI_LIB_CALL
 gss_userok(const gss_name_t name,
            const char *user);
@@ -1107,7 +1125,27 @@ GSSAPI_LIB_FUNCTION OM_uint32 GSSAPI_LIB_CALL gss_export_name_composite (
     );
 
 /*
- *
+ * "PGSS"
+ */
+
+GSSAPI_LIB_FUNCTION OM_uint32 GSSAPI_LIB_CALL gss_init_call_context (
+    OM_uint32 *,	/* minor_status */
+    OM_uint32 **,	/* new_minor_status */
+    gss_buffer_t	/* configuration */
+    );
+
+GSSAPI_LIB_FUNCTION OM_uint32 GSSAPI_LIB_CALL gss_duplicate_call_context (
+    OM_uint32 *,	/* minor_status */
+    OM_uint32 **	/* new_minor_status */
+    );
+
+GSSAPI_LIB_FUNCTION OM_uint32 GSSAPI_LIB_CALL gss_release_call_context (
+    OM_uint32 *,	/* minor_status */
+    OM_uint32 **	/* old_minor_status */
+    );
+
+/*
+ * XXX Nooo!  These lack a minor_status argument!!
  */
 
 GSSAPI_LIB_FUNCTION const char * GSSAPI_LIB_CALL

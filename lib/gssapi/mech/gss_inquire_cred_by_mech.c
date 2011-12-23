@@ -38,7 +38,9 @@ gss_inquire_cred_by_mech(OM_uint32 *minor_status,
     gss_cred_usage_t *cred_usage)
 {
 	OM_uint32 major_status;
-	gssapi_mech_interface m;
+	OM_uint32 *mech_min_stat;
+	_gss_call_context cc = NULL;
+	gssapi_mech_interface m = NULL;
 	struct _gss_mechanism_cred *mcp;
 	gss_cred_id_t mc;
 	gss_name_t mn;
@@ -54,9 +56,10 @@ gss_inquire_cred_by_mech(OM_uint32 *minor_status,
 	if (cred_usage)
 	    *cred_usage = 0;
 
-	m = __gss_get_mechanism(mech_type);
-	if (!m)
-		return (GSS_S_NO_CRED);
+	major_status = _gss_get_cc_glue_and_mech(mech_type, &minor_status,
+						 &cc, &m, &mech_min_stat);
+	if (major_status != GSS_S_COMPLETE)
+		return major_status;
 
 	if (cred_handle != GSS_C_NO_CREDENTIAL) {
 		struct _gss_cred *cred = (struct _gss_cred *) cred_handle;
@@ -70,8 +73,9 @@ gss_inquire_cred_by_mech(OM_uint32 *minor_status,
 		mc = GSS_C_NO_CREDENTIAL;
 	}
 
-	major_status = m->gm_inquire_cred_by_mech(minor_status, mc, mech_type,
+	major_status = m->gm_inquire_cred_by_mech(mech_min_stat, mc, mech_type,
 	    &mn, initiator_lifetime, acceptor_lifetime, cred_usage);
+	*minor_status = *minor_status;
 	if (major_status != GSS_S_COMPLETE) {
 		_gss_mg_error(m, major_status, *minor_status);
 		return (major_status);

@@ -60,6 +60,7 @@
 #include "context.h"
 #include "cred.h"
 #include "mech_switch.h"
+#include "call_context.h"
 #include "name.h"
 #include "utils.h"
 #include "compat.h"

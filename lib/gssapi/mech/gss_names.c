@@ -33,7 +33,9 @@ _gss_find_mn(OM_uint32 *minor_status, struct _gss_name *name, gss_OID mech,
 	     struct _gss_mechanism_name **output_mn)
 {
 	OM_uint32 major_status;
-	gssapi_mech_interface m;
+	OM_uint32 *mech_min_stat;
+	_gss_call_context cc = NULL;
+	gssapi_mech_interface m = NULL;
 	struct _gss_mechanism_name *mn;
 
 	*output_mn = NULL;
@@ -51,19 +53,22 @@ _gss_find_mn(OM_uint32 *minor_status, struct _gss_name *name, gss_OID mech,
 		if (!name->gn_value.value)
 			return GSS_S_BAD_NAME;
 
-		m = __gss_get_mechanism(mech);
-		if (!m)
-			return (GSS_S_BAD_MECH);
+		major_status = _gss_get_cc_glue_and_mech(mech, &minor_status,
+							 &cc, &m,
+							 &mech_min_stat);
+		if (major_status != GSS_S_COMPLETE)
+			return major_status;
 
 		mn = malloc(sizeof(struct _gss_mechanism_name));
 		if (!mn)
 			return GSS_S_FAILURE;
 
-		major_status = m->gm_import_name(minor_status,
+		major_status = m->gm_import_name(mech_min_stat,
 		    &name->gn_value,
 		    (name->gn_type.elements
 			? &name->gn_type : GSS_C_NO_OID),
 		    &mn->gmn_name);
+		*minor_status = *mech_min_stat;
 		if (major_status != GSS_S_COMPLETE) {
 			_gss_mg_error(m, major_status, *minor_status);
 			free(mn);
