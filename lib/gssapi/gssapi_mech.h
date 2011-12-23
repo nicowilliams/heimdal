@@ -439,6 +439,17 @@ typedef OM_uint32 GSSAPI_CALLCONV _gss_export_name_composite_t (
 	       gss_buffer_t           /* exp_composite_name */
 	    );
 
+typedef OM_uint32 GSSAPI_CALLCONV _gss_init_call_context_t (
+	       OM_uint32 *,           /* minor_status */
+	       OM_uint32 **,          /* new_minor_status */
+	       gss_buffer_t           /* configuration */
+	    );
+
+typedef OM_uint32 GSSAPI_CALLCONV _gss_release_call_context_t (
+	       OM_uint32 *,           /* minor_status */
+	       OM_uint32 **           /* old_minor_status */
+	    );
+
 /*
  *
  */
@@ -544,11 +555,10 @@ typedef struct gssapi_mech_interface_desc {
         _gss_set_name_attribute_t       *gm_set_name_attribute;
         _gss_delete_name_attribute_t    *gm_delete_name_attribute;
         _gss_export_name_composite_t    *gm_export_name_composite;
+        _gss_init_call_context_t        *gm_init_call_context;
+        _gss_release_call_context_t     *gm_release_call_context;
         struct gss_mech_compat_desc_struct  *gm_compat;
 } gssapi_mech_interface_desc, *gssapi_mech_interface;
-
-gssapi_mech_interface
-__gss_get_mechanism(gss_const_OID /* oid */);
 
 gssapi_mech_interface __gss_spnego_initialize(void);
 gssapi_mech_interface __gss_krb5_initialize(void);

@@ -51,7 +51,11 @@ gss_inquire_cred(OM_uint32 *minor_status,
     gss_OID_set *mechanisms)
 {
 	OM_uint32 major_status;
-	struct _gss_mech_switch *m;
+	OM_uint32 *mech_min_stat;
+	_gss_call_context cc;
+	struct _gss_mech_switch_list *mech_list;
+        struct _gss_mech_switch	*m;
+	gssapi_mech_interface mi;
 	struct _gss_cred *cred = (struct _gss_cred *) cred_handle;
 	struct _gss_name *name;
 	struct _gss_mechanism_name *mn;
@@ -60,7 +64,10 @@ gss_inquire_cred(OM_uint32 *minor_status,
 	int usagemask = 0;
 	gss_cred_usage_t usage;
 
-	_gss_load_mech();
+	major_status = _gss_get_call_context(minor_status, &cc);
+	if (major_status != GSS_S_COMPLETE)
+	    return major_status;
+	mech_list = _gss_get_mech_list(cc);
 
 	*minor_status = 0;
 	if (name_ret)
@@ -100,7 +107,13 @@ gss_inquire_cred(OM_uint32 *minor_status,
 			gss_name_t mc_name;
 			OM_uint32 mc_lifetime;
 
-			major_status = mc->gmc_mech->gm_inquire_cred(minor_status,
+			mi = &m->gm_mech;
+			major_status = _gss_get_cc_glue_and_mech(&mi->gm_mech_oid,
+								 NULL, &cc, &mi,
+								 &mech_min_stat);
+			if (major_status != GSS_S_COMPLETE)
+				continue;
+			major_status = mc->gmc_mech->gm_inquire_cred(mech_min_stat,
 			    mc->gmc_cred, &mc_name, &mc_lifetime, &usage, NULL);
 			if (major_status)
 				continue;
@@ -109,7 +122,7 @@ gss_inquire_cred(OM_uint32 *minor_status,
 			if (name) {
 				mn = malloc(sizeof(struct _gss_mechanism_name));
 				if (!mn) {
-					mc->gmc_mech->gm_release_name(minor_status,
+					mc->gmc_mech->gm_release_name(mech_min_stat,
 					    &mc_name);
 					continue;
 				}
@@ -131,11 +144,17 @@ gss_inquire_cred(OM_uint32 *minor_status,
 			found++;
 		}
 	} else {
-		HEIM_SLIST_FOREACH(m, &_gss_mechs, gm_link) {
+		HEIM_SLIST_FOREACH(m, mech_list, gm_link) {
 			gss_name_t mc_name;
 			OM_uint32 mc_lifetime;
 
-			major_status = m->gm_mech.gm_inquire_cred(minor_status,
+			mi = &m->gm_mech;
+			major_status = _gss_get_cc_glue_and_mech(&mi->gm_mech_oid,
+								 NULL, &cc, &mi,
+								 &mech_min_stat);
+			if (major_status != GSS_S_COMPLETE)
+				continue;
+			major_status = m->gm_mech.gm_inquire_cred(mech_min_stat,
 			    GSS_C_NO_CREDENTIAL, &mc_name, &mc_lifetime,
 			    &usage, NULL);
 			if (major_status)
@@ -155,7 +174,7 @@ gss_inquire_cred(OM_uint32 *minor_status,
 				mn->gmn_name = mc_name;
 				HEIM_SLIST_INSERT_HEAD(&name->gn_mn, mn, gmn_link);
 			} else if (mc_name) {
-				m->gm_mech.gm_release_name(minor_status,
+				m->gm_mech.gm_release_name(mech_min_stat,
 				    &mc_name);
 			}
 

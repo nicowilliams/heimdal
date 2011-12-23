@@ -2,11 +2,15 @@
 #include "heim_threads.h"
 
 struct mg_thread_ctx {
-    gss_OID mech;
-    OM_uint32 maj_stat;
-    OM_uint32 min_stat;
-    gss_buffer_desc maj_error;
-    gss_buffer_desc min_error;
+    gss_OID		mech;
+    OM_uint32		maj_stat;
+    OM_uint32		min_stat;
+    gss_buffer_desc	maj_error;
+    gss_buffer_desc	min_error;
+    _gss_call_context	cc;
+    /* Speed up lookup of call context by matching the last minor_status used */
+    _gss_call_context	last_cc;
+    OM_uint32		*last_cc_min_stat;
 };
 
 static HEIMDAL_MUTEX context_mutex = HEIMDAL_MUTEX_INITIALIZER;
@@ -156,8 +160,89 @@ _gss_mg_error(gssapi_mech_interface m, OM_uint32 maj, OM_uint32 min)
 void
 gss_mg_collect_error(gss_OID mech, OM_uint32 maj, OM_uint32 min)
 {
-    gssapi_mech_interface m = __gss_get_mechanism(mech);
+    _gss_call_context cc;
+    struct _gss_mech_switch_list *mech_list;
+    gssapi_mech_interface m;
+
+    cc = _gss_get_thr_best_call_context();
+    if (!cc)
+	return;
+    mech_list = _gss_get_mech_list(cc);
+    m = __gss_get_mechanism(mech_list, mech);
     if (m == NULL)
 	return;
     _gss_mg_error(m, maj, min);
 }
+
+_gss_call_context
+_gss_get_thr_call_context(OM_uint32 *cc_ref)
+{
+    struct mg_thread_ctx *mg;
+
+    mg = _gss_mechglue_thread();
+    if (mg == NULL)
+	return NULL;
+
+    if (!cc_ref)
+	return mg->cc;
+    if (cc_ref && mg->last_cc_min_stat == cc_ref)
+	return mg->last_cc;
+    return NULL;
+}
+
+/*
+ * This function is used from GSS functions that lack a OM_uint32 *minor_status
+ * argument.  It returns the last call context used by a PGSS-aware
+ * application in this same thread, else it returns the thread's global
+ * call context.
+ */
+_gss_call_context
+_gss_get_thr_best_call_context(void)
+{
+    struct mg_thread_ctx *mg;
+
+    mg = _gss_mechglue_thread();
+    if (mg == NULL)
+	return NULL;
+
+    if (mg->last_cc)
+	return mg->last_cc;
+    return mg->cc;
+}
+
+/*
+ * Save a global configuration call context for a non-PGSS-aware
+ * application in thread-specific data.
+ */
+OM_uint32
+_gss_set_thr_call_context(_gss_call_context cc)
+{
+    struct mg_thread_ctx *mg;
+
+    mg = _gss_mechglue_thread();
+    if (mg == NULL)
+	return GSS_S_UNAVAILABLE;
+
+    mg->cc = cc;
+    return GSS_S_COMPLETE;
+}
+
+/*
+ * Optimize subsequent use of the given OM_uint32 *minor_status for a
+ * PGSS-aware application, so that we can find it ahead of the slow
+ * path.
+ */
+void
+_gss_remember_call_context(OM_uint32 *cc_ref, _gss_call_context cc)
+{
+    struct mg_thread_ctx *mg;
+
+    mg = _gss_mechglue_thread();
+    if (mg == NULL)
+	return;
+
+    mg->last_cc = cc;
+    mg->last_cc_min_stat = cc_ref;
+}
+
+

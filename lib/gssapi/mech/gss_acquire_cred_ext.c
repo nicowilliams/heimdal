@@ -124,7 +124,10 @@ _gss_acquire_cred_ext(OM_uint32 *minor_status,
     gss_cred_id_t *output_cred_handle)
 {
     OM_uint32 major_status;
+    OM_uint32 *mech_min_stat;
     struct _gss_name *name = (struct _gss_name *) desired_name;
+    _gss_call_context cc;
+    struct _gss_mech_switch_list *mech_list;
     gssapi_mech_interface m;
     struct _gss_cred *cred;
     gss_OID_set_desc set, *mechs;
@@ -134,7 +137,10 @@ _gss_acquire_cred_ext(OM_uint32 *minor_status,
     if (output_cred_handle == NULL)
 	return GSS_S_CALL_INACCESSIBLE_READ;
 
-    _gss_load_mech();
+    major_status = _gss_get_call_context(minor_status, &cc);
+    if (major_status != GSS_S_COMPLETE)
+	return major_status;
+    mech_list = _gss_get_mech_list(cc);
 
     if (desired_mech != GSS_C_NO_OID) {
 	int match = 0;
@@ -162,10 +168,6 @@ _gss_acquire_cred_ext(OM_uint32 *minor_status,
 	struct _gss_mechanism_name *mn = NULL;
 	struct _gss_mechanism_cred *mc = NULL;
 
-	m = __gss_get_mechanism(&mechs->elements[i]);
-	if (!m)
-	    continue;
-
 	if (desired_name != GSS_C_NO_NAME) {
 	    major_status = _gss_find_mn(minor_status, name,
 					&mechs->elements[i], &mn);
@@ -173,7 +175,15 @@ _gss_acquire_cred_ext(OM_uint32 *minor_status,
 		continue;
 	}
 
-	major_status = _gss_acquire_mech_cred(minor_status, m, mn,
+	/* Get call context */
+	m = NULL;
+	major_status = _gss_get_cc_glue_and_mech(&mechs->elements[i],
+						 &minor_status, &cc,
+						 &m, &mech_min_stat);
+	if (major_status != GSS_S_COMPLETE)
+	    continue;
+
+	major_status = _gss_acquire_mech_cred(mech_min_stat, m, mn,
 					      credential_type, credential_data,
 					      time_req, desired_mech, cred_usage,
 					      &mc);
@@ -192,8 +202,20 @@ _gss_acquire_cred_ext(OM_uint32 *minor_status,
      */
     if (!HEIM_SLIST_FIRST(&cred->gc_mc)) {
 	free(cred);
-        if (mechs->count > 1)
+        if (mechs->count > 1) {
+            /*
+             * The spec doesn't say what minor_status is to be returned
+             * by GSS_Acquire_cred().  No function that takes a
+             * desired_mechs gss_OID_set argument can really return
+             * anything in minor_status since the application can't know
+             * which mechanism OID to pass to GSS_Display_status() to
+             * display it.
+             *
+             * XXX However, with call contexts we can make displaying
+             * the error include information for each mechanism.
+             */
             *minor_status = 0;
+        }
 	return GSS_S_NO_CRED;
     }
 

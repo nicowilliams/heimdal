@@ -35,6 +35,7 @@ HEIMDAL_GSS_2.0 {
 		gss_display_name;
 		gss_display_name_ext;
 		gss_display_status;
+		gss_duplicate_call_context;
 		gss_duplicate_name;
 		gss_duplicate_oid;
 		gss_encapsulate_token;
@@ -49,6 +50,7 @@ HEIMDAL_GSS_2.0 {
 		gss_import_sec_context;
 		gss_indicate_mechs;
 		gss_init_sec_context;
+		gss_init_call_context;
 		gss_inquire_context;
 		gss_inquire_cred;
 		gss_inquire_cred_by_mech;
@@ -74,6 +76,7 @@ HEIMDAL_GSS_2.0 {
 		gss_pseudo_random;
 		gss_release_buffer;
 		gss_release_buffer_set;
+		gss_release_call_context;
 		gss_release_cred;
 		gss_release_iov_buffer;
 		gss_release_name;

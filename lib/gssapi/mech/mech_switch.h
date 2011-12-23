@@ -40,4 +40,8 @@ HEIM_SLIST_HEAD(_gss_mech_switch_list, _gss_mech_switch);
 extern struct _gss_mech_switch_list _gss_mechs;
 extern gss_OID_set _gss_mech_oids;
 
-void	_gss_load_mech(void);
+void	_gss_load_mech(struct _gss_mech_switch_list *);
+gssapi_mech_interface
+__gss_get_mechanism(struct _gss_mech_switch_list * /* mech_list */,
+		    gss_const_OID /* oid */);
+

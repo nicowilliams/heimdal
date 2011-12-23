@@ -154,8 +154,11 @@ gss_accept_sec_context(OM_uint32 *minor_status,
     OM_uint32 *time_rec,
     gss_cred_id_t *delegated_cred_handle)
 {
-	OM_uint32 major_status, mech_ret_flags, junk;
-	gssapi_mech_interface m;
+	OM_uint32 major_status;
+	OM_uint32 *mech_min_stat;
+	_gss_call_context cc = NULL;
+	gssapi_mech_interface m = NULL;
+	OM_uint32 mech_ret_flags, save;
 	struct _gss_context *ctx = (struct _gss_context *) *context_handle;
 	struct _gss_cred *cred = (struct _gss_cred *) acceptor_cred_handle;
 	struct _gss_mechanism_cred *mc;
@@ -176,7 +179,6 @@ gss_accept_sec_context(OM_uint32 *minor_status,
 	    *delegated_cred_handle = GSS_C_NO_CREDENTIAL;
 	_mg_buffer_zero(output_token);
 
-
 	/*
 	 * If this is the first call (*context_handle is NULL), we must
 	 * parse the input token to figure out the mechanism to use.
@@ -185,6 +187,11 @@ gss_accept_sec_context(OM_uint32 *minor_status,
 		gss_OID_desc mech_oid;
 
 		major_status = choose_mech(input_token, &mech_oid);
+		if (major_status != GSS_S_COMPLETE)
+			return major_status;
+
+		major_status = _gss_get_cc_glue_and_mech(&mech_oid, &minor_status,
+							 &cc, &m, &mech_min_stat);
 		if (major_status != GSS_S_COMPLETE)
 			return major_status;
 
@@ -198,14 +205,13 @@ gss_accept_sec_context(OM_uint32 *minor_status,
 			return (GSS_S_DEFECTIVE_TOKEN);
 		}
 		memset(ctx, 0, sizeof(struct _gss_context));
-		m = ctx->gc_mech = __gss_get_mechanism(&mech_oid);
-		if (!m) {
-			free(ctx);
-			return (GSS_S_BAD_MECH);
-		}
 		*context_handle = (gss_ctx_id_t) ctx;
 	} else {
 		m = ctx->gc_mech;
+		major_status = _gss_get_cc_glue_and_mech(GSS_C_NO_OID, &minor_status,
+							 &cc, &m, &mech_min_stat);
+		if (major_status != GSS_S_COMPLETE)
+			return major_status;
 	}
 
 	if (cred) {
@@ -213,7 +219,9 @@ gss_accept_sec_context(OM_uint32 *minor_status,
 			if (mc->gmc_mech == m)
 				break;
 		if (!mc) {
-		        gss_delete_sec_context(&junk, context_handle, NULL);
+			save = *minor_status;
+		        gss_delete_sec_context(minor_status, context_handle, NULL);
+			*minor_status = save;;
 			return (GSS_S_BAD_MECH);
 		}
 		acceptor_mc = mc->gmc_cred;
@@ -223,7 +231,7 @@ gss_accept_sec_context(OM_uint32 *minor_status,
 	delegated_mc = GSS_C_NO_CREDENTIAL;
 
 	mech_ret_flags = 0;
-	major_status = m->gm_accept_sec_context(minor_status,
+	major_status = m->gm_accept_sec_context(mech_min_stat,
 	    &ctx->gc_ctx,
 	    acceptor_mc,
 	    input_token,
@@ -234,11 +242,14 @@ gss_accept_sec_context(OM_uint32 *minor_status,
 	    &mech_ret_flags,
 	    time_rec,
 	    &delegated_mc);
+	*minor_status = *mech_min_stat;
 	if (major_status != GSS_S_COMPLETE &&
 	    major_status != GSS_S_CONTINUE_NEEDED)
 	{
 		_gss_mg_error(m, major_status, *minor_status);
-		gss_delete_sec_context(&junk, context_handle, NULL);
+		save = *minor_status;
+		gss_delete_sec_context(minor_status, context_handle, NULL);
+		*minor_status = save;
 		return (major_status);
 	}
 
@@ -252,9 +263,10 @@ gss_accept_sec_context(OM_uint32 *minor_status,
 		struct _gss_name *name = _gss_make_name(m, src_mn);
 
 		if (!name) {
-			m->gm_release_name(minor_status, &src_mn);
-		        gss_delete_sec_context(&junk, context_handle, NULL);
-			return (GSS_S_FAILURE);
+			m->gm_release_name(mech_min_stat, &src_mn);
+		        gss_delete_sec_context(minor_status, context_handle, NULL);
+			*minor_status = ENOMEM;
+			return (GSS_S_UNAVAILABLE);
 		}
 		*src_name = (gss_name_t) name;
 	} else if (src_mn) {
@@ -263,7 +275,7 @@ gss_accept_sec_context(OM_uint32 *minor_status,
 
 	if (mech_ret_flags & GSS_C_DELEG_FLAG) {
 		if (!delegated_cred_handle) {
-			m->gm_release_cred(minor_status, &delegated_mc);
+			m->gm_release_cred(mech_min_stat, &delegated_mc);
 			mech_ret_flags &=
 			    ~(GSS_C_DELEG_FLAG|GSS_C_DELEG_POLICY_FLAG);
 		} else if (gss_oid_equal(mech_ret_type, &m->gm_mech_oid) == 0) {
@@ -281,16 +293,16 @@ gss_accept_sec_context(OM_uint32 *minor_status,
 
 			dcred = malloc(sizeof(struct _gss_cred));
 			if (!dcred) {
+				gss_delete_sec_context(minor_status, context_handle, NULL);
 				*minor_status = ENOMEM;
-				gss_delete_sec_context(&junk, context_handle, NULL);
 				return (GSS_S_FAILURE);
 			}
 			HEIM_SLIST_INIT(&dcred->gc_mc);
 			dmc = malloc(sizeof(struct _gss_mechanism_cred));
 			if (!dmc) {
 				free(dcred);
+				gss_delete_sec_context(minor_status, context_handle, NULL);
 				*minor_status = ENOMEM;
-				gss_delete_sec_context(&junk, context_handle, NULL);
 				return (GSS_S_FAILURE);
 			}
 			dmc->gmc_mech = m;
