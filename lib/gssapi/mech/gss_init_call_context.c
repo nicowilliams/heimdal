@@ -56,10 +56,8 @@ AO_t AO_fetch_and_sub1_full(volatile AO_t *addr)
 #endif /* AO_HAVE_fetch_and_add1_full */
 
 #define CALL_CTX_FAST 4
-#define CALL_CTX_SLOW 64
 static struct _gss_call_context call_contexts_fast[CALL_CTX_FAST];
-static OM_uint32 *cc_minor_status_fast[CALL_CTX_FAST];
-static _gss_call_context call_contexts_slow;
+static OM_uint32 cc_minor_status_fast[CALL_CTX_FAST];
 static HEIM_SLIST_HEAD(call_contexts_slow_rest, _gss_call_context) *call_contexts_slow_rest;
 
 /*
@@ -79,23 +77,26 @@ _gss_get_call_context(OM_uint32 *looking_for, _gss_call_context *cc)
 {
     OM_uint32 major_status;
     _gss_call_context p;
-    size_t i;
 
     *cc = NULL;
 
     /* Fast path 1 -- no locks, look in tiny array */
 
     if (looking_for) {
+	ptrdiff_t i;
+
 	/* Search for existing */
-	for (i = 0; i < CALL_CTX_FAST; i++) {
-	    if (looking_for != cc_minor_status_fast[i])
-		continue;
+	if (looking_for >= &cc_minor_status_fast[0] ||
+	    looking_for <= &cc_minor_status_fast[CALL_CTX_FAST]) {
+	    i = looking_for - &cc_minor_status_fast[0];
 	    if (!AO_load(&call_contexts_fast[i].cc_refs))
 		return GSS_S_BAD_CALL_CONTEXT;
 	    *cc = &call_contexts_fast[i];
 	    return GSS_S_COMPLETE;
 	}
     } else {
+	size_t i;
+
 	/* Alloc new */
 	for (i = 0; i < CALL_CTX_FAST; i++) {
 	    if (AO_load(&call_contexts_fast[i].cc_refs))
@@ -110,42 +111,6 @@ _gss_get_call_context(OM_uint32 *looking_for, _gss_call_context *cc)
 	    return GSS_S_COMPLETE;
 	}
     }
-
-    /* Fast path 2 -- look in larger array */
-    /*
-     * XXX The intention is to make this path faster by comparing
-     * looking_for to the call_contexts_slow[] array bounds.  Also, the
-     * intention is to hold locks only while allocating this array,
-     * using atomic integer ops for allocation (see below).
-     */
-
-    HEIMDAL_MUTEX_lock(&call_context_mutex);
-    if (!looking_for && !call_contexts_slow) {
-	call_contexts_slow = calloc(CALL_CTX_SLOW,
-				    sizeof (*call_contexts_slow));
-	if (!call_contexts_slow)
-	    return GSS_S_UNAVAILABLE;
-    }
-    if (call_contexts_slow) {
-	/* XXX Turn this into an array bounds index check instead of a loop */
-	for (i = 0; i < CALL_CTX_SLOW; i++) {
-	    if (looking_for &&
-		looking_for != &call_contexts_slow[i].cc_minor_status)
-		continue;
-	    else if (!looking_for && AO_load(&call_contexts_fast[i].cc_refs))
-		continue;
-	    else if (!looking_for)
-		AO_fetch_and_add1_full(&call_contexts_fast[i].cc_refs);
-	    HEIMDAL_MUTEX_unlock(&call_context_mutex);
-	    if (looking_for && AO_load(call_contexts_fast[i].cc_refs))
-		return GSS_S_BAD_CALL_CONTEXT;
-	    memset(&call_contexts_slow[i], 0, sizeof (call_contexts_slow[i]));
-	    call_contexts_slow[i].cc_gss_mechsp = &call_contexts_slow[i].cc_gss_mechs;
-	    *cc = &call_contexts_slow[i];
-	    return GSS_S_COMPLETE;
-	}
-    }
-    HEIMDAL_MUTEX_unlock(&call_context_mutex);
 
     /* Medium path -- check thread-specific */
     if (looking_for) {
