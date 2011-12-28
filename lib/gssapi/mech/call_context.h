@@ -58,6 +58,7 @@ struct _gss_mech_call_context {
 
 typedef struct _gss_call_context *_gss_call_context;
 struct _gss_call_context {
+	/* NOTE WELL: The first field must be OM_uint32 cc_minor_status! */
 	OM_uint32		cc_minor_status;
 	gss_buffer_desc		cc_configuration;
 	_gss_call_context	cc_parent;

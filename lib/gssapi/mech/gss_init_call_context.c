@@ -55,10 +55,52 @@ AO_t AO_fetch_and_sub1_full(volatile AO_t *addr)
 }
 #endif /* AO_HAVE_fetch_and_add1_full */
 
-#define CALL_CTX_FAST 4
+#define CALL_CTX_FAST 8
 static struct _gss_call_context call_contexts_fast[CALL_CTX_FAST];
-static OM_uint32 cc_minor_status_fast[CALL_CTX_FAST];
 static HEIM_SLIST_HEAD(call_contexts_slow_rest, _gss_call_context) *call_contexts_slow_rest;
+
+/* Allocate a call context */
+static OM_uint32
+_gss_alloc_call_context(_gss_call_context *cc)
+{
+    _gss_call_context p;
+    size_t i;
+
+    /*
+     * Fast path: alloc from static array.  What's fast about this is
+     * searching; allocation is infrequent.
+     */
+    for (i = 0; i < CALL_CTX_FAST; i++) {
+	p = &call_contexts_fast[i];
+	if (AO_load(&p->cc_refs))
+	    continue;
+	if (AO_fetch_and_add1_full(&p->cc_refs) > 1) {
+	    (void) AO_fetch_and_sub1_full(&p->cc_refs);
+	    continue;
+	}
+	memset(p, 0, sizeof (p));
+	p->cc_gss_mechsp = &p->cc_gss_mechs;
+	*cc = p;
+	return GSS_S_COMPLETE;
+    }
+
+    /* Slow path: calloc() and add to the slow path list */
+    p = calloc(1, sizeof (*p));
+    if (!p)
+	return GSS_S_UNAVAILABLE;
+    p->cc_gss_mechsp = &p->cc_gss_mechs;
+
+    HEIMDAL_MUTEX_lock(&call_context_mutex);
+    HEIM_SLIST_INSERT_HEAD(call_contexts_slow_rest, p, cc_link);
+    *cc = p;
+    HEIMDAL_MUTEX_unlock(&call_context_mutex);
+    /*
+     * Optimize lookup of this call context from the same thread so
+     * we don't fall into the slow path below.
+     */
+    _gss_remember_call_context(&(*cc)->cc_minor_status, *cc);
+    return GSS_S_COMPLETE;
+}
 
 /*
  * Map an "OM_uint32 *minor_status" to a call context handle.
@@ -70,102 +112,72 @@ static HEIM_SLIST_HEAD(call_contexts_slow_rest, _gss_call_context) *call_context
  * turns out we allocated that value, else it must be a non-PGSS
  * application.
  *
- * We have three fast paths, and one slow path to do this mapping.
+ * We have a fast path, and a slow path, with thread-specific data used
+ * to memoize the slow path so that repeated use -in the same thread- of
+ * a call context that would require a trip through the slow path can
+ * actually avoid that slow path.
  */
 OM_uint32
 _gss_get_call_context(OM_uint32 *looking_for, _gss_call_context *cc)
 {
-    OM_uint32 major_status;
     _gss_call_context p;
+    ptrdiff_t i;
 
     *cc = NULL;
 
-    /* Fast path 1 -- no locks, look in tiny array */
+    if (!looking_for)
+	return _gss_alloc_call_context(cc);
 
-    if (looking_for) {
-	ptrdiff_t i;
+    /* Fast path: no locks, look in tiny array */
+    if (looking_for >= &call_contexts_fast[0].cc_minor_status ||
+	looking_for <= &call_contexts_fast[CALL_CTX_FAST].cc_minor_status) {
 
-	/* Search for existing */
-	if (looking_for >= &cc_minor_status_fast[0] ||
-	    looking_for <= &cc_minor_status_fast[CALL_CTX_FAST]) {
-	    i = looking_for - &cc_minor_status_fast[0];
-	    if (!AO_load(&call_contexts_fast[i].cc_refs))
-		return GSS_S_BAD_CALL_CONTEXT;
-	    *cc = &call_contexts_fast[i];
-	    return GSS_S_COMPLETE;
-	}
-    } else {
-	size_t i;
-
-	/* Alloc new */
-	for (i = 0; i < CALL_CTX_FAST; i++) {
-	    if (AO_load(&call_contexts_fast[i].cc_refs))
-		continue;
-	    if (AO_fetch_and_add1_full(&call_contexts_fast[i].cc_refs) > 1) {
-		(void) AO_fetch_and_sub1_full(&call_contexts_fast[i].cc_refs);
-		continue;
-	    }
-	    memset(&call_contexts_fast[i], 0, sizeof (call_contexts_fast[i]));
-	    call_contexts_fast[i].cc_gss_mechsp = &call_contexts_fast[i].cc_gss_mechs;
-	    *cc = &call_contexts_fast[i];
-	    return GSS_S_COMPLETE;
-	}
-    }
-
-    /* Medium path -- check thread-specific */
-    if (looking_for) {
-	*cc = _gss_get_thr_call_context(looking_for);
-	if (*cc)
-	    return GSS_S_COMPLETE;
-    } else {
-	/* Allocate a new call context, add it to the slow path list */
-	p = calloc(1, sizeof (*p));
-	if (!p)
-	    return GSS_S_UNAVAILABLE;
-	p->cc_gss_mechsp = &p->cc_gss_mechs;
-
-	HEIMDAL_MUTEX_lock(&call_context_mutex);
-	HEIM_SLIST_INSERT_HEAD(call_contexts_slow_rest, p, cc_link);
-	*cc = p;
-	HEIMDAL_MUTEX_unlock(&call_context_mutex);
 	/*
-	 * Optimize lookup of this call context from the same thread so
-	 * we don't fall into the slow path below.
+	 * NOTE WELL: We assume that the first field of
+	 *            _gss_call_context is OM_uint32 cc_minor_status.
 	 */
-	_gss_remember_call_context(&(*cc)->cc_minor_status, *cc);
+	i = ((_gss_call_context)looking_for) - &call_contexts_fast[0];
+	if (!AO_load(&call_contexts_fast[i].cc_refs))
+	    return GSS_S_BAD_CALL_CONTEXT;
+	*cc = &call_contexts_fast[i];
+	_gss_remember_call_context(looking_for, *cc);
 	return GSS_S_COMPLETE;
     }
 
-    /* Slow path -- check a singly linked list, with lock held */
+    /* Medium path: use thread-specific data */
+    *cc = _gss_get_thr_call_context(looking_for);
+    if (*cc)
+	return GSS_S_COMPLETE;
 
-    if (looking_for) {
-	HEIMDAL_MUTEX_lock(&call_context_mutex);
-	HEIM_SLIST_FOREACH(p, call_contexts_slow_rest, cc_link) {
-	    if (looking_for != &p->cc_minor_status)
-		continue;
-	    HEIMDAL_MUTEX_unlock(&call_context_mutex);
-	    *cc = p;
-	    return GSS_S_COMPLETE;
-	}
+    /* Slow path: search a singly linked list with lock held */
+    HEIMDAL_MUTEX_lock(&call_context_mutex);
+    HEIM_SLIST_FOREACH(p, call_contexts_slow_rest, cc_link) {
+	if (looking_for != &p->cc_minor_status)
+	    continue;
 	HEIMDAL_MUTEX_unlock(&call_context_mutex);
+	*cc = p;
+	_gss_remember_call_context(looking_for, *cc);
+	return GSS_S_COMPLETE;
     }
+    HEIMDAL_MUTEX_unlock(&call_context_mutex);
 
     /*
-     * Non-PGSS application.  The OM_uint32 * we were looking for is not
-     * one we've allocated.  We use a thread-specific call context
-     * with global configuration.
+     * We did not find looking_for in our allocation list, therefore
+     * this must be a  non-PGSS application.
+     *
+     * We use a thread-specific duplicate of a global call context.
      *
      * Note that this is past the slow path.  If we have a mixture of
      * PGSS-aware apps using lots of call contexts and some non-PGSS-
      * aware apps in the same process, then we'll fall into the slow
      * path for the non-PGSS-aware application.  For the common case of
      * non-PGSS-aware apps we have a fair number of branches above, but
-     * no loops.  XXX We can optimize this by not checking for PGSS call
-     * contexts when we know that none have been allocated.
+     * no loops.
      */
-
     p = _gss_get_thr_call_context(NULL);
     if (!p) {
+	OM_uint32 major_status;
+
 	p = calloc(1, sizeof (*p));
 	if (!p)
 	    return GSS_S_UNAVAILABLE;
