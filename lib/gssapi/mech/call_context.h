@@ -80,6 +80,8 @@ struct _gss_call_context {
 	struct _gss_mech_switch_list *cc_gss_mechsp;
 };
 
+typedef HEIM_SLIST_HEAD(call_contexts_slow_rest, _gss_call_context) *_gss_call_context_list;
+
 OM_uint32 _gss_get_call_context(OM_uint32 *looking_for, _gss_call_context *cc);
 struct _gss_mech_switch_list * _gss_get_mech_list(_gss_call_context cc);
 
@@ -93,5 +95,6 @@ OM_uint32 _gss_set_thr_call_context(_gss_call_context cc);
 void _gss_remember_call_context(OM_uint32 *cc_ref, _gss_call_context cc);
 _gss_call_context _gss_get_thr_call_context(OM_uint32 *cc);
 _gss_call_context _gss_get_thr_best_call_context(void);
-void _gss_release_thr_call_context(_gss_call_context cc);
+void _gss_release_thr_call_context(_gss_call_context *cc);
+OM_uint32 _gss_release_call_context(_gss_call_context *ccp);
 

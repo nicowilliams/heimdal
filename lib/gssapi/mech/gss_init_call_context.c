@@ -33,10 +33,30 @@
 #include <heimbase.h>
 #include <heim_threads.h>
 
+/*
+ * This file has utility functions for the mechglue only and
+ * public APIs that make "PGSS" possible.  Namely: the new GSS functions
+ * for allocating, duplicating, and releasing call context handles, and
+ * internal-only functions for mapping minor_status->call context
+ * handles, allocating them, and so on.
+ *
+ * The mechglue will always invoke PGSS-capable mechanism providers with
+ * minor_status arguments associated with call contexts, thus for
+ * mechanism providers a trivial cast (and possibly pointer arithmetic)
+ * will suffice for mapping minor_status<->call context.  But not all
+ * GSS applications will be PGSS-aware, so the mapping for the mechglue
+ * is more complex; see below.
+ */
+
 static HEIMDAL_MUTEX call_context_mutex = HEIMDAL_MUTEX_INITIALIZER;
 
-#ifndef AO_HAVE_fetch_and_add1_full
+#ifndef AO_HAVE_load
 #define AO_load(addr) (*(addr))
+#endif
+#ifndef AO_HAVE_store
+#define AO_store(addr, new_val) ((*addr) = (new_val))
+#endif
+#ifndef AO_HAVE_fetch_and_add1_full
 AO_t AO_fetch_and_add1_full(volatile AO_t *addr)
 {
     AO_t value;
@@ -45,6 +65,8 @@ AO_t AO_fetch_and_add1_full(volatile AO_t *addr)
     HEIMDAL_MUTEX_unlock(&call_context_mutex);
     return value;
 }
+#endif /* AO_HAVE_fetch_and_add1_full */
+#ifndef AO_HAVE_fetch_and_sub1_full
 AO_t AO_fetch_and_sub1_full(volatile AO_t *addr)
 {
     AO_t value;
@@ -53,11 +75,11 @@ AO_t AO_fetch_and_sub1_full(volatile AO_t *addr)
     HEIMDAL_MUTEX_unlock(&call_context_mutex);
     return value;
 }
-#endif /* AO_HAVE_fetch_and_add1_full */
+#endif /* AO_HAVE_fetch_and_sub1_full */
 
 #define CALL_CTX_FAST 8
 static struct _gss_call_context call_contexts_fast[CALL_CTX_FAST];
-static HEIM_SLIST_HEAD(call_contexts_slow_rest, _gss_call_context) *call_contexts_slow_rest;
+static _gss_call_context_list call_contexts_slow;
 
 /* Allocate a call context */
 static OM_uint32
@@ -91,7 +113,7 @@ _gss_alloc_call_context(_gss_call_context *cc)
     p->cc_gss_mechsp = &p->cc_gss_mechs;
 
     HEIMDAL_MUTEX_lock(&call_context_mutex);
-    HEIM_SLIST_INSERT_HEAD(call_contexts_slow_rest, p, cc_link);
+    HEIM_SLIST_INSERT_HEAD(call_contexts_slow, p, cc_link);
     *cc = p;
     HEIMDAL_MUTEX_unlock(&call_context_mutex);
     /*
@@ -130,7 +152,7 @@ _gss_get_call_context(OM_uint32 *looking_for, _gss_call_context *cc)
 
     /* Fast path: no locks, look in tiny array */
     if (looking_for >= &call_contexts_fast[0].cc_minor_status ||
-	looking_for <= &call_contexts_fast[CALL_CTX_FAST].cc_minor_status) {
+	looking_for <= &call_contexts_fast[CALL_CTX_FAST - 1].cc_minor_status) {
 
 	/*
 	 * NOTE WELL: We assume that the first field of
@@ -144,14 +166,16 @@ _gss_get_call_context(OM_uint32 *looking_for, _gss_call_context *cc)
 	return GSS_S_COMPLETE;
     }
 
-    /* Medium path: use thread-specific data */
+    /*
+     * Medium path: use thread-specific data
+     */
     *cc = _gss_get_thr_call_context(looking_for);
     if (*cc)
 	return GSS_S_COMPLETE;
 
     /* Slow path: search a singly linked list with lock held */
     HEIMDAL_MUTEX_lock(&call_context_mutex);
-    HEIM_SLIST_FOREACH(p, call_contexts_slow_rest, cc_link) {
+    HEIM_SLIST_FOREACH(p, call_contexts_slow, cc_link) {
 	if (looking_for != &p->cc_minor_status)
 	    continue;
 	HEIMDAL_MUTEX_unlock(&call_context_mutex);
@@ -163,7 +187,7 @@ _gss_get_call_context(OM_uint32 *looking_for, _gss_call_context *cc)
 
     /*
      * We did not find looking_for in our allocation list, therefore
-     * this must be a  non-PGSS application.
+     * this must be a non-PGSS application.
      *
      * We use a thread-specific duplicate of a global call context.
      *
@@ -259,6 +283,9 @@ _gss_get_call_context(OM_uint32 *looking_for, _gss_call_context *cc)
  *  - m (may/must be NULL if mech is GSS_C_NO_OID)
  *
  * All outputs (and input/outputs) are non-NULL on success.
+ *
+ * XXX Make sure we follow cc_parent to duplicate the parent's mech
+ * element if it has one and the child doesn't.
  */
 OM_uint32
 _gss_get_cc_glue_and_mech(gss_const_OID mech,
@@ -426,38 +453,68 @@ gss_duplicate_call_context(OM_uint32 *minor_status,
     new_cc->cc_gss_mechsp = old_cc->cc_gss_mechsp;
     new_cc->cc_configuration = old_cc->cc_configuration;
 
+    /* We don't duplicate mech elements here */
+
     *new_minor_status = &new_cc->cc_minor_status;
     return GSS_S_COMPLETE;
 }
 
-void
-_gss_release_thr_call_context(_gss_call_context cc)
+GSSAPI_LIB_FUNCTION OM_uint32 GSSAPI_LIB_CALL
+_gss_release_call_context(_gss_call_context *ccp)
 {
-    OM_uint32 minor_status;
     _gss_mech_call_context p;
+    _gss_call_context cc;
+    OM_uint32 junk;
 
-    if (cc->cc_refs-- == 1) {
+    cc = *ccp;
+    if (cc == NULL)
+	return GSS_S_COMPLETE;
+
+    if (AO_load(&cc->cc_refs) == 0)
+	return GSS_S_BAD_CALL_CONTEXT;
+
+    if (AO_load(&cc->cc_refs) == 1) {
 	while (cc->cc_mech) {
 	    p = HEIM_SLIST_FIRST(cc->cc_mech);
-	    (void)p->gmcc_mech->gm_release_call_context(&minor_status,
-							&p->gmcc_minor_status);
+	    if (p->gmcc_mech->gm_release_call_context)
+		(void) p->gmcc_mech->gm_release_call_context(&junk,
+							     &p->gmcc_minor_status);
 	    HEIM_SLIST_REMOVE_HEAD(cc->cc_mech, gmcc_link);
 	}
-	free(cc->cc_configuration.value);
-	/* XXX Free loaded mechs, if any */
+	if (cc->cc_parent == NULL) {
+	    /* XXX Free loaded mechs, if any */
+	    free(cc->cc_configuration.value);
+	}
+	AO_store(&cc->cc_refs, 0);
+	if (cc >= &call_contexts_fast[0] &&
+	    cc <= &call_contexts_fast[CALL_CTX_FAST - 1])
+	    return GSS_S_COMPLETE;
+	HEIMDAL_MUTEX_lock(&call_context_mutex);
+	HEIM_SLIST_REMOVE(call_contexts_slow, cc, _gss_call_context, cc_link);
+	HEIMDAL_MUTEX_unlock(&call_context_mutex);
 	free(cc);
+    } else {
+	AO_fetch_and_sub1_full(&cc->cc_refs);
     }
+
+    return GSS_S_COMPLETE;
+}
+
+void
+_gss_release_thr_call_context(_gss_call_context *cc)
+{
+    (void) _gss_release_call_context(cc);
 }
 
 GSSAPI_LIB_FUNCTION OM_uint32 GSSAPI_LIB_CALL
 gss_release_call_context(OM_uint32 *minor_status,
 			 OM_uint32 **old_minor_status)
 {
-    _gss_mech_call_context p;
-    _gss_call_context cc;
     OM_uint32 major_status;
+    _gss_call_context cc;
 
-    *minor_status = 0;
+    if (minor_status)
+	*minor_status = 0;
     if (!*old_minor_status)
 	return GSS_S_COMPLETE;
 
@@ -466,24 +523,5 @@ gss_release_call_context(OM_uint32 *minor_status,
 	return GSS_S_BAD_CALL_CONTEXT;
 
     *old_minor_status = NULL;
-
-    while (cc->cc_mech) {
-	p = HEIM_SLIST_FIRST(cc->cc_mech);
-	/*
-	 * Note that there's no need to pass in a mechanism-specific
-	 * minor-status as the first argument to gm_release_call_context()
-	 * since gm_release_call_context() will be getting it as the
-	 * second argument and there's nothing special to do with the
-	 * actual minor status code on return.
-	 */
-	major_status = p->gmcc_mech->gm_release_call_context(minor_status,
-							     &p->gmcc_minor_status);
-	if (major_status != GSS_S_COMPLETE)
-	    return major_status;
-	HEIM_SLIST_REMOVE_HEAD(cc->cc_mech, gmcc_link);
-    }
-
-    free(cc->cc_configuration.value);
-    free(cc);
-    return GSS_S_COMPLETE;
+    return _gss_release_call_context(&cc);
 }

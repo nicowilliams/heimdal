@@ -27,6 +27,7 @@ destroy_context(void *ptr)
     if (mg == NULL)
 	return;
 
+    _gss_release_thr_call_context(&mg->cc); /* but not last_cc */
     gss_release_buffer(&junk, &mg->maj_error);
     gss_release_buffer(&junk, &mg->min_error);
     free(mg);
