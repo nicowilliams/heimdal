@@ -225,6 +225,7 @@ libgssapi_la_LIBADD = \
 	$(top_builddir)/lib/ntlm/libheimntlm.la \
 	$(top_builddir)/lib/krb5/libkrb5.la \
 	$(top_builddir)/lib/asn1/libasn1.la \
+	$(LIB_atomic_ops) \
 	$(LIB_com_err) \
 	$(LIB_hcrypto) \
 	$(LIBADD_roken)

@@ -245,6 +245,8 @@ AC_SUBST(NO_AFS)dnl
 
 rk_DB
 
+AC_ATOMIC_OPS
+
 dnl AC_ROKEN(10,[/usr/heimdal /usr/athena],[lib/roken],[$(top_builddir)/lib/roken/libroken.la],[-I$(top_builddir)/lib/roken -I$(top_srcdir)/lib/roken])
 
 rk_ROKEN(lib/roken)
