@@ -33,13 +33,34 @@
 #include <heimbase.h>
 #include <heim_threads.h>
 
+static HEIMDAL_MUTEX call_context_mutex = HEIMDAL_MUTEX_INITIALIZER;
+
+#ifndef AO_HAVE_fetch_and_add1_full
+#define AO_load(addr) (*(addr))
+AO_t AO_fetch_and_add1_full(volatile AO_t *addr)
+{
+    AO_t value;
+    HEIMDAL_MUTEX_lock(&call_context_mutex);
+    value = (*addr)++;
+    HEIMDAL_MUTEX_unlock(&call_context_mutex);
+    return value;
+}
+AO_t AO_fetch_and_sub1_full(volatile AO_t *addr)
+{
+    AO_t value;
+    HEIMDAL_MUTEX_lock(&call_context_mutex);
+    value = (*addr)--;
+    HEIMDAL_MUTEX_unlock(&call_context_mutex);
+    return value;
+}
+#endif /* AO_HAVE_fetch_and_add1_full */
+
 #define CALL_CTX_FAST 4
 #define CALL_CTX_SLOW 64
 static struct _gss_call_context call_contexts_fast[CALL_CTX_FAST];
 static OM_uint32 *cc_minor_status_fast[CALL_CTX_FAST];
 static _gss_call_context call_contexts_slow;
 static HEIM_SLIST_HEAD(call_contexts_slow_rest, _gss_call_context) *call_contexts_slow_rest;
-static HEIMDAL_MUTEX call_context_mutex = HEIMDAL_MUTEX_INITIALIZER;
 
 /*
  * Map an "OM_uint32 *minor_status" to a call context handle.
@@ -69,7 +90,7 @@ _gss_get_call_context(OM_uint32 *looking_for, _gss_call_context *cc)
 	for (i = 0; i < CALL_CTX_FAST; i++) {
 	    if (looking_for != cc_minor_status_fast[i])
 		continue;
-	    if (!call_contexts_fast[i].cc_refs)
+	    if (!AO_load(&call_contexts_fast[i].cc_refs))
 		return GSS_S_BAD_CALL_CONTEXT;
 	    *cc = &call_contexts_fast[i];
 	    return GSS_S_COMPLETE;
@@ -77,22 +98,12 @@ _gss_get_call_context(OM_uint32 *looking_for, _gss_call_context *cc)
     } else {
 	/* Alloc new */
 	for (i = 0; i < CALL_CTX_FAST; i++) {
-	    if (call_contexts_fast[i].cc_refs)
+	    if (AO_load(&call_contexts_fast[i].cc_refs))
 		continue;
-#if 0
-	    if (heim_base_atomic_inc(&call_contexts_fast[i].cc_refs) > 1) {
-		(void) heim_base_atomic_dec(&call_contexts_fast[i].cc_refs);
-		continue;
-	    }
-#else
-	    HEIMDAL_MUTEX_lock(&call_context_mutex);
-	    if (call_contexts_fast[i].cc_refs++ > 0) {
-		call_contexts_fast[i].cc_refs--;
-		HEIMDAL_MUTEX_unlock(&call_context_mutex);
+	    if (AO_fetch_and_add1_full(&call_contexts_fast[i].cc_refs) > 1) {
+		(void) AO_fetch_and_sub1_full(&call_contexts_fast[i].cc_refs);
 		continue;
 	    }
-	    HEIMDAL_MUTEX_unlock(&call_context_mutex);
-#endif
 	    memset(&call_contexts_fast[i], 0, sizeof (call_contexts_fast[i]));
 	    call_contexts_fast[i].cc_gss_mechsp = &call_contexts_fast[i].cc_gss_mechs;
 	    *cc = &call_contexts_fast[i];
@@ -121,12 +132,12 @@ _gss_get_call_context(OM_uint32 *looking_for, _gss_call_context *cc)
 	    if (looking_for &&
 		looking_for != &call_contexts_slow[i].cc_minor_status)
 		continue;
-	    else if (!looking_for && call_contexts_fast[i].cc_refs)
+	    else if (!looking_for && AO_load(&call_contexts_fast[i].cc_refs))
 		continue;
 	    else if (!looking_for)
-		call_contexts_fast[i].cc_refs++; /* XXX use atomics, not mutex */
+		AO_fetch_and_add1_full(&call_contexts_fast[i].cc_refs);
 	    HEIMDAL_MUTEX_unlock(&call_context_mutex);
-	    if (looking_for && call_contexts_fast[i].cc_refs)
+	    if (looking_for && AO_load(call_contexts_fast[i].cc_refs))
 		return GSS_S_BAD_CALL_CONTEXT;
 	    memset(&call_contexts_slow[i], 0, sizeof (call_contexts_slow[i]));
 	    call_contexts_slow[i].cc_gss_mechsp = &call_contexts_slow[i].cc_gss_mechs;
