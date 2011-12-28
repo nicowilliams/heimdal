@@ -174,6 +174,13 @@ gss_mg_collect_error(gss_OID mech, OM_uint32 maj, OM_uint32 min)
     _gss_mg_error(m, maj, min);
 }
 
+/*
+ * Get one of two possible call contexts saved in thread-specific data:
+ * a duplicate of the default call context, or the last call context
+ * used by the application.  The latter is both: an optimization and a
+ * method of dealing with GSS extensions that lack a minor_status
+ * argument.
+ */
 _gss_call_context
 _gss_get_thr_call_context(OM_uint32 *cc_ref)
 {
@@ -183,9 +190,14 @@ _gss_get_thr_call_context(OM_uint32 *cc_ref)
     if (mg == NULL)
 	return NULL;
 
-    if (!cc_ref)
+    if (cc_ref == NULL)
 	return mg->cc;
-    if (cc_ref && mg->last_cc_min_stat == cc_ref)
+
+    /*
+     * We are either in a non-PGSS-aware application, or in a GSS
+     * extension that has no minor_status argument.
+     */
+    if (cc_ref != NULL && mg->last_cc_min_stat == cc_ref)
 	return mg->last_cc;
     return NULL;
 }
@@ -211,8 +223,8 @@ _gss_get_thr_best_call_context(void)
 }
 
 /*
- * Save a global configuration call context for a non-PGSS-aware
- * application in thread-specific data.
+ * Save in thread-specific data a duplicate of the default configuration
+ * call context for a non-PGSS-aware application.
  */
 OM_uint32
 _gss_set_thr_call_context(_gss_call_context cc)
@@ -228,9 +240,9 @@ _gss_set_thr_call_context(_gss_call_context cc)
 }
 
 /*
- * Optimize subsequent use of the given OM_uint32 *minor_status for a
- * PGSS-aware application, so that we can find it ahead of the slow
- * path.
+ * Memoize a given OM_uint32*->call context mapping in thread-specific
+ * data.  This is for non-PGSS-aware applications and for GSS extensions
+ * that lack a call context.
  */
 void
 _gss_remember_call_context(OM_uint32 *cc_ref, _gss_call_context cc)
