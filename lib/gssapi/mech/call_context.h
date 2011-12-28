@@ -32,6 +32,14 @@
 #include <gssapi_mech.h>
 #include <heimbase.h>
 #include "mechqueue.h"
+#ifdef HAVE_ATOMIC_OPS
+#include <atomic_ops.h>
+#else
+#ifdef AO_t
+#error "Something is defining AO_t that probably shouldn't be"
+#endif
+#define AO_t size_t
+#endif
 
 /*
  * Call contexts are referenced via minor_status argument to GSS
@@ -53,7 +61,7 @@ struct _gss_call_context {
 	OM_uint32		cc_minor_status;
 	gss_buffer_desc		cc_configuration;
 	_gss_call_context	cc_parent;
-	int			cc_refs;
+	AO_t			cc_refs;
 	HEIM_SLIST_HEAD(cc_mech, _gss_mech_call_context) *cc_mech;
 	HEIM_SLIST_ENTRY(_gss_call_context) cc_link;
 	/*
