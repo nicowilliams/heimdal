@@ -33,6 +33,7 @@
  * SUCH DAMAGE.
  */
 
+#include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -226,6 +227,384 @@ test_json(void)
     return 0;
 }
 
+typedef struct dict_db {
+    heim_dict_t dict;
+    heim_object_t to_release;
+    int locked;
+} *dict_db_t;
+
+static int
+dict_db_open(void *plug, const char *dbtype, const char *dbname,
+	     const char *tblname, heim_db_flags_t flags, void **db,
+	     heim_error_t *error)
+{
+    dict_db_t dictdb;
+
+    if (dbtype && *dbtype && strcmp(dbtype, "dictdb"))
+	return EINVAL;
+    if (dbname && *dbname && strcmp(dbname, "MEMORY"))
+	return EINVAL;
+    if (tblname && *tblname && strcmp(tblname, "main"))
+	return EINVAL;
+
+    dictdb = heim_alloc(sizeof (*dictdb), "dict_db", NULL);
+    if (dictdb == NULL)
+	return ENOMEM;
+
+    dictdb->dict = heim_dict_create(29);
+    if (dictdb->dict == NULL) {
+	heim_release(dictdb);
+	return ENOMEM;
+    }
+
+    *db = dictdb;
+    return 0;
+}
+
+static int
+dict_db_close(void *db, heim_error_t *error)
+{
+    dict_db_t dictdb = db;
+
+    heim_release(dictdb->to_release);
+    heim_release(dictdb->dict);
+    heim_release(dictdb);
+    return 0;
+}
+
+static int
+dict_db_lock(void *db, heim_error_t *error)
+{
+    dict_db_t dictdb = db;
+
+    if (dictdb->locked)
+	return EWOULDBLOCK;
+    dictdb->locked = 1;
+    return 0;
+}
+
+static int
+dict_db_unlock(void *db, heim_error_t *error)
+{
+    dict_db_t dictdb = db;
+
+    dictdb->locked = 0;
+    return 0;
+}
+
+static int
+dict_db_get_value(void *db, heim_db_data_t key,
+		  heim_db_data_t value, heim_error_t *error)
+{
+    dict_db_t dictdb = db;
+    heim_data_t k, v;
+    heim_object_t o;
+
+    heim_assert(key && key->len > 0, "Key must be provided");
+
+    heim_release(dictdb->to_release);
+    dictdb->to_release = NULL;
+
+    k = heim_data_create(key->data, key->len);
+    if (k == NULL)
+	return ENOMEM;
+
+    o = heim_dict_get_value(dictdb->dict, k);
+    heim_release(k);
+    if (o) {
+	heim_assert(heim_get_tid(o) == HEIM_TID_DATA, "foo");
+	v = (heim_data_t)o;
+	dictdb->to_release = v;
+	value->len = heim_data_get_length(v);
+	value->data = heim_data_get_ptr(v);
+	return 0;
+    }
+    return -1;
+}
+
+static int
+dict_db_set_value(void *db, heim_db_data_t key,
+		  heim_db_data_t value, heim_error_t *error)
+{
+    dict_db_t dictdb = db;
+    heim_data_t k, v;
+    int ret;
+
+    heim_assert(key && key->len > 0, "Key must be provided");
+
+    k = heim_data_create(key->data, key->len);
+    if (k == NULL)
+	return ENOMEM;
+    if (value != NULL && value->len > 0)
+	v = heim_data_create(value->data, value->len);
+    else
+	v = heim_data_create(NULL, 0);
+    if (v == NULL) {
+	heim_release(k);
+	return ENOMEM;
+    }
+
+    ret = heim_dict_set_value(dictdb->dict, k, v);
+    heim_release(k);
+    heim_release(v);
+    return ret;
+}
+
+static int
+dict_db_del_key(void *db, heim_db_data_t key, heim_error_t *error)
+{
+    dict_db_t dictdb = db;
+    heim_data_t k;
+
+    heim_assert(key && key->len > 0, "Key must be provided");
+
+    k = heim_data_create(key->data, key->len);
+    if (k == NULL)
+	return ENOMEM;
+
+    heim_dict_delete_key(dictdb->dict, k);
+    heim_release(k);
+    return 0;
+}
+
+struct dict_db_iter_ctx {
+    heim_db_iterator_f_t        iter_f;
+    void                        *iter_ctx;
+};
+
+static void dict_db_iter_f(heim_object_t key, heim_object_t value, void *arg)
+{
+    struct dict_db_iter_ctx *ctx = arg;
+    heim_db_data k, v;
+
+    heim_assert(heim_get_tid(key) == HEIM_TID_DATA, "foo");
+    heim_assert(heim_get_tid(value) == HEIM_TID_DATA, "foo");
+
+    k.len = heim_data_get_length((heim_data_t)key);
+    k.data = heim_data_get_ptr((heim_data_t)key);
+    v.len = heim_data_get_length((heim_data_t)value);
+    v.data = heim_data_get_ptr((heim_data_t)value);
+    ctx->iter_f(&k, &v, ctx->iter_ctx);
+}
+
+static void
+dict_db_iter(void *db, void *iter_data,
+	     heim_db_iterator_f_t iter_f, heim_error_t *error)
+{
+    dict_db_t dictdb = db;
+    struct dict_db_iter_ctx ctx;
+
+    ctx.iter_ctx = iter_data;
+    ctx.iter_f = iter_f;
+
+    heim_dict_iterate_f(dictdb->dict, &ctx, dict_db_iter_f);
+}
+
+static void
+test_db_iter(heim_db_data_t k, heim_db_data_t v, void *arg)
+{
+    int *ret = arg;
+
+    if (k->len == strlen("msg") && strncmp(k->data, "msg", strlen("msg")) == 0 &&
+	v->len == strlen("abc") && strncmp(v->data, "abc", strlen("abc")) == 0)
+	*ret &= ~(1);
+    else if (k->len == strlen("msg2") && strncmp(k->data, "msg2", strlen("msg2")) == 0 &&
+	v->len == strlen("FooBar") && strncmp(v->data, "FooBar", strlen("FooBar")) == 0)
+	*ret &= ~(2);
+    else
+	*ret |= 4;
+}
+
+static int
+test_db()
+{
+    heim_db_data k, k2, v;
+    heim_db_t db;
+    int ret;
+
+    ret = heim_db_register("dictdb", NULL, dict_db_open, NULL, dict_db_close,
+			   dict_db_lock, dict_db_unlock, NULL, NULL, NULL,
+			   dict_db_get_value, dict_db_set_value,
+			   dict_db_del_key, dict_db_iter);
+    if (ret)
+	return ret;
+
+    ret = heim_db_open("dictdb", "foo", "main", 0, &db, NULL);
+    if (!ret)
+	return 1;
+
+    ret = heim_db_open("dictdb", "MEMORY", "bar", 0, &db, NULL);
+    if (!ret)
+	return 1;
+
+    ret = heim_db_open("foobar", "MEMORY", "main", 0, &db, NULL);
+    if (!ret)
+	return 1;
+
+    ret = heim_db_open("dictdb", "MEMORY", "main", 0, &db, NULL);
+    if (ret)
+	return ret;
+
+    /* We can still keep live open DB handles */
+    heim_db_unregister("dictdb");
+
+    k.len = strlen("msg");
+    k.data = "msg";
+    v.len = strlen("Hello world!");
+    v.data = "Hello world!";
+    ret = heim_db_set_value(db, &k, &v, NULL);
+    if (ret)
+	return ret;
+
+    v.len = 0;
+    v.data = NULL;
+    ret = heim_db_get_value(db, &k, &v, NULL);
+    if (ret)
+	return ret;
+    if (v.len != strlen("Hello world!") || strncmp(v.data, "Hello world!", strlen("Hello world!")))
+	return 1;
+
+    k2.len = strlen("msg2");
+    k2.data = "msg2";
+    v.len = strlen("FooBar");
+    v.data = "FooBar";
+    ret = heim_db_set_value(db, &k2, &v, NULL);
+    if (ret)
+	return ret;
+
+    v.len = 0;
+    v.data = NULL;
+    ret = heim_db_get_value(db, &k2, &v, NULL);
+    if (ret)
+	return ret;
+    if (v.len != strlen("FooBar") || strncmp(v.data, "FooBar", strlen("FooBar")))
+	return 1;
+
+    k.len = strlen("msg");
+    k.data = "msg";
+    v.len = strlen("abc");
+    v.data = "abc";
+    ret = heim_db_set_value(db, &k, &v, NULL);
+    if (ret)
+	return ret;
+
+    v.len = 0;
+    v.data = NULL;
+    ret = heim_db_get_value(db, &k, &v, NULL);
+    if (ret)
+	return ret;
+    if (v.len != strlen("abc") || strncmp(v.data, "abc", strlen("abc")))
+	return 1;
+
+    ret = 3;
+    heim_db_iterate_f(db, &ret, test_db_iter, NULL);
+
+    ret = heim_db_begin(db, NULL);
+    if (ret)
+	return ret;
+
+    ret = heim_db_commit(db, NULL);
+    if (ret)
+	return ret;
+
+    ret = heim_db_begin(db, NULL);
+    if (ret)
+	return ret;
+
+    ret = heim_db_rollback(db, NULL);
+    if (ret)
+	return ret;
+
+    ret = heim_db_begin(db, NULL);
+    if (ret)
+	return ret;
+
+    v.len = strlen("Hello world!");
+    v.data = "Hello world!";
+    ret = heim_db_set_value(db, &k, &v, NULL);
+    if (ret)
+	return ret;
+
+    v.len = 0;
+    v.data = NULL;
+    ret = heim_db_get_value(db, &k, &v, NULL);
+    if (ret)
+	return ret;
+    if (v.len != strlen("Hello world!") || strncmp(v.data, "Hello world!", strlen("Hello world!")))
+	return 1;
+
+    ret = heim_db_rollback(db, NULL);
+    if (ret)
+	return ret;
+
+    v.len = 0;
+    v.data = NULL;
+    ret = heim_db_get_value(db, &k, &v, NULL);
+    if (ret)
+	return ret;
+    if (v.len != strlen("abc") || strncmp(v.data, "abc", strlen("abc")))
+	return 1;
+
+    ret = heim_db_begin(db, NULL);
+    if (ret)
+	return ret;
+
+    v.len = strlen("Hello world!");
+    v.data = "Hello world!";
+    ret = heim_db_set_value(db, &k, &v, NULL);
+    if (ret)
+	return ret;
+
+    v.len = 0;
+    v.data = NULL;
+    ret = heim_db_get_value(db, &k, &v, NULL);
+    if (ret)
+	return ret;
+    if (v.len != strlen("Hello world!") || strncmp(v.data, "Hello world!", strlen("Hello world!")))
+	return 1;
+
+    ret = heim_db_commit(db, NULL);
+    if (ret)
+	return ret;
+
+    v.len = 0;
+    v.data = NULL;
+    ret = heim_db_get_value(db, &k, &v, NULL);
+    if (ret)
+	return ret;
+    if (v.len != strlen("Hello world!") || strncmp(v.data, "Hello world!", strlen("Hello world!")))
+	return 1;
+
+    ret = heim_db_begin(db, NULL);
+    if (ret)
+	return ret;
+
+    ret = heim_db_delete_key(db, &k, NULL);
+    if (ret)
+	return ret;
+
+    v.len = 0;
+    v.data = NULL;
+    ret = heim_db_get_value(db, &k, &v, NULL);
+    if (ret != -1)
+	return ret;
+
+    ret = heim_db_rollback(db, NULL);
+    if (ret)
+	return ret;
+
+    v.len = 0;
+    v.data = NULL;
+    ret = heim_db_get_value(db, &k, &v, NULL);
+    if (ret)
+	return ret;
+    if (v.len != strlen("Hello world!") || strncmp(v.data, "Hello world!", strlen("Hello world!")))
+	return 1;
+
+    ret = heim_db_close(db, NULL);
+
+    return ret;
+}
 
 int
 main(int argc, char **argv)
@@ -238,6 +617,7 @@ main(int argc, char **argv)
     res |= test_string();
     res |= test_error();
     res |= test_json();
+    res |= test_db();
 
     return res ? 1 : 0;
 }

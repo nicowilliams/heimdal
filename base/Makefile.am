@@ -20,6 +20,7 @@ dist_libheimbase_la_SOURCES =	\
 	bsearch.c		\
 	bool.c			\
 	data.c			\
+	db.c			\
 	dict.c			\
 	error.c			\
 	heimbase.c		\

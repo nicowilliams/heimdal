@@ -125,8 +125,10 @@ typedef void (*heim_array_iterator_f_t)(heim_object_t, void *);
 
 int	heim_array_append_value(heim_array_t, heim_object_t);
 void	heim_array_iterate_f(heim_array_t, void *, heim_array_iterator_f_t);
+void	heim_array_iterate_reverse_f(heim_array_t, void *, heim_array_iterator_f_t);
 #ifdef __BLOCKS__
 void	heim_array_iterate(heim_array_t, void (^)(heim_object_t));
+void	heim_array_iterate_reverse(heim_array_t, void (^)(heim_object_t));
 #endif
 size_t	heim_array_get_length(heim_array_t);
 heim_object_t
@@ -172,6 +174,101 @@ const char * heim_string_get_utf8(heim_string_t);
 heim_string_t __heim_string_constant(const char *);
 
 /*
+ * Errors
+ */
+
+typedef struct heim_error * heim_error_t;
+
+heim_error_t	heim_error_create(int, const char *, ...)
+    HEIMDAL_PRINTF_ATTRIBUTE((printf, 2, 3));
+
+heim_error_t	heim_error_createv(int, const char *, va_list)
+    HEIMDAL_PRINTF_ATTRIBUTE((printf, 2, 0));
+
+heim_string_t heim_error_copy_string(heim_error_t);
+int heim_error_get_code(heim_error_t);
+
+heim_error_t heim_error_append(heim_error_t, heim_error_t);
+
+/*
+ * DB
+ */
+
+typedef struct heim_db_inst_data *heim_db_t;
+
+typedef enum heim_db_flags {
+	HEIM_DB_CREATE = 1,
+	HEIM_DB_EXCL   = 2,
+	HEIM_DB_TRUNC  = 4,
+	HEIM_DB_RDONLY = 8
+} heim_db_flags_t;
+
+typedef struct heim_db_data {
+    const void *data;
+    size_t len;
+} heim_db_data, *heim_db_data_t;
+
+typedef void (*heim_db_iterator_f_t)(heim_db_data_t, heim_db_data_t, void *);
+
+typedef int (*heim_db_plug_open_f_t)(void *, const char *, const char *,
+				     const char *, heim_db_flags_t,
+				     void **, heim_error_t *);
+typedef int (*heim_db_plug_clone_f_t)(void *, void **, heim_error_t *);
+typedef int (*heim_db_plug_close_f_t)(void *, heim_error_t *);
+typedef int (*heim_db_plug_lock_f_t)(void *, heim_error_t *);
+typedef int (*heim_db_plug_unlock_f_t)(void *, heim_error_t *);
+typedef int (*heim_db_plug_begin_f_t)(void *, heim_error_t *);
+typedef int (*heim_db_plug_commit_f_t)(void *, heim_error_t *);
+typedef int (*heim_db_plug_rollback_f_t)(void *, heim_error_t *);
+typedef int (*heim_db_plug_get_value_f_t)(void *, heim_db_data_t,
+					  heim_db_data_t, heim_error_t *);
+typedef int (*heim_db_plug_set_value_f_t)(void *, heim_db_data_t,
+					  heim_db_data_t, heim_error_t *);
+typedef int (*heim_db_plug_del_key_f_t)(void *, heim_db_data_t, heim_error_t *);
+typedef void (*heim_db_plug_iter_f_t)(void *, void *, heim_db_iterator_f_t,
+				      heim_error_t *);
+
+int heim_db_register(const char *dbtype,
+		     void *data,
+		     heim_db_plug_open_f_t openf,
+		     heim_db_plug_clone_f_t clonef,
+		     heim_db_plug_close_f_t closef,
+		     heim_db_plug_lock_f_t lockf,
+		     heim_db_plug_lock_f_t unlockf,
+		     heim_db_plug_begin_f_t beginf,
+		     heim_db_plug_commit_f_t commitf,
+		     heim_db_plug_rollback_f_t rollbackf,
+		     heim_db_plug_get_value_f_t getf,
+		     heim_db_plug_set_value_f_t setf,
+		     heim_db_plug_del_key_f_t delf,
+		     heim_db_plug_iter_f_t iterf);
+
+void heim_db_unregister(const char *dbtype);
+
+int heim_db_open(const char *dbtype, const char *dbname,
+		 const char *tblname, heim_db_flags_t flags,
+		 heim_db_t *db, heim_error_t *error);
+int heim_db_close(heim_db_t, heim_error_t *);
+int heim_db_clone(heim_db_t, heim_db_t *, heim_error_t *);
+int heim_db_begin(heim_db_t, heim_error_t *);
+int heim_db_commit(heim_db_t, heim_error_t *);
+int heim_db_rollback(heim_db_t, heim_error_t *);
+heim_tid_t heim_db_get_type_id(void);
+
+int	heim_db_set_value(heim_db_t, heim_db_data_t, heim_db_data_t,
+			  heim_error_t *);
+int	heim_db_get_value(heim_db_t, heim_db_data_t, heim_db_data_t,
+			  heim_error_t *);
+int	heim_db_delete_key(heim_db_t, heim_db_data_t, heim_error_t *);
+void	heim_db_iterate_f(heim_db_t, void *, heim_db_iterator_f_t,
+			  heim_error_t *);
+#ifdef __BLOCKS__
+void	heim_db_iterate(heim_db_t, void (^)(heim_db_data_t, heim_db_data_t),
+			heim_error_t *);
+#endif
+
+
+/*
  * Number
  */
 
@@ -190,24 +287,6 @@ typedef struct heim_auto_release * heim_auto_release_t;
 heim_auto_release_t heim_auto_release_create(void);
 void heim_auto_release_drain(heim_auto_release_t);
 void heim_auto_release(heim_object_t);
-
-
-/*
- *
- */
-
-typedef struct heim_error * heim_error_t;
-
-heim_error_t	heim_error_create(int, const char *, ...)
-    HEIMDAL_PRINTF_ATTRIBUTE((printf, 2, 3));
-
-heim_error_t	heim_error_createv(int, const char *, va_list)
-    HEIMDAL_PRINTF_ATTRIBUTE((printf, 2, 0));
-
-heim_string_t heim_error_copy_string(heim_error_t);
-int heim_error_get_code(heim_error_t);
-
-heim_error_t heim_error_append(heim_error_t, heim_error_t);
 
 /*
  * JSON

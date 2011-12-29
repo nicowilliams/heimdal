@@ -154,6 +154,39 @@ heim_array_iterate(heim_array_t array, void (^fn)(heim_object_t))
 #endif
 
 /**
+ * Iterate over all objects in array, backwards
+ *
+ * @param array array to iterate over
+ * @param ctx context passed to fn
+ * @param fn function to call on each object
+ */
+
+void
+heim_array_iterate_reverse_f(heim_array_t array, void *ctx, heim_array_iterator_f_t fn)
+{
+    size_t n;
+    for (n = array->len; n > 0; n--)
+	fn(array->val[n - 1], ctx);
+}
+
+#ifdef __BLOCKS__
+/**
+ * Iterate over all objects in array, backwards
+ *
+ * @param array array to iterate over
+ * @param fn block to call on each object
+ */
+
+void
+heim_array_iterate_reverse(heim_array_t array, void (^fn)(heim_object_t))
+{
+    size_t n;
+    for (n = array->len; n > 0; n--)
+	fn(array->val[n - 1]);
+}
+#endif
+
+/**
  * Get length of array
  *
  * @param array array to get length of
