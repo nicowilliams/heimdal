@@ -500,7 +500,7 @@ test_db()
     ret = 3;
     heim_db_iterate_f(db, &ret, test_db_iter, NULL);
 
-    ret = heim_db_begin(db, NULL);
+    ret = heim_db_begin(db, 0, NULL);
     if (ret)
 	return ret;
 
@@ -508,7 +508,7 @@ test_db()
     if (ret)
 	return ret;
 
-    ret = heim_db_begin(db, NULL);
+    ret = heim_db_begin(db, 0, NULL);
     if (ret)
 	return ret;
 
@@ -516,7 +516,7 @@ test_db()
     if (ret)
 	return ret;
 
-    ret = heim_db_begin(db, NULL);
+    ret = heim_db_begin(db, 0, NULL);
     if (ret)
 	return ret;
 
@@ -546,7 +546,7 @@ test_db()
     if (v.len != strlen("abc") || strncmp(v.data, "abc", strlen("abc")))
 	return 1;
 
-    ret = heim_db_begin(db, NULL);
+    ret = heim_db_begin(db, 0, NULL);
     if (ret)
 	return ret;
 
@@ -576,7 +576,7 @@ test_db()
     if (v.len != strlen("Hello world!") || strncmp(v.data, "Hello world!", strlen("Hello world!")))
 	return 1;
 
-    ret = heim_db_begin(db, NULL);
+    ret = heim_db_begin(db, 0, NULL);
     if (ret)
 	return ret;
 

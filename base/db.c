@@ -326,23 +326,29 @@ heim_db_clone(heim_db_t db, heim_error_t *error)
  * @param error Output error object
  */
 int
-heim_db_begin(heim_db_t db, heim_error_t *error)
+heim_db_begin(heim_db_t db, heim_db_tx_flags_t flags, heim_error_t *error)
 {
     int ret;
 
     if (heim_get_tid(db) != HEIM_TID_DB)
 	return EINVAL;
 
-    if (db->plug->beginf == NULL && db->plug->lockf == NULL)
-	return EINVAL;
-
     if (db->plug->setf == NULL || db->plug->delf == NULL)
 	return EINVAL;
 
-    if (db->plug->beginf)
-	ret = db->plug->beginf(db->db_data, error);
-    else
+    /* We always want and provide isolation */
+    flags |= HEIM_DB_TX_ISOLATION;
+    if (db->plug->beginf == NULL && db->plug->lockf == NULL)
+	return EINVAL;
+
+    if (db->plug->beginf) {
+	ret = db->plug->beginf(db->db_data, flags, error);
+    } else {
+	if (flags & HEIM_DB_TX_ATOMICITY)
+	    return ENOTSUP;
+	/* Assume unlock provides sync/durability */
 	ret = db->plug->lockf(db->db_data, error);
+    }
 
     db->in_transaction = 1;
     if (db->plug->rollbackf == NULL) {
