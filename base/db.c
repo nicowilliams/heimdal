@@ -38,7 +38,6 @@ typedef struct db_plugin {
     void                        *data;
 } db_plugin_desc, *db_plugin;
 
-typedef struct heim_db_inst_data db_inst_desc, *db_inst; /* XXX remove casts */
 struct heim_db_inst_data {
     db_plugin           plug;
     heim_string_t       dbname;
@@ -73,50 +72,28 @@ plugin_dealloc(void *arg)
 /**
  * Register a heim_db_t type.
  *
- * Registers a DB type for use with heim_db_open().
+ * Registers a DB type for use with heim_db_create().
  *
  * Returns ENOMEM on failure, else 0.
  *
- * @param dbtype    Name of DB type
- * @param data      Private data argument to the dbtype's openf method
- * @param openf     Open method
- * @param clonef    Clone method (duplicate open DB handle)
- * @param closef    Close method
- * @param lockf     Lock DB method (not necessary if beginf/commitf provided)
- * @param unlockf   Unlock DB method
- * @param beginf    Begin transaction
- * @param commitf   Commit transaction
- * @param rollbackf Rollback transaction
- * @param getf      Lookup the value for a key
- * @param setf      Set a value for a key
- * @param delf      Delete a key
- * @param iterf     Iterate keys and values
+ * @param dbtype Name of DB type
+ * @param data   Private data argument to the dbtype's openf method
+ * @param plugin Structure with DB type methods (function pointers)
  */
 int
 heim_db_register(const char *dbtype,
 		 void *data,
-		 heim_db_plug_open_f_t openf,
-		 heim_db_plug_clone_f_t clonef,
-		 heim_db_plug_close_f_t closef,
-		 heim_db_plug_lock_f_t lockf,
-		 heim_db_plug_unlock_f_t unlockf,
-		 heim_db_plug_begin_f_t beginf,
-		 heim_db_plug_commit_f_t commitf,
-		 heim_db_plug_rollback_f_t rollbackf,
-		 heim_db_plug_get_value_f_t getf,
-		 heim_db_plug_set_value_f_t setf,
-		 heim_db_plug_del_key_f_t delf,
-		 heim_db_plug_iter_f_t iterf)
+		 struct heim_db_type *plugin)
 {
     heim_dict_t plugins;
     heim_string_t s;
     db_plugin plug;
     int ret = 0;
 
-    if ((beginf != NULL && commitf == NULL) ||
-	(beginf == NULL && rollbackf != NULL) ||
-	(lockf != NULL && unlockf == NULL) ||
-	setf == NULL)
+    if ((plugin->beginf != NULL && plugin->commitf == NULL) ||
+	(plugin->beginf == NULL && plugin->rollbackf != NULL) ||
+	(plugin->lockf != NULL && plugin->unlockf == NULL) ||
+	plugin->setf == NULL)
 	return EINVAL;
 
     /* Initialize */
@@ -146,18 +123,18 @@ heim_db_register(const char *dbtype,
     }
 
     plug->name = heim_retain(s);
-    plug->openf = openf;
-    plug->clonef = clonef;
-    plug->closef = closef;
-    plug->lockf = lockf;
-    plug->unlockf = unlockf;
-    plug->beginf = beginf;
-    plug->commitf = commitf;
-    plug->rollbackf = rollbackf;
-    plug->getf = getf;
-    plug->setf = setf;
-    plug->delf = delf;
-    plug->iterf = iterf;
+    plug->openf = plugin->openf;
+    plug->clonef = plugin->clonef;
+    plug->closef = plugin->closef;
+    plug->lockf = plugin->lockf;
+    plug->unlockf = plugin->unlockf;
+    plug->beginf = plugin->beginf;
+    plug->commitf = plugin->commitf;
+    plug->rollbackf = plugin->rollbackf;
+    plug->getf = plugin->getf;
+    plug->setf = plugin->setf;
+    plug->delf = plugin->delf;
+    plug->iterf = plugin->iterf;
     plug->data = data;
 
     ret = heim_dict_set_value(db_plugins, s, plug);
@@ -167,41 +144,11 @@ heim_db_register(const char *dbtype,
     return ret;
 }
 
-/**
- * Unregister a DB type.
- *
- * It is safe to unregister a DB type for which there are open DB
- * handles.
- *
- * @param dbtype DB type to unregister
- */
-void heim_db_unregister(const char *dbtype)
-{
-    heim_dict_t plugins;
-    heim_string_t s;
-
-    /* Initialize */
-    plugins = heim_dict_create(11);
-    if (plugins == NULL)
-	return;
-    heim_base_once_f(&db_plugin_init_once, plugins, db_init_plugins_once);
-    if (plugins != db_plugins)
-	heim_release(plugins);
-    heim_assert(db_plugins != NULL, "heim_db plugin table initialized");
-
-    s = heim_string_create(dbtype);
-    if (s == NULL)
-	return;
-
-    heim_dict_delete_key(db_plugins, s);
-    heim_release(s);
-}
-
 static void
 db_journal_undo(heim_object_t item, void *arg)
 {
     db_journal_entry_t entry = (db_journal_entry_t)item;
-    db_inst db = arg;
+    heim_db_t db = arg;
     heim_db_data key, value;
 
     if (db->error != NULL)
@@ -223,7 +170,7 @@ db_journal_undo(heim_object_t item, void *arg)
 }
 
 static int
-db_rollback(db_inst db, heim_error_t *error)
+db_rollback(heim_db_t db, heim_error_t *error)
 {
     int ret;
 
@@ -255,14 +202,11 @@ db_rollback(db_inst db, heim_error_t *error)
 static void
 db_dealloc(void *arg)
 {
-    db_inst db = arg;
-    if (db->db_data) {
-	if (db->in_transaction && db->plug->rollbackf != NULL)
-	    (void) db->plug->rollbackf(db->db_data, NULL);
-	else if (db->journal)
-	    (void) db_rollback(db, NULL);
+    heim_db_t db = arg;
+    heim_assert(!db->in_transaction,
+		"rollback or commit heim_db_t before releasing it");
+    if (db->db_data)
 	(void) db->plug->closef(db->db_data, NULL);
-    }
     heim_release(db->dbname);
     heim_release(db->tblname);
     heim_release(db->journal);
@@ -272,10 +216,6 @@ db_dealloc(void *arg)
 
 /**
  * Open a database of the given dbtype.
- *
- * Returns ESRCH if the dbtype is not registered, ENOMEM if there's not
- * enough memory, 0 on success, and possibly other system error values
- * if the DB type's open method fails.
  *
  * The flags may be the logical-or of zero, one, or more of the following:
  *  - HEIM_DB_CREATE
@@ -290,78 +230,50 @@ db_dealloc(void *arg)
  * @param db      Output open DB handle
  * @param error   Output error  object
  */
-int
-heim_db_open(const char *dbtype, const char *dbname,
-	     const char *tblname, heim_db_flags_t flags,
-	     heim_db_t *db, heim_error_t *error)
+heim_db_t
+heim_db_create(const char *dbtype, const char *dbname,
+	       const char *tblname, heim_db_flags_t flags,
+	       heim_error_t *error)
 {
     heim_string_t s;
     db_plugin plug;
-    db_inst dbinst;
+    heim_db_t db;
     int ret = 0;
 
-    *db = NULL;
-
     if (db_plugins == NULL)
-	return ESRCH;
+	return NULL;
 
     s = heim_string_create(dbtype);
     if (s == NULL)
-	return ENOMEM;
+	return NULL; /* no *error here -- can't alloc */
 
     plug = heim_dict_get_value(db_plugins, s);
     heim_release(s);
     if (plug == NULL)
-	return ESRCH;
+	return NULL; /* XXX set *error */
 
-    dbinst = _heim_alloc_object(&db_object, sizeof(*dbinst));
-    if (dbinst == NULL)
-	return ENOMEM;
+    db = _heim_alloc_object(&db_object, sizeof(*db));
+    if (db == NULL)
+	return NULL; /* XXX set *error */
 
-    dbinst->in_transaction = 0;
-    dbinst->journal = NULL;
-    dbinst->plug = plug;
+    db->in_transaction = 0;
+    db->journal = NULL;
+    db->plug = plug;
 
     ret = plug->openf(plug->data, dbtype, dbname, tblname, flags,
-		      &dbinst->db_data, error);
+		      &db->db_data, error);
     if (ret) {
-	heim_release(dbinst);
-	return ret;
+	heim_release(db);
+	return NULL; /* XXX set *error if openf didn't set it */
     }
 
     if (plug->clonef == NULL) {
-	dbinst->dbname = heim_string_create(dbname);
-	dbinst->tblname = heim_string_create(tblname);
-	dbinst->flags = flags;
+	db->dbname = heim_string_create(dbname);
+	db->tblname = heim_string_create(tblname);
+	db->flags = flags;
     }
 
-    *db = dbinst;
-    return 0;
-}
-
-/**
- * Close the given DB.
- *
- * If a transaction is open it will be rolled back.
- *
- * @param db    Open DB handle
- * @param error Output error object
- */
-int
-heim_db_close(heim_db_t db, heim_error_t *error)
-{
-    int ret1, ret2;
-
-    if (heim_get_tid(db) != HEIM_TID_DB)
-	return EINVAL;
-
-    ret1 = db_rollback(db, error);
-    ret2 = db->plug->closef(db->db_data, error);
-    db->db_data = NULL;
-    heim_release(db);
-    if (!ret2)
-	return ret1;
-    return ret2;
+    return db;
 }
 
 /**
@@ -373,40 +285,38 @@ heim_db_close(heim_db_t db, heim_error_t *error)
  * Returns EBUSY if there is an open transaction for the input db.
  *
  * @param db      Open DB handle
- * @param dbclone Output DB handle
  * @param error   Output error object
  */
-int
-heim_db_clone(heim_db_t db, heim_db_t *dbclone, heim_error_t *error)
+heim_db_t
+heim_db_clone(heim_db_t db, heim_error_t *error)
 {
-    db_inst clone;
+    heim_db_t clone;
     int ret;
 
     if (heim_get_tid(db) != HEIM_TID_DB)
-	return EINVAL;
+	return NULL; /* XXX set error */
     if (db->in_transaction)
-	return EBUSY;
+	return NULL; /* XXX set error */
 
     if (db->plug->clonef == NULL) {
-	ret = heim_db_open(heim_string_get_utf8(db->plug->name),
-			   heim_string_get_utf8(db->dbname),
-			   heim_string_get_utf8(db->tblname),
-			   db->flags, dbclone, error);
-	return ret;
+	return heim_db_create(heim_string_get_utf8(db->plug->name),
+			      heim_string_get_utf8(db->dbname),
+			      heim_string_get_utf8(db->tblname),
+			      db->flags, error);
     }
 
     clone = _heim_alloc_object(&db_object, sizeof(*clone));
     if (clone == NULL)
-	return ENOMEM;
+	return NULL; /* XXX set error */
 
     clone->journal = NULL;
     ret = db->plug->clonef(db->db_data, &clone->db_data, error);
     if (ret) {
 	heim_release(clone);
-	return ENOMEM;
+	return NULL; /* XXX set error */
     }
     db->db_data = NULL;
-    return ret;
+    return clone;
 }
 
 /**

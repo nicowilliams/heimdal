@@ -415,6 +415,13 @@ test_db_iter(heim_db_data_t k, heim_db_data_t v, void *arg)
 	*ret |= 4;
 }
 
+static struct heim_db_type dbt = {
+    1, dict_db_open, NULL, dict_db_close,
+    dict_db_lock, dict_db_unlock, NULL, NULL, NULL,
+    dict_db_get_value, dict_db_set_value,
+    dict_db_del_key, dict_db_iter
+};
+
 static int
 test_db()
 {
@@ -422,31 +429,25 @@ test_db()
     heim_db_t db;
     int ret;
 
-    ret = heim_db_register("dictdb", NULL, dict_db_open, NULL, dict_db_close,
-			   dict_db_lock, dict_db_unlock, NULL, NULL, NULL,
-			   dict_db_get_value, dict_db_set_value,
-			   dict_db_del_key, dict_db_iter);
+    ret = heim_db_register("dictdb", NULL, &dbt);
     if (ret)
+	return 1;
+
+    db = heim_db_create("dictdb", "foo", "main", 0, NULL);
+    if (db)
+	return 1;
+
+    db = heim_db_create("dictdb", "MEMORY", "bar", 0, NULL);
+    if (db)
+	return 1;
+
+    db = heim_db_create("foobar", "MEMORY", "main", 0, NULL);
+    if (db)
+	return 1;
+
+    db = heim_db_create("dictdb", "MEMORY", "main", 0, NULL);
+    if (!db)
 	return ret;
-
-    ret = heim_db_open("dictdb", "foo", "main", 0, &db, NULL);
-    if (!ret)
-	return 1;
-
-    ret = heim_db_open("dictdb", "MEMORY", "bar", 0, &db, NULL);
-    if (!ret)
-	return 1;
-
-    ret = heim_db_open("foobar", "MEMORY", "main", 0, &db, NULL);
-    if (!ret)
-	return 1;
-
-    ret = heim_db_open("dictdb", "MEMORY", "main", 0, &db, NULL);
-    if (ret)
-	return ret;
-
-    /* We can still keep live open DB handles */
-    heim_db_unregister("dictdb");
 
     k.len = strlen("msg");
     k.data = "msg";
@@ -601,9 +602,9 @@ test_db()
     if (v.len != strlen("Hello world!") || strncmp(v.data, "Hello world!", strlen("Hello world!")))
 	return 1;
 
-    ret = heim_db_close(db, NULL);
+    heim_release(db);
 
-    return ret;
+    return 0;
 }
 
 int

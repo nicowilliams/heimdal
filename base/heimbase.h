@@ -228,28 +228,32 @@ typedef int (*heim_db_plug_del_key_f_t)(void *, heim_db_data_t, heim_error_t *);
 typedef void (*heim_db_plug_iter_f_t)(void *, void *, heim_db_iterator_f_t,
 				      heim_error_t *);
 
+struct heim_db_type {
+    int                         version;
+    heim_db_plug_open_f_t       openf;
+    heim_db_plug_clone_f_t      clonef;
+    heim_db_plug_close_f_t      closef;
+    heim_db_plug_lock_f_t       lockf;
+    heim_db_plug_lock_f_t       unlockf;
+    heim_db_plug_begin_f_t      beginf;
+    heim_db_plug_commit_f_t     commitf;
+    heim_db_plug_rollback_f_t   rollbackf;
+    heim_db_plug_get_value_f_t  getf;
+    heim_db_plug_set_value_f_t  setf;
+    heim_db_plug_del_key_f_t    delf;
+    heim_db_plug_iter_f_t       iterf;
+};
+
+#define HEIM_DB_TYPE_VERSION_01 1
+
 int heim_db_register(const char *dbtype,
 		     void *data,
-		     heim_db_plug_open_f_t openf,
-		     heim_db_plug_clone_f_t clonef,
-		     heim_db_plug_close_f_t closef,
-		     heim_db_plug_lock_f_t lockf,
-		     heim_db_plug_lock_f_t unlockf,
-		     heim_db_plug_begin_f_t beginf,
-		     heim_db_plug_commit_f_t commitf,
-		     heim_db_plug_rollback_f_t rollbackf,
-		     heim_db_plug_get_value_f_t getf,
-		     heim_db_plug_set_value_f_t setf,
-		     heim_db_plug_del_key_f_t delf,
-		     heim_db_plug_iter_f_t iterf);
+		     struct heim_db_type *plugin);
 
-void heim_db_unregister(const char *dbtype);
-
-int heim_db_open(const char *dbtype, const char *dbname,
-		 const char *tblname, heim_db_flags_t flags,
-		 heim_db_t *db, heim_error_t *error);
-int heim_db_close(heim_db_t, heim_error_t *);
-int heim_db_clone(heim_db_t, heim_db_t *, heim_error_t *);
+heim_db_t heim_db_create(const char *dbtype, const char *dbname,
+		         const char *tblname, heim_db_flags_t flags,
+			 heim_error_t *error);
+heim_db_t heim_db_clone(heim_db_t, heim_error_t *);
 int heim_db_begin(heim_db_t, heim_error_t *);
 int heim_db_commit(heim_db_t, heim_error_t *);
 int heim_db_rollback(heim_db_t, heim_error_t *);
