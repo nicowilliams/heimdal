@@ -38,7 +38,7 @@ typedef struct db_plugin {
     void                        *data;
 } db_plugin_desc, *db_plugin;
 
-struct heim_db_inst_data {
+struct heim_db_data {
     db_plugin           plug;
     heim_string_t       dbname;
     heim_string_t       tblname;
@@ -149,23 +149,20 @@ db_journal_undo(heim_object_t item, void *arg)
 {
     db_journal_entry_t entry = (db_journal_entry_t)item;
     heim_db_t db = arg;
-    heim_db_data key, value;
+    heim_data_t key, value;
 
     if (db->error != NULL)
 	return;
 
-    key.len = heim_data_get_length(entry->key);
-    key.data = heim_data_get_ptr(entry->key);
+    key = entry->key;
 
     if (entry->value == NULL) {
-	(void) db->plug->delf(db->db_data, &key, &db->error);
+	(void) db->plug->delf(db->db_data, key, &db->error);
 	return;
     }
 
-    value.len = heim_data_get_length(entry->value);
-    value.data = heim_data_get_ptr(entry->value);
-
-    (void) db->plug->setf(db->db_data, &key, &value,
+    value = entry->value;
+    (void) db->plug->setf(db->db_data, key, value,
 			  &db->error);
 }
 
@@ -436,17 +433,18 @@ heim_db_get_type_id(void)
  *
  * @param db    Open DB handle
  * @param key   Key
- * @param key   Value
  * @param error Output error object
+ * @return Returns the value, if there is one for the given key
  */
-int
-heim_db_get_value(heim_db_t db, heim_db_data_t key, heim_db_data_t value,
-		  heim_error_t *error)
+heim_data_t
+heim_db_get_value(heim_db_t db, heim_data_t key, heim_error_t *error)
 {
     if (heim_get_tid(db) != HEIM_TID_DB)
-	return EINVAL;
+	return NULL;
 
-    return db->plug->getf(db->db_data, key, value, error);
+    if (error != NULL)
+	*error = NULL;
+    return db->plug->getf(db->db_data, key, error);
 }
 
 static void
@@ -459,29 +457,35 @@ journal_entry_dealloc(void *arg)
 }
 
 static int
-db_journal(heim_db_t db, heim_db_data_t key, heim_error_t *error)
+db_journal(heim_db_t db, heim_data_t key, heim_error_t *error)
 {
     db_journal_entry_t journal_entry;
-    heim_db_data v;
+    heim_error_t err;
+    heim_data_t v;
     int ret;
 
     if (!db->in_transaction || db->journal == NULL)
 	return 0;
 
-    ret = heim_db_get_value(db, key, &v, error);
-    if (ret > 0)
-	return ret;
+    v = heim_db_get_value(db, key, &err);
+    if (v == NULL && err != NULL) {
+	if (error)
+	    *error = err;
+	else
+	    heim_release(err);
+	return 1; /* XXX */
+    }
 
     journal_entry = heim_alloc(sizeof (*journal_entry), "db-journal-entry",
 			       journal_entry_dealloc);
     if (journal_entry == NULL)
 	return ENOMEM;
-    journal_entry->key = heim_data_create(key->data, key->len);
+    journal_entry->key = heim_retain(key);
     if (journal_entry->key == NULL)
 	goto enomem;
 
-    if (ret == 0) {
-	journal_entry->value = heim_data_create(v.data, v.len);
+    if (v != NULL) {
+	journal_entry->value = heim_retain(v);
 	if (journal_entry->value == NULL)
 	     goto enomem;
     }
@@ -489,7 +493,7 @@ db_journal(heim_db_t db, heim_db_data_t key, heim_error_t *error)
     ret = heim_array_append_value(db->journal, journal_entry);
     heim_release(journal_entry);
 
-    return 0;
+    return ret;
 
 enomem:
     heim_release(journal_entry);
@@ -507,10 +511,13 @@ enomem:
  * @param error Output error object
  */
 int
-heim_db_set_value(heim_db_t db, heim_db_data_t key, heim_db_data_t value,
+heim_db_set_value(heim_db_t db, heim_data_t key, heim_data_t value,
 		  heim_error_t *error)
 {
     int ret;
+
+    if (error != NULL)
+	*error = NULL;
 
     if (heim_get_tid(db) != HEIM_TID_DB)
 	return EINVAL;
@@ -525,6 +532,8 @@ heim_db_set_value(heim_db_t db, heim_db_data_t key, heim_db_data_t value,
     ret = db->plug->setf(db->db_data, key, value, error);
     if (ret) {
 	size_t len = heim_array_get_length(db->journal);
+
+	/* Set failed, remove entry from journal */
 	heim_array_delete_value(db->journal, len - 1);
     }
     return ret;
@@ -541,9 +550,12 @@ heim_db_set_value(heim_db_t db, heim_db_data_t key, heim_db_data_t value,
  * @param error Output error object
  */
 int
-heim_db_delete_key(heim_db_t db, heim_db_data_t key, heim_error_t *error)
+heim_db_delete_key(heim_db_t db, heim_data_t key, heim_error_t *error)
 {
     int ret;
+
+    if (error != NULL)
+	*error = NULL;
 
     if (heim_get_tid(db) != HEIM_TID_DB)
 	return EINVAL;
@@ -558,6 +570,8 @@ heim_db_delete_key(heim_db_t db, heim_db_data_t key, heim_error_t *error)
     ret = db->plug->delf(db->db_data, key, error);
     if (ret) {
 	size_t len = heim_array_get_length(db->journal);
+
+	/* Delete failed, remove entry from journal */
 	heim_array_delete_value(db->journal, len - 1);
     }
     return ret;
@@ -576,6 +590,9 @@ heim_db_iterate_f(heim_db_t db, void *iter_data,
 		  heim_db_iterator_f_t iter_f,
 		  heim_error_t *error)
 {
+    if (error != NULL)
+	*error = NULL;
+
     if (heim_get_tid(db) != HEIM_TID_DB)
 	return;
 
