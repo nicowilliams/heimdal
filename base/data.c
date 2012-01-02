@@ -34,9 +34,23 @@
 #include "baselocl.h"
 #include <string.h>
 
+typedef struct data_ref {
+    heim_octet_string os;
+    void *arg;
+    heim_data_free_f_t dealloc;
+} data_ref, *data_ref_t;
+
 static void
 data_dealloc(void *ptr)
 {
+}
+
+static void
+data_ref_dealloc(void *ptr)
+{
+    data_ref_t p = ptr;
+
+    p->dealloc(p->arg, p->os.data, p->os.length);
 }
 
 static int
@@ -70,6 +84,16 @@ struct heim_type_data _heim_data_object = {
     data_hash
 };
 
+struct heim_type_data _heim_data_ref_object = {
+    HEIM_TID_DATA_REF,
+    "data-object",
+    NULL,
+    data_ref_dealloc,
+    NULL,
+    data_cmp,
+    data_hash
+};
+
 /**
  * Create a data object
  *
@@ -92,16 +116,46 @@ heim_data_create(const void *data, size_t length)
     return (heim_data_t)os;
 }
 
+heim_data_t
+heim_data_create_ref(const void *data, size_t length,
+		     void *arg, heim_data_free_f_t dealloc)
+{
+    data_ref_t dr;
+    heim_octet_string *os;
+
+    dr = _heim_alloc_object(&_heim_data_object, sizeof(*os) + length);
+    if (dr) {
+	dr->os.data = (void *)data;
+	dr->os.length = length;
+	dr->arg = arg;
+	dr->dealloc = dealloc;
+    }
+    return (heim_data_t)dr;
+}
+
+
 /**
  * Return the type ID of data objects
  *
- * @return type id of string objects
+ * @return type id of data objects
  */
 
 heim_tid_t
 heim_data_get_type_id(void)
 {
     return HEIM_TID_DATA;
+}
+
+/**
+ * Return the type ID of data reference objects
+ *
+ * @return type id of data reference objects
+ */
+
+heim_tid_t
+heim_data_ref_get_type_id(void)
+{
+    return HEIM_TID_DATA_REF;
 }
 
 /**
@@ -115,16 +169,19 @@ heim_data_get_type_id(void)
 const heim_octet_string *
 heim_data_get_data(heim_data_t data)
 {
+    /* Note that this works for data and data_ref objects */
     return (const heim_octet_string *)data;
 }
 
 const void *
 heim_data_get_ptr(heim_data_t data)
 {
+    /* Note that this works for data and data_ref objects */
     return ((const heim_octet_string *)data)->data;
 }
 
 size_t	heim_data_get_length(heim_data_t data)
 {
+    /* Note that this works for data and data_ref objects */
     return ((const heim_octet_string *)data)->length;
 }

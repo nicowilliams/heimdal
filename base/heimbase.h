@@ -319,9 +319,13 @@ typedef struct heim_octet_string {
 #endif
 
 typedef struct heim_data * heim_data_t;
+typedef void (*heim_data_free_f_t)(void *, void *, size_t);
 
 heim_data_t	heim_data_create(const void *, size_t);
+heim_data_t	heim_data_create_ref(const void *, size_t,
+				     void *, heim_data_free_f_t);
 heim_tid_t	heim_data_get_type_id(void);
+heim_tid_t	heim_data_ref_get_type_id(void);
 const heim_octet_string *
 		heim_data_get_data(heim_data_t);
 const void *	heim_data_get_ptr(heim_data_t);
