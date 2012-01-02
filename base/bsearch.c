@@ -104,7 +104,7 @@ find_line(const char *buf, size_t i, size_t right)
     return NULL;
 }
 
-/**
+/*
  * Common routine for binary searching text in core.
  *
  * Perform a binary search of a char array containing a block from a
@@ -289,7 +289,7 @@ bsearch_common(const char *buf, size_t sz, const char *key,
     return ret;
 }
 
-/**
+/*
  * Binary search a char array containing sorted text records separated
  * by new-lines (or CRLF).  Each record consists of a key and an
  * optional value following the key, separated from the key by unquoted
@@ -323,7 +323,7 @@ __bsearch_text(const char *buf, size_t buf_sz, const char *key,
 
 #define MAX_BLOCK_SIZE (1024 * 1024)
 #define DEFAULT_MAX_FILE_SIZE (1024 * 1024)
-/**
+/*
  * Open a file for binary searching.  The file will be read in entirely
  * if it is smaller than @max_sz, else a cache of @max_sz bytes will be
  * allocated.
@@ -469,7 +469,7 @@ err:
     return ret;
 }
 
-/**
+/*
  * Indicate whether the given binary search file handle will be searched
  * with block-wise method.
  */
@@ -485,7 +485,7 @@ __bsearch_file_info(bsearch_file_handle bfh,
 	*blockwise = (bfh->file_sz != bfh->cache_sz);
 }
 
-/**
+/*
  * Close the given binary file search handle.
  *
  * Inputs:
@@ -507,7 +507,7 @@ __bsearch_file_close(bsearch_file_handle *bfh)
     *bfh = NULL;
 }
 
-/**
+/*
  * Private function to get a page from a cache.  The cache is a char
  * array of 2^n - 1 double-size page worth of bytes, where n is the
  * number of tree levels that the cache stores.  The cache can be
@@ -567,7 +567,7 @@ get_page_from_cache(bsearch_file_handle bfh, size_t level, size_t page_idx,
     return 1;
 }
 
-/**
+/*
  * Private function to read a page of @page_sz from @fd at offset @off
  * into @buf, outputing the number of bytes read, which will be the same
  * as @page_sz unless the page being read is the last page, in which
@@ -646,7 +646,7 @@ read_page(bsearch_file_handle bfh, size_t level, size_t page_idx, size_t page,
     return 0;
 }
 
-/**
+/*
  * Perform a binary search of a file where each line is a record (LF and
  * CRLF supported).  Each record consists of a key followed by an
  * optional value separated from the key by whitespace.  Whitespace can

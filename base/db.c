@@ -69,16 +69,16 @@ plugin_dealloc(void *arg)
     heim_release(plug->name);
 }
 
-/**
- * Register a heim_db_t type.
- *
- * Registers a DB type for use with heim_db_create().
- *
- * Returns ENOMEM on failure, else 0.
+/** heim_db_register
+ * @brief Registers a DB type for use with heim_db_create().
  *
  * @param dbtype Name of DB type
  * @param data   Private data argument to the dbtype's openf method
  * @param plugin Structure with DB type methods (function pointers)
+ *
+ * @return ENOMEM on failure, else 0.
+ *
+ * @addtogroup heimbase
  */
 int
 heim_db_register(const char *dbtype,
@@ -226,6 +226,10 @@ db_dealloc(void *arg)
  * @param flags   Flags
  * @param db      Output open DB handle
  * @param error   Output error  object
+ *
+ * @return a DB handle
+ *
+ * @addtogroup heimbase
  */
 heim_db_t
 heim_db_create(const char *dbtype, const char *dbname,
@@ -283,6 +287,10 @@ heim_db_create(const char *dbtype, const char *dbname,
  *
  * @param db      Open DB handle
  * @param error   Output error object
+ *
+ * @return a DB handle
+ *
+ * @addtogroup heimbase
  */
 heim_db_t
 heim_db_clone(heim_db_t db, heim_error_t *error)
@@ -320,7 +328,12 @@ heim_db_clone(heim_db_t db, heim_error_t *error)
  * Open a transaction on the given db.
  *
  * @param db    Open DB handle
+ * @param flags Transaction semantics desired
  * @param error Output error object
+ *
+ * @return 0 on success, system error otherwise
+ *
+ * @addtogroup heimbase
  */
 int
 heim_db_begin(heim_db_t db, heim_db_tx_flags_t flags, heim_error_t *error)
@@ -361,6 +374,10 @@ heim_db_begin(heim_db_t db, heim_db_tx_flags_t flags, heim_error_t *error)
  *
  * @param db    Open DB handle
  * @param error Output error object
+ *
+ * @return 0 on success, system error otherwise
+ *
+ * @addtogroup heimbase
  */
 int
 heim_db_commit(heim_db_t db, heim_error_t *error)
@@ -394,6 +411,10 @@ heim_db_commit(heim_db_t db, heim_error_t *error)
  *
  * @param db    Open DB handle
  * @param error Output error object
+ *
+ * @return 0 on success, system error otherwise
+ *
+ * @addtogroup heimbase
  */
 int
 heim_db_rollback(heim_db_t db, heim_error_t *error)
@@ -418,6 +439,8 @@ heim_db_rollback(heim_db_t db, heim_error_t *error)
 
 /**
  * Get type ID of heim_db_t objects.
+ *
+ * @addtogroup heimbase
  */
 heim_tid_t
 heim_db_get_type_id(void)
@@ -434,7 +457,10 @@ heim_db_get_type_id(void)
  * @param db    Open DB handle
  * @param key   Key
  * @param error Output error object
- * @return Returns the value, if there is one for the given key
+ *
+ * @return the value, if there is one for the given key
+ *
+ * @addtogroup heimbase
  */
 heim_data_t
 heim_db_get_value(heim_db_t db, heim_data_t key, heim_error_t *error)
@@ -503,12 +529,14 @@ enomem:
 /**
  * Set a key's value in the DB.
  *
- * Returns 0 on success, or a system error number on failure.
- *
  * @param db    Open DB handle
  * @param key   Key
- * @param key   Value
+ * @param value Value
  * @param error Output error object
+ *
+ * @return 0 on success, system error otherwise
+ *
+ * @addtogroup heimbase
  */
 int
 heim_db_set_value(heim_db_t db, heim_data_t key, heim_data_t value,
@@ -542,12 +570,14 @@ heim_db_set_value(heim_db_t db, heim_data_t key, heim_data_t value,
 /**
  * Delete a key and its value from the DB
  *
- * Returns 0 on success, or a system error number on failure.
  *
  * @param db    Open DB handle
  * @param key   Key
- * @param key   Value
  * @param error Output error object
+ *
+ * @return 0 on success, system error otherwise
+ *
+ * @addtogroup heimbase
  */
 int
 heim_db_delete_key(heim_db_t db, heim_data_t key, heim_error_t *error)
@@ -584,6 +614,8 @@ heim_db_delete_key(heim_db_t db, heim_data_t key, heim_error_t *error)
  * @param iter_data Callback function's private data
  * @param iter_f    Callback function, called once per-key/value pair
  * @param error     Output error object
+ *
+ * @addtogroup heimbase
  */
 void
 heim_db_iterate_f(heim_db_t db, void *iter_data,
