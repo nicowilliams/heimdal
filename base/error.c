@@ -124,7 +124,9 @@ heim_error_copy_string(heim_error_t error)
 int
 heim_error_get_code(heim_error_t error)
 {
-    return error->error_code;
+    if (error)
+	return error->error_code;
+    return EINVAL;
 }
 
 heim_error_t

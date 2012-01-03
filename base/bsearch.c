@@ -835,7 +835,7 @@ stdb_get_value(void *db, heim_data_t key, heim_error_t *error)
     bsearch_file_handle bfh = db;
     const char *k;
     char *v;
-    heim_string_t value;
+    heim_data_t value;
     int ret;
 
     if (error)
@@ -854,10 +854,10 @@ stdb_get_value(void *db, heim_data_t key, heim_error_t *error)
 	    *error = heim_error_create(ret, "%s", strerror(ret));
 	return NULL;
     }
-    value = heim_string_create(v);
+    value = heim_data_create(v, strlen(v));
     free(v);
     /* XXX Handle ENOMEM */
-    return (heim_data_t)value;
+    return value;
 }
 
 struct heim_db_type heim_sorted_text_file_dbtype = {

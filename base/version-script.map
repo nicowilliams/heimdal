@@ -26,6 +26,7 @@ HEIMDAL_BASE_1.0 {
 		heim_bool_val;
 		heim_cmp;
 		heim_data_create;
+		heim_data_ref_create;
 		heim_data_get_data;
 		heim_data_get_length;
 		heim_data_get_ptr;

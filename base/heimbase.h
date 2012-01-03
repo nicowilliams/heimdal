@@ -203,11 +203,10 @@ typedef struct heim_octet_string {
 #endif
 
 typedef struct heim_data * heim_data_t;
-typedef void (*heim_data_free_f_t)(void *, void *, size_t);
+typedef void (*heim_data_free_f_t)(void *);
 
 heim_data_t	heim_data_create(const void *, size_t);
-heim_data_t	heim_data_create_ref(const void *, size_t,
-				     void *, heim_data_free_f_t);
+heim_data_t	heim_data_ref_create(const void *, size_t, heim_data_free_f_t);
 heim_tid_t	heim_data_get_type_id(void);
 heim_tid_t	heim_data_ref_get_type_id(void);
 const heim_octet_string *
@@ -271,6 +270,8 @@ struct heim_db_type {
     heim_db_plug_del_key_f_t    delf;
     heim_db_plug_iter_f_t       iterf;
 };
+
+extern struct heim_db_type heim_sorted_text_file_dbtype;
 
 #define HEIM_DB_TYPE_VERSION_01 1
 

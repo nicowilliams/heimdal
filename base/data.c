@@ -50,7 +50,7 @@ data_ref_dealloc(void *ptr)
 {
     data_ref_t p = ptr;
 
-    p->dealloc(p->arg, p->os.data, p->os.length);
+    p->dealloc(p->os.data);
 }
 
 static int
@@ -117,17 +117,16 @@ heim_data_create(const void *data, size_t length)
 }
 
 heim_data_t
-heim_data_create_ref(const void *data, size_t length,
-		     void *arg, heim_data_free_f_t dealloc)
+heim_data_ref_create(const void *data, size_t length,
+		     heim_data_free_f_t dealloc)
 {
     data_ref_t dr;
     heim_octet_string *os;
 
-    dr = _heim_alloc_object(&_heim_data_object, sizeof(*os) + length);
+    dr = _heim_alloc_object(&_heim_data_ref_object, sizeof(*os) + length);
     if (dr) {
 	dr->os.data = (void *)data;
 	dr->os.length = length;
-	dr->arg = arg;
 	dr->dealloc = dealloc;
     }
     return (heim_data_t)dr;
