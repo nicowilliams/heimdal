@@ -75,8 +75,8 @@
  *
  * bsearch_common() contains the common text block binary search code.
  *
- * __bsearch_text() is the interface for searching in-core text.
- * __bsearch_file() is the interface for block-wise searching files.
+ * _bsearch_text() is the interface for searching in-core text.
+ * _bsearch_file() is the interface for block-wise searching files.
  */
 
 struct bsearch_file_handle {
@@ -315,7 +315,7 @@ bsearch_common(const char *buf, size_t sz, const char *key,
  *           needed for the search (useful for benchmarking)
  */
 int
-__bsearch_text(const char *buf, size_t buf_sz, const char *key,
+_bsearch_text(const char *buf, size_t buf_sz, const char *key,
 	       char **value, size_t *location, size_t *loops)
 {
     return bsearch_common(buf, buf_sz, key, 1, value, location, NULL, loops);
@@ -339,11 +339,11 @@ __bsearch_text(const char *buf, size_t buf_sz, const char *key,
  * 
  * Outputs:
  *
- * @bfh     Handle for use with __bsearch_file() and __bsearch_file_close()
+ * @bfh     Handle for use with _bsearch_file() and _bsearch_file_close()
  * @reads   Number of reads performed
  */
 int
-__bsearch_file_open(const char *fname, size_t max_sz, size_t page_sz,
+_bsearch_file_open(const char *fname, size_t max_sz, size_t page_sz,
 		    bsearch_file_handle *bfh, size_t *reads)
 {
     bsearch_file_handle new_bfh;
@@ -474,7 +474,7 @@ err:
  * with block-wise method.
  */
 void
-__bsearch_file_info(bsearch_file_handle bfh,
+_bsearch_file_info(bsearch_file_handle bfh,
 		    size_t *page_sz, size_t *max_sz, int *blockwise)
 {
     if (page_sz)
@@ -493,7 +493,7 @@ __bsearch_file_info(bsearch_file_handle bfh,
  * @bfh Pointer to variable containing handle to close.
  */
 void
-__bsearch_file_close(bsearch_file_handle *bfh)
+_bsearch_file_close(bsearch_file_handle *bfh)
 {
     if (!*bfh)
 	return;
@@ -685,7 +685,7 @@ read_page(bsearch_file_handle bfh, size_t level, size_t page_idx, size_t page,
  *               (useful for confirming logarithmic performance)
  */
 int
-__bsearch_file(bsearch_file_handle bfh, const char *key,
+_bsearch_file(bsearch_file_handle bfh, const char *key,
 	       char **value, size_t *location, size_t *loops, size_t *reads)
 {
     int ret;
@@ -707,7 +707,7 @@ __bsearch_file(bsearch_file_handle bfh, const char *key,
 
     /* If whole file is in memory then search that and we're done */
     if (bfh->file_sz == bfh->cache_sz)
-	return __bsearch_text(bfh->cache, bfh->cache_sz, key, value, location, loops);
+	return _bsearch_text(bfh->cache, bfh->cache_sz, key, value, location, loops);
 
     /* Else block-wise binary search */
 
@@ -794,3 +794,73 @@ __bsearch_file(bsearch_file_handle bfh, const char *key,
     return -1;
 }
 
+
+static int
+stdb_open(void *plug, const char *dbtype, const char *dbname,
+	     const char *tblname, heim_db_flags_t flags, void **db,
+	     heim_error_t *error)
+{
+    bsearch_file_handle bfh;
+    int ret;
+
+    if (error)
+	*error = NULL;
+    if (strcmp(dbtype, "sorted-text"))
+	return EINVAL;
+    if (tblname && *tblname && strcmp(tblname, "main"))
+	return EINVAL;
+
+    ret = _bsearch_file_open(dbname, 0, 0, &bfh, NULL);
+    if (ret)
+	return ret;
+
+    *db = bfh;
+    return 0;
+}
+
+static int
+stdb_close(void *db, heim_error_t *error)
+{
+    bsearch_file_handle bfh = db;
+
+    if (error)
+	*error = NULL;
+    _bsearch_file_close(&bfh);
+    return 0;
+}
+
+static heim_data_t
+stdb_get_value(void *db, heim_data_t key, heim_error_t *error)
+{
+    bsearch_file_handle bfh = db;
+    const char *k;
+    char *v;
+    heim_string_t value;
+    int ret;
+
+    if (error)
+	*error = NULL;
+
+    if (heim_get_tid(key) != HEIM_TID_STRING) {
+	if (error)
+	    heim_error_create(EINVAL, "Keys for sorted text DB must be strings");
+	return NULL;
+    }
+
+    k = heim_string_get_utf8((heim_string_t)key);
+    ret = _bsearch_file(bfh, k, &v, NULL, NULL, NULL);
+    if (ret != 0) {
+	if (ret > 0 && error)
+	    *error = heim_error_create(ret, "%s", strerror(ret));
+	return NULL;
+    }
+    value = heim_string_create(v);
+    free(v);
+    /* XXX Handle ENOMEM */
+    return (heim_data_t)value;
+}
+
+struct heim_db_type heim_sorted_text_file_dbtype = {
+    1, stdb_open, NULL, stdb_close, NULL, NULL, NULL, NULL, NULL,
+    stdb_get_value, NULL, NULL, NULL
+};
