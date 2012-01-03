@@ -257,6 +257,26 @@ db_dealloc(void *arg)
     heim_release(db->plug);
 }
 
+struct dbtype_iter {
+    heim_db_t           db;
+    const char          *dbname;
+    const char          *tblname;
+    heim_db_flags_t	flags;
+    heim_error_t        *error;
+};
+
+static void
+dbtype_iter2create_f(heim_object_t dbtype, heim_object_t junk, void *arg)
+{
+    struct dbtype_iter *iter_ctx = arg;
+
+    if (iter_ctx->db != NULL)
+	return;
+    iter_ctx->db = heim_db_create(heim_string_get_utf8(dbtype),
+				  iter_ctx->dbname, iter_ctx->tblname,
+				  iter_ctx->flags, iter_ctx->error);
+}
+
 /**
  * Open a database of the given dbtype.
  *
@@ -296,8 +316,13 @@ heim_db_create(const char *dbtype, const char *dbname,
     if (db_plugins == NULL)
 	return NULL;
 
-    if (dbtype == NULL)
-	dbtype = "";
+    if (dbtype == NULL || *dbtype == '\0') {
+	/* Try all dbtypes */
+	struct dbtype_iter iter_ctx = { NULL, dbname, tblname, flags, error};
+	heim_dict_iterate_f(db_plugins, &iter_ctx, dbtype_iter2create_f);
+
+	return iter_ctx.db;
+    }
 
     /*
      * Allow for dbtypes that are composed from pseudo-dbtypes chained

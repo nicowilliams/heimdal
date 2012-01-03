@@ -366,7 +366,7 @@ static heim_base_once_t sorted_text_db_init_once = HEIM_BASE_ONCE_INIT;
 static void
 sorted_text_db_init_f(void *arg)
 {
-    heim_db_register("sorted-text", NULL, &heim_sorted_text_file_dbtype);
+    (void) heim_db_register("sorted-text", NULL, &heim_sorted_text_file_dbtype);
 }
 
 static krb5_error_code
@@ -377,7 +377,6 @@ an2ln_def_plug_an2ln(void *plug_ctx, krb5_context context,
 {
     krb5_error_code ret;
     const char *an2ln_db_fname;
-    const char *ext;
     heim_db_t dbh = NULL;
     heim_data_t k, v;
     heim_error_t error;
@@ -390,26 +389,15 @@ an2ln_def_plug_an2ln(void *plug_ctx, krb5_context context,
     if (strncmp(rule, "DB:", strlen("DB:") != 0))
 	return KRB5_PLUGIN_NO_HANDLE;
 
-    /*
-     * This plugin implements a binary search of a sorted text file
-     * (sorted in the C locale).  We really need to know that the file
-     * is text, so we implement a trivial heuristic: the file name must
-     * end in .txt.
-     */
     an2ln_db_fname = &rule[strlen("DB:")];
     if (!*an2ln_db_fname)
-	return KRB5_PLUGIN_NO_HANDLE;
-    if (strlen(an2ln_db_fname) < (strlen(".txt") + 1))
-	return KRB5_PLUGIN_NO_HANDLE;
-    ext = strrchr(an2ln_db_fname, '.');
-    if (!ext || strcmp(ext, ".txt") != 0)
 	return KRB5_PLUGIN_NO_HANDLE;
 
     ret = krb5_unparse_name(context, aname, &unparsed);
     if (ret)
 	return ret;
 
-    dbh = heim_db_create("sorted-text", an2ln_db_fname, "", HEIM_DB_RDONLY,
+    dbh = heim_db_create(NULL, an2ln_db_fname, "", HEIM_DB_RDONLY,
 			 &error);
     if (dbh == NULL) {
 	krb5_set_error_message(context, heim_error_get_code(error),

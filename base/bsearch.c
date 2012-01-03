@@ -801,12 +801,27 @@ stdb_open(void *plug, const char *dbtype, const char *dbname,
 	     heim_error_t *error)
 {
     bsearch_file_handle bfh;
+    char *p;
     int ret;
 
     if (error)
 	*error = NULL;
-    if (strcmp(dbtype, "sorted-text"))
+    if (dbname == NULL || *dbname == '\0') {
+	if (error)
+	    *error = heim_error_create(EINVAL,
+				       N_("DB name required for sorted-text DB "
+					  "plugin", ""));
 	return EINVAL;
+    }
+    p = strrchr(dbname, '.');
+    if (p == NULL || strcmp(p, ".txt") != 0) {
+	if (error)
+	    *error = heim_error_create(ENOTSUP,
+				       N_("Text file (name ending in .txt) "
+				       "required for sorted-text DB plugin",
+				       ""));
+	return ENOTSUP;
+    }
     if (tblname && *tblname && strcmp(tblname, "main"))
 	return EINVAL;
 
