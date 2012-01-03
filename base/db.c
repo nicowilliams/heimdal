@@ -139,7 +139,7 @@ heim_db_register(const char *dbtype,
     if ((plugin->beginf != NULL && plugin->commitf == NULL) ||
 	(plugin->beginf == NULL && plugin->rollbackf != NULL) ||
 	(plugin->lockf != NULL && plugin->unlockf == NULL) ||
-	plugin->setf == NULL)
+	plugin->getf == NULL)
 	return EINVAL;
 
     /* Initialize */

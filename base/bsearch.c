@@ -841,13 +841,10 @@ stdb_get_value(void *db, heim_data_t key, heim_error_t *error)
     if (error)
 	*error = NULL;
 
-    if (heim_get_tid(key) != HEIM_TID_STRING) {
-	if (error)
-	    heim_error_create(EINVAL, "Keys for sorted text DB must be strings");
-	return NULL;
-    }
-
-    k = heim_string_get_utf8((heim_string_t)key);
+    if (heim_get_tid(key) == HEIM_TID_STRING)
+	k = heim_string_get_utf8((heim_string_t)key);
+    else
+	k = (const char *)heim_data_get_ptr(key);
     ret = _bsearch_file(bfh, k, &v, NULL, NULL, NULL);
     if (ret != 0) {
 	if (ret > 0 && error)

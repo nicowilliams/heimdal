@@ -50,7 +50,8 @@ data_ref_dealloc(void *ptr)
 {
     data_ref_t p = ptr;
 
-    p->dealloc(p->os.data);
+    if (p->dealloc)
+	p->dealloc(p->os.data);
 }
 
 static int
