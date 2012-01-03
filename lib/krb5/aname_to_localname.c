@@ -33,6 +33,7 @@
 
 #include "krb5_locl.h"
 #include "an2ln_plugin.h"
+#include "db_plugin.h"
 
 /* Default plugin (DB using binary search of sorted text file) follows */
 static krb5_error_code an2ln_def_plug_init(krb5_context, void **);
@@ -360,7 +361,24 @@ an2ln_def_plug_fini(void *ctx)
 {
 }
 
+static heim_base_once_t db_plugins_once = HEIM_BASE_ONCE_INIT;
 static heim_base_once_t sorted_text_db_init_once = HEIM_BASE_ONCE_INIT;
+
+static krb5_error_code KRB5_LIB_CALL
+db_plugins_plcallback(krb5_context context, const void *plug, void *plugctx,
+		      void *userctx)
+{
+    return 0;
+}
+
+static void
+db_plugins_init(void *arg)
+{
+    krb5_context context = arg;
+    (void)_krb5_plugin_run_f(context, "krb5", KRB5_PLUGIN_DB,
+			     KRB5_PLUGIN_DB_VERSION_0, 0, NULL,
+			     db_plugins_plcallback);
+}
 
 static void
 sorted_text_db_init_f(void *arg)
@@ -383,6 +401,7 @@ an2ln_def_plug_an2ln(void *plug_ctx, krb5_context context,
     char *unparsed = NULL;
     char *value = NULL;
 
+    heim_base_once_f(&db_plugins_once, context, db_plugins_init);
     heim_base_once_f(&sorted_text_db_init_once, NULL, sorted_text_db_init_f);
 
     if (strncmp(rule, "DB:", strlen("DB:") != 0))
