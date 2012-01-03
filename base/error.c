@@ -76,6 +76,13 @@ struct heim_type_data _heim_error_object = {
 };
 
 heim_error_t
+heim_error_enomem(void)
+{
+    /* This is an immediate object; see heim_number_create() */
+    return (heim_error_t)heim_number_create(ENOMEM);
+}
+
+heim_error_t
 heim_error_create(int error_code, const char *fmt, ...)
 {
     heim_error_t e;
@@ -117,6 +124,11 @@ heim_error_createv(int error_code, const char *fmt, va_list ap)
 heim_string_t
 heim_error_copy_string(heim_error_t error)
 {
+    if (heim_get_tid(error) != HEIM_TID_ERROR) {
+	if (heim_get_tid(error) == heim_number_get_type_id())
+	    return __heim_string_constant(strerror(heim_number_get_int((heim_number_t)error)));
+	heim_abort("invalid heim_error_t");
+    }
     /* XXX concat all strings */
     return heim_retain(error->msg);
 }
@@ -124,9 +136,12 @@ heim_error_copy_string(heim_error_t error)
 int
 heim_error_get_code(heim_error_t error)
 {
-    if (error)
-	return error->error_code;
-    return EINVAL;
+    if (heim_get_tid(error) != HEIM_TID_ERROR) {
+	if (heim_get_tid(error) == heim_number_get_type_id())
+	    return heim_number_get_int((heim_number_t)error);
+	heim_abort("invalid heim_error_t");
+    }
+    return error->error_code;
 }
 
 heim_error_t

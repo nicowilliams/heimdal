@@ -178,6 +178,7 @@ heim_string_t __heim_string_constant(const char *);
  */
 
 typedef struct heim_error * heim_error_t;
+heim_error_t heim_error_enomem(void);
 
 heim_error_t	heim_error_create(int, const char *, ...)
     HEIMDAL_PRINTF_ATTRIBUTE((printf, 2, 3));

@@ -316,7 +316,7 @@ heim_db_create(const char *dbtype, const char *dbname,
     heim_release(s);
     if (plug == NULL) {
 	if (error)
-	    *error = heim_error_create(ESRCH, "Heimdal DB plugin not found: %s",
+	    *error = heim_error_create(ESRCH, N_("Heimdal DB plugin not found: %s", ""),
 				       dbtype);
 	return NULL;
     }
@@ -335,16 +335,22 @@ heim_db_create(const char *dbtype, const char *dbname,
 	heim_release(db);
 	if (error && *error == NULL)
 	    *error = heim_error_create(ENOENT,
-				       "Heimdal DB could not be opened: %s",
+				       N_("Heimdal DB could not be opened: %s", ""),
 				       dbname);
 	return NULL;
     }
 
     if (plug->clonef == NULL) {
-	/* XXX Check for ENOMEM here */
 	db->dbtype = heim_string_create(dbtype);
 	db->dbname = heim_string_create(dbname);
 	db->tblname = heim_string_create(tblname);
+
+	if (!db->dbtype || ! db->dbname || !db->tblname) {
+	    heim_release(db);
+	    if (error)
+		*error = heim_error_enomem();
+	    return NULL;
+	}
 	db->flags = flags;
     }
 
@@ -373,9 +379,9 @@ heim_db_clone(heim_db_t db, heim_error_t *error)
     int ret;
 
     if (heim_get_tid(db) != HEIM_TID_DB)
-	return NULL; /* XXX set error */
+	heim_abort("Expected a database");
     if (db->in_transaction)
-	return NULL; /* XXX set error */
+	heim_abort("DB handle is busy");
 
     if (db->plug->clonef == NULL) {
 	return heim_db_create(heim_string_get_utf8(db->dbtype),
@@ -385,14 +391,20 @@ heim_db_clone(heim_db_t db, heim_error_t *error)
     }
 
     clone = _heim_alloc_object(&db_object, sizeof(*clone));
-    if (clone == NULL)
-	return NULL; /* XXX set error */
+    if (clone == NULL) {
+	if (error)
+	    *error = heim_error_enomem();
+	return NULL;
+    }
 
     clone->journal = NULL;
     ret = db->plug->clonef(db->db_data, &clone->db_data, error);
     if (ret) {
 	heim_release(clone);
-	return NULL; /* XXX set error */
+	if (error && !*error)
+	    *error = heim_error_create(ENOENT,
+				       N_("Could not re-open DB while cloning", ""));
+	return NULL;
     }
     db->db_data = NULL;
     return clone;
@@ -573,13 +585,16 @@ db_journal(heim_db_t db, heim_data_t key, heim_error_t *error)
 	    *error = err;
 	else
 	    heim_release(err);
-	return 1; /* XXX */
+	return 1; /* XXX Better error code? */
     }
 
     journal_entry = heim_alloc(sizeof (*journal_entry), "db-journal-entry",
 			       journal_entry_dealloc);
-    if (journal_entry == NULL)
+    if (journal_entry == NULL) {
+	if (error)
+	    *error = heim_error_enomem();
 	return ENOMEM;
+    }
     journal_entry->key = heim_retain(key);
     if (journal_entry->key == NULL)
 	goto enomem;
@@ -596,6 +611,8 @@ db_journal(heim_db_t db, heim_data_t key, heim_error_t *error)
     return ret;
 
 enomem:
+    if (error)
+	*error = heim_error_enomem();
     heim_release(journal_entry);
     return ENOMEM;
 }
