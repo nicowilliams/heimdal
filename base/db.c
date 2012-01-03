@@ -1,5 +1,50 @@
 /*
- * XXX Add Secure Endpoints copyright notice and BSD license.
+ * Copyright (c) 2011, Secure Endpoints Inc.
+ * All rights reserved.
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions
+ * are met:
+ *
+ * - Redistributions of source code must retain the above copyright
+ *   notice, this list of conditions and the following disclaimer.
+ *
+ * - Redistributions in binary form must reproduce the above copyright
+ *   notice, this list of conditions and the following disclaimer in
+ *   the documentation and/or other materials provided with the
+ *   distribution.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+ * "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+ * LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS
+ * FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE
+ * COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT,
+ * INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
+ * (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+ * SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
+ * HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,
+ * STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+ * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED
+ * OF THE POSSIBILITY OF SUCH DAMAGE.
+ */
+
+/*
+ * This is a pluggable simple DB abstraction, with a simple get/set/
+ * delete key/value pair interface.
+ *
+ * Plugins may provide any of the following optional features:
+ *
+ *  - tables -- multiple attribute/value tables in one DB
+ *  - locking
+ *  - transactions (i.e., allow any heim_object_t as key or value)
+ *  - transcoding of values
+ *
+ * Stackable plugins that provide missing optional features are
+ * possible.
+ *
+ * Any plugin that provides locking will also provide transactions, but
+ * those transactions will not be atomic in the face of failures (a
+ * memory-based rollback log is used).
  */
 
 #include "baselocl.h"
@@ -40,6 +85,7 @@ typedef struct db_plugin {
 
 struct heim_db_data {
     db_plugin           plug;
+    heim_string_t       dbtype;
     heim_string_t       dbname;
     heim_string_t       tblname;
     heim_db_flags_t     flags;
@@ -214,6 +260,11 @@ db_dealloc(void *arg)
 /**
  * Open a database of the given dbtype.
  *
+ * Database type names can be composed of one or more pseudo-DB types
+ * and one concrete DB type joined with a '+' between each.  For
+ * example: "transaction+bdb" might be a Berkeley DB with a layer above
+ * that provides transactions.
+ *
  * The flags may be the logical-or of zero, one, or more of the following:
  *  - HEIM_DB_CREATE
  *  - HEIM_DB_EXCL
@@ -237,6 +288,7 @@ heim_db_create(const char *dbtype, const char *dbname,
 	       heim_error_t *error)
 {
     heim_string_t s;
+    char *p;
     db_plugin plug;
     heim_db_t db;
     int ret = 0;
@@ -244,18 +296,34 @@ heim_db_create(const char *dbtype, const char *dbname,
     if (db_plugins == NULL)
 	return NULL;
 
-    s = heim_string_create(dbtype);
+    if (dbtype == NULL)
+	dbtype = "";
+
+    /*
+     * Allow for dbtypes that are composed from pseudo-dbtypes chained
+     * to a real DB type with '+'.  For example a pseudo-dbtype might
+     * add locking, transactions, transcoding of values, ...
+     */
+    p = strchr(dbtype, '+');
+    if (p != NULL)
+	s = heim_string_create_with_bytes(dbtype, p - dbtype);
+    else
+	s = heim_string_create(dbtype);
     if (s == NULL)
-	return NULL; /* no *error here -- can't alloc */
+	return NULL;
 
     plug = heim_dict_get_value(db_plugins, s);
     heim_release(s);
-    if (plug == NULL)
-	return NULL; /* XXX set *error */
+    if (plug == NULL) {
+	if (error)
+	    *error = heim_error_create(ESRCH, "Heimdal DB plugin not found: %s",
+				       dbtype);
+	return NULL;
+    }
 
     db = _heim_alloc_object(&db_object, sizeof(*db));
     if (db == NULL)
-	return NULL; /* XXX set *error */
+	return NULL;
 
     db->in_transaction = 0;
     db->journal = NULL;
@@ -265,10 +333,16 @@ heim_db_create(const char *dbtype, const char *dbname,
 		      &db->db_data, error);
     if (ret) {
 	heim_release(db);
-	return NULL; /* XXX set *error if openf didn't set it */
+	if (error && *error == NULL)
+	    *error = heim_error_create(ENOENT,
+				       "Heimdal DB could not be opened: %s",
+				       dbname);
+	return NULL;
     }
 
     if (plug->clonef == NULL) {
+	/* XXX Check for ENOMEM here */
+	db->dbtype = heim_string_create(dbtype);
 	db->dbname = heim_string_create(dbname);
 	db->tblname = heim_string_create(tblname);
 	db->flags = flags;
@@ -304,7 +378,7 @@ heim_db_clone(heim_db_t db, heim_error_t *error)
 	return NULL; /* XXX set error */
 
     if (db->plug->clonef == NULL) {
-	return heim_db_create(heim_string_get_utf8(db->plug->name),
+	return heim_db_create(heim_string_get_utf8(db->dbtype),
 			      heim_string_get_utf8(db->dbname),
 			      heim_string_get_utf8(db->tblname),
 			      db->flags, error);
