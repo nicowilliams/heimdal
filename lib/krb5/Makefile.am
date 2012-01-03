@@ -142,6 +142,7 @@ dist_libkrb5_la_SOURCES =			\
 	crypto-rand.c				\
 	doxygen.c				\
 	data.c					\
+	db_plugin.c				\
 	db_plugin.h				\
 	deprecated.c				\
 	digest.c				\
