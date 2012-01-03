@@ -147,6 +147,11 @@ heim_error_get_code(heim_error_t error)
 heim_error_t
 heim_error_append(heim_error_t top, heim_error_t append)
 {
+    if (heim_get_tid(top) != HEIM_TID_ERROR) {
+	if (heim_get_tid(top) == heim_number_get_type_id())
+	    return top;
+	heim_abort("invalid heim_error_t");
+    }
     if (top->next)
 	heim_release(top->next);
     top->next = heim_retain(append);
