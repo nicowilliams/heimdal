@@ -18,6 +18,7 @@ HEIMDAL_BASE_1.0 {
 		heim_array_get_value;
 		heim_array_iterate_f;
 		heim_array_iterate_reverse_f;
+		heim_array_prepend_value;
 		heim_auto_release;
 		heim_auto_release_create;
 		heim_auto_release_drain;

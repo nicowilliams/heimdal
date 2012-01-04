@@ -124,6 +124,7 @@ heim_tid_t heim_array_get_type_id(void);
 typedef void (*heim_array_iterator_f_t)(heim_object_t, void *);
 
 int	heim_array_append_value(heim_array_t, heim_object_t);
+int	heim_array_prepend_value(heim_array_t, heim_object_t);
 void	heim_array_iterate_f(heim_array_t, void *, heim_array_iterator_f_t);
 void	heim_array_iterate_reverse_f(heim_array_t, void *, heim_array_iterator_f_t);
 #ifdef __BLOCKS__

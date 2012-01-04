@@ -42,6 +42,8 @@
 struct heim_array_data {
     size_t len;
     heim_object_t *val;
+    size_t allocated_len;
+    heim_object_t *allocated;
 };
 
 static void
@@ -51,7 +53,7 @@ array_dealloc(heim_object_t ptr)
     size_t n;
     for (n = 0; n < array->len; n++)
 	heim_release(array->val[n]);
-    free(array->val);
+    free(array->allocated);
 }
 
 struct heim_type_data array_object = {
@@ -79,6 +81,8 @@ heim_array_create(void)
     if (array == NULL)
 	return NULL;
 
+    array->allocated = NULL;
+    array->allocated_len = 0;
     array->val = NULL;
     array->len = 0;
 
@@ -110,12 +114,95 @@ int
 heim_array_append_value(heim_array_t array, heim_object_t object)
 {
     heim_object_t *ptr;
+    size_t leading = array->val - array->allocated; /* unused leading slots */
+    size_t trailing = array->allocated_len - array->len - leading;
+    size_t new_len;
 
-    ptr = realloc(array->val, (array->len + 1) * sizeof(array->val[0]));
+    if (trailing > 0) {
+	/* We have pre-allocated space; use it */
+	array->val[array->len++] = heim_retain(object);
+	return 0;
+    }
+
+    if (leading > (array->len + 1)) {
+	/*
+	 * We must have appending to, and deleting at index 0 from this
+	 * array a lot; don't want to grow forever!
+	 */
+	memmove(&array->allocated[0], &array->val[0],
+		array->len * sizeof(array->val[0]));
+	array->val = array->allocated;
+
+	/* We have pre-allocated space; use it */
+	array->val[array->len++] = heim_retain(object);
+	return 0;
+    }
+
+    /* Pre-allocate extra .5 times number of used slots */
+    new_len = leading + array->len + 1 + (array->len >> 1);
+    ptr = realloc(array->allocated, new_len * sizeof(array->val[0]));
     if (ptr == NULL)
 	return ENOMEM;
-    array->val = ptr;
+    array->allocated = ptr;
+    array->allocated_len = new_len;
+    array->val = &ptr[leading];
     array->val[array->len++] = heim_retain(object);
+
+    return 0;
+}
+
+/**
+ * Prepend object to array
+ *
+ * @param array array to add too
+ * @param object the object to add
+ *
+ * @return zero if added, errno otherwise
+ */
+
+int
+heim_array_prepend_value(heim_array_t array, heim_object_t object)
+{
+    heim_object_t *ptr;
+    size_t leading = array->val - array->allocated; /* unused leading slots */
+    size_t trailing = array->allocated_len - array->len - leading;
+    size_t new_len;
+
+    if (leading > 0) {
+	/* We have pre-allocated space; use it */
+	array->val--;
+	array->val[0] = heim_retain(object);
+	array->len++;
+	return 0;
+    }
+    if (trailing > (array->len + 1)) {
+	/*
+	 * We must have prepending to, and deleting at index
+	 * array->len - 1 from this array a lot; don't want to grow
+	 * forever!
+	 */
+	memmove(&array->allocated[array->len], &array->val[0],
+		array->len * sizeof(array->val[0]));
+	array->val = &array->allocated[array->len];
+
+	/* We have pre-allocated space; use it */
+	array->val--;
+	array->val[0] = heim_retain(object);
+	array->len++;
+	return 0;
+    }
+    /* Pre-allocate extra .5 times number of used slots */
+    leading = (array->len >> 1);
+    new_len = array->len + 1 + trailing + (array->len >> 1);
+    ptr = realloc(array->allocated, new_len * sizeof(array->val[0]));
+    if (ptr == NULL)
+	return ENOMEM;
+    memmove(&ptr[leading], &ptr[0], array->len * sizeof (array->val[0]));
+    array->allocated = ptr;
+    array->allocated_len = new_len;
+    array->val = &ptr[leading - 1];
+    array->val[0] = heim_retain(object);
+    array->len++;
 
     return 0;
 }
@@ -235,7 +322,13 @@ heim_array_delete_value(heim_array_t array, size_t idx)
 
     array->len--;
 
-    if (idx < array->len)
+    /*
+     * Deleting the first or last elements is cheap; all others require
+     * a memmove().
+     */
+    if (idx == 0)
+	array->val++;
+    else if (idx < array->len)
 	memmove(&array->val[idx], &array->val[idx + 1],
 		(array->len - idx) * sizeof(array->val[0]));
 

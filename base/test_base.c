@@ -543,6 +543,103 @@ test_db()
     return 0;
 }
 
+struct test_array_iter_ctx {
+    char buf[256];
+};
+
+static void test_array_iter(heim_object_t elt, void *arg)
+{
+    struct test_array_iter_ctx *iter_ctx = arg;
+
+    strcat(iter_ctx->buf, heim_string_get_utf8((heim_string_t)elt));
+}
+
+static int
+test_array()
+{
+    struct test_array_iter_ctx iter_ctx;
+    heim_string_t s1 = heim_string_create("abc");
+    heim_string_t s2 = heim_string_create("def");
+    heim_string_t s3 = heim_string_create("ghi");
+    heim_string_t s4 = heim_string_create("jkl");
+    heim_string_t s5 = heim_string_create("mno");
+    heim_string_t s6 = heim_string_create("pqr");
+    heim_array_t a = heim_array_create();
+
+    if (!s1 || !s2 || !s3 || !s4 || !s5 || !s6 || !a)
+	return ENOMEM;
+
+    heim_array_append_value(a, s4);
+    heim_array_append_value(a, s5);
+    heim_array_prepend_value(a, s3);
+    heim_array_prepend_value(a, s2);
+    heim_array_append_value(a, s6);
+    heim_array_prepend_value(a, s1);
+
+    iter_ctx.buf[0] = '\0';
+    heim_array_iterate_f(a, &iter_ctx, test_array_iter);
+    if (strcmp(iter_ctx.buf, "abcdefghijklmnopqr") != 0)
+	return 1;
+
+    iter_ctx.buf[0] = '\0';
+    heim_array_delete_value(a, 2);
+    heim_array_iterate_f(a, &iter_ctx, test_array_iter);
+    if (strcmp(iter_ctx.buf, "abcdefjklmnopqr") != 0)
+	return 1;
+
+    iter_ctx.buf[0] = '\0';
+    heim_array_delete_value(a, 2);
+    heim_array_iterate_f(a, &iter_ctx, test_array_iter);
+    if (strcmp(iter_ctx.buf, "abcdefmnopqr") != 0)
+	return 1;
+
+    iter_ctx.buf[0] = '\0';
+    heim_array_delete_value(a, 0);
+    heim_array_iterate_f(a, &iter_ctx, test_array_iter);
+    if (strcmp(iter_ctx.buf, "defmnopqr") != 0)
+	return 1;
+
+    iter_ctx.buf[0] = '\0';
+    heim_array_delete_value(a, 2);
+    heim_array_iterate_f(a, &iter_ctx, test_array_iter);
+    if (strcmp(iter_ctx.buf, "defmno") != 0)
+	return 1;
+
+    heim_array_prepend_value(a, s1);
+    iter_ctx.buf[0] = '\0';
+    heim_array_iterate_f(a, &iter_ctx, test_array_iter);
+    if (strcmp(iter_ctx.buf, "abcdefmno") != 0)
+	return 1;
+
+    heim_array_prepend_value(a, s2);
+    iter_ctx.buf[0] = '\0';
+    heim_array_iterate_f(a, &iter_ctx, test_array_iter);
+    if (strcmp(iter_ctx.buf, "defabcdefmno") != 0)
+	return 1;
+
+    heim_array_append_value(a, s3);
+    iter_ctx.buf[0] = '\0';
+    heim_array_iterate_f(a, &iter_ctx, test_array_iter);
+    if (strcmp(iter_ctx.buf, "defabcdefmnoghi") != 0)
+	return 1;
+
+    heim_array_append_value(a, s6);
+    iter_ctx.buf[0] = '\0';
+    heim_array_iterate_f(a, &iter_ctx, test_array_iter);
+    if (strcmp(iter_ctx.buf, "defabcdefmnoghipqr") != 0)
+	return 1;
+
+    heim_release(s1);
+    heim_release(s2);
+    heim_release(s3);
+    heim_release(s4);
+    heim_release(s5);
+    heim_release(s6);
+    heim_release(a);
+
+    return 0;
+}
+
 int
 main(int argc, char **argv)
 {
@@ -555,6 +652,7 @@ main(int argc, char **argv)
     res |= test_error();
     res |= test_json();
     res |= test_db();
+    res |= test_array();
 
     return res ? 1 : 0;
 }
