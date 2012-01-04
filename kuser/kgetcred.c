@@ -147,8 +147,6 @@ main(int argc, char **argv)
 	krb5_get_creds_opt_add_options(context, opt, KRB5_GC_FORWARDABLE);
     if (!transit_flag)
 	krb5_get_creds_opt_add_options(context, opt, KRB5_GC_NO_TRANSIT_CHECK);
-    if (canonicalize_flag)
-	krb5_get_creds_opt_add_options(context, opt, KRB5_GC_CANONICALIZE);
 
     if (delegation_cred_str) {
 	krb5_ccache id;
@@ -206,15 +204,24 @@ main(int argc, char **argv)
 			 (sname && *sname) ? sname : "<default>",
 			 (hname && *hname) ? hname : "<default>");
 	} else {
+	    int parse_flags = 0;
+
 	    if (argc != 1)
 		usage(1);
-	    ret = krb5_parse_name(context, argv[0], &server);
+
+	    if (canonicalize_flag)
+		parse_flags = KRB5_PRINCIPAL_PARSE_NO_REALM;
+	    ret = krb5_parse_name_flags(context, argv[0], parse_flags, &server);
 	    if (ret)
 		krb5_err (context, 1, ret, "krb5_parse_name %s", argv[0]);
 	    server->name.name_type = (NAME_TYPE)nametype;
 	}
     } else if (argc == 1) {
-	ret = krb5_parse_name(context, argv[0], &server);
+	int parse_flags = 0;
+
+	if (canonicalize_flag)
+	    parse_flags = KRB5_PRINCIPAL_PARSE_NO_REALM;
+	ret = krb5_parse_name_flags(context, argv[0], parse_flags, &server);
 	if (ret)
 	    krb5_err (context, 1, ret, "krb5_parse_name %s", argv[0]);
     } else {
