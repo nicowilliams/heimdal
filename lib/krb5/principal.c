@@ -1650,7 +1650,7 @@ _krb5_apply_name_canon_rule(krb5_context context, krb5_name_canon_rule rule,
 	krb5_const_principal in_princ, krb5_principal *out_princ,
 	krb5_name_canon_rule_options *rule_opts)
 {
-    krb5_error_code ret;
+    krb5_error_code ret = 0;
     unsigned int ndots = 0;
     char *realm = NULL;
     const char *sname = NULL;
@@ -1691,7 +1691,6 @@ _krb5_apply_name_canon_rule(krb5_context context, krb5_name_canon_rule rule,
 	    goto out;
     }
 
-    ret = 0;
     switch (rule->type) {
     case KRB5_NCRT_AS_IS:
 	if (rule->domain) {
