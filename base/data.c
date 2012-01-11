@@ -86,7 +86,7 @@ struct heim_type_data _heim_data_object = {
 };
 
 struct heim_type_data _heim_data_ref_object = {
-    HEIM_TID_DATA_REF,
+    HEIM_TID_DATA,
     "data-object",
     NULL,
     data_ref_dealloc,
@@ -144,18 +144,6 @@ heim_tid_t
 heim_data_get_type_id(void)
 {
     return HEIM_TID_DATA;
-}
-
-/**
- * Return the type ID of data reference objects
- *
- * @return type id of data reference objects
- */
-
-heim_tid_t
-heim_data_ref_get_type_id(void)
-{
-    return HEIM_TID_DATA_REF;
 }
 
 /**

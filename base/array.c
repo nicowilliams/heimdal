@@ -129,8 +129,8 @@ heim_array_append_value(heim_array_t array, heim_object_t object)
 	 * We must have appending to, and deleting at index 0 from this
 	 * array a lot; don't want to grow forever!
 	 */
-	memmove(&array->allocated[0], &array->val[0],
-		array->len * sizeof(array->val[0]));
+	(void) memmove(&array->allocated[0], &array->val[0],
+		       array->len * sizeof(array->val[0]));
 	array->val = array->allocated;
 
 	/* We have pre-allocated space; use it */
@@ -151,16 +151,12 @@ heim_array_append_value(heim_array_t array, heim_object_t object)
     return 0;
 }
 
-/**
- * Prepend object to array
- *
- * @param array array to add too
- * @param object the object to add
- *
- * @return zero if added, errno otherwise
+/*
+ * Internal function to insert at index 0, taking care to optimize the
+ * case where we're always inserting at index 0, particularly the case
+ * where we insert at index 0 and delete from the right end.
  */
-
-int
+static int
 heim_array_prepend_value(heim_array_t array, heim_object_t object)
 {
     heim_object_t *ptr;
@@ -181,8 +177,8 @@ heim_array_prepend_value(heim_array_t array, heim_object_t object)
 	 * array->len - 1 from this array a lot; don't want to grow
 	 * forever!
 	 */
-	memmove(&array->allocated[array->len], &array->val[0],
-		array->len * sizeof(array->val[0]));
+	(void) memmove(&array->allocated[array->len], &array->val[0],
+		       array->len * sizeof(array->val[0]));
 	array->val = &array->allocated[array->len];
 
 	/* We have pre-allocated space; use it */
@@ -197,12 +193,54 @@ heim_array_prepend_value(heim_array_t array, heim_object_t object)
     ptr = realloc(array->allocated, new_len * sizeof(array->val[0]));
     if (ptr == NULL)
 	return ENOMEM;
-    memmove(&ptr[leading], &ptr[0], array->len * sizeof (array->val[0]));
+    (void) memmove(&ptr[leading], &ptr[0], array->len * sizeof (array->val[0]));
     array->allocated = ptr;
     array->allocated_len = new_len;
     array->val = &ptr[leading - 1];
     array->val[0] = heim_retain(object);
     array->len++;
+
+    return 0;
+}
+
+/**
+ * Insert an object at a given index in an array
+ *
+ * @param array array to add too
+ * @param idx index where to add element (-1 == append, -2 next to last, ...)
+ * @param object the object to add
+ *
+ * @return zero if added, errno otherwise
+ */
+
+int
+heim_array_insert_value(heim_array_t array, ssize_t idx, heim_object_t object)
+{
+    size_t abs_idx;
+    int ret;
+
+    abs_idx = idx < 0 ? (array->len + idx + 1) : idx; /* normalize index */
+
+    if (abs_idx == 0)
+	return heim_array_prepend_value(array, object);
+    else if (abs_idx > array->len)
+	heim_abort("index too large");
+
+    /*
+     * We cheat: append this element then rotate elements around so we
+     * have this new element at the desired location, unless we're truly
+     * appending the new element.
+     */
+    ret = heim_array_append_value(array, object);
+    if (ret != 0 || abs_idx == (array->len - 1))
+	return ret;
+    /*
+     * Shift the last object to [abs_idx] then shift the objects from
+     * [abs_idx] on to the right by one.
+     */
+    (void) memmove(&array->val[abs_idx + 1], &array->val[abs_idx],
+	           (array->len - abs_idx - 1) * sizeof(array->val[0]));
+    array->val[abs_idx] = object;
 
     return 0;
 }
@@ -288,7 +326,7 @@ heim_array_get_length(heim_array_t array)
 }
 
 /**
- * Copy value of array
+ * Get value of element at array index
  *
  * @param array array copy object from
  * @param idx index of object, 0 based, must be smaller then
@@ -303,6 +341,25 @@ heim_array_get_value(heim_array_t array, size_t idx)
     if (idx >= array->len)
 	heim_abort("index too large");
     return array->val[idx];
+}
+
+/**
+ * Set value at array index
+ *
+ * @param array array copy object from
+ * @param idx index of object, 0 based, must be smaller then
+ *        heim_array_get_length()
+ * @param value value to set 
+ *
+ */
+
+void
+heim_array_set_value(heim_array_t array, size_t idx, heim_object_t value)
+{
+    if (idx >= array->len)
+	heim_abort("index too large");
+    heim_release(array->val[idx]);
+    array->val[idx] = heim_retain(value);
 }
 
 /**
@@ -323,14 +380,20 @@ heim_array_delete_value(heim_array_t array, size_t idx)
     array->len--;
 
     /*
-     * Deleting the first or last elements is cheap; all others require
-     * a memmove().
+     * Deleting the first or last elements is cheap, as we leave
+     * allocated space for opportunistic reuse later; no realloc(), no
+     * memmove().  All others require a memmove().
+     *
+     * If we ever need to optimize deletion of non-last/ non-first
+     * element we can use a tagged object type to signify "deleted
+     * value" so we can leave holes in the array, avoid memmove()s on
+     * delete, and opportunistically re-use those holes on insert.
      */
     if (idx == 0)
 	array->val++;
     else if (idx < array->len)
-	memmove(&array->val[idx], &array->val[idx + 1],
-		(array->len - idx) * sizeof(array->val[0]));
+	(void) memmove(&array->val[idx], &array->val[idx + 1],
+		       (array->len - idx) * sizeof(array->val[0]));
 
     heim_release(obj);
 }

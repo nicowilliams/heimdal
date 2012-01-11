@@ -235,8 +235,7 @@ typedef struct dict_db {
 
 static int
 dict_db_open(void *plug, const char *dbtype, const char *dbname,
-	     const char *tblname, heim_db_flags_t flags, void **db,
-	     heim_error_t *error)
+	     heim_dict_t options, void **db, heim_error_t *error)
 {
     dict_db_t dictdb;
 
@@ -245,8 +244,6 @@ dict_db_open(void *plug, const char *dbtype, const char *dbname,
     if (dbtype && *dbtype && strcmp(dbtype, "dictdb"))
 	return EINVAL;
     if (dbname && *dbname && strcmp(dbname, "MEMORY"))
-	return EINVAL;
-    if (tblname && *tblname && strcmp(tblname, "main"))
 	return EINVAL;
 
     dictdb = heim_alloc(sizeof (*dictdb), "dict_db", NULL);
@@ -366,8 +363,7 @@ test_db_iter(heim_data_t k, heim_data_t v, void *arg)
 {
     int *ret = arg;
 
-    heim_assert(heim_get_tid(k) == heim_data_get_type_id() ||
-		heim_get_tid(k) == heim_data_ref_get_type_id(), "...");
+    heim_assert(heim_get_tid(k) == heim_data_get_type_id(), "...");
 
     if (heim_data_get_length(k) == strlen("msg") && strncmp(heim_data_get_ptr(k), "msg", strlen("msg")) == 0 &&
 	heim_data_get_length(v) == strlen("abc") && strncmp(heim_data_get_ptr(v), "abc", strlen("abc")) == 0)
@@ -397,19 +393,15 @@ test_db()
     if (ret)
 	return 1;
 
-    db = heim_db_create("dictdb", "foo", "main", 0, NULL);
+    db = heim_db_create("dictdb", "foo", NULL, NULL);
     if (db)
 	return 1;
 
-    db = heim_db_create("dictdb", "MEMORY", "bar", 0, NULL);
+    db = heim_db_create("foobar", "MEMORY", NULL, NULL);
     if (db)
 	return 1;
 
-    db = heim_db_create("foobar", "MEMORY", "main", 0, NULL);
-    if (db)
-	return 1;
-
-    db = heim_db_create("dictdb", "MEMORY", "main", 0, NULL);
+    db = heim_db_create("dictdb", "MEMORY", NULL, NULL);
     if (!db)
 	return ret;
 
@@ -571,10 +563,10 @@ test_array()
 
     heim_array_append_value(a, s4);
     heim_array_append_value(a, s5);
-    heim_array_prepend_value(a, s3);
-    heim_array_prepend_value(a, s2);
+    heim_array_insert_value(a, 0, s3);
+    heim_array_insert_value(a, 0, s2);
     heim_array_append_value(a, s6);
-    heim_array_prepend_value(a, s1);
+    heim_array_insert_value(a, 0, s1);
 
     iter_ctx.buf[0] = '\0';
     heim_array_iterate_f(a, &iter_ctx, test_array_iter);
@@ -605,13 +597,13 @@ test_array()
     if (strcmp(iter_ctx.buf, "defmno") != 0)
 	return 1;
 
-    heim_array_prepend_value(a, s1);
+    heim_array_insert_value(a, 0, s1);
     iter_ctx.buf[0] = '\0';
     heim_array_iterate_f(a, &iter_ctx, test_array_iter);
     if (strcmp(iter_ctx.buf, "abcdefmno") != 0)
 	return 1;
 
-    heim_array_prepend_value(a, s2);
+    heim_array_insert_value(a, 0, s2);
     iter_ctx.buf[0] = '\0';
     heim_array_iterate_f(a, &iter_ctx, test_array_iter);
     if (strcmp(iter_ctx.buf, "defabcdefmno") != 0)

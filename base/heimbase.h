@@ -124,7 +124,7 @@ heim_tid_t heim_array_get_type_id(void);
 typedef void (*heim_array_iterator_f_t)(heim_object_t, void *);
 
 int	heim_array_append_value(heim_array_t, heim_object_t);
-int	heim_array_prepend_value(heim_array_t, heim_object_t);
+int	heim_array_insert_value(heim_array_t, ssize_t idx, heim_object_t);
 void	heim_array_iterate_f(heim_array_t, void *, heim_array_iterator_f_t);
 void	heim_array_iterate_reverse_f(heim_array_t, void *, heim_array_iterator_f_t);
 #ifdef __BLOCKS__
@@ -134,6 +134,7 @@ void	heim_array_iterate_reverse(heim_array_t, void (^)(heim_object_t));
 size_t	heim_array_get_length(heim_array_t);
 heim_object_t
 	heim_array_get_value(heim_array_t, size_t);
+void	heim_array_set_value(heim_array_t, size_t, heim_object_t);
 void	heim_array_delete_value(heim_array_t, size_t);
 #ifdef __BLOCKS__
 void	heim_array_filter(heim_array_t, int (^)(heim_object_t));
@@ -210,7 +211,6 @@ typedef void (*heim_data_free_f_t)(void *);
 heim_data_t	heim_data_create(const void *, size_t);
 heim_data_t	heim_data_ref_create(const void *, size_t, heim_data_free_f_t);
 heim_tid_t	heim_data_get_type_id(void);
-heim_tid_t	heim_data_ref_get_type_id(void);
 const heim_octet_string *
 		heim_data_get_data(heim_data_t);
 const void *	heim_data_get_ptr(heim_data_t);
@@ -222,13 +222,6 @@ size_t		heim_data_get_length(heim_data_t);
 
 typedef struct heim_db_data *heim_db_t;
 
-typedef enum heim_db_flags {
-	HEIM_DB_CREATE = 1,
-	HEIM_DB_EXCL   = 2,
-	HEIM_DB_TRUNC  = 4,
-	HEIM_DB_RDONLY = 8
-} heim_db_flags_t;
-
 typedef enum heim_db_tx_flags {
 	HEIM_DB_TX_ATOMICITY    = 1,
 	HEIM_DB_TX_CONSISTENCY  = 2,
@@ -239,8 +232,7 @@ typedef enum heim_db_tx_flags {
 typedef void (*heim_db_iterator_f_t)(heim_data_t, heim_data_t, void *);
 
 typedef int (*heim_db_plug_open_f_t)(void *, const char *, const char *,
-				     const char *, heim_db_flags_t,
-				     void **, heim_error_t *);
+				     heim_dict_t, void **, heim_error_t *);
 typedef int (*heim_db_plug_clone_f_t)(void *, void **, heim_error_t *);
 typedef int (*heim_db_plug_close_f_t)(void *, heim_error_t *);
 typedef int (*heim_db_plug_lock_f_t)(void *, heim_error_t *);
@@ -282,8 +274,7 @@ int heim_db_register(const char *dbtype,
 		     struct heim_db_type *plugin);
 
 heim_db_t heim_db_create(const char *dbtype, const char *dbname,
-		         const char *tblname, heim_db_flags_t flags,
-			 heim_error_t *error);
+		         heim_dict_t options, heim_error_t *error);
 heim_db_t heim_db_clone(heim_db_t, heim_error_t *);
 int heim_db_begin(heim_db_t, heim_db_tx_flags_t, heim_error_t *);
 int heim_db_commit(heim_db_t, heim_error_t *);

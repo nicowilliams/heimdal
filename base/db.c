@@ -87,8 +87,7 @@ struct heim_db_data {
     db_plugin           plug;
     heim_string_t       dbtype;
     heim_string_t       dbname;
-    heim_string_t       tblname;
-    heim_db_flags_t     flags;
+    heim_dict_t         options;
     void                *db_data;
     heim_error_t	error;
     int                 ret;
@@ -251,7 +250,7 @@ db_dealloc(void *arg)
     if (db->db_data)
 	(void) db->plug->closef(db->db_data, NULL);
     heim_release(db->dbname);
-    heim_release(db->tblname);
+    heim_release(db->options);
     heim_release(db->journal);
     heim_release(db->error);
     heim_release(db->plug);
@@ -260,11 +259,16 @@ db_dealloc(void *arg)
 struct dbtype_iter {
     heim_db_t           db;
     const char          *dbname;
-    const char          *tblname;
-    heim_db_flags_t	flags;
+    heim_dict_t         options;
     heim_error_t        *error;
 };
 
+/*
+ * Helper to create a DB handle with the first registered DB type that
+ * can open the given DB.  This is useful when the app doesn't know the
+ * DB type a priori.  This assumes that DB types can "taste" DBs, either
+ * from the filename extension or from the actual file contents.
+ */
 static void
 dbtype_iter2create_f(heim_object_t dbtype, heim_object_t junk, void *arg)
 {
@@ -273,8 +277,8 @@ dbtype_iter2create_f(heim_object_t dbtype, heim_object_t junk, void *arg)
     if (iter_ctx->db != NULL)
 	return;
     iter_ctx->db = heim_db_create(heim_string_get_utf8(dbtype),
-				  iter_ctx->dbname, iter_ctx->tblname,
-				  iter_ctx->flags, iter_ctx->error);
+				  iter_ctx->dbname, iter_ctx->options,
+				  iter_ctx->error);
 }
 
 /**
@@ -285,16 +289,18 @@ dbtype_iter2create_f(heim_object_t dbtype, heim_object_t junk, void *arg)
  * example: "transaction+bdb" might be a Berkeley DB with a layer above
  * that provides transactions.
  *
- * The flags may be the logical-or of zero, one, or more of the following:
- *  - HEIM_DB_CREATE
- *  - HEIM_DB_EXCL
- *  - HEIM_DB_TRUNC
- *  - HEIM_DB_RDONLY
+ * Options may be provided via a dict (an associative array).  Existing
+ * options include:
+ *
+ *  - "tblname", with a heim_string_t value naming an attribute/value table
+ *  - "create", with any value
+ *  - "exclusive", with any value
+ *  - "truncate", with any value
+ *  - "read-only", with any value
  *
  * @param dbtype  Name of DB type
  * @param dbname  Name of DB (likely a file path)
- * @param tblname Name of key/value table (NULL or "main" for single-table DBs)
- * @param flags   Flags
+ * @param options Options dict
  * @param db      Output open DB handle
  * @param error   Output error  object
  *
@@ -304,8 +310,7 @@ dbtype_iter2create_f(heim_object_t dbtype, heim_object_t junk, void *arg)
  */
 heim_db_t
 heim_db_create(const char *dbtype, const char *dbname,
-	       const char *tblname, heim_db_flags_t flags,
-	       heim_error_t *error)
+	       heim_dict_t options, heim_error_t *error)
 {
     heim_string_t s;
     char *p;
@@ -318,7 +323,7 @@ heim_db_create(const char *dbtype, const char *dbname,
 
     if (dbtype == NULL || *dbtype == '\0') {
 	/* Try all dbtypes */
-	struct dbtype_iter iter_ctx = { NULL, dbname, tblname, flags, error};
+	struct dbtype_iter iter_ctx = { NULL, dbname, options, error};
 	heim_dict_iterate_f(db_plugins, &iter_ctx, dbtype_iter2create_f);
 
 	return iter_ctx.db;
@@ -354,8 +359,7 @@ heim_db_create(const char *dbtype, const char *dbname,
     db->journal = NULL;
     db->plug = plug;
 
-    ret = plug->openf(plug->data, dbtype, dbname, tblname, flags,
-		      &db->db_data, error);
+    ret = plug->openf(plug->data, dbtype, dbname, options, &db->db_data, error);
     if (ret) {
 	heim_release(db);
 	if (error && *error == NULL)
@@ -368,15 +372,14 @@ heim_db_create(const char *dbtype, const char *dbname,
     if (plug->clonef == NULL) {
 	db->dbtype = heim_string_create(dbtype);
 	db->dbname = heim_string_create(dbname);
-	db->tblname = heim_string_create(tblname);
+	db->options = heim_retain(options);
 
-	if (!db->dbtype || ! db->dbname || !db->tblname) {
+	if (!db->dbtype || ! db->dbname) {
 	    heim_release(db);
 	    if (error)
 		*error = heim_error_enomem();
 	    return NULL;
 	}
-	db->flags = flags;
     }
 
     return db;
@@ -411,8 +414,7 @@ heim_db_clone(heim_db_t db, heim_error_t *error)
     if (db->plug->clonef == NULL) {
 	return heim_db_create(heim_string_get_utf8(db->dbtype),
 			      heim_string_get_utf8(db->dbname),
-			      heim_string_get_utf8(db->tblname),
-			      db->flags, error);
+			      db->options, error);
     }
 
     clone = _heim_alloc_object(&db_object, sizeof(*clone));
