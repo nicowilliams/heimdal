@@ -99,6 +99,8 @@ libroken_la_OBJS =			\
 	$(OBJ)\strsep.obj		\
 	$(OBJ)\strsep_copy.obj		\
 	$(OBJ)\strtok_r.obj		\
+	$(OBJ)\strtoll.obj		\
+	$(OBJ)\strtoull.obj		\
 	$(OBJ)\syslogc.obj		\
 	$(OBJ)\timegm.obj		\
 	$(OBJ)\timeval.obj		\
