@@ -53,7 +53,7 @@
  * alphabets and digits are each contiguous.
  */
 long long
-rk_strtoll(const char * __restrict nptr, char ** __restrict endptr, int base)
+strtoll(const char * __restrict nptr, char ** __restrict endptr, int base)
 {
     const char *s;
     unsigned long long acc;

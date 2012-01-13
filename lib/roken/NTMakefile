@@ -164,6 +164,10 @@ INCFILES = 			\
 	$(INCDIR)\vis.h		\
 	$(INCDIR)\xdbm.h
 
+#!ifndef HAVE_STDINT_H
+#INCFILES += $(INCDIR)\stdint.h
+#!endif
+
 clean::
 	-$(RM) $(XHEADERS)
 
