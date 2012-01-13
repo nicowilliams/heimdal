@@ -1046,7 +1046,7 @@ strtoll(const char * __restrict nptr, char ** __restrict endptr, int base);
 #define strtoull rk_strtoull
 #endif
 ROKEN_LIB_FUNCTION unsigned long long ROKEN_LIB_CALL
-strtoll(const char * __restrict nptr, char ** __restrict endptr, int base);
+strtoull(const char * __restrict nptr, char ** __restrict endptr, int base);
 #endif
 
 #if !defined(HAVE_STRSVIS) || defined(NEED_STRSVIS_PROTO)
