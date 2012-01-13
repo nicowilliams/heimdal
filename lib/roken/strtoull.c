@@ -52,7 +52,7 @@
  * Assumes that the upper and lower case
  * alphabets and digits are each contiguous.
  */
-unsigned long long
+ROKEN_LIB_FUNCTION unsigned long long ROKEN_LIB_CALL
 strtoull(const char * __restrict nptr, char ** __restrict endptr, int base)
 {
     const char *s;
