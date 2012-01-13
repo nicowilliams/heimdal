@@ -52,7 +52,7 @@
  * Assumes that the upper and lower case
  * alphabets and digits are each contiguous.
  */
-long long
+ROKEN_LIB_FUNCTION long long ROKEN_LIB_CALL
 strtoll(const char * __restrict nptr, char ** __restrict endptr, int base)
 {
     const char *s;
