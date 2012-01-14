@@ -37,6 +37,9 @@
 #include <unistd.h>
 #endif
 #include <fcntl.h>
+#ifdef HAVE_IO_H
+#include <io.h>
+#endif
 #include <ctype.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -149,8 +152,9 @@ bsearch_common(const char *buf, size_t sz, const char *key,
 {
     const char *linep;
     size_t key_start, key_len; /* key string in buf */
-    size_t val_start, val_len; /* value string in buf */
-    int key_cmp;
+    size_t val_start = 0; /* value string in buf */
+    size_t val_len;
+    int key_cmp = 0;
     size_t k;
     size_t l;    /* left side of buffer for binary search */
     size_t r;    /* right side of buffer for binary search */
@@ -208,8 +212,7 @@ bsearch_common(const char *buf, size_t sz, const char *key,
 		key_len = k - i;
 		k++;
 	    }
-	    if (k < rmax)
-		val_start = k;
+	    val_start = k;
 	    /* Find end of value */
 	    for (; k < rmax && buf[k] != '\0'; k++) {
 		if (buf[k] == '\r' || buf[k] == '\n') {
@@ -346,7 +349,7 @@ int
 __bsearch_file_open(const char *fname, size_t max_sz, size_t page_sz,
 		    bsearch_file_handle *bfh, size_t *reads)
 {
-    bsearch_file_handle new_bfh;
+    bsearch_file_handle new_bfh = NULL;
     struct stat st;
     size_t i;
     int fd;
