@@ -42,6 +42,13 @@ struct twojson {
     void (*out)(void *, const char *);
 };
 
+struct strbuf {
+    char *str;
+    size_t len;
+    size_t alloced;
+    int	enomem;
+};
+
 static int
 base2json(heim_object_t, struct twojson *);
 
@@ -458,4 +465,66 @@ void
 heim_show(heim_object_t obj)
 {
     heim_base2json(obj, stderr, show_printf);
+}
+
+static void
+strbuf_printf(void *ctx, const char *str)
+{
+    struct strbuf *strbuf = ctx;
+    size_t len;
+
+    if (strbuf->enomem)
+	return;
+
+    len = strlen(str);
+    if ((len + 1) > (strbuf->alloced - strbuf->len)) {
+	size_t new_len = strbuf->alloced + (strbuf->alloced >> 1) + len + 1;
+	char *s;
+
+	s = realloc(strbuf->str, new_len);
+	if (s == NULL) {
+	    strbuf->enomem = 1;
+	    return;
+	}
+	strbuf->str = s;
+	strbuf->alloced = new_len;
+    }
+    (void) strcpy(strbuf->str + strbuf->len, str);
+}
+
+#define STRBUF_INIT_SZ 64
+
+heim_string_t
+heim_serialize(heim_object_t obj, heim_error_t *error)
+{
+    heim_string_t str;
+    struct strbuf strbuf;
+
+    if (error)
+	*error = NULL;
+
+    memset(&strbuf, 0, sizeof (strbuf));
+    strbuf.str = malloc(STRBUF_INIT_SZ);
+    if (strbuf.str == NULL) {
+	if (error)
+	    *error = heim_error_enomem();
+	return NULL;
+    }
+    strbuf.alloced = STRBUF_INIT_SZ;
+    *strbuf.str = '\0';
+
+    heim_base2json(obj, &strbuf, strbuf_printf);
+    if (strbuf.enomem) {
+	if (error)
+	    *error = heim_error_enomem();
+	free(strbuf.str);
+	return NULL;
+    }
+    str = heim_string_ref_create(strbuf.str, free);
+    if (str == NULL) {
+	if (error)
+	    *error = heim_error_enomem();
+	free(strbuf.str);
+    }
+    return str;
 }

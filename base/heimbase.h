@@ -166,9 +166,13 @@ void	heim_dict_delete_key(heim_dict_t, heim_object_t);
  */
 
 typedef struct heim_string_data *heim_string_t;
+typedef void (*heim_string_free_f_t)(void *);
 
 heim_string_t heim_string_create(const char *);
+heim_string_t heim_string_ref_create(const char *, heim_string_free_f_t);
 heim_string_t heim_string_create_with_bytes(const void *, size_t);
+heim_string_t heim_string_ref_create_with_bytes(const void *, size_t,
+						heim_string_free_f_t);
 heim_tid_t heim_string_get_type_id(void);
 const char * heim_string_get_utf8(heim_string_t);
 
@@ -318,6 +322,7 @@ void heim_auto_release(heim_object_t);
  */
 heim_object_t heim_json_create(const char *, heim_error_t *);
 heim_object_t heim_json_create_with_bytes(const void *, size_t, heim_error_t *);
+heim_string_t heim_serialize(heim_object_t, heim_error_t *);
 
 
 /*

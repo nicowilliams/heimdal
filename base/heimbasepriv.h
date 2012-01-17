@@ -84,6 +84,9 @@ _heim_create_type(const char *name,
 heim_object_t
 _heim_alloc_object(heim_type_t type, size_t size);
 
+void *
+_heim_get_isaextra(heim_object_t o, size_t idx);
+
 heim_tid_t
 _heim_type_get_tid(heim_type_t type);
 

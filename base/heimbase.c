@@ -310,6 +310,18 @@ _heim_alloc_object(heim_type_t type, size_t size)
     return BASE2PTR(p);
 }
 
+void *
+_heim_get_isaextra(heim_object_t ptr, size_t idx)
+{
+    struct heim_base *p = (struct heim_base *)PTR2BASE(ptr);
+
+    heim_assert(ptr != NULL, "internal error");
+    if (p->isa == &memory_object)
+	return NULL;
+    heim_assert(idx < 3, "invalid private heim_base extra data index");
+    return &p->isaextra[idx];
+}
+
 heim_tid_t
 _heim_type_get_tid(heim_type_t type)
 {
