@@ -214,33 +214,31 @@ heim_array_prepend_value(heim_array_t array, heim_object_t object)
  */
 
 int
-heim_array_insert_value(heim_array_t array, ssize_t idx, heim_object_t object)
+heim_array_insert_value(heim_array_t array, size_t idx, heim_object_t object)
 {
-    size_t abs_idx;
     int ret;
 
-    abs_idx = idx < 0 ? (array->len + idx + 1) : idx; /* normalize index */
-
-    if (abs_idx == 0)
+    if (idx == 0)
 	return heim_array_prepend_value(array, object);
-    else if (abs_idx > array->len)
+    else if (idx > array->len)
 	heim_abort("index too large");
 
     /*
      * We cheat: append this element then rotate elements around so we
      * have this new element at the desired location, unless we're truly
-     * appending the new element.
+     * appending the new element.  This means reusing array growth in
+     * heim_array_append_value() instead of duplicating that here.
      */
     ret = heim_array_append_value(array, object);
-    if (ret != 0 || abs_idx == (array->len - 1))
+    if (ret != 0 || idx == (array->len - 1))
 	return ret;
     /*
-     * Shift the last object to [abs_idx] then shift the objects from
-     * [abs_idx] on to the right by one.
+     * Shift to the right by one all the elements after idx, then set
+     * [idx] to the new object.
      */
-    (void) memmove(&array->val[abs_idx + 1], &array->val[abs_idx],
-	           (array->len - abs_idx - 1) * sizeof(array->val[0]));
-    array->val[abs_idx] = object;
+    (void) memmove(&array->val[idx + 1], &array->val[idx],
+	           (array->len - idx - 1) * sizeof(array->val[0]));
+    array->val[idx] = object;
 
     return 0;
 }
