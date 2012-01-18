@@ -377,7 +377,8 @@ test_db_iter(heim_data_t k, heim_data_t v, void *arg)
 
 static struct heim_db_type dbt = {
     1, dict_db_open, NULL, dict_db_close,
-    dict_db_lock, dict_db_unlock, NULL, NULL, NULL,
+    dict_db_lock, NULL, dict_db_unlock, NULL, NULL, NULL,
+    NULL, NULL, NULL,
     dict_db_get_value, dict_db_set_value,
     dict_db_del_key, dict_db_iter
 };
@@ -444,7 +445,7 @@ test_db()
     ret = 3;
     heim_db_iterate_f(db, &ret, test_db_iter, NULL);
 
-    ret = heim_db_begin(db, 0, NULL);
+    ret = heim_db_begin(db, NULL);
     if (ret)
 	return ret;
 
@@ -452,7 +453,7 @@ test_db()
     if (ret)
 	return ret;
 
-    ret = heim_db_begin(db, 0, NULL);
+    ret = heim_db_begin(db, NULL);
     if (ret)
 	return ret;
 
@@ -460,7 +461,7 @@ test_db()
     if (ret)
 	return ret;
 
-    ret = heim_db_begin(db, 0, NULL);
+    ret = heim_db_begin(db, NULL);
     if (ret)
 	return ret;
 
@@ -484,7 +485,7 @@ test_db()
     if (heim_cmp(v, v3))
 	return 1;
 
-    ret = heim_db_begin(db, 0, NULL);
+    ret = heim_db_begin(db, NULL);
     if (ret)
 	return ret;
 
@@ -508,7 +509,7 @@ test_db()
     if (heim_cmp(v, v1))
 	return 1;
 
-    ret = heim_db_begin(db, 0, NULL);
+    ret = heim_db_begin(db, NULL);
     if (ret)
 	return ret;
 
