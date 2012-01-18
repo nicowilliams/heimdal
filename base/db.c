@@ -71,9 +71,10 @@ typedef struct db_plugin {
     heim_db_plug_open_f_t       openf;
     heim_db_plug_clone_f_t      clonef;
     heim_db_plug_close_f_t      closef;
-    heim_db_plug_lock_f_t       lockf;
+    heim_db_plug_rwlock_f_t     rwlockf;
+    heim_db_plug_rolock_f_t     rolockf;
     heim_db_plug_unlock_f_t     unlockf;
-    heim_db_plug_unlock_f_t     syncf;
+    heim_db_plug_sync_f_t       syncf;
     heim_db_plug_rdjournal_f_t  rdjournalf;
     heim_db_plug_wrjournal_f_t  wrjournalf;
     heim_db_plug_begin_f_t      beginf;
@@ -92,11 +93,11 @@ struct heim_db_data {
     heim_string_t       dbname;
     heim_dict_t         options;
     void                *db_data;
-    heim_error_t	error;
+    heim_error_t        error;
     int                 ret;
-    int                 in_transaction;
-    int			do_sync:1;
-    int			lock4reading:1;
+    unsigned int        in_transaction:1;
+    unsigned int        do_sync:1;
+    int			ro:1;
     heim_dict_t         set_keys;
     heim_dict_t         del_keys;
 };
@@ -127,6 +128,18 @@ plugin_dealloc(void *arg)
  * @param data   Private data argument to the dbtype's openf method
  * @param plugin Structure with DB type methods (function pointers)
  *
+ * Backends that provide begin/commit/rollback methods must provide ACID
+ * semantics.
+ *
+ * The registered DB type will have ACID semantics for backends that do
+ * not provide begin/commit/rollback methods but do provide
+ * rwlock/unlock and rdjournal/wrjournal methods (using a replay log
+ * journalling scheme).
+ *
+ * If the registered DB type does not natively provide read vs. write
+ * transaction isolation but does provide an rolock method then the DB
+ * will provide read/write transaction isolation.
+ *
  * @return ENOMEM on failure, else 0.
  *
  * @addtogroup heimbase
@@ -143,7 +156,8 @@ heim_db_register(const char *dbtype,
 
     if ((plugin->beginf != NULL && plugin->commitf == NULL) ||
 	(plugin->beginf != NULL && plugin->rollbackf == NULL) ||
-	(plugin->lockf != NULL && plugin->unlockf == NULL) ||
+	(plugin->rwlockf != NULL && plugin->unlockf == NULL) ||
+	(plugin->rolockf != NULL && plugin->unlockf == NULL) ||
 	(plugin->rdjournalf != NULL && plugin->wrjournalf == NULL) ||
 	plugin->getf == NULL)
 	heim_abort("Invalid DB plugin; make sure methods are paired");
@@ -178,7 +192,8 @@ heim_db_register(const char *dbtype,
     plug->openf = plugin->openf;
     plug->clonef = plugin->clonef;
     plug->closef = plugin->closef;
-    plug->lockf = plugin->lockf;
+    plug->rwlockf = plugin->rwlockf;
+    plug->rolockf = plugin->rolockf;
     plug->unlockf = plugin->unlockf;
     plug->syncf = plugin->syncf;
     plug->rdjournalf = plugin->rdjournalf;
@@ -257,7 +272,6 @@ dbtype_iter2create_f(heim_object_t dbtype, heim_object_t junk, void *arg)
  *  - "truncate", with any value (truncate the DB)
  *  - "read-only", with any value (disallow writes)
  *  - "sync", with any value (make transactions durable)
- *  - "isolate", with any value (isolate read and write transactions)
  *
  * @param dbtype  Name of DB type
  * @param dbname  Name of DB (likely a file path)
@@ -351,10 +365,12 @@ heim_db_create(const char *dbtype, const char *dbname,
 	}
     }
 
-    v = heim_dict_get_value(options, "sync");
-    if (v != NULL) {
-	heim_release(v);
-	db->do_sync = 1;
+    if (options != NULL) {
+	v = heim_dict_get_value(options, "sync");
+	if (v != NULL) {
+	    heim_release(v);
+	    db->do_sync = 1;
+	}
     }
 
     return db;
@@ -439,11 +455,11 @@ heim_db_begin(heim_db_t db, heim_error_t *error)
     } else {
 	/* Try to emulate transactions */
 
-	if (db->plug->lockf == NULL)
+	if (db->plug->rwlockf == NULL)
 	    return EINVAL; /* can't lock? -> no transactions */
 
 	/* Assume unlock provides sync/durability */
-	ret = db->plug->lockf(db->db_data, error);
+	ret = db->plug->rwlockf(db->db_data, error);
 
 	ret = db_replay_log(db, error);
 	if (ret) {
@@ -484,7 +500,7 @@ heim_db_commit(heim_db_t db, heim_error_t *error)
 	return EINVAL;
     if (!db->in_transaction)
 	return 0;
-    if (db->plug->commitf == NULL && db->plug->lockf == NULL)
+    if (db->plug->commitf == NULL && db->plug->rwlockf == NULL)
 	return EINVAL;
 
     if (db->plug->commitf != NULL) {
@@ -579,6 +595,7 @@ heim_db_rollback(heim_db_t db, heim_error_t *error)
     heim_release(db->del_keys);
     db->set_keys = NULL;
     db->del_keys = NULL;
+    db->in_transaction = 0;
 
     return ret;
 }
@@ -612,21 +629,36 @@ heim_data_t
 heim_db_get_value(heim_db_t db, heim_data_t key, heim_error_t *error)
 {
     heim_object_t v;
+    heim_data_t result;
+    int ret;
+
     if (heim_get_tid(db) != HEIM_TID_DB)
 	return NULL;
 
     if (error != NULL)
 	*error = NULL;
+
     if (db->in_transaction) {
 	v = heim_dict_get_value(db->del_keys, key);
 	if (v != NULL)
 	    return NULL;
-	/* This can't be NULL, but could be an empty string */
-	v = heim_dict_get_value(db->set_keys, key);
+	v = heim_dict_get_value(db->set_keys, key); /* can't be NULL */
 	if (v != NULL)
+	    return v;
+    }
+
+    if (!db->in_transaction && db->plug->rolockf != NULL) {
+	ret = db->plug->rolockf(db->db_data, error);
+	if (ret)
 	    return NULL;
     }
-    return db->plug->getf(db->db_data, key, error);
+
+    result = db->plug->getf(db->db_data, key, error);
+
+    if (!db->in_transaction && db->plug->rolockf != NULL)
+	(void) db->plug->unlockf(db->db_data, error);
+
+    return result;
 }
 
 

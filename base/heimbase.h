@@ -232,7 +232,8 @@ typedef int (*heim_db_plug_open_f_t)(void *, const char *, const char *,
 				     heim_dict_t, void **, heim_error_t *);
 typedef int (*heim_db_plug_clone_f_t)(void *, void **, heim_error_t *);
 typedef int (*heim_db_plug_close_f_t)(void *, heim_error_t *);
-typedef int (*heim_db_plug_lock_f_t)(void *, heim_error_t *);
+typedef int (*heim_db_plug_rwlock_f_t)(void *, heim_error_t *);
+typedef int (*heim_db_plug_rolock_f_t)(void *, heim_error_t *);
 typedef int (*heim_db_plug_unlock_f_t)(void *, heim_error_t *);
 typedef int (*heim_db_plug_sync_f_t)(void *, heim_error_t *);
 typedef heim_string_t (*heim_db_plug_rdjournal_f_t)(void *, heim_error_t *);
@@ -254,9 +255,10 @@ struct heim_db_type {
     heim_db_plug_open_f_t       openf;
     heim_db_plug_clone_f_t      clonef;
     heim_db_plug_close_f_t      closef;
-    heim_db_plug_lock_f_t       lockf;
+    heim_db_plug_rwlock_f_t     rwlockf;
+    heim_db_plug_rolock_f_t     rolockf;
     heim_db_plug_unlock_f_t     unlockf;
-    heim_db_plug_unlock_f_t     syncf;
+    heim_db_plug_sync_f_t       syncf;
     heim_db_plug_rdjournal_f_t  rdjournalf;
     heim_db_plug_wrjournal_f_t  wrjournalf;
     heim_db_plug_begin_f_t      beginf;

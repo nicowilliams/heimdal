@@ -884,5 +884,5 @@ stdb_get_value(void *db, heim_data_t key, heim_error_t *error)
 
 struct heim_db_type heim_sorted_text_file_dbtype = {
     1, stdb_open, NULL, stdb_close, NULL, NULL, NULL, NULL, NULL, NULL, NULL,
-    NULL, stdb_get_value, NULL, NULL, NULL
+    NULL, NULL, stdb_get_value, NULL, NULL, NULL
 };
