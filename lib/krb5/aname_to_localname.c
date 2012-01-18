@@ -378,6 +378,7 @@ an2ln_def_plug_an2ln(void *plug_ctx, krb5_context context,
     krb5_error_code ret;
     const char *an2ln_db_fname;
     heim_db_t dbh = NULL;
+    heim_dict_t db_options;
     heim_data_t k, v;
     heim_error_t error;
     char *unparsed = NULL;
@@ -397,8 +398,11 @@ an2ln_def_plug_an2ln(void *plug_ctx, krb5_context context,
     if (ret)
 	return ret;
 
-    dbh = heim_db_create(NULL, an2ln_db_fname, "", HEIM_DB_RDONLY,
-			 &error);
+    db_options = heim_dict_create(11);
+    if (db_options != NULL)
+	heim_dict_set_value(db_options, heim_string_create("read-only"),
+			    heim_number_create(1));
+    dbh = heim_db_create(NULL, an2ln_db_fname, db_options, &error);
     if (dbh == NULL) {
 	krb5_set_error_message(context, heim_error_get_code(error),
 			       N_("Couldn't open aname2lname-text-db", ""));
