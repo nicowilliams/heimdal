@@ -226,13 +226,6 @@ size_t		heim_data_get_length(heim_data_t);
 
 typedef struct heim_db_data *heim_db_t;
 
-typedef enum heim_db_tx_flags {
-	HEIM_DB_TX_ATOMICITY    = 1,
-	HEIM_DB_TX_CONSISTENCY  = 2,
-	HEIM_DB_TX_ISOLATION    = 4,
-	HEIM_DB_TX_DURABILITY   = 8
-} heim_db_tx_flags_t;
-
 typedef void (*heim_db_iterator_f_t)(heim_data_t, heim_data_t, void *);
 
 typedef int (*heim_db_plug_open_f_t)(void *, const char *, const char *,
@@ -241,8 +234,11 @@ typedef int (*heim_db_plug_clone_f_t)(void *, void **, heim_error_t *);
 typedef int (*heim_db_plug_close_f_t)(void *, heim_error_t *);
 typedef int (*heim_db_plug_lock_f_t)(void *, heim_error_t *);
 typedef int (*heim_db_plug_unlock_f_t)(void *, heim_error_t *);
-typedef int (*heim_db_plug_begin_f_t)(void *, heim_db_tx_flags_t,
-				      heim_error_t *);
+typedef int (*heim_db_plug_sync_f_t)(void *, heim_error_t *);
+typedef heim_string_t (*heim_db_plug_rdjournal_f_t)(void *, heim_error_t *);
+typedef int (*heim_db_plug_wrjournal_f_t)(void *, heim_string_t, int,
+					   heim_error_t *);
+typedef int (*heim_db_plug_begin_f_t)(void *, heim_error_t *);
 typedef int (*heim_db_plug_commit_f_t)(void *, heim_error_t *);
 typedef int (*heim_db_plug_rollback_f_t)(void *, heim_error_t *);
 typedef heim_data_t (*heim_db_plug_get_value_f_t)(void *, heim_data_t,
@@ -259,7 +255,10 @@ struct heim_db_type {
     heim_db_plug_clone_f_t      clonef;
     heim_db_plug_close_f_t      closef;
     heim_db_plug_lock_f_t       lockf;
-    heim_db_plug_lock_f_t       unlockf;
+    heim_db_plug_unlock_f_t     unlockf;
+    heim_db_plug_unlock_f_t     syncf;
+    heim_db_plug_rdjournal_f_t  rdjournalf;
+    heim_db_plug_wrjournal_f_t  wrjournalf;
     heim_db_plug_begin_f_t      beginf;
     heim_db_plug_commit_f_t     commitf;
     heim_db_plug_rollback_f_t   rollbackf;
@@ -280,7 +279,7 @@ int heim_db_register(const char *dbtype,
 heim_db_t heim_db_create(const char *dbtype, const char *dbname,
 		         heim_dict_t options, heim_error_t *error);
 heim_db_t heim_db_clone(heim_db_t, heim_error_t *);
-int heim_db_begin(heim_db_t, heim_db_tx_flags_t, heim_error_t *);
+int heim_db_begin(heim_db_t, heim_error_t *);
 int heim_db_commit(heim_db_t, heim_error_t *);
 int heim_db_rollback(heim_db_t, heim_error_t *);
 heim_tid_t heim_db_get_type_id(void);

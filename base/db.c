@@ -73,6 +73,9 @@ typedef struct db_plugin {
     heim_db_plug_close_f_t      closef;
     heim_db_plug_lock_f_t       lockf;
     heim_db_plug_unlock_f_t     unlockf;
+    heim_db_plug_unlock_f_t     syncf;
+    heim_db_plug_rdjournal_f_t  rdjournalf;
+    heim_db_plug_wrjournal_f_t  wrjournalf;
     heim_db_plug_begin_f_t      beginf;
     heim_db_plug_commit_f_t     commitf;
     heim_db_plug_rollback_f_t   rollbackf;
@@ -92,13 +95,16 @@ struct heim_db_data {
     heim_error_t	error;
     int                 ret;
     int                 in_transaction;
-    heim_array_t        journal;
+    int			do_sync:1;
+    int			lock4reading:1;
+    heim_dict_t         set_keys;
+    heim_dict_t         del_keys;
 };
 
-typedef struct db_journal_entry {
-    heim_data_t         key;
-    heim_data_t         value; /* If null -> delete key, else set */
-} *db_journal_entry_t;
+static int
+db_do_log_actions(heim_db_t db, heim_error_t *error);
+static int
+db_replay_log(heim_db_t db, heim_error_t *error);
 
 static void
 db_init_plugins_once(void *arg)
@@ -136,10 +142,11 @@ heim_db_register(const char *dbtype,
     int ret = 0;
 
     if ((plugin->beginf != NULL && plugin->commitf == NULL) ||
-	(plugin->beginf == NULL && plugin->rollbackf != NULL) ||
+	(plugin->beginf != NULL && plugin->rollbackf == NULL) ||
 	(plugin->lockf != NULL && plugin->unlockf == NULL) ||
+	(plugin->rdjournalf != NULL && plugin->wrjournalf == NULL) ||
 	plugin->getf == NULL)
-	return EINVAL;
+	heim_abort("Invalid DB plugin; make sure methods are paired");
 
     /* Initialize */
     plugins = heim_dict_create(11);
@@ -173,6 +180,9 @@ heim_db_register(const char *dbtype,
     plug->closef = plugin->closef;
     plug->lockf = plugin->lockf;
     plug->unlockf = plugin->unlockf;
+    plug->syncf = plugin->syncf;
+    plug->rdjournalf = plugin->rdjournalf;
+    plug->wrjournalf = plugin->wrjournalf;
     plug->beginf = plugin->beginf;
     plug->commitf = plugin->commitf;
     plug->rollbackf = plugin->rollbackf;
@@ -190,58 +200,6 @@ heim_db_register(const char *dbtype,
 }
 
 static void
-db_journal_undo(heim_object_t item, void *arg)
-{
-    db_journal_entry_t entry = (db_journal_entry_t)item;
-    heim_db_t db = arg;
-    heim_data_t key, value;
-
-    if (db->error != NULL)
-	return;
-
-    key = entry->key;
-
-    if (entry->value == NULL) {
-	(void) db->plug->delf(db->db_data, key, &db->error);
-	return;
-    }
-
-    value = entry->value;
-    (void) db->plug->setf(db->db_data, key, value,
-			  &db->error);
-}
-
-static int
-db_rollback(heim_db_t db, heim_error_t *error)
-{
-    int ret;
-
-    if (!db->in_transaction) {
-	heim_assert(db->journal == NULL, "no transaction yet have journal");
-	return 0;
-    }
-
-    if (db->plug->rollbackf)
-	return db->plug->rollbackf(db->db_data, error);
-
-    db->ret = 0;
-    if (db->error) {
-	heim_release(db->error);
-	db->error = NULL;
-    }
-    heim_array_iterate_reverse_f(db->journal, db, db_journal_undo);
-    heim_release(db->journal);
-    db->journal = NULL;
-    db->in_transaction = 0;
-    if (error)
-	*error = db->error;
-    ret = db->ret;
-    db->error = NULL;
-    db->ret = 0;
-    return ret;
-}
-
-static void
 db_dealloc(void *arg)
 {
     heim_db_t db = arg;
@@ -251,7 +209,8 @@ db_dealloc(void *arg)
 	(void) db->plug->closef(db->db_data, NULL);
     heim_release(db->dbname);
     heim_release(db->options);
-    heim_release(db->journal);
+    heim_release(db->set_keys);
+    heim_release(db->del_keys);
     heim_release(db->error);
     heim_release(db->plug);
 }
@@ -293,10 +252,12 @@ dbtype_iter2create_f(heim_object_t dbtype, heim_object_t junk, void *arg)
  * options include:
  *
  *  - "tblname", with a heim_string_t value naming an attribute/value table
- *  - "create", with any value
- *  - "exclusive", with any value
- *  - "truncate", with any value
- *  - "read-only", with any value
+ *  - "create", with any value (create if DB doesn't exist)
+ *  - "exclusive", with any value (exclusive create)
+ *  - "truncate", with any value (truncate the DB)
+ *  - "read-only", with any value (disallow writes)
+ *  - "sync", with any value (make transactions durable)
+ *  - "isolate", with any value (isolate read and write transactions)
  *
  * @param dbtype  Name of DB type
  * @param dbname  Name of DB (likely a file path)
@@ -312,6 +273,7 @@ heim_db_t
 heim_db_create(const char *dbtype, const char *dbname,
 	       heim_dict_t options, heim_error_t *error)
 {
+    heim_object_t v;
     heim_string_t s;
     char *p;
     db_plugin plug;
@@ -356,7 +318,8 @@ heim_db_create(const char *dbtype, const char *dbname,
 	return NULL;
 
     db->in_transaction = 0;
-    db->journal = NULL;
+    db->set_keys = NULL;
+    db->del_keys = NULL;
     db->plug = plug;
 
     ret = plug->openf(plug->data, dbtype, dbname, options, &db->db_data, error);
@@ -366,6 +329,12 @@ heim_db_create(const char *dbtype, const char *dbname,
 	    *error = heim_error_create(ENOENT,
 				       N_("Heimdal DB could not be opened: %s", ""),
 				       dbname);
+	return NULL;
+    }
+
+    ret = db_replay_log(db, error);
+    if (ret) {
+	heim_release(db);
 	return NULL;
     }
 
@@ -380,6 +349,12 @@ heim_db_create(const char *dbtype, const char *dbname,
 		*error = heim_error_enomem();
 	    return NULL;
 	}
+    }
+
+    v = heim_dict_get_value(options, "sync");
+    if (v != NULL) {
+	heim_release(v);
+	db->do_sync = 1;
     }
 
     return db;
@@ -424,7 +399,8 @@ heim_db_clone(heim_db_t db, heim_error_t *error)
 	return NULL;
     }
 
-    clone->journal = NULL;
+    clone->set_keys = NULL;
+    clone->del_keys = NULL;
     ret = db->plug->clonef(db->db_data, &clone->db_data, error);
     if (ret) {
 	heim_release(clone);
@@ -441,7 +417,6 @@ heim_db_clone(heim_db_t db, heim_error_t *error)
  * Open a transaction on the given db.
  *
  * @param db    Open DB handle
- * @param flags Transaction semantics desired
  * @param error Output error object
  *
  * @return 0 on success, system error otherwise
@@ -449,7 +424,7 @@ heim_db_clone(heim_db_t db, heim_error_t *error)
  * @addtogroup heimbase
  */
 int
-heim_db_begin(heim_db_t db, heim_db_tx_flags_t flags, heim_error_t *error)
+heim_db_begin(heim_db_t db, heim_error_t *error)
 {
     int ret;
 
@@ -459,26 +434,34 @@ heim_db_begin(heim_db_t db, heim_db_tx_flags_t flags, heim_error_t *error)
     if (db->plug->setf == NULL || db->plug->delf == NULL)
 	return EINVAL;
 
-    /* We always want and provide isolation */
-    flags |= HEIM_DB_TX_ISOLATION;
-    if (db->plug->beginf == NULL && db->plug->lockf == NULL)
-	return EINVAL;
-
     if (db->plug->beginf) {
-	ret = db->plug->beginf(db->db_data, flags, error);
+	ret = db->plug->beginf(db->db_data, error);
     } else {
-	if (flags & HEIM_DB_TX_ATOMICITY)
-	    return ENOTSUP;
+	/* Try to emulate transactions */
+
+	if (db->plug->lockf == NULL)
+	    return EINVAL; /* can't lock? -> no transactions */
+
 	/* Assume unlock provides sync/durability */
 	ret = db->plug->lockf(db->db_data, error);
-    }
 
-    db->in_transaction = 1;
-    if (db->plug->rollbackf == NULL) {
-	db->journal = heim_array_create();
-	if (db->journal == NULL)
+	ret = db_replay_log(db, error);
+	if (ret) {
+	    ret = db->plug->unlockf(db->db_data, error);
+	    return ret;
+	}
+
+	db->set_keys = heim_dict_create(29);
+	if (db->set_keys == NULL)
 	    return ENOMEM;
+	db->del_keys = heim_dict_create(29);
+	if (db->set_keys == NULL) {
+	    heim_release(db->set_keys);
+	    db->set_keys = NULL;
+	    return ENOMEM;
+	}
     }
+    db->in_transaction = 1;
     return 0;
 }
 
@@ -495,7 +478,7 @@ heim_db_begin(heim_db_t db, heim_db_tx_flags_t flags, heim_error_t *error)
 int
 heim_db_commit(heim_db_t db, heim_error_t *error)
 {
-    int ret;
+    int ret, ret2;
 
     if (heim_get_tid(db) != HEIM_TID_DB)
 	return EINVAL;
@@ -504,17 +487,65 @@ heim_db_commit(heim_db_t db, heim_error_t *error)
     if (db->plug->commitf == NULL && db->plug->lockf == NULL)
 	return EINVAL;
 
-    if (db->plug->commitf != NULL)
+    if (db->plug->commitf != NULL) {
 	ret = db->plug->commitf(db->db_data, error);
-    else
-	ret = db->plug->unlockf(db->db_data, error);
+	if (ret)
+	    (void) db->plug->rollbackf(db->db_data, error);
 
+	db->in_transaction = 0;
+	return ret;
+    }
+
+    if (db->plug->wrjournalf != NULL) {
+	heim_array_t a;
+	heim_string_t journal_contents;
+
+	/* Create contents for replay log */
+	a = heim_array_create();
+	ret = heim_array_append_value(a, db->set_keys);
+	if (ret)
+	    return ret;
+	ret = heim_array_append_value(a, db->del_keys);
+	if (ret)
+	    return ret;
+	journal_contents = heim_serialize(a, error);
+
+	/* Write replay log */
+	ret = db->plug->wrjournalf(db->db_data, journal_contents,
+				   db->do_sync, error);
+	if (ret)
+	    return ret;
+    }
+
+    /* Apply logged actions */
+    ret = db_do_log_actions(db, error);
     if (ret)
-	(void) db_rollback(db, error);
+	return ret;
 
-    heim_release(db->journal);
-    db->journal = NULL;
+    if (db->do_sync && db->plug->syncf != NULL) {
+	/* fsync() or whatever */
+	ret = db->plug->syncf(db->db_data, error);
+	if (ret)
+	    return ret;
+    }
+
+    /* Remove replay log and we're done */
+    if (db->plug->wrjournalf != NULL)
+	ret = db->plug->wrjournalf(db->db_data, NULL, 0, error);
+
+    /*
+     * Clean up; if we failed to remore the replay log that's OK, we'll
+     * handle that again in heim_db_commit()
+     */
+    heim_release(db->set_keys);
+    heim_release(db->del_keys);
+    db->set_keys = NULL;
+    db->del_keys = NULL;
     db->in_transaction = 0;
+
+    ret2 = db->plug->unlockf(db->db_data, error);
+    if (ret == 0)
+	ret = ret2;
 
     return ret;
 }
@@ -532,20 +563,22 @@ heim_db_commit(heim_db_t db, heim_error_t *error)
 int
 heim_db_rollback(heim_db_t db, heim_error_t *error)
 {
-    int ret;
+    int ret = 0;
 
     if (heim_get_tid(db) != HEIM_TID_DB)
 	return EINVAL;
     if (!db->in_transaction)
 	return 0;
 
-    if (db->plug->rollbackf == NULL)
-	return db_rollback(db, error);
+    if (db->plug->rollbackf != NULL)
+	ret = db->plug->rollbackf(db->db_data, error);
+    else if (db->plug->unlockf != NULL)
+	ret = db->plug->unlockf(db->db_data, error);
 
-    ret = db->plug->rollbackf(db->db_data, error);
-
-    heim_release(db->journal);
-    db->journal = NULL;
+    heim_release(db->set_keys);
+    heim_release(db->del_keys);
+    db->set_keys = NULL;
+    db->del_keys = NULL;
 
     return ret;
 }
@@ -578,78 +611,31 @@ heim_db_get_type_id(void)
 heim_data_t
 heim_db_get_value(heim_db_t db, heim_data_t key, heim_error_t *error)
 {
+    heim_object_t v;
     if (heim_get_tid(db) != HEIM_TID_DB)
 	return NULL;
 
     if (error != NULL)
 	*error = NULL;
+    if (db->in_transaction) {
+	v = heim_dict_get_value(db->del_keys, key);
+	if (v != NULL)
+	    return NULL;
+	/* This can't be NULL, but could be an empty string */
+	v = heim_dict_get_value(db->set_keys, key);
+	if (v != NULL)
+	    return NULL;
+    }
     return db->plug->getf(db->db_data, key, error);
 }
 
-static void
-journal_entry_dealloc(void *arg)
-{
-    db_journal_entry_t e = arg;
-
-    heim_release(e->key);
-    heim_release(e->value);
-}
-
-static int
-db_journal(heim_db_t db, heim_data_t key, heim_error_t *error)
-{
-    db_journal_entry_t journal_entry;
-    heim_error_t err;
-    heim_data_t v;
-    int ret;
-
-    if (!db->in_transaction || db->journal == NULL)
-	return 0;
-
-    v = heim_db_get_value(db, key, &err);
-    if (v == NULL && err != NULL) {
-	if (error)
-	    *error = err;
-	else
-	    heim_release(err);
-	return 1; /* XXX Better error code? */
-    }
-
-    journal_entry = heim_alloc(sizeof (*journal_entry), "db-journal-entry",
-			       journal_entry_dealloc);
-    if (journal_entry == NULL) {
-	if (error)
-	    *error = heim_error_enomem();
-	return ENOMEM;
-    }
-    journal_entry->key = heim_retain(key);
-    if (journal_entry->key == NULL)
-	goto enomem;
-
-    if (v != NULL) {
-	journal_entry->value = heim_retain(v);
-	if (journal_entry->value == NULL)
-	     goto enomem;
-    }
-
-    ret = heim_array_append_value(db->journal, journal_entry);
-    heim_release(journal_entry);
-
-    return ret;
-
-enomem:
-    if (error)
-	*error = heim_error_enomem();
-    heim_release(journal_entry);
-    return ENOMEM;
-}
 
 /**
  * Set a key's value in the DB.
  *
  * @param db    Open DB handle
  * @param key   Key
- * @param value Value
+ * @param value Value (if NULL the key will be deleted, but empty is OK)
  * @param error Output error object
  *
  * @return 0 on success, system error otherwise
@@ -660,10 +646,11 @@ int
 heim_db_set_value(heim_db_t db, heim_data_t key, heim_data_t value,
 		  heim_error_t *error)
 {
-    int ret;
-
     if (error != NULL)
 	*error = NULL;
+
+    if (value == NULL)
+	return heim_db_delete_key(db, key, error);
 
     if (heim_get_tid(db) != HEIM_TID_DB)
 	return EINVAL;
@@ -671,18 +658,15 @@ heim_db_set_value(heim_db_t db, heim_data_t key, heim_data_t value,
     if (db->plug->setf == NULL)
 	return EBADF;
 
-    ret = db_journal(db, key, error);
-    if (ret)
-	return ret;
+    if (db->set_keys != NULL) {
+	/* Transaction emulation */
+	heim_dict_set_value(db->set_keys, key, value);
+	heim_dict_delete_key(db->del_keys, key);
 
-    ret = db->plug->setf(db->db_data, key, value, error);
-    if (ret) {
-	size_t len = heim_array_get_length(db->journal);
-
-	/* Set failed, remove entry from journal */
-	heim_array_delete_value(db->journal, len - 1);
+	return 0;
     }
-    return ret;
+
+    return db->plug->setf(db->db_data, key, value, error);
 }
 
 /**
@@ -700,8 +684,6 @@ heim_db_set_value(heim_db_t db, heim_data_t key, heim_data_t value,
 int
 heim_db_delete_key(heim_db_t db, heim_data_t key, heim_error_t *error)
 {
-    int ret;
-
     if (error != NULL)
 	*error = NULL;
 
@@ -711,18 +693,15 @@ heim_db_delete_key(heim_db_t db, heim_data_t key, heim_error_t *error)
     if (db->plug->delf == NULL)
 	return EBADF;
 
-    ret = db_journal(db, key, error);
-    if (ret)
-	return ret;
+    if (db->del_keys != NULL) {
+	/* Transaction emulation */
+	heim_dict_delete_key(db->set_keys, key);
+	heim_dict_set_value(db->del_keys, key, heim_number_create(1));
 
-    ret = db->plug->delf(db->db_data, key, error);
-    if (ret) {
-	size_t len = heim_array_get_length(db->journal);
-
-	/* Delete failed, remove entry from journal */
-	heim_array_delete_value(db->journal, len - 1);
+	return 0;
     }
-    return ret;
+
+    return db->plug->delf(db->db_data, key, error);
 }
 
 /**
@@ -749,3 +728,127 @@ heim_db_iterate_f(heim_db_t db, void *iter_data,
     db->plug->iterf(db->db_data, iter_data, iter_f, error);
 }
 
+static
+void
+db_replay_log_set_keys_iter(heim_object_t key, heim_object_t value, void *arg)
+{
+    heim_db_t db = arg;
+    heim_data_t k, v;
+
+    if (db->ret)
+	return;
+
+    heim_assert(heim_get_tid(key) == HEIM_TID_DATA &&
+		heim_get_tid(value) == HEIM_TID_DATA,
+		"heim_db_t key/value type consistency");
+
+    k = (heim_data_t)key;
+    v = (heim_data_t)value;
+
+    db->ret = db->plug->setf(db->db_data, k, v, &db->error);
+}
+
+static
+void
+db_replay_log_del_keys_iter(heim_object_t key, heim_object_t value, void *arg)
+{
+    heim_db_t db = arg;
+    heim_data_t k;
+
+    if (db->ret)
+	return;
+
+    heim_assert(heim_get_tid(key) == HEIM_TID_DATA,
+		"heim_db_t key/value type consistency");
+
+    k = (heim_data_t)key;
+
+    db->ret = db->plug->delf(db->db_data, k, &db->error);
+}
+
+static int
+db_do_log_actions(heim_db_t db, heim_error_t *error)
+{
+    int ret;
+
+    if (error)
+	*error = NULL;
+
+    db->ret = 0;
+    db->error = NULL;
+    if (db->set_keys != NULL)
+	heim_dict_iterate_f(db->set_keys, db, db_replay_log_set_keys_iter);
+    if (db->del_keys != NULL)
+	heim_dict_iterate_f(db->del_keys, db, db_replay_log_del_keys_iter);
+
+    ret = db->ret;
+    db->ret = 0;
+    if (error && db->error) {
+	*error = db->error;
+	db->error = NULL;
+    } else {
+	heim_release(db->error);
+	db->error = NULL;
+    }
+    return ret;
+}
+
+static int
+db_replay_log(heim_db_t db, heim_error_t *error)
+{
+    int ret;
+    heim_string_t journal_contents;
+    heim_object_t journal;
+    heim_error_t my_error;
+    size_t len;
+
+    heim_assert(!db->in_transaction, "DB transaction not open");
+    heim_assert(db->set_keys == NULL && db->set_keys == NULL, "DB transaction not open");
+
+    if (error)
+	*error = NULL;
+
+    if (db->plug->rdjournalf == NULL)
+	return 0;
+
+    journal_contents = db->plug->rdjournalf(db->db_data, error);
+    if (journal_contents == NULL)
+	return 0;
+
+    journal = heim_json_create(heim_string_get_utf8(journal_contents), &my_error);
+    if (journal == NULL) {
+	ret = heim_error_get_code(my_error);
+	if (error)
+	    *error = my_error;
+	else
+	    heim_release(my_error);
+	return ret;
+    }
+    if (heim_get_tid(journal) != HEIM_TID_ARRAY) {
+	if (error)
+	    *error = heim_error_create(EINVAL, "Invalid journal contents; "
+				       "delete journal");
+	return EINVAL;
+    }
+
+    len = heim_array_get_length(journal);
+
+    if (len > 0)
+	db->set_keys = heim_array_get_value(journal, 0);
+    if (len > 1)
+	db->del_keys = heim_array_get_value(journal, 1);
+    ret = db_do_log_actions(db, error);
+    if (ret)
+	return ret;
+
+    /* Remove replay log and we're done */
+    ret = db->plug->wrjournalf(db->db_data, NULL, 0, error);
+    if (ret)
+	return ret;
+    heim_release(db->set_keys);
+    heim_release(db->del_keys);
+    db->set_keys = NULL;
+    db->del_keys = NULL;
+
+    return 0;
+}
