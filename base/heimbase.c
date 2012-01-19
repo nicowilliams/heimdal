@@ -577,3 +577,70 @@ heim_auto_release_drain(heim_auto_release_t autorel)
     }
     HEIMDAL_MUTEX_unlock(&autorel->pool_mutex);
 }
+
+heim_object_t
+heim_path(heim_object_t ptr, heim_error_t *error, ...)
+{
+    heim_object_t path_element;
+    heim_object_t node;
+    heim_tid_t node_type;
+    va_list ap;
+
+    if (ptr == NULL)
+	return NULL;
+
+    va_start(ap, error);
+    
+    for (node = ptr; node != NULL;) {
+	node_type = heim_get_tid(node);
+	switch (node_type) {
+	case HEIM_TID_ARRAY:
+	case HEIM_TID_DICT:
+	case HEIM_TID_DB:
+	    break;
+	default:
+	    if (node == ptr)
+		heim_abort("heim_path() only operates on container types");
+	    return NULL;
+	}
+
+	path_element = va_arg(ap, heim_object_t);
+	if (path_element == NULL)
+	    return node;
+
+	if (node_type == HEIM_TID_DICT) {
+	    node = heim_dict_get_value(node, path_element);
+	} else if (node_type == HEIM_TID_DB) {
+	    switch (heim_get_tid(path_element)) {
+	    case HEIM_TID_STRING:
+	    case HEIM_TID_DATA:
+		break;
+	    default:
+		if (error)
+		    *error = heim_error_create(EINVAL,
+					       "heim_path() path elements for "
+					       "DB nodes must be strings or "
+					       "data");
+		return NULL;
+	    }
+	    node = heim_dict_get_value(node, path_element);
+	} else if (node_type == HEIM_TID_ARRAY) {
+	    int idx = -1;
+
+	    if (heim_get_tid(path_element) == HEIM_TID_NUMBER)
+		idx = heim_number_get_int(path_element);
+	    if (idx < 0) {
+		if (error)
+		    *error = heim_error_create(EINVAL,
+					       "heim_path() path elements for "
+					       "array nodes must be numeric "
+					       "and positive");
+		return NULL;
+	    }
+	    node = heim_array_get_value(node, idx);
+	}
+    }
+    va_end(ap);
+    return NULL;
+}
+

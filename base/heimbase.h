@@ -198,6 +198,13 @@ int heim_error_get_code(heim_error_t);
 heim_error_t heim_error_append(heim_error_t, heim_error_t);
 
 /*
+ * Path
+ */
+
+heim_object_t
+heim_path(heim_object_t ptr, heim_error_t *error, ...);
+
+/*
  * Data (octet strings)
  */
 
