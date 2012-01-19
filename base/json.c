@@ -35,6 +35,16 @@
 
 #include "baselocl.h"
 #include <ctype.h>
+#include <base64.h>
+
+static heim_base_once_t heim_json_once = HEIM_BASE_ONCE_INIT;
+static heim_string_t heim_tid_data_uuid_key = NULL;
+
+static void
+json_init_once(void *arg)
+{
+    heim_tid_data_uuid_key = __heim_string_constant("heimdal-type-data-76d7fca2-d0da-4b20-a126-1a10f8a0eae6");
+}
 
 struct twojson {
     void *ctx;
@@ -120,6 +130,41 @@ base2json(heim_object_t obj, struct twojson *j)
 	j->out(j->ctx, "\"");
 	break;
 
+    case HEIM_TID_DATA: {
+	heim_dict_t d;
+	heim_string_t v;
+	const heim_octet_string *data;
+	char *b64 = NULL;
+	int ret;
+
+	/*
+	 * We encode binary data as a dict with a single very magic key
+	 * with a base64-encoded value.
+	 */
+	d = heim_dict_create(2);
+	if (d == NULL)
+	    return ENOMEM;
+	data = heim_data_get_data(obj);
+	ret = base64_encode(data->data, data->length, &b64);
+	if (ret || b64 == NULL) {
+	    heim_release(d);
+	    return ENOMEM;
+	}
+	v = heim_string_ref_create(b64, free);
+	if (v == NULL) {
+	    free(b64);
+	    heim_release(d);
+	    return ENOMEM;
+	}
+	ret = heim_dict_set_value(d, heim_tid_data_uuid_key, v);
+	if (ret) {
+	    heim_release(v);
+	    heim_release(d);
+	    return ENOMEM;
+	}
+	break;
+    }
+
     case HEIM_TID_NUMBER: {
 	char num[16];
 	indent(j);
@@ -146,6 +191,8 @@ heim_base2json(heim_object_t obj, void *ctx,
 	       void (*out)(void *, const char *))
 {
     struct twojson j;
+
+    heim_base_once_f(&heim_json_once, NULL, json_init_once);
 
     j.indent = 0;
     j.ctx = ctx;
@@ -322,17 +369,52 @@ parse_pair(heim_dict_t dict, struct parse_ctx *ctx)
 static heim_dict_t
 parse_dict(struct parse_ctx *ctx)
 {
-    heim_dict_t dict = heim_dict_create(11);
+    heim_dict_t dict;
+    size_t count = 0;
     int ret;
 
     heim_assert(*ctx->p == '{', "string doesn't start with {");
+
+    dict = heim_dict_create(11);
+    if (dict == NULL) {
+	ctx->error = heim_error_enomem();
+	return NULL;
+    }
+
     ctx->p += 1;
 
     while ((ret = parse_pair(dict, ctx)) > 0)
-	;
+	count++;
     if (ret < 0) {
 	heim_release(dict);
 	return NULL;
+    }
+    if (count == 1) {
+	heim_object_t v = heim_dict_get_value(dict, heim_tid_data_uuid_key);
+
+	/*
+	 * We encode binary data as a dict with a single magic key with
+	 * base64-encoded data.
+	 */
+	if (v != NULL && heim_get_tid(v) == HEIM_TID_STRING) {
+	    void *buf;
+	    size_t len;
+	    heim_data_t data;
+
+	    buf = malloc(strlen(heim_string_get_utf8(v)));
+	    if (buf == NULL) {
+		ctx->error = heim_error_enomem();
+		return NULL;
+	    }
+	    len = base64_decode(heim_string_get_utf8(v), buf);
+	    if (len == -1) {
+		free(buf);
+		return dict;
+	    }
+	    heim_release(dict);
+	    data = heim_data_ref_create(buf, len, free);
+	    return (heim_dict_t)data;
+	}
     }
     return dict;
 }
@@ -437,6 +519,8 @@ heim_json_create_with_bytes(const void *data, size_t length, heim_error_t *error
     struct parse_ctx ctx;
     heim_object_t o;
 
+    heim_base_once_f(&heim_json_once, NULL, json_init_once);
+
     ctx.lineno = 1;
     ctx.p = data;
     ctx.pstart = data;
@@ -499,6 +583,7 @@ heim_serialize(heim_object_t obj, heim_error_t *error)
 {
     heim_string_t str;
     struct strbuf strbuf;
+    int ret;
 
     if (error)
 	*error = NULL;
@@ -513,10 +598,15 @@ heim_serialize(heim_object_t obj, heim_error_t *error)
     strbuf.alloced = STRBUF_INIT_SZ;
     *strbuf.str = '\0';
 
-    heim_base2json(obj, &strbuf, strbuf_printf);
-    if (strbuf.enomem) {
-	if (error)
-	    *error = heim_error_enomem();
+    ret = heim_base2json(obj, &strbuf, strbuf_printf);
+    if (ret || strbuf.enomem) {
+	if (error) {
+	    if (strbuf.enomem || ret == ENOMEM)
+		*error = heim_error_enomem();
+	    else
+		*error = heim_error_create(1, "Impossible to JSON-encode "
+					   "object");
+	}
 	free(strbuf.str);
 	return NULL;
     }
