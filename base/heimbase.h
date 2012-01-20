@@ -201,8 +201,12 @@ heim_error_t heim_error_append(heim_error_t, heim_error_t);
  * Path
  */
 
-heim_object_t
-heim_path(heim_object_t ptr, heim_error_t *error, ...);
+heim_object_t heim_path_get(heim_object_t ptr, heim_error_t *error, ...);
+heim_object_t heim_path_get_copy(heim_object_t ptr, heim_error_t *error, ...);
+heim_object_t heim_path_vget(heim_object_t ptr, heim_error_t *error,
+			     va_list ap);
+heim_object_t heim_path_vget_copy(heim_object_t ptr, heim_error_t *error,
+				  va_list ap);
 
 /*
  * Data (octet strings)

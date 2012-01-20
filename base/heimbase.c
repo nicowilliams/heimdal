@@ -579,18 +579,15 @@ heim_auto_release_drain(heim_auto_release_t autorel)
 }
 
 heim_object_t
-heim_path(heim_object_t ptr, heim_error_t *error, ...)
+heim_path_vget(heim_object_t ptr, heim_error_t *error, va_list ap)
 {
     heim_object_t path_element;
     heim_object_t node;
     heim_tid_t node_type;
-    va_list ap;
 
     if (ptr == NULL)
 	return NULL;
 
-    va_start(ap, error);
-    
     for (node = ptr; node != NULL;) {
 	path_element = va_arg(ap, heim_object_t);
 	if (path_element == NULL)
@@ -640,7 +637,43 @@ heim_path(heim_object_t ptr, heim_error_t *error, ...)
 	    node = heim_array_get_value(node, idx);
 	}
     }
-    va_end(ap);
     return NULL;
+}
+
+heim_object_t
+heim_path_vget_copy(heim_object_t ptr, heim_error_t *error, va_list ap)
+{
+    return heim_retain(heim_path_vget(ptr, error, ap));
+}
+
+
+heim_object_t
+heim_path_get(heim_object_t ptr, heim_error_t *error, ...)
+{
+    heim_object_t o;
+    va_list ap;
+
+    if (ptr == NULL)
+	return NULL;
+
+    va_start(ap, error);
+    o = heim_path_vget(ptr, error, ap);
+    va_end(ap);
+    return o;
+}
+
+heim_object_t
+heim_path_get_copy(heim_object_t ptr, heim_error_t *error, ...)
+{
+    heim_object_t o;
+    va_list ap;
+
+    if (ptr == NULL)
+	return NULL;
+
+    va_start(ap, error);
+    o = heim_path_vget_copy(ptr, error, ap);
+    va_end(ap);
+    return o;
 }
 
