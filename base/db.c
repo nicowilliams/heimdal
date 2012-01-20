@@ -100,6 +100,7 @@ struct heim_db_data {
     int			ro:1;
     heim_dict_t         set_keys;
     heim_dict_t         del_keys;
+    heim_string_t       current_table;
 };
 
 static int
@@ -467,11 +468,11 @@ heim_db_begin(heim_db_t db, heim_error_t *error)
 	    return ret;
 	}
 
-	db->set_keys = heim_dict_create(29);
+	db->set_keys = heim_dict_create(11);
 	if (db->set_keys == NULL)
 	    return ENOMEM;
-	db->del_keys = heim_dict_create(29);
-	if (db->set_keys == NULL) {
+	db->del_keys = heim_dict_create(11);
+	if (db->del_keys == NULL) {
 	    heim_release(db->set_keys);
 	    db->set_keys = NULL;
 	    return ENOMEM;
@@ -626,11 +627,11 @@ heim_db_get_type_id(void)
  * @addtogroup heimbase
  */
 heim_data_t
-heim_db_get_value(heim_db_t db, heim_data_t key, heim_error_t *error)
+heim_db_get_value(heim_db_t db, heim_string_t table, heim_data_t key,
+		  heim_error_t *error)
 {
     heim_object_t v;
     heim_data_t result;
-    int ret;
 
     if (heim_get_tid(db) != HEIM_TID_DB)
 	return NULL;
@@ -638,29 +639,67 @@ heim_db_get_value(heim_db_t db, heim_data_t key, heim_error_t *error)
     if (error != NULL)
 	*error = NULL;
 
+    if (table == NULL)
+	table = heim_null_create();
+
     if (db->in_transaction) {
-	v = heim_dict_get_value(db->del_keys, key);
-	if (v != NULL)
-	    return NULL;
-	v = heim_dict_get_value(db->set_keys, key); /* can't be NULL */
+	v = heim_path(db->set_keys, error, table, key, NULL);
 	if (v != NULL)
 	    return v;
-    }
-
-    if (!db->in_transaction && db->plug->rolockf != NULL) {
-	ret = db->plug->rolockf(db->db_data, error);
-	if (ret)
+	v = heim_path(db->del_keys, error, table, key, NULL); /* can't be NULL */
+	if (v != NULL)
 	    return NULL;
     }
 
-    result = db->plug->getf(db->db_data, key, error);
-
-    if (!db->in_transaction && db->plug->rolockf != NULL)
-	(void) db->plug->unlockf(db->db_data, error);
+    result = db->plug->getf(db->db_data, table, key, error);
 
     return result;
 }
 
+static int
+get_table_dict(heim_db_t db, heim_string_t table,
+	       heim_dict_t *set_keys, heim_dict_t *del_keys,
+	       heim_error_t *error)
+{
+    heim_dict_t table_dict;
+    int ret = ENOMEM;
+
+    table_dict = heim_dict_get_value(db->set_keys, table);
+    if (table_dict == NULL) {
+	table_dict = heim_dict_create(29);
+	if (table_dict == NULL)
+	    goto err;
+	ret = heim_dict_set_value(db->set_keys, table, table_dict);
+	heim_release(table_dict);
+	if (ret)
+	    goto err;
+    }
+    *set_keys = table_dict;
+
+    ret = ENOMEM;
+    table_dict = heim_dict_get_value(db->del_keys, table);
+    if (table_dict == NULL) {
+	table_dict = heim_dict_create(29);
+	if (table_dict == NULL)
+	    goto err;
+	ret = heim_dict_set_value(db->del_keys, table, table_dict);
+	heim_release(table_dict);
+	if (ret)
+	    goto err;
+    }
+    *del_keys = table_dict;
+
+    return 0;
+
+err:
+    if (error != NULL) {
+	if (ret == ENOMEM)
+	    *error = heim_error_enomem();
+	else
+	    *error = heim_error_create(ret, "Could not set a dict value");
+    }
+    return ret;
+}
 
 /**
  * Set a key's value in the DB.
@@ -675,14 +714,20 @@ heim_db_get_value(heim_db_t db, heim_data_t key, heim_error_t *error)
  * @addtogroup heimbase
  */
 int
-heim_db_set_value(heim_db_t db, heim_data_t key, heim_data_t value,
-		  heim_error_t *error)
+heim_db_set_value(heim_db_t db, heim_string_t table,
+		  heim_data_t key, heim_data_t value, heim_error_t *error)
 {
+    int ret;
+
     if (error != NULL)
 	*error = NULL;
 
+    if (table == NULL)
+	table = heim_null_create();
+
     if (value == NULL)
-	return heim_db_delete_key(db, key, error);
+	/* Use heim_null_t instead of NULL */
+	return heim_db_delete_key(db, table, key, error);
 
     if (heim_get_tid(db) != HEIM_TID_DB)
 	return EINVAL;
@@ -691,14 +736,31 @@ heim_db_set_value(heim_db_t db, heim_data_t key, heim_data_t value,
 	return EBADF;
 
     if (db->set_keys != NULL) {
+	heim_dict_t set_keys, del_keys;
+
 	/* Transaction emulation */
-	heim_dict_set_value(db->set_keys, key, value);
-	heim_dict_delete_key(db->del_keys, key);
+	ret = get_table_dict(db, table, &set_keys, &del_keys, error);
+	if (ret)
+	    goto err;
+
+	ret = heim_dict_set_value(set_keys, key, value);
+	if (ret)
+	    goto err;
+	heim_dict_delete_key(del_keys, key);
 
 	return 0;
     }
 
-    return db->plug->setf(db->db_data, key, value, error);
+    return db->plug->setf(db->db_data, table, key, value, error);
+
+err:
+    if (error != NULL && *error == NULL) {
+	if (ret == ENOMEM)
+	    *error = heim_error_enomem();
+	else
+	    *error = heim_error_create(ret, "Could not set a dict value");
+    }
+    return ret;
 }
 
 /**
@@ -714,10 +776,16 @@ heim_db_set_value(heim_db_t db, heim_data_t key, heim_data_t value,
  * @addtogroup heimbase
  */
 int
-heim_db_delete_key(heim_db_t db, heim_data_t key, heim_error_t *error)
+heim_db_delete_key(heim_db_t db, heim_string_t table, heim_data_t key,
+		   heim_error_t *error)
 {
+    int ret;
+
     if (error != NULL)
 	*error = NULL;
+
+    if (table == NULL)
+	table = heim_null_create();
 
     if (heim_get_tid(db) != HEIM_TID_DB)
 	return EINVAL;
@@ -726,14 +794,31 @@ heim_db_delete_key(heim_db_t db, heim_data_t key, heim_error_t *error)
 	return EBADF;
 
     if (db->del_keys != NULL) {
+	heim_dict_t set_keys, del_keys;
+
 	/* Transaction emulation */
-	heim_dict_delete_key(db->set_keys, key);
-	heim_dict_set_value(db->del_keys, key, heim_number_create(1));
+	ret = get_table_dict(db, table, &set_keys, &del_keys, error);
+	if (ret)
+	    goto err;
+
+	ret = heim_dict_set_value(del_keys, key, heim_number_create(1));
+	if (ret)
+	    goto err;
+	heim_dict_delete_key(set_keys, key);
 
 	return 0;
     }
 
-    return db->plug->delf(db->db_data, key, error);
+    return db->plug->delf(db->db_data, table, key, error);
+
+err:
+    if (error != NULL && *error == NULL) {
+	if (ret == ENOMEM)
+	    *error = heim_error_enomem();
+	else
+	    *error = heim_error_create(ret, "Could not set a dict value");
+    }
+    return ret;
 }
 
 /**
@@ -747,9 +832,8 @@ heim_db_delete_key(heim_db_t db, heim_data_t key, heim_error_t *error)
  * @addtogroup heimbase
  */
 void
-heim_db_iterate_f(heim_db_t db, void *iter_data,
-		  heim_db_iterator_f_t iter_f,
-		  heim_error_t *error)
+heim_db_iterate_f(heim_db_t db, heim_string_t table, void *iter_data,
+		  heim_db_iterator_f_t iter_f, heim_error_t *error)
 {
     if (error != NULL)
 	*error = NULL;
@@ -757,12 +841,13 @@ heim_db_iterate_f(heim_db_t db, void *iter_data,
     if (heim_get_tid(db) != HEIM_TID_DB)
 	return;
 
-    db->plug->iterf(db->db_data, iter_data, iter_f, error);
+    if (!db->in_transaction)
+	db->plug->iterf(db->db_data, table, iter_data, iter_f, error);
 }
 
-static
-void
-db_replay_log_set_keys_iter(heim_object_t key, heim_object_t value, void *arg)
+static void
+db_replay_log_table_set_keys_iter(heim_object_t key, heim_object_t value,
+				  void *arg)
 {
     heim_db_t db = arg;
     heim_data_t k, v;
@@ -777,12 +862,12 @@ db_replay_log_set_keys_iter(heim_object_t key, heim_object_t value, void *arg)
     k = (heim_data_t)key;
     v = (heim_data_t)value;
 
-    db->ret = db->plug->setf(db->db_data, k, v, &db->error);
+    db->ret = db->plug->setf(db->db_data, db->current_table, k, v, &db->error);
 }
 
-static
-void
-db_replay_log_del_keys_iter(heim_object_t key, heim_object_t value, void *arg)
+static void
+db_replay_log_table_del_keys_iter(heim_object_t key, heim_object_t value,
+				  void *arg)
 {
     heim_db_t db = arg;
     heim_data_t k;
@@ -795,7 +880,33 @@ db_replay_log_del_keys_iter(heim_object_t key, heim_object_t value, void *arg)
 
     k = (heim_data_t)key;
 
-    db->ret = db->plug->delf(db->db_data, k, &db->error);
+    db->ret = db->plug->delf(db->db_data, db->current_table, k, &db->error);
+}
+
+static void
+db_replay_log_set_keys_iter(heim_object_t table, heim_object_t table_dict,
+			    void *arg)
+{
+    heim_db_t db = arg;
+
+    if (db->ret)
+	return;
+
+    db->current_table = table;
+    heim_dict_iterate_f(table_dict, db, db_replay_log_table_set_keys_iter);
+}
+
+static void
+db_replay_log_del_keys_iter(heim_object_t table, heim_object_t table_dict,
+			    void *arg)
+{
+    heim_db_t db = arg;
+
+    if (db->ret)
+	return;
+
+    db->current_table = table;
+    heim_dict_iterate_f(table_dict, db, db_replay_log_table_del_keys_iter);
 }
 
 static int

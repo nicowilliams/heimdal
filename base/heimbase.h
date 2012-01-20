@@ -249,13 +249,15 @@ typedef int (*heim_db_plug_wrjournal_f_t)(void *, heim_string_t, int,
 typedef int (*heim_db_plug_begin_f_t)(void *, heim_error_t *);
 typedef int (*heim_db_plug_commit_f_t)(void *, heim_error_t *);
 typedef int (*heim_db_plug_rollback_f_t)(void *, heim_error_t *);
-typedef heim_data_t (*heim_db_plug_get_value_f_t)(void *, heim_data_t,
-						  heim_error_t *);
-typedef int (*heim_db_plug_set_value_f_t)(void *, heim_data_t,
-					  heim_data_t, heim_error_t *);
-typedef int (*heim_db_plug_del_key_f_t)(void *, heim_data_t, heim_error_t *);
-typedef void (*heim_db_plug_iter_f_t)(void *, void *, heim_db_iterator_f_t,
-				      heim_error_t *);
+typedef heim_data_t (*heim_db_plug_get_value_f_t)(void *, heim_string_t,
+                                                  heim_data_t,
+                                                  heim_error_t *);
+typedef int (*heim_db_plug_set_value_f_t)(void *, heim_string_t, heim_data_t,
+                                          heim_data_t, heim_error_t *);
+typedef int (*heim_db_plug_del_key_f_t)(void *, heim_string_t, heim_data_t,
+                                        heim_error_t *);
+typedef void (*heim_db_plug_iter_f_t)(void *, heim_string_t, void *,
+                                      heim_db_iterator_f_t, heim_error_t *);
 
 struct heim_db_type {
     int                         version;
@@ -293,15 +295,17 @@ int heim_db_commit(heim_db_t, heim_error_t *);
 int heim_db_rollback(heim_db_t, heim_error_t *);
 heim_tid_t heim_db_get_type_id(void);
 
-int	heim_db_set_value(heim_db_t, heim_data_t, heim_data_t,
-			  heim_error_t *);
-heim_data_t heim_db_get_value(heim_db_t, heim_data_t, heim_error_t *);
-int	heim_db_delete_key(heim_db_t, heim_data_t, heim_error_t *);
-void	heim_db_iterate_f(heim_db_t, void *, heim_db_iterator_f_t,
-			  heim_error_t *);
+int     heim_db_set_value(heim_db_t, heim_string_t, heim_data_t, heim_data_t,
+                          heim_error_t *);
+heim_data_t heim_db_get_value(heim_db_t, heim_string_t, heim_data_t,
+                              heim_error_t *);
+int     heim_db_delete_key(heim_db_t, heim_string_t, heim_data_t,
+                           heim_error_t *);
+void    heim_db_iterate_f(heim_db_t, heim_string_t, void *,
+                          heim_db_iterator_f_t, heim_error_t *);
 #ifdef __BLOCKS__
-void	heim_db_iterate(heim_db_t, void (^)(heim_data_t, heim_data_t),
-			heim_error_t *);
+void    heim_db_iterate(heim_db_t, heim_string_t,
+                        void (^)(heim_data_t, heim_data_t), heim_error_t *);
 #endif
 
 

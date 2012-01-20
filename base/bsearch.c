@@ -855,7 +855,8 @@ stdb_close(void *db, heim_error_t *error)
 }
 
 static heim_data_t
-stdb_get_value(void *db, heim_data_t key, heim_error_t *error)
+stdb_get_value(void *db, heim_string_t table, heim_data_t key,
+	       heim_error_t *error)
 {
     bsearch_file_handle bfh = db;
     const char *k;
@@ -865,6 +866,12 @@ stdb_get_value(void *db, heim_data_t key, heim_error_t *error)
 
     if (error)
 	*error = NULL;
+
+    if (table == NULL)
+	table = heim_null_create();
+
+    if (table != heim_null_create())
+	return NULL;
 
     if (heim_get_tid(key) == HEIM_TID_STRING)
 	k = heim_string_get_utf8((heim_string_t)key);

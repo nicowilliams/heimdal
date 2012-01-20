@@ -54,5 +54,8 @@
 #ifndef HAVE_VASNPRINTF
 #define rk_vasnprintf heimbase_vasnprintf
 #endif
+#ifndef HAVE_STRDUP
+#define rk_strdup heimbase_strdup
+#endif
 
 #endif /* __heimbase_roken_rename_h__ */

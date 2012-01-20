@@ -592,6 +592,10 @@ heim_path(heim_object_t ptr, heim_error_t *error, ...)
     va_start(ap, error);
     
     for (node = ptr; node != NULL;) {
+	path_element = va_arg(ap, heim_object_t);
+	if (path_element == NULL)
+	    return node;
+
 	node_type = heim_get_tid(node);
 	switch (node_type) {
 	case HEIM_TID_ARRAY:
@@ -603,10 +607,6 @@ heim_path(heim_object_t ptr, heim_error_t *error, ...)
 		heim_abort("heim_path() only operates on container types");
 	    return NULL;
 	}
-
-	path_element = va_arg(ap, heim_object_t);
-	if (path_element == NULL)
-	    return node;
 
 	if (node_type == HEIM_TID_DICT) {
 	    node = heim_dict_get_value(node, path_element);

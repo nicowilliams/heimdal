@@ -298,7 +298,8 @@ dict_db_unlock(void *db, heim_error_t *error)
 }
 
 static heim_data_t
-dict_db_get_value(void *db, heim_data_t key, heim_error_t *error)
+dict_db_get_value(void *db, heim_string_t table, heim_data_t key,
+		  heim_error_t *error)
 {
     dict_db_t dictdb = db;
 
@@ -308,27 +309,57 @@ dict_db_get_value(void *db, heim_data_t key, heim_error_t *error)
     heim_release(dictdb->to_release);
     dictdb->to_release = NULL;
 
-    return (heim_dict_get_value(dictdb->dict, key));
+    return (heim_path(dictdb->dict, error, table, key, NULL));
 }
 
 static int
-dict_db_set_value(void *db, heim_data_t key, heim_data_t value,
-		  heim_error_t *error)
+dict_db_set_value(void *db, heim_string_t table,
+		  heim_data_t key, heim_data_t value, heim_error_t *error)
 {
     dict_db_t dictdb = db;
+    heim_dict_t table_dict;
 
     if (error)
 	*error = NULL;
-    return heim_dict_set_value(dictdb->dict, key, value);
+
+    if (table == NULL)
+	table = heim_null_create();
+
+    table_dict = heim_dict_get_value(dictdb->dict, table);
+    if (table_dict == NULL) {
+	int ret;
+
+	table_dict = heim_dict_create(29);
+	if (table_dict == NULL) {
+	    if (error)
+		*error = heim_error_enomem();
+	    return ENOMEM;
+	}
+	ret = heim_dict_set_value(dictdb->dict, table, table_dict);
+	heim_release(table_dict);
+	if (ret)
+	    return ret;
+    }
+    return heim_dict_set_value(table_dict, key, value);
 }
 
 static int
-dict_db_del_key(void *db, heim_data_t key, heim_error_t *error)
+dict_db_del_key(void *db, heim_string_t table, heim_data_t key,
+		heim_error_t *error)
 {
     dict_db_t dictdb = db;
+    heim_dict_t table_dict;
 
     if (error)
 	*error = NULL;
+
+    if (table == NULL)
+	table = heim_null_create();
+
+    table_dict = heim_dict_get_value(dictdb->dict, table);
+    if (table_dict == NULL)
+	return 0;
+
     heim_dict_delete_key(dictdb->dict, key);
     return 0;
 }
@@ -346,16 +377,27 @@ static void dict_db_iter_f(heim_object_t key, heim_object_t value, void *arg)
 }
 
 static void
-dict_db_iter(void *db, void *iter_data,
+dict_db_iter(void *db, heim_string_t table, void *iter_data,
 	     heim_db_iterator_f_t iter_f, heim_error_t *error)
 {
     dict_db_t dictdb = db;
     struct dict_db_iter_ctx ctx;
+    heim_dict_t table_dict;
+
+    if (error)
+	*error = NULL;
+
+    if (table == NULL)
+	table = heim_null_create();
+
+    table_dict = heim_dict_get_value(dictdb->dict, table);
+    if (table_dict == NULL)
+	return;
 
     ctx.iter_ctx = iter_data;
     ctx.iter_f = iter_f;
 
-    heim_dict_iterate_f(dictdb->dict, &ctx, dict_db_iter_f);
+    heim_dict_iterate_f(table_dict, &ctx, dict_db_iter_f);
 }
 
 static void
@@ -412,38 +454,38 @@ test_db()
     v2 = heim_data_create("FooBar", strlen("FooBar"));
     v3 = heim_data_create("abc", strlen("abc"));
 
-    ret = heim_db_set_value(db, k1, v1, NULL);
+    ret = heim_db_set_value(db, NULL, k1, v1, NULL);
     if (ret)
 	return ret;
 
-    v = heim_db_get_value(db, k1, NULL);
+    v = heim_db_get_value(db, NULL, k1, NULL);
     if (v == NULL)
 	return 1;
     if (heim_cmp(v, v1))
 	return 1;
 
-    ret = heim_db_set_value(db, k2, v2, NULL);
+    ret = heim_db_set_value(db, NULL, k2, v2, NULL);
     if (ret)
 	return ret;
 
-    v = heim_db_get_value(db, k2, NULL);
+    v = heim_db_get_value(db, NULL, k2, NULL);
     if (v == NULL)
 	return 1;
     if (heim_cmp(v, v2))
 	return 1;
 
-    ret = heim_db_set_value(db, k1, v3, NULL);
+    ret = heim_db_set_value(db, NULL, k1, v3, NULL);
     if (ret)
 	return ret;
 
-    v = heim_db_get_value(db, k1, NULL);
+    v = heim_db_get_value(db, NULL, k1, NULL);
     if (v == NULL)
 	return 1;
     if (heim_cmp(v, v3))
 	return 1;
 
     ret = 3;
-    heim_db_iterate_f(db, &ret, test_db_iter, NULL);
+    heim_db_iterate_f(db, NULL, &ret, test_db_iter, NULL);
 
     ret = heim_db_begin(db, NULL);
     if (ret)
@@ -465,11 +507,11 @@ test_db()
     if (ret)
 	return ret;
 
-    ret = heim_db_set_value(db, k1, v1, NULL);
+    ret = heim_db_set_value(db, NULL, k1, v1, NULL);
     if (ret)
 	return ret;
 
-    v = heim_db_get_value(db, k1, NULL);
+    v = heim_db_get_value(db, NULL, k1, NULL);
     if (v == NULL)
 	return 1;
     if (heim_cmp(v, v1))
@@ -479,7 +521,7 @@ test_db()
     if (ret)
 	return ret;
 
-    v = heim_db_get_value(db, k1, NULL);
+    v = heim_db_get_value(db, NULL, k1, NULL);
     if (v == NULL)
 	return 1;
     if (heim_cmp(v, v3))
@@ -489,11 +531,11 @@ test_db()
     if (ret)
 	return ret;
 
-    ret = heim_db_set_value(db, k1, v1, NULL);
+    ret = heim_db_set_value(db, NULL, k1, v1, NULL);
     if (ret)
 	return ret;
 
-    v = heim_db_get_value(db, k1, NULL);
+    v = heim_db_get_value(db, NULL, k1, NULL);
     if (v == NULL)
 	return 1;
     if (heim_cmp(v, v1))
@@ -503,7 +545,7 @@ test_db()
     if (ret)
 	return ret;
 
-    v = heim_db_get_value(db, k1, NULL);
+    v = heim_db_get_value(db, NULL, k1, NULL);
     if (v == NULL)
 	return 1;
     if (heim_cmp(v, v1))
@@ -513,11 +555,11 @@ test_db()
     if (ret)
 	return ret;
 
-    ret = heim_db_delete_key(db, k1, NULL);
+    ret = heim_db_delete_key(db, NULL, k1, NULL);
     if (ret)
 	return ret;
 
-    v = heim_db_get_value(db, k1, NULL);
+    v = heim_db_get_value(db, NULL, k1, NULL);
     if (v != NULL)
 	return 1;
 
@@ -525,7 +567,7 @@ test_db()
     if (ret)
 	return ret;
 
-    v = heim_db_get_value(db, k1, NULL);
+    v = heim_db_get_value(db, NULL, k1, NULL);
     if (v == NULL)
 	return 1;
     if (heim_cmp(v, v1))
