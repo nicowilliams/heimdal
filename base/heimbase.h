@@ -213,6 +213,9 @@ int heim_path_vcreate(heim_object_t ptr, size_t size, heim_object_t leaf,
 int heim_path_create(heim_object_t ptr, size_t size, heim_object_t leaf,
 		     heim_error_t *error, ...);
 
+void heim_path_vdelete(heim_object_t ptr, heim_error_t *error, va_list ap);
+void heim_path_delete(heim_object_t ptr, heim_error_t *error, ...);
+
 /*
  * Data (octet strings)
  */

@@ -578,8 +578,9 @@ heim_auto_release_drain(heim_auto_release_t autorel)
     HEIMDAL_MUTEX_unlock(&autorel->pool_mutex);
 }
 
-heim_object_t
-heim_path_vget(heim_object_t ptr, heim_error_t *error, va_list ap)
+static heim_object_t
+heim_path_vget2(heim_object_t ptr, heim_object_t *parent, heim_object_t *key,
+		heim_error_t *error, va_list ap)
 {
     heim_object_t path_element;
     heim_object_t node;
@@ -588,10 +589,15 @@ heim_path_vget(heim_object_t ptr, heim_error_t *error, va_list ap)
     if (ptr == NULL)
 	return NULL;
 
+    *parent = NULL;
+    *key = NULL;
     for (node = ptr; node != NULL;) {
 	path_element = va_arg(ap, heim_object_t);
 	if (path_element == NULL)
 	    return node;
+
+	*parent = node;
+	*key = path_element;
 
 	node_type = heim_get_tid(node);
 	switch (node_type) {
@@ -638,6 +644,14 @@ heim_path_vget(heim_object_t ptr, heim_error_t *error, va_list ap)
 	}
     }
     return NULL;
+}
+
+heim_object_t
+heim_path_vget(heim_object_t ptr, heim_error_t *error, va_list ap)
+{
+    heim_object_t p, k;
+
+    return heim_path_vget2(ptr, &p, &k, error, ap);
 }
 
 heim_object_t
@@ -792,5 +806,32 @@ heim_path_create(heim_object_t ptr, size_t size, heim_object_t leaf,
     ret = heim_path_vcreate(ptr, size, leaf, error, ap);
     va_end(ap);
     return ret;
+}
+
+void
+heim_path_vdelete(heim_object_t ptr, heim_error_t *error, va_list ap)
+{
+    heim_object_t parent, key, child;
+
+    child = heim_path_vget2(ptr, &parent, &key, error, ap);
+    if (child != NULL) {
+	if (heim_get_tid(parent) == HEIM_TID_DICT)
+	    heim_dict_delete_key(parent, key);
+	else if (heim_get_tid(parent) == HEIM_TID_DB)
+	    heim_db_delete_key(parent, NULL, key, error);
+	else if (heim_get_tid(parent) == HEIM_TID_ARRAY)
+	    heim_array_delete_value(parent, heim_number_get_int(key));
+    }
+}
+
+void
+heim_path_delete(heim_object_t ptr, heim_error_t *error, ...)
+{
+    va_list ap;
+
+    va_start(ap, error);
+    heim_path_vdelete(ptr, error, ap);
+    va_end(ap);
+    return;
 }
 
