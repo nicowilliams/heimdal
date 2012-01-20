@@ -656,50 +656,6 @@ heim_db_get_value(heim_db_t db, heim_string_t table, heim_data_t key,
     return result;
 }
 
-static int
-get_table_dict(heim_db_t db, heim_string_t table,
-	       heim_dict_t *set_keys, heim_dict_t *del_keys,
-	       heim_error_t *error)
-{
-    heim_dict_t table_dict;
-    int ret = ENOMEM;
-
-    table_dict = heim_dict_get_value(db->set_keys, table);
-    if (table_dict == NULL) {
-	table_dict = heim_dict_create(29);
-	if (table_dict == NULL)
-	    goto err;
-	ret = heim_dict_set_value(db->set_keys, table, table_dict);
-	heim_release(table_dict);
-	if (ret)
-	    goto err;
-    }
-    *set_keys = table_dict;
-
-    ret = ENOMEM;
-    table_dict = heim_dict_get_value(db->del_keys, table);
-    if (table_dict == NULL) {
-	table_dict = heim_dict_create(29);
-	if (table_dict == NULL)
-	    goto err;
-	ret = heim_dict_set_value(db->del_keys, table, table_dict);
-	heim_release(table_dict);
-	if (ret)
-	    goto err;
-    }
-    *del_keys = table_dict;
-
-    return 0;
-
-err:
-    if (error != NULL) {
-	if (ret == ENOMEM)
-	    *error = heim_error_enomem();
-	else
-	    *error = heim_error_create(ret, "Could not set a dict value");
-    }
-    return ret;
-}
 
 /**
  * Set a key's value in the DB.
@@ -736,17 +692,11 @@ heim_db_set_value(heim_db_t db, heim_string_t table,
 	return EBADF;
 
     if (db->set_keys != NULL) {
-	heim_dict_t set_keys, del_keys;
-
 	/* Transaction emulation */
-	ret = get_table_dict(db, table, &set_keys, &del_keys, error);
+	ret = heim_path_create(db->set_keys, 29, value, error, table, key);
 	if (ret)
 	    goto err;
-
-	ret = heim_dict_set_value(set_keys, key, value);
-	if (ret)
-	    goto err;
-	heim_dict_delete_key(del_keys, key);
+	heim_path_delete(db->del_keys, error, table, key);
 
 	return 0;
     }
@@ -794,17 +744,11 @@ heim_db_delete_key(heim_db_t db, heim_string_t table, heim_data_t key,
 	return EBADF;
 
     if (db->del_keys != NULL) {
-	heim_dict_t set_keys, del_keys;
-
 	/* Transaction emulation */
-	ret = get_table_dict(db, table, &set_keys, &del_keys, error);
+	ret = heim_path_create(db->del_keys, 29, heim_number_create(1), error, table, key);
 	if (ret)
 	    goto err;
-
-	ret = heim_dict_set_value(del_keys, key, heim_number_create(1));
-	if (ret)
-	    goto err;
-	heim_dict_delete_key(set_keys, key);
+	heim_path_delete(db->set_keys, error, table, key);
 
 	return 0;
     }
