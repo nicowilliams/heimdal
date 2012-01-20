@@ -366,7 +366,6 @@ dict_db_set_value(void *db, heim_string_t table,
 		  heim_data_t key, heim_data_t value, heim_error_t *error)
 {
     dict_db_t dictdb = db;
-    heim_dict_t table_dict;
 
     if (error)
 	*error = NULL;
@@ -374,22 +373,7 @@ dict_db_set_value(void *db, heim_string_t table,
     if (table == NULL)
 	table = heim_null_create();
 
-    table_dict = heim_dict_get_value(dictdb->dict, table);
-    if (table_dict == NULL) {
-	int ret;
-
-	table_dict = heim_dict_create(29);
-	if (table_dict == NULL) {
-	    if (error)
-		*error = heim_error_enomem();
-	    return ENOMEM;
-	}
-	ret = heim_dict_set_value(dictdb->dict, table, table_dict);
-	heim_release(table_dict);
-	if (ret)
-	    return ret;
-    }
-    return heim_dict_set_value(table_dict, key, value);
+    return heim_path_create(dictdb->dict, 29, value, error, table, key, NULL);
 }
 
 static int

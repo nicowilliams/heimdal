@@ -707,22 +707,17 @@ heim_path_vcreate(heim_object_t ptr, size_t size, heim_object_t leaf,
 
     for (node = ptr, next_node = NULL; ; first = 0) {
 	next_path_element = va_arg(ap, heim_object_t);
+	if (next_path_element == NULL)
+	    break;
 
 	/* Handle interior node creation / addition of leaf */
 	if (!first && next_node == NULL) {
 	    /* If not first go around and we don't have a next node, add one */
-	    if (next_path_element == NULL) {
-		/* Last path element -> will add leaf node */
-		if (leaf == NULL)
-		    break;
-		next_node = leaf;
-	    } else {
-		/* Else will add an interior node (dict) */
-		next_node = heim_dict_create(size);
-		if (next_node == NULL) {
-		    ret = ENOMEM;
-		    goto err;
-		}
+	    /* Else will add an interior node (dict) */
+	    next_node = heim_dict_create(size);
+	    if (next_node == NULL) {
+		ret = ENOMEM;
+		goto err;
 	    }
 
 	    /* Do the addition */
@@ -739,8 +734,6 @@ heim_path_vcreate(heim_object_t ptr, size_t size, heim_object_t leaf,
 	path_element = next_path_element;
 	if (next_node)
 	    node = next_node;
-	if (path_element == NULL)
-	    break;
 
 	node_type = heim_get_tid(node);
 	switch (node_type) {
@@ -781,6 +774,16 @@ heim_path_vcreate(heim_object_t ptr, size_t size, heim_object_t leaf,
 		*error = heim_error_create(EINVAL, "Interior node is a DB");
 	    return EINVAL;
 	}
+    }
+
+    /* Add the leaf */
+    if (leaf != NULL) {
+	if (node_type == HEIM_TID_DICT)
+	    ret = heim_dict_set_value(node, path_element, leaf);
+	else
+	    ret = heim_array_insert_value(node,
+					  heim_number_get_int(path_element),
+					  leaf);
     }
     return 0;
 
