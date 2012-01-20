@@ -309,7 +309,7 @@ dict_db_get_value(void *db, heim_string_t table, heim_data_t key,
     heim_release(dictdb->to_release);
     dictdb->to_release = NULL;
 
-    return (heim_path(dictdb->dict, error, table, key, NULL));
+    return (heim_path_get(dictdb->dict, error, table, key, NULL));
 }
 
 static int

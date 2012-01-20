@@ -643,10 +643,10 @@ heim_db_get_value(heim_db_t db, heim_string_t table, heim_data_t key,
 	table = heim_null_create();
 
     if (db->in_transaction) {
-	v = heim_path(db->set_keys, error, table, key, NULL);
+	v = heim_path_get(db->set_keys, error, table, key, NULL);
 	if (v != NULL)
 	    return v;
-	v = heim_path(db->del_keys, error, table, key, NULL); /* can't be NULL */
+	v = heim_path_get(db->del_keys, error, table, key, NULL); /* can't be NULL */
 	if (v != NULL)
 	    return NULL;
     }
