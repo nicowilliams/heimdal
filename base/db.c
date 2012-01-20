@@ -221,6 +221,7 @@ db_dealloc(void *arg)
 		"rollback or commit heim_db_t before releasing it");
     if (db->db_data)
 	(void) db->plug->closef(db->db_data, NULL);
+    heim_release(db->dbtype);
     heim_release(db->dbname);
     heim_release(db->options);
     heim_release(db->set_keys);
@@ -522,25 +523,39 @@ heim_db_commit(heim_db_t db, heim_error_t *error)
 	return ret;
     }
 
+    if (db->ro_tx) {
+	ret = 0;
+	goto done;
+    }
+
     if (db->plug->wrjournalf != NULL) {
 	heim_array_t a;
 	heim_string_t journal_contents;
 
 	/* Create contents for replay log */
+	ret = ENOMEM;
 	a = heim_array_create();
+	if (a == NULL)
+	    goto err;
 	ret = heim_array_append_value(a, db->set_keys);
-	if (ret)
-	    return ret;
+	if (ret) {
+	    heim_release(a);
+	    goto err;
+	}
 	ret = heim_array_append_value(a, db->del_keys);
-	if (ret)
-	    return ret;
+	if (ret) {
+	    heim_release(a);
+	    goto err;
+	}
 	journal_contents = heim_serialize(a, error);
+	heim_release(a);
 
 	/* Write replay log */
 	ret = db->plug->wrjournalf(db->db_data, journal_contents,
 				   db->do_sync, error);
+	heim_release(journal_contents);
 	if (ret)
-	    return ret;
+	    goto err;
     }
 
     /* Apply logged actions */
@@ -563,6 +578,7 @@ heim_db_commit(heim_db_t db, heim_error_t *error)
      * Clean up; if we failed to remore the replay log that's OK, we'll
      * handle that again in heim_db_commit()
      */
+done:
     heim_release(db->set_keys);
     heim_release(db->del_keys);
     db->set_keys = NULL;
@@ -574,6 +590,15 @@ heim_db_commit(heim_db_t db, heim_error_t *error)
     if (ret == 0)
 	ret = ret2;
 
+    return ret;
+
+err:
+    if (error != NULL && *error == NULL) {
+	if (ret == ENOMEM)
+	    *error = heim_error_enomem();
+	else
+	    *error = heim_error_create(ret, "Error while committing transaction");
+    }
     return ret;
 }
 
@@ -709,10 +734,10 @@ heim_db_set_value(heim_db_t db, heim_string_t table,
 	    if (ret)
 		goto err;
 	}
-	ret = heim_path_create(db->set_keys, 29, value, error, table, key);
+	ret = heim_path_create(db->set_keys, 29, value, error, table, key, NULL);
 	if (ret)
 	    goto err;
-	heim_path_delete(db->del_keys, error, table, key);
+	heim_path_delete(db->del_keys, error, table, key, NULL);
 
 	return 0;
     }
@@ -767,10 +792,10 @@ heim_db_delete_key(heim_db_t db, heim_string_t table, heim_data_t key,
 	    if (ret)
 		goto err;
 	}
-	ret = heim_path_create(db->del_keys, 29, heim_number_create(1), error, table, key);
+	ret = heim_path_create(db->del_keys, 29, heim_number_create(1), error, table, key, NULL);
 	if (ret)
 	    goto err;
-	heim_path_delete(db->set_keys, error, table, key);
+	heim_path_delete(db->set_keys, error, table, key, NULL);
 
 	return 0;
     }

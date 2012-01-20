@@ -248,6 +248,7 @@ test_path(void)
 	return ENOMEM;
 
     ret = heim_path_create(dict, 11, a, NULL, p1, p2a, NULL);
+    heim_release(a);
     if (ret)
 	return ret;
     ret = heim_path_create(dict, 11, l3, NULL, p1, p2b, NULL);
@@ -272,6 +273,14 @@ test_path(void)
     o = heim_path_get(dict, NULL, p1, p2a, p3, p4b, NULL);
     if (o != l2)
 	return 1;
+
+    heim_release(dict);
+    heim_release(p1);
+    heim_release(p2a);
+    heim_release(p2b);
+    heim_release(p4a);
+    heim_release(p4b);
+    heim_release(p4b);
 
     return 0;
 }
@@ -607,6 +616,12 @@ test_db()
 	return 1;
 
     heim_release(db);
+
+    heim_release(k1);
+    heim_release(k2);
+    heim_release(v1);
+    heim_release(v2);
+    heim_release(v3);
 
     return 0;
 }
