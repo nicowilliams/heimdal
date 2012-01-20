@@ -188,15 +188,14 @@ heim_array_prepend_value(heim_array_t array, heim_object_t object)
 	return 0;
     }
     /* Pre-allocate extra .5 times number of used slots */
-    leading = (array->len >> 1);
     new_len = array->len + 1 + trailing + (array->len >> 1);
     ptr = realloc(array->allocated, new_len * sizeof(array->val[0]));
     if (ptr == NULL)
 	return ENOMEM;
-    (void) memmove(&ptr[leading], &ptr[0], array->len * sizeof (array->val[0]));
+    (void) memmove(&ptr[1], &ptr[0], array->len * sizeof (array->val[0]));
     array->allocated = ptr;
     array->allocated_len = new_len;
-    array->val = &ptr[leading - 1];
+    array->val = &ptr[0];
     array->val[0] = heim_retain(object);
     array->len++;
 
