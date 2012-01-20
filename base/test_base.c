@@ -227,6 +227,55 @@ test_json(void)
     return 0;
 }
 
+static int
+test_path(void)
+{
+    heim_dict_t dict = heim_dict_create(11);
+    heim_string_t p1 = heim_string_create("abc");
+    heim_string_t p2a = heim_string_create("def");
+    heim_string_t p2b = heim_string_create("DEF");
+    heim_number_t p3 = heim_number_create(0);
+    heim_string_t p4a = heim_string_create("ghi");
+    heim_string_t p4b = heim_string_create("GHI");
+    heim_array_t a = heim_array_create();
+    heim_number_t l1 = heim_number_create(42);
+    heim_number_t l2 = heim_number_create(813);
+    heim_number_t l3 = heim_number_create(1234);
+    heim_object_t o;
+    int ret;
+
+    if (!dict || !p1 || !p2a || !p2b || !p4a || !p4b)
+	return ENOMEM;
+
+    ret = heim_path_create(dict, 11, a, NULL, p1, p2a, NULL);
+    if (ret)
+	return ret;
+    ret = heim_path_create(dict, 11, l3, NULL, p1, p2b, NULL);
+    if (ret)
+	return ret;
+    o = heim_path_get(dict, NULL, p1, p2b, NULL);
+    if (o != l3)
+	return 1;
+    ret = heim_path_create(dict, 11, NULL, NULL, p1, p2a, p3, NULL);
+    if (ret)
+	return ret;
+    ret = heim_path_create(dict, 11, l1, NULL, p1, p2a, p3, p4a, NULL);
+    if (ret)
+	return ret;
+    ret = heim_path_create(dict, 11, l2, NULL, p1, p2a, p3, p4b, NULL);
+    if (ret)
+	return ret;
+
+    o = heim_path_get(dict, NULL, p1, p2a, p3, p4a, NULL);
+    if (o != l1)
+	return 1;
+    o = heim_path_get(dict, NULL, p1, p2a, p3, p4b, NULL);
+    if (o != l2)
+	return 1;
+
+    return 0;
+}
+
 typedef struct dict_db {
     heim_dict_t dict;
     heim_object_t to_release;
@@ -686,6 +735,7 @@ main(int argc, char **argv)
     res |= test_string();
     res |= test_error();
     res |= test_json();
+    res |= test_path();
     res |= test_db();
     res |= test_array();
 

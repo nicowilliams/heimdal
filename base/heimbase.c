@@ -601,7 +601,7 @@ heim_path_vget(heim_object_t ptr, heim_error_t *error, va_list ap)
 	    break;
 	default:
 	    if (node == ptr)
-		heim_abort("heim_path() only operates on container types");
+		heim_abort("heim_path_get() only operates on container types");
 	    return NULL;
 	}
 
@@ -615,9 +615,9 @@ heim_path_vget(heim_object_t ptr, heim_error_t *error, va_list ap)
 	    default:
 		if (error)
 		    *error = heim_error_create(EINVAL,
-					       "heim_path() path elements for "
-					       "DB nodes must be strings or "
-					       "data");
+					       "heim_path_get() path elements "
+					       "for DB nodes must be strings "
+					       "or data");
 		return NULL;
 	    }
 	    node = heim_dict_get_value(node, path_element);
@@ -629,9 +629,9 @@ heim_path_vget(heim_object_t ptr, heim_error_t *error, va_list ap)
 	    if (idx < 0) {
 		if (error)
 		    *error = heim_error_create(EINVAL,
-					       "heim_path() path elements for "
-					       "array nodes must be numeric "
-					       "and positive");
+					       "heim_path_get() path elements "
+					       "for array nodes must be "
+					       "numeric and positive");
 		return NULL;
 	    }
 	    node = heim_array_get_value(node, idx);
@@ -675,5 +675,122 @@ heim_path_get_copy(heim_object_t ptr, heim_error_t *error, ...)
     o = heim_path_vget_copy(ptr, error, ap);
     va_end(ap);
     return o;
+}
+
+int
+heim_path_vcreate(heim_object_t ptr, size_t size, heim_object_t leaf,
+		  heim_error_t *error, va_list ap)
+{
+    heim_object_t path_element = NULL;
+    heim_object_t next_path_element = NULL;
+    heim_object_t node, next_node;
+    heim_tid_t node_type;
+    int first = 1;
+    int ret;
+
+    if (ptr == NULL)
+	heim_abort("heim_path_vcreate() does not create root nodes");
+
+    for (node = ptr, next_node = NULL; ; first = 0) {
+	next_path_element = va_arg(ap, heim_object_t);
+
+	/* Handle interior node creation / addition of leaf */
+	if (!first && next_node == NULL) {
+	    /* If not first go around and we don't have a next node, add one */
+	    if (next_path_element == NULL) {
+		/* Last path element -> will add leaf node */
+		if (leaf == NULL)
+		    break;
+		next_node = leaf;
+	    } else {
+		/* Else will add an interior node (dict) */
+		next_node = heim_dict_create(size);
+		if (next_node == NULL) {
+		    ret = ENOMEM;
+		    goto err;
+		}
+	    }
+
+	    /* Do the addition */
+	    if (node_type == HEIM_TID_DICT)
+		ret = heim_dict_set_value(node, path_element, next_node);
+	    else
+		ret = heim_array_insert_value(node,
+					      heim_number_get_int(path_element),
+					      next_node);
+	    if (ret)
+		goto err;
+	}
+
+	path_element = next_path_element;
+	if (next_node)
+	    node = next_node;
+	if (path_element == NULL)
+	    break;
+
+	node_type = heim_get_tid(node);
+	switch (node_type) {
+	case HEIM_TID_ARRAY:
+	case HEIM_TID_DICT:
+	case HEIM_TID_DB:
+	    break;
+	default:
+	    if (node == ptr)
+		heim_abort("heim_path_create() only operates on container "
+			   "types");
+	    if (error)
+		*error = heim_error_create(EINVAL, "Non-container node in path");
+	    return EINVAL;
+	}
+
+	if (node_type == HEIM_TID_DICT) {
+	    next_node = heim_dict_get_value(node, path_element);
+	} else if (node_type == HEIM_TID_ARRAY) {
+	    int idx = -1;
+
+	    if (heim_get_tid(path_element) == HEIM_TID_NUMBER)
+		idx = heim_number_get_int(path_element);
+	    if (idx < 0) {
+		if (error)
+		    *error = heim_error_create(EINVAL,
+					       "heim_path() path elements for "
+					       "array nodes must be numeric "
+					       "and positive");
+		return EINVAL;
+	    }
+	    if (idx < heim_array_get_length(node))
+		next_node = heim_array_get_value(node, idx);
+	    else
+		next_node = NULL;
+	} else if (node_type == HEIM_TID_DB) {
+	    if (error)
+		*error = heim_error_create(EINVAL, "Interior node is a DB");
+	    return EINVAL;
+	}
+    }
+    return 0;
+
+err:
+    if (error) {
+	if (ret == ENOMEM)
+	    *error = heim_error_enomem();
+	else
+	    *error = heim_error_create(ret, "Could not set "
+				       "dict value");
+    }
+    return ret;
+}
+
+int
+heim_path_create(heim_object_t ptr, size_t size, heim_object_t leaf,
+		 heim_error_t *error, ...)
+{
+    va_list ap;
+    int ret;
+
+    va_start(ap, error);
+    ret = heim_path_vcreate(ptr, size, leaf, error, ap);
+    va_end(ap);
+    return ret;
 }
 

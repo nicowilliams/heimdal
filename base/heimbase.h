@@ -208,6 +208,11 @@ heim_object_t heim_path_vget(heim_object_t ptr, heim_error_t *error,
 heim_object_t heim_path_vget_copy(heim_object_t ptr, heim_error_t *error,
 				  va_list ap);
 
+int heim_path_vcreate(heim_object_t ptr, size_t size, heim_object_t leaf,
+		      heim_error_t *error, va_list ap);
+int heim_path_create(heim_object_t ptr, size_t size, heim_object_t leaf,
+		     heim_error_t *error, ...);
+
 /*
  * Data (octet strings)
  */
