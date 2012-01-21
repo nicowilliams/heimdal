@@ -280,7 +280,6 @@ test_path(void)
     heim_release(p2b);
     heim_release(p4a);
     heim_release(p4b);
-    heim_release(p4b);
 
     return 0;
 }
@@ -390,7 +389,6 @@ dict_db_del_key(void *db, heim_string_t table, heim_data_t key,
 		heim_error_t *error)
 {
     dict_db_t dictdb = db;
-    heim_dict_t table_dict;
 
     if (error)
 	*error = NULL;
@@ -398,11 +396,7 @@ dict_db_del_key(void *db, heim_string_t table, heim_data_t key,
     if (table == NULL)
 	table = heim_null_create();
 
-    table_dict = heim_dict_get_value(dictdb->dict, table);
-    if (table_dict == NULL)
-	return 0;
-
-    heim_dict_delete_key(dictdb->dict, key);
+    heim_path_delete(dictdb->dict, error, table, key, NULL);
     return 0;
 }
 
@@ -440,6 +434,7 @@ dict_db_iter(void *db, heim_string_t table, void *iter_data,
     ctx.iter_f = iter_f;
 
     heim_dict_iterate_f(table_dict, &ctx, dict_db_iter_f);
+    heim_release(table_dict);
 }
 
 static void

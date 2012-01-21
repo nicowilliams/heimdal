@@ -615,7 +615,7 @@ heim_path_vget2(heim_object_t ptr, heim_object_t *parent, heim_object_t *key,
     if (ptr == NULL)
 	return NULL;
 
-    for (node = ptr; node != NULL;) {
+    for (node = ptr; node != NULL; ) {
 	path_element = va_arg(ap, heim_object_t);
 	if (path_element == NULL) {
 	    *parent = node;
@@ -637,6 +637,7 @@ heim_path_vget2(heim_object_t ptr, heim_object_t *parent, heim_object_t *key,
 
 	if (node_type == HEIM_TID_DICT) {
 	    next_node = heim_dict_get_value(node, path_element);
+	    heim_release(next_node);
 	} else if (node_type == HEIM_TID_DB) {
 	    switch (heim_get_tid(path_element)) {
 	    case HEIM_TID_STRING:
@@ -650,7 +651,7 @@ heim_path_vget2(heim_object_t ptr, heim_object_t *parent, heim_object_t *key,
 					       "or data");
 		return NULL;
 	    }
-	    next_node = heim_dict_get_value(node, path_element);
+	    next_node = heim_db_get_value(node, NULL, path_element, NULL);
 	    heim_release(next_node);
 	} else if (node_type == HEIM_TID_ARRAY) {
 	    int idx = -1;
@@ -935,6 +936,7 @@ heim_path_vdelete(heim_object_t ptr, heim_error_t *error, va_list ap)
 	    heim_db_delete_key(parent, NULL, key, error);
 	else if (heim_get_tid(parent) == HEIM_TID_ARRAY)
 	    heim_array_delete_value(parent, heim_number_get_int(key));
+	heim_release(child);
     }
 }
 
