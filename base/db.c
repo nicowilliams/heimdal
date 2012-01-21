@@ -847,10 +847,6 @@ db_replay_log_table_set_keys_iter(heim_object_t key, heim_object_t value,
     if (db->ret)
 	return;
 
-    heim_assert(heim_get_tid(key) == HEIM_TID_DATA &&
-		heim_get_tid(value) == HEIM_TID_DATA,
-		"heim_db_t key/value type consistency");
-
     k = (heim_data_t)key;
     v = (heim_data_t)value;
 
@@ -866,9 +862,6 @@ db_replay_log_table_del_keys_iter(heim_object_t key, heim_object_t value,
 
     if (db->ret)
 	return;
-
-    heim_assert(heim_get_tid(key) == HEIM_TID_DATA,
-		"heim_db_t key/value type consistency");
 
     k = (heim_data_t)key;
 

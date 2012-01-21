@@ -639,18 +639,6 @@ heim_path_vget2(heim_object_t ptr, heim_object_t *parent, heim_object_t *key,
 	    next_node = heim_dict_get_value(node, path_element);
 	    heim_release(next_node);
 	} else if (node_type == HEIM_TID_DB) {
-	    switch (heim_get_tid(path_element)) {
-	    case HEIM_TID_STRING:
-	    case HEIM_TID_DATA:
-		break;
-	    default:
-		if (error)
-		    *error = heim_error_create(EINVAL,
-					       "heim_path_get() path elements "
-					       "for DB nodes must be strings "
-					       "or data");
-		return NULL;
-	    }
 	    next_node = heim_db_get_value(node, NULL, path_element, NULL);
 	    heim_release(next_node);
 	} else if (node_type == HEIM_TID_ARRAY) {
