@@ -31,23 +31,32 @@
 
 RELDIR=base
 
+intcflags=-I$(SRCDIR) -I$(OBJ) -DROKEN_RENAME
+
 !include ../windows/NTMakefile.w32
 
 INCFILES=$(INCDIR)\heimbase.h
 
 libheimbase_OBJS =		\
 	$(OBJ)\array.obj	\
-	$(OBJ)\bsearch.obj	\
 	$(OBJ)\bool.obj		\
+	$(OBJ)\bsearch.obj	\
+	$(OBJ)\data.obj		\
+	$(OBJ)\db.obj		\
 	$(OBJ)\dict.obj		\
 	$(OBJ)\error.obj	\
 	$(OBJ)\heimbase.obj	\
+	$(OBJ)\json.obj		\
 	$(OBJ)\null.obj		\
 	$(OBJ)\number.obj	\
 	$(OBJ)\string.obj
 
 $(LIBHEIMBASE): $(libheimbase_OBJS)
-	$(LIBCON)
+	$(LIBCON_C) -OUT:$@ $(LIBROKEN) @<<
+$(libheimbase_OBJS: =
+)
+<<
+
 
 all:: $(INCFILES) $(LIBHEIMBASE)
 

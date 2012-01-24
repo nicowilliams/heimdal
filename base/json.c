@@ -36,6 +36,7 @@
 #include "baselocl.h"
 #include <ctype.h>
 #include <base64.h>
+#include <roken.h>
 
 static heim_base_once_t heim_json_once = HEIM_BASE_ONCE_INIT;
 static heim_string_t heim_tid_data_uuid_key = NULL;
@@ -166,9 +167,9 @@ base2json(heim_object_t obj, struct twojson *j)
     }
 
     case HEIM_TID_NUMBER: {
-	char num[16];
+	char num[32]; /* XXX Figure out how to get roken's snprintf on Win32 */
 	indent(j);
-	snprintf(num, sizeof(num), "%d", heim_number_get_int(obj));
+	snprintf(num, sizeof (num), "%d", heim_number_get_int(obj));
 	j->out(j->ctx, num);
 	break;
     }
