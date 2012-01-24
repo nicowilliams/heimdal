@@ -31,7 +31,7 @@
 
 RELDIR=base
 
-intcflags=-I$(SRCDIR) -I$(OBJ) -DROKEN_RENAME
+intcflags=-I$(SRCDIR) -I$(OBJ)
 
 !include ../windows/NTMakefile.w32
 

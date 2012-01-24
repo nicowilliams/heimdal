@@ -5,6 +5,8 @@ if do_roken_rename
 ES = base64.c
 endif
 
+AM_CPPFLAGS += $(ROKEN_RENAME)
+
 lib_LTLIBRARIES = libheimbase.la
 check_PROGRAMS = test_base
 
