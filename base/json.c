@@ -36,7 +36,6 @@
 #include "baselocl.h"
 #include <ctype.h>
 #include <base64.h>
-#include <roken.h>
 
 static heim_base_once_t heim_json_once = HEIM_BASE_ONCE_INIT;
 static heim_string_t heim_tid_data_uuid_key = NULL;
