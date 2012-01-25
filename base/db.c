@@ -367,7 +367,7 @@ heim_db_create(const char *dbtype, const char *dbname,
     }
 
     if (options != NULL) {
-	v = heim_dict_get_value(options, "sync");
+	v = heim_dict_get_value(options, HSTR("sync"));
 	if (v != NULL) {
 	    heim_release(v);
 	    db->do_sync = 1;

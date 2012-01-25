@@ -824,19 +824,6 @@ stdb_open(void *plug, const char *dbtype, const char *dbname,
 				       ""));
 	return ENOTSUP;
     }
-    if (options) {
-	heim_object_t v = heim_dict_get_value(options, "tblname");
-
-	if (v) {
-	    heim_release(v);
-	    if (error)
-		*error = heim_error_create(ENOTSUP,
-					   N_("Sorted text file DB type does"
-					   "not support tables",
-					   ""));
-	    return EINVAL;
-	}
-    }
 
     ret = _bsearch_file_open(dbname, 0, 0, &bfh, NULL);
     if (ret)
