@@ -185,12 +185,19 @@ heim_string_t __heim_string_constant(const char *);
 
 typedef struct heim_error * heim_error_t;
 heim_error_t heim_error_enomem(void);
+int heim_error_enomem2(heim_error_t *);
 
 heim_error_t	heim_error_create(int, const char *, ...)
     HEIMDAL_PRINTF_ATTRIBUTE((printf, 2, 3));
 
 heim_error_t	heim_error_createv(int, const char *, va_list)
     HEIMDAL_PRINTF_ATTRIBUTE((printf, 2, 0));
+
+int	heim_error_create2(heim_error_t *, int, const char *, ...)
+    HEIMDAL_PRINTF_ATTRIBUTE((printf, 3, 4));
+
+int	heim_error_createv2(heim_error_t *, int, const char *, va_list)
+    HEIMDAL_PRINTF_ATTRIBUTE((printf, 3, 0));
 
 heim_string_t heim_error_copy_string(heim_error_t);
 int heim_error_get_code(heim_error_t);

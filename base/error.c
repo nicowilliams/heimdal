@@ -82,6 +82,15 @@ heim_error_enomem(void)
     return (heim_error_t)heim_number_create(ENOMEM);
 }
 
+int
+heim_error_enomem2(heim_error_t *e)
+{
+    if (e != NULL)
+	*e = heim_error_enomem();
+    return ENOMEM;
+
+}
+
 heim_error_t
 heim_error_create(int error_code, const char *fmt, ...)
 {
@@ -123,6 +132,30 @@ heim_error_createv(int error_code, const char *fmt, va_list ap)
 
     errno = save_errno;
     return e;
+}
+
+int
+heim_error_create2(heim_error_t *e, int error_code, const char *fmt, ...)
+{
+    va_list ap;
+
+    if (e == NULL)
+	return error_code;
+
+    va_start(ap, fmt);
+    *e = heim_error_createv(error_code, fmt, ap);
+    va_end(ap);
+
+    return error_code;
+}
+
+int
+heim_error_createv2(heim_error_t *e, int error_code, const char *fmt, va_list ap)
+{
+    if (e == NULL)
+	return error_code;
+    *e = heim_error_createv(error_code, fmt, ap);
+    return error_code;
 }
 
 heim_string_t
