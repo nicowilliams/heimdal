@@ -47,7 +47,24 @@
  * memory-based rollback log is used).
  */
 
+#include <errno.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <sys/file.h>
+#ifdef HAVE_IO_H
+#include <io.h>
+#endif
+#ifdef HAVE_UNISTD_H
+#include <unistd.h>
+#endif
+#include <fcntl.h>
+
 #include "baselocl.h"
+
+static struct heim_db_type json_dbt;
 
 static void db_dealloc(void *ptr);
 
@@ -108,10 +125,12 @@ db_do_log_actions(heim_db_t db, heim_error_t *error);
 static int
 db_replay_log(heim_db_t db, heim_error_t *error);
 
+static HEIMDAL_MUTEX db_type_mutex = HEIMDAL_MUTEX_INITIALIZER;
+
 static void
 db_init_plugins_once(void *arg)
 {
-    db_plugins = arg;
+    db_plugins = heim_retain(arg);
 }
 
 static void
@@ -167,20 +186,12 @@ heim_db_register(const char *dbtype,
     if (plugins == NULL)
 	return ENOMEM;
     heim_base_once_f(&db_plugin_init_once, plugins, db_init_plugins_once);
-    if (plugins != db_plugins)
-	heim_release(plugins);
+    heim_release(plugins);
     heim_assert(db_plugins != NULL, "heim_db plugin table initialized");
 
     s = heim_string_create(dbtype);
     if (s == NULL)
 	return ENOMEM;
-
-    plug = heim_dict_get_value(db_plugins, s);
-    if (plug) {
-	heim_release(s);
-	heim_release(plug);
-	return EEXIST;
-    }
 
     plug = heim_alloc(sizeof (*plug), "db_plug", plugin_dealloc);
     if (plug == NULL) {
@@ -206,7 +217,11 @@ heim_db_register(const char *dbtype,
     plug->iterf = plugin->iterf;
     plug->data = data;
 
-    ret = heim_dict_set_value(db_plugins, s, plug);
+    HEIMDAL_MUTEX_lock(&db_type_mutex);
+    plug = heim_dict_get_value(db_plugins, s);
+    if (plug == NULL)
+	ret = heim_dict_set_value(db_plugins, s, plug);
+    HEIMDAL_MUTEX_unlock(&db_type_mutex);
     heim_release(plug);
     heim_release(s);
 
@@ -298,7 +313,9 @@ heim_db_create(const char *dbtype, const char *dbname,
 	return NULL;
 
     if (dbtype == NULL || *dbtype == '\0') {
-	/* Try all dbtypes */
+	/* Try all dbtypes (XXX must lock, but then recursive mutex!) */
+	/* XXX We should have heim_db_register() always set a new dict
+	 * to db_plugins. */
 	struct dbtype_iter iter_ctx = { NULL, dbname, options, error};
 	heim_dict_iterate_f(db_plugins, &iter_ctx, dbtype_iter2create_f);
 
@@ -318,7 +335,18 @@ heim_db_create(const char *dbtype, const char *dbname,
     if (s == NULL)
 	return NULL;
 
+again:
+    HEIMDAL_MUTEX_lock(&db_type_mutex);
     plug = heim_dict_get_value(db_plugins, s);
+    HEIMDAL_MUTEX_unlock(&db_type_mutex);
+    if (plug == NULL && strcmp(dbtype, "json") == 0) {
+	ret = heim_db_register(dbtype, NULL, &json_dbt);
+	if (ret) {
+	    heim_release(s);
+	    return NULL;
+	}
+	goto again;
+    }
     heim_release(s);
     if (plug == NULL) {
 	if (error)
@@ -980,3 +1008,292 @@ db_replay_log(heim_db_t db, heim_error_t *error)
 
     return 0;
 }
+
+typedef struct json_db {
+    heim_dict_t dict;
+    heim_object_t to_release;
+    int locked;
+} *json_db_t;
+
+static int
+open_json(const char *dbname, int for_write, int *fd, heim_error_t *error)
+{
+    int ret = 0;
+
+    *fd = -1;
+
+#ifdef WIN32
+    HANDLE hFile;
+
+    if (for_write)
+	hFile = CreateFile(dbname, GENERIC_WRITE, 0,
+			   NULL, /* we'll close as soon as we read */
+			   CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+    else
+	hFile = CreateFile(dbname, GENERIC_READ, FILE_SHARE_READ,
+			   NULL, /* we'll close as soon as we read */
+			   OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+    if (hFile == INVALID_HANDLE_VALUE) {
+	ret = GetLastError();
+	_set_errno(ENOENT); /* CreateFile() does not set errno */
+	goto err;
+    }
+    *fd = _open_osfhandle((intptr_t) hFile, 0);
+    if (*fd < 0) {
+	ret = errno;
+	(void) CloseHandle(hFile);
+	goto err;
+    }
+
+    return 0;
+
+err:
+    if (error != NULL) {
+	char *s = NULL;
+	FormatMessage(FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_ALLOCATE_BUFFER,
+		      0, ret, 0, (LPTSTR) &s, 0, NULL);
+	*error = heim_error_create(ret, N_("Could not open JSON file %s: %s", ""),
+				   dbname, s ? s : "<error formatting error>");
+	LocalFree(s);
+    }
+    return ret;
+#else
+    if (for_write)
+	*fd = open(dbname, O_CREAT | O_TRUNC | O_WRONLY, 0700);
+    else
+	*fd = open(dbname, O_RDONLY);
+    if (*fd < 0) {
+	if (error != NULL)
+	    *error = heim_error_create(ret, N_("Could not open JSON file %s: %s", ""),
+				       dbname, strerror(errno));
+	return errno;
+    }
+
+    ret = flock(*fd, for_write ? LOCK_EX : LOCK_SH);
+    if (ret == -1) {
+	if (error != NULL)
+	    *error = heim_error_create(ret, N_("Could not lock JSON file %s: %s", ""),
+				       dbname, strerror(errno));
+
+	return errno;
+    }
+    
+    return 0;
+#endif
+}
+
+static int
+read_json(const char *dbname, heim_dict_t *out, heim_error_t *error)
+{
+    struct stat st;
+    char *str = NULL;
+    int ret;
+    int fd = -1;
+    ssize_t bytes;
+
+    *out = NULL;
+    ret = open_json(dbname, 0, &fd, error);
+    if (ret)
+	return ret;
+
+    ret = fstat(fd, &st);
+    if (ret == -1) {
+	if (error)
+	    *error = heim_error_create(errno, N_("Could not stat JSON DB %s: %s", ""),
+				       dbname, strerror(errno));
+	return errno;
+    }
+    str = malloc(st.st_size + 1);
+    if (str == NULL) {
+	if (error)
+	    *error = heim_error_enomem();
+	return ENOMEM;
+    }
+    bytes = read(fd, str, st.st_size);
+    if (bytes != st.st_size) {
+	free(str);
+	if (bytes >= 0)
+	    errno = EINVAL; /* ?? */
+	if (error)
+	    *error = heim_error_create(errno, N_("Could not read JSON DB %s: %s", ""),
+				       dbname, strerror(errno));
+	return errno;
+    }
+    str[st.st_size] = '\0';
+    (void) close(fd);
+    *out = heim_json_create(str, error);
+    free(str);
+    if (*out == NULL)
+	return (error && *error) ? heim_error_get_code(*error) : EINVAL;
+    return 0;
+}
+
+static int
+json_db_open(void *plug, const char *dbtype, const char *dbname,
+	     heim_dict_t options, void **db, heim_error_t *error)
+{
+    json_db_t dictdb;
+    heim_dict_t contents = NULL;
+
+    if (error)
+	*error = NULL;
+    if (dbtype && *dbtype && strcmp(dbtype, "dictdb"))
+	return EINVAL;
+    if (dbname && *dbname && strcmp(dbname, "MEMORY") != 0) {
+	char *ext = strrchr(dbname, '.');
+	int ret;
+
+	if (ext == NULL || strcmp(ext, ".json") != 0)
+	    return EINVAL;
+
+	ret = read_json(dbname, &contents, error);
+	if (ret)
+	    return ret;
+    }
+
+    dictdb = heim_alloc(sizeof (*dictdb), "json_db", NULL);
+    if (dictdb == NULL)
+	return ENOMEM;
+
+    if (contents != NULL)
+	dictdb->dict = contents;
+    else {
+	dictdb->dict = heim_dict_create(29);
+	if (dictdb->dict == NULL) {
+	    heim_release(dictdb);
+	    return ENOMEM;
+	}
+    }
+
+    *db = dictdb;
+    return 0;
+}
+
+static int
+json_db_close(void *db, heim_error_t *error)
+{
+    json_db_t dictdb = db;
+
+    if (error)
+	*error = NULL;
+    heim_release(dictdb->to_release);
+    heim_release(dictdb->dict);
+    heim_release(dictdb);
+    return 0;
+}
+
+static int
+json_db_lock(void *db, int read_only, heim_error_t *error)
+{
+    json_db_t dictdb = db;
+
+    if (error)
+	*error = NULL;
+    if (dictdb->locked)
+	return EWOULDBLOCK;
+    dictdb->locked = 1;
+    return 0;
+}
+
+static int
+json_db_unlock(void *db, heim_error_t *error)
+{
+    json_db_t dictdb = db;
+
+    if (error)
+	*error = NULL;
+    dictdb->locked = 0;
+    return 0;
+}
+
+static heim_data_t
+json_db_get_value(void *db, heim_string_t table, heim_data_t key,
+		  heim_error_t *error)
+{
+    json_db_t dictdb = db;
+
+    if (error)
+	*error = NULL;
+
+    heim_release(dictdb->to_release);
+    dictdb->to_release = NULL;
+
+    return (heim_path_get(dictdb->dict, error, table, key, NULL));
+}
+
+static int
+json_db_set_value(void *db, heim_string_t table,
+		  heim_data_t key, heim_data_t value, heim_error_t *error)
+{
+    json_db_t dictdb = db;
+
+    if (error)
+	*error = NULL;
+
+    if (table == NULL)
+	table = heim_null_create();
+
+    return heim_path_create(dictdb->dict, 29, value, error, table, key, NULL);
+}
+
+static int
+json_db_del_key(void *db, heim_string_t table, heim_data_t key,
+		heim_error_t *error)
+{
+    json_db_t dictdb = db;
+
+    if (error)
+	*error = NULL;
+
+    if (table == NULL)
+	table = heim_null_create();
+
+    heim_path_delete(dictdb->dict, error, table, key, NULL);
+    return 0;
+}
+
+struct json_db_iter_ctx {
+    heim_db_iterator_f_t        iter_f;
+    void                        *iter_ctx;
+};
+
+static void json_db_iter_f(heim_object_t key, heim_object_t value, void *arg)
+{
+    struct json_db_iter_ctx *ctx = arg;
+
+    ctx->iter_f((heim_object_t)key, (heim_object_t)value, ctx->iter_ctx);
+}
+
+static void
+json_db_iter(void *db, heim_string_t table, void *iter_data,
+	     heim_db_iterator_f_t iter_f, heim_error_t *error)
+{
+    json_db_t dictdb = db;
+    struct json_db_iter_ctx ctx;
+    heim_dict_t table_dict;
+
+    if (error)
+	*error = NULL;
+
+    if (table == NULL)
+	table = heim_null_create();
+
+    table_dict = heim_dict_get_value(dictdb->dict, table);
+    if (table_dict == NULL)
+	return;
+
+    ctx.iter_ctx = iter_data;
+    ctx.iter_f = iter_f;
+
+    heim_dict_iterate_f(table_dict, &ctx, json_db_iter_f);
+    heim_release(table_dict);
+}
+
+static struct heim_db_type json_dbt = {
+    1, json_db_open, NULL, json_db_close,
+    json_db_lock, json_db_unlock, NULL, NULL, NULL,
+    NULL, NULL, NULL,
+    json_db_get_value, json_db_set_value,
+    json_db_del_key, json_db_iter
+};
+
