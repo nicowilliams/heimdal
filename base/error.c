@@ -101,14 +101,17 @@ heim_error_createv(int error_code, const char *fmt, va_list ap)
     heim_error_t e;
     char *str;
     int len;
+    int save_errno = errno;
 
     str = malloc(1024);
+    errno = save_errno;
     if (str == NULL)
-        return NULL;
+        return heim_error_enomem();
     len = vsnprintf(str, 1024, fmt, ap);
+    errno = save_errno;
     if (len < 0) {
         free(str);
-	return NULL;
+	return NULL; /* XXX We should have a special heim_error_t for this */
     }
 
     e = _heim_alloc_object(&_heim_error_object, sizeof(struct heim_error));
@@ -118,6 +121,7 @@ heim_error_createv(int error_code, const char *fmt, va_list ap)
     }
     free(str);
 
+    errno = save_errno;
     return e;
 }
 
