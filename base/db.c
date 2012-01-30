@@ -53,6 +53,9 @@
 #include <string.h>
 #include <sys/types.h>
 #include <sys/stat.h>
+#ifndef WIN32
+#include <sys/file.h>
+#endif
 #ifdef HAVE_IO_H
 #include <io.h>
 #endif
@@ -312,13 +315,13 @@ heim_db_create(const char *dbtype, const char *dbname,
 	return NULL;
 
     if (dbtype == NULL || *dbtype == '\0') {
-	/* Try all dbtypes (XXX must lock, but then recursive mutex!) */
-	/* XXX We should have heim_db_register() always set a new dict
-	 * to db_plugins. */
 	struct dbtype_iter iter_ctx = { NULL, dbname, options, error};
-	heim_dict_iterate_f(db_plugins, &iter_ctx, dbtype_iter2create_f);
 
+	/* Try all dbtypes */
+	heim_dict_iterate_f(db_plugins, &iter_ctx, dbtype_iter2create_f);
 	return iter_ctx.db;
+    } else if (strstr(dbtype, "json")) {
+	(void) heim_db_register(dbtype, NULL, &json_dbt);
     }
 
     /*
@@ -334,22 +337,14 @@ heim_db_create(const char *dbtype, const char *dbname,
     if (s == NULL)
 	return NULL;
 
-again:
     HEIMDAL_MUTEX_lock(&db_type_mutex);
     plug = heim_dict_get_value(db_plugins, s);
     HEIMDAL_MUTEX_unlock(&db_type_mutex);
-    if (plug == NULL && strcmp(dbtype, "json") == 0) {
-	ret = heim_db_register(dbtype, NULL, &json_dbt);
-	if (ret) {
-	    heim_release(s);
-	    return NULL;
-	}
-	goto again;
-    }
     heim_release(s);
     if (plug == NULL) {
 	if (error)
-	    *error = heim_error_create(ESRCH, N_("Heimdal DB plugin not found: %s", ""),
+	    *error = heim_error_create(ENOENT,
+				       N_("Heimdal DB plugin not found: %s", ""),
 				       dbtype);
 	return NULL;
     }
