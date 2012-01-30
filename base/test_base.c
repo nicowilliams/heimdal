@@ -592,8 +592,7 @@ test_db_iter(heim_data_t k, heim_data_t v, void *arg)
 
 static struct heim_db_type dbt = {
     1, dict_db_open, NULL, dict_db_close,
-    dict_db_lock, dict_db_unlock, NULL, NULL, NULL,
-    NULL, NULL, NULL,
+    dict_db_lock, dict_db_unlock, NULL, NULL, NULL, NULL,
     dict_db_get_value, dict_db_set_value,
     dict_db_del_key, dict_db_iter
 };

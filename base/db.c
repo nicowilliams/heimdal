@@ -66,6 +66,8 @@
 
 #include "baselocl.h"
 
+static int open_file(const char *, int , int *, heim_error_t *);
+static int read_json(const char *, heim_object_t *, heim_error_t *);
 static struct heim_db_type json_dbt;
 
 static void db_dealloc(void *ptr);
@@ -93,8 +95,6 @@ typedef struct db_plugin {
     heim_db_plug_lock_f_t       lockf;
     heim_db_plug_unlock_f_t     unlockf;
     heim_db_plug_sync_f_t       syncf;
-    heim_db_plug_rdjournal_f_t  rdjournalf;
-    heim_db_plug_wrjournal_f_t  wrjournalf;
     heim_db_plug_begin_f_t      beginf;
     heim_db_plug_commit_f_t     commitf;
     heim_db_plug_rollback_f_t   rollbackf;
@@ -179,7 +179,6 @@ heim_db_register(const char *dbtype,
     if ((plugin->beginf != NULL && plugin->commitf == NULL) ||
 	(plugin->beginf != NULL && plugin->rollbackf == NULL) ||
 	(plugin->lockf != NULL && plugin->unlockf == NULL) ||
-	(plugin->rdjournalf != NULL && plugin->wrjournalf == NULL) ||
 	plugin->getf == NULL)
 	heim_abort("Invalid DB plugin; make sure methods are paired");
 
@@ -208,8 +207,6 @@ heim_db_register(const char *dbtype,
     plug->lockf = plugin->lockf;
     plug->unlockf = plugin->unlockf;
     plug->syncf = plugin->syncf;
-    plug->rdjournalf = plugin->rdjournalf;
-    plug->wrjournalf = plugin->wrjournalf;
     plug->beginf = plugin->beginf;
     plug->commitf = plugin->commitf;
     plug->rollbackf = plugin->rollbackf;
@@ -311,14 +308,28 @@ heim_db_create(const char *dbtype, const char *dbname,
     heim_db_t db;
     int ret = 0;
 
-    if (db_plugins == NULL)
+    if (options == NULL) {
+	options = heim_dict_create(11);
+	if (options == NULL) {
+	    if (error)
+		*error = heim_error_enomem();
+	    return NULL;
+	}
+    } else {
+	(void) heim_retain(options);
+    }
+
+    if (db_plugins == NULL) {
+	heim_release(options);
 	return NULL;
+    }
 
     if (dbtype == NULL || *dbtype == '\0') {
 	struct dbtype_iter iter_ctx = { NULL, dbname, options, error};
 
 	/* Try all dbtypes */
 	heim_dict_iterate_f(db_plugins, &iter_ctx, dbtype_iter2create_f);
+	heim_release(options);
 	return iter_ctx.db;
     } else if (strstr(dbtype, "json")) {
 	(void) heim_db_register(dbtype, NULL, &json_dbt);
@@ -334,8 +345,10 @@ heim_db_create(const char *dbtype, const char *dbname,
 	s = heim_string_create_with_bytes(dbtype, p - dbtype);
     else
 	s = heim_string_create(dbtype);
-    if (s == NULL)
+    if (s == NULL) {
+	heim_release(options);
 	return NULL;
+    }
 
     HEIMDAL_MUTEX_lock(&db_type_mutex);
     plug = heim_dict_get_value(db_plugins, s);
@@ -346,12 +359,15 @@ heim_db_create(const char *dbtype, const char *dbname,
 	    *error = heim_error_create(ENOENT,
 				       N_("Heimdal DB plugin not found: %s", ""),
 				       dbtype);
+	heim_release(options);
 	return NULL;
     }
 
     db = _heim_alloc_object(&db_object, sizeof(*db));
-    if (db == NULL)
+    if (db == NULL) {
+	heim_release(options);
 	return NULL;
+    }
 
     db->in_transaction = 0;
     db->ro_tx = 0;
@@ -388,12 +404,10 @@ heim_db_create(const char *dbtype, const char *dbname,
 	}
     }
 
-    if (options != NULL) {
-	v = heim_dict_get_value(options, HSTR("sync"));
-	if (v != NULL) {
-	    heim_release(v);
-	    db->do_sync = 1;
-	}
+    v = heim_dict_get_value(options, HSTR("sync"));
+    if (v != NULL) {
+	heim_release(v);
+	db->do_sync = 1;
     }
 
     return db;
@@ -527,6 +541,8 @@ int
 heim_db_commit(heim_db_t db, heim_error_t *error)
 {
     int ret, ret2;
+    heim_string_t journal_fname;
+    int fd;
 
     if (heim_get_tid(db) != HEIM_TID_DB)
 	return EINVAL;
@@ -550,9 +566,11 @@ heim_db_commit(heim_db_t db, heim_error_t *error)
 	goto done;
     }
 
-    if (db->plug->wrjournalf != NULL) {
+    journal_fname = heim_dict_get_value(db->options, HSTR("journal-filename"));
+    if (journal_fname != NULL) {
 	heim_array_t a;
 	heim_string_t journal_contents;
+	size_t len, bytes;
 
 	/* Create contents for replay log */
 	ret = ENOMEM;
@@ -573,11 +591,23 @@ heim_db_commit(heim_db_t db, heim_error_t *error)
 	heim_release(a);
 
 	/* Write replay log */
-	ret = db->plug->wrjournalf(db->db_data, journal_contents,
-				   db->do_sync, error);
-	heim_release(journal_contents);
-	if (ret)
+	ret = open_file(heim_string_get_utf8(journal_fname), 1, &fd, error);
+	if (ret) {
+	    heim_release(journal_contents);
 	    goto err;
+	}
+	len = strlen(heim_string_get_utf8(journal_contents));
+	bytes = write(fd, heim_string_get_utf8(journal_contents), len);
+	heim_release(journal_contents);
+	(void) close(fd);
+	if (bytes != len) {
+	    /* Truncate replay log */
+	    ret = errno;
+	    ret2 = open_file(heim_string_get_utf8(journal_fname), 1, &fd, error);
+	    if (ret2 == 0)
+		(void) close(fd);
+	    goto err;
+	}
     }
 
     /* Apply logged actions */
@@ -592,9 +622,10 @@ heim_db_commit(heim_db_t db, heim_error_t *error)
 	    return ret;
     }
 
-    /* Remove replay log and we're done */
-    if (db->plug->wrjournalf != NULL)
-	ret = db->plug->wrjournalf(db->db_data, NULL, 0, error);
+    /* Truncate replay log and we're done */
+    ret2 = open_file(heim_string_get_utf8(journal_fname), 1, &fd, error);
+    if (ret2 == 0)
+	(void) close(fd);
 
     /*
      * Clean up; if we failed to remore the replay log that's OK, we'll
@@ -947,9 +978,8 @@ static int
 db_replay_log(heim_db_t db, heim_error_t *error)
 {
     int ret;
-    heim_string_t journal_contents;
+    heim_string_t journal_fname;
     heim_object_t journal;
-    heim_error_t my_error;
     size_t len;
 
     heim_assert(!db->in_transaction, "DB transaction not open");
@@ -958,22 +988,14 @@ db_replay_log(heim_db_t db, heim_error_t *error)
     if (error)
 	*error = NULL;
 
-    if (db->plug->rdjournalf == NULL)
+    journal_fname = heim_dict_get_value(db->options, HSTR("journal-filename"));
+    if (journal_fname == NULL)
 	return 0;
 
-    journal_contents = db->plug->rdjournalf(db->db_data, error);
-    if (journal_contents == NULL)
-	return 0;
-
-    journal = heim_json_create(heim_string_get_utf8(journal_contents), &my_error);
-    if (journal == NULL) {
-	ret = heim_error_get_code(my_error);
-	if (error)
-	    *error = my_error;
-	else
-	    heim_release(my_error);
+    ret = read_json(heim_string_get_utf8(journal_fname), &journal, error);
+    if (ret != 0 || journal == NULL)
 	return ret;
-    }
+
     if (heim_get_tid(journal) != HEIM_TID_ARRAY) {
 	if (error)
 	    *error = heim_error_create(EINVAL, "Invalid journal contents; "
@@ -991,8 +1013,8 @@ db_replay_log(heim_db_t db, heim_error_t *error)
     if (ret)
 	return ret;
 
-    /* Remove replay log and we're done */
-    ret = db->plug->wrjournalf(db->db_data, NULL, 0, error);
+    /* Truncate replay log and we're done */
+    ret = open_file(heim_string_get_utf8(journal_fname), 1, NULL, error);
     if (ret)
 	return ret;
     heim_release(db->set_keys);
@@ -1003,19 +1025,15 @@ db_replay_log(heim_db_t db, heim_error_t *error)
     return 0;
 }
 
-typedef struct json_db {
-    heim_dict_t dict;
-    heim_object_t to_release;
-    int locked;
-} *json_db_t;
-
 static int
-open_json(const char *dbname, int for_write, int *fd, heim_error_t *error)
+open_file(const char *dbname, int for_write, int *fd_out, heim_error_t *error)
 {
 #ifdef WIN32
     HANDLE hFile;
     int ret = 0;
-    *fd = -1;
+
+    if (fd_out)
+	*fd_out = -1;
 
     if (for_write)
 	hFile = CreateFile(dbname, GENERIC_WRITE, 0,
@@ -1030,13 +1048,19 @@ open_json(const char *dbname, int for_write, int *fd, heim_error_t *error)
 	_set_errno(ENOENT); /* CreateFile() does not set errno */
 	goto err;
     }
-    *fd = _open_osfhandle((intptr_t) hFile, 0);
-    if (*fd < 0) {
+    if (fd_out == NULL) {
+	(void) CloseHandle(hFile);
+	return 0;
+    }
+
+    *fd_out = _open_osfhandle((intptr_t) hFile, 0);
+    if (*fd_out < 0) {
 	ret = errno;
 	(void) CloseHandle(hFile);
 	goto err;
     }
 
+    /* No need to lock given share deny mode */
     return 0;
 
 err:
@@ -1051,34 +1075,45 @@ err:
     return ret;
 #else
     int ret = 0;
-    *fd = -1;
+    int fd;
+
+    if (fd_out)
+	*fd_out = -1;
 
     if (for_write)
-	*fd = open(dbname, O_CREAT | O_TRUNC | O_WRONLY, 0700);
+	fd = open(dbname, O_CREAT | O_TRUNC | O_WRONLY, 0700);
     else
-	*fd = open(dbname, O_RDONLY);
-    if (*fd < 0) {
+	fd = open(dbname, O_RDONLY);
+    if (fd < 0) {
 	if (error != NULL)
 	    *error = heim_error_create(ret, N_("Could not open JSON file %s: %s", ""),
 				       dbname, strerror(errno));
 	return errno;
     }
 
-    ret = flock(*fd, for_write ? LOCK_EX : LOCK_SH);
+    if (fd_out == NULL) {
+	(void) close(fd);
+	return 0;
+    }
+
+    ret = flock(fd, for_write ? LOCK_EX : LOCK_SH);
     if (ret == -1) {
+	(void) close(fd);
 	if (error != NULL)
 	    *error = heim_error_create(ret, N_("Could not lock JSON file %s: %s", ""),
 				       dbname, strerror(errno));
 
 	return errno;
     }
+
+    *fd_out = fd;
     
     return 0;
 #endif
 }
 
 static int
-read_json(const char *dbname, heim_dict_t *out, heim_error_t *error)
+read_json(const char *dbname, heim_object_t *out, heim_error_t *error)
 {
     struct stat st;
     char *str = NULL;
@@ -1087,7 +1122,7 @@ read_json(const char *dbname, heim_dict_t *out, heim_error_t *error)
     ssize_t bytes;
 
     *out = NULL;
-    ret = open_json(dbname, 0, &fd, error);
+    ret = open_file(dbname, 0, &fd, error);
     if (ret)
 	return ret;
 
@@ -1098,6 +1133,10 @@ read_json(const char *dbname, heim_dict_t *out, heim_error_t *error)
 				       dbname, strerror(errno));
 	return errno;
     }
+
+    if (st.st_size == 0)
+	return 0;
+
     str = malloc(st.st_size + 1);
     if (str == NULL) {
 	if (error)
@@ -1123,6 +1162,12 @@ read_json(const char *dbname, heim_dict_t *out, heim_error_t *error)
     return 0;
 }
 
+typedef struct json_db {
+    heim_dict_t dict;
+    heim_object_t to_release;
+    int locked;
+} *json_db_t;
+
 static int
 json_db_open(void *plug, const char *dbtype, const char *dbname,
 	     heim_dict_t options, void **db, heim_error_t *error)
@@ -1133,17 +1178,20 @@ json_db_open(void *plug, const char *dbtype, const char *dbname,
     if (error)
 	*error = NULL;
     if (dbtype && *dbtype && strcmp(dbtype, "dictdb"))
-	return EINVAL;
+	return EINVAL; /* XXX How about a heim_error_t? */
     if (dbname && *dbname && strcmp(dbname, "MEMORY") != 0) {
 	char *ext = strrchr(dbname, '.');
 	int ret;
 
 	if (ext == NULL || strcmp(ext, ".json") != 0)
-	    return EINVAL;
+	    return EINVAL; /* XXX How about a heim_error_t? */
 
-	ret = read_json(dbname, &contents, error);
+	ret = read_json(dbname, (heim_object_t *)&contents, error);
 	if (ret)
 	    return ret;
+
+	if (heim_get_tid(contents) != HEIM_TID_DICT)
+	    return EINVAL; /* XXX How about a heim_error_t? */
     }
 
     dictdb = heim_alloc(sizeof (*dictdb), "json_db", NULL);
@@ -1287,7 +1335,7 @@ json_db_iter(void *db, heim_string_t table, void *iter_data,
 static struct heim_db_type json_dbt = {
     1, json_db_open, NULL, json_db_close,
     json_db_lock, json_db_unlock, NULL, NULL, NULL,
-    NULL, NULL, NULL,
+    NULL,
     json_db_get_value, json_db_set_value,
     json_db_del_key, json_db_iter
 };
