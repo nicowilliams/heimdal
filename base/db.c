@@ -53,7 +53,6 @@
 #include <string.h>
 #include <sys/types.h>
 #include <sys/stat.h>
-#include <sys/file.h>
 #ifdef HAVE_IO_H
 #include <io.h>
 #endif
@@ -1018,12 +1017,10 @@ typedef struct json_db {
 static int
 open_json(const char *dbname, int for_write, int *fd, heim_error_t *error)
 {
-    int ret = 0;
-
-    *fd = -1;
-
 #ifdef WIN32
     HANDLE hFile;
+    int ret = 0;
+    *fd = -1;
 
     if (for_write)
 	hFile = CreateFile(dbname, GENERIC_WRITE, 0,
@@ -1058,6 +1055,9 @@ err:
     }
     return ret;
 #else
+    int ret = 0;
+    *fd = -1;
+
     if (for_write)
 	*fd = open(dbname, O_CREAT | O_TRUNC | O_WRONLY, 0700);
     else
