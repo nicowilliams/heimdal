@@ -672,6 +672,8 @@ test_db(const char *dbtype, const char *dbname)
 
     ret = 3;
     heim_db_iterate_f(db, NULL, &ret, test_db_iter, NULL);
+    if (ret)
+	return ret;
 
     ret = heim_db_begin(db, 0, NULL);
     if (ret)
