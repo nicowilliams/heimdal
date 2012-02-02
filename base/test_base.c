@@ -300,119 +300,6 @@ typedef struct dict_db {
 } *dict_db_t;
 
 static int
-open_json(const char *dbname, int for_write, int *fd, heim_error_t *error)
-{
-    int ret = 0;
-
-    *fd = -1;
-
-#ifdef WIN32
-    HANDLE hFile;
-
-    if (for_write)
-	hFile = CreateFile(dbname, GENERIC_WRITE, 0,
-			   NULL, /* we'll close as soon as we read */
-			   CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
-    else
-	hFile = CreateFile(dbname, GENERIC_READ, FILE_SHARE_READ,
-			   NULL, /* we'll close as soon as we read */
-			   OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
-    if (hFile == INVALID_HANDLE_VALUE) {
-	ret = GetLastError();
-	_set_errno(ENOENT); /* CreateFile() does not set errno */
-	goto err;
-    }
-    *fd = _open_osfhandle((intptr_t) hFile, 0);
-    if (*fd < 0) {
-	ret = errno;
-	(void) CloseHandle(hFile);
-	goto err;
-    }
-
-    return 0;
-
-err:
-    if (error != NULL) {
-	char *s = NULL;
-	FormatMessage(FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_ALLOCATE_BUFFER,
-		      0, ret, 0, (LPTSTR) &s, 0, NULL);
-	*error = heim_error_create(ret, N_("Could not open JSON file %s: %s", ""),
-				   dbname, s ? s : "<error formatting error>");
-	LocalFree(s);
-    }
-    return ret;
-#else
-    if (for_write)
-	*fd = open(dbname, O_CREAT | O_TRUNC | O_WRONLY, 0700);
-    else
-	*fd = open(dbname, O_RDONLY);
-    if (*fd < 0) {
-	if (error != NULL)
-	    *error = heim_error_create(ret, N_("Could not open JSON file %s: %s", ""),
-				       dbname, strerror(errno));
-	return errno;
-    }
-
-    ret = flock(*fd, for_write ? LOCK_EX : LOCK_SH);
-    if (ret == -1) {
-	if (error != NULL)
-	    *error = heim_error_create(ret, N_("Could not lock JSON file %s: %s", ""),
-				       dbname, strerror(errno));
-
-	return errno;
-    }
-    
-    return 0;
-#endif
-}
-
-static int
-read_json(const char *dbname, heim_dict_t *out, heim_error_t *error)
-{
-    struct stat st;
-    char *str = NULL;
-    int ret;
-    int fd = -1;
-    ssize_t bytes;
-
-    *out = NULL;
-    ret = open_json(dbname, 0, &fd, error);
-    if (ret)
-	return ret;
-
-    ret = fstat(fd, &st);
-    if (ret == -1) {
-	if (error)
-	    *error = heim_error_create(errno, N_("Could not stat JSON DB %s: %s", ""),
-				       dbname, strerror(errno));
-	return errno;
-    }
-    str = malloc(st.st_size + 1);
-    if (str == NULL) {
-	if (error)
-	    *error = heim_error_enomem();
-	return ENOMEM;
-    }
-    bytes = read(fd, str, st.st_size);
-    if (bytes != st.st_size) {
-	free(str);
-	if (bytes >= 0)
-	    errno = EINVAL; /* ?? */
-	if (error)
-	    *error = heim_error_create(errno, N_("Could not read JSON DB %s: %s", ""),
-				       dbname, strerror(errno));
-	return errno;
-    }
-    str[st.st_size] = '\0';
-    (void) close(fd);
-    *out = heim_json_create(str, error);
-    free(str);
-    if (*out == NULL)
-	return (error && *error) ? heim_error_get_code(*error) : EINVAL;
-    return 0;
-}
-
-static int
 dict_db_open(void *plug, const char *dbtype, const char *dbname,
 	     heim_dict_t options, void **db, heim_error_t *error)
 {
@@ -423,18 +310,8 @@ dict_db_open(void *plug, const char *dbtype, const char *dbname,
 	*error = NULL;
     if (dbtype && *dbtype && strcmp(dbtype, "dictdb"))
 	return EINVAL;
-    if (dbname && *dbname && strcmp(dbname, "MEMORY") != 0) {
-	char *ext = strrchr(dbname, '.');
-	int ret;
-
-	if (ext == NULL || strcmp(ext, ".json") != 0)
-	    return EINVAL;
-
-	ret = read_json(dbname, &contents, error);
-	if (ret)
-	    return ret;
-    }
-
+    if (dbname && *dbname && strcmp(dbname, "MEMORY") != 0)
+	return EINVAL;
     dictdb = heim_alloc(sizeof (*dictdb), "dict_db", NULL);
     if (dictdb == NULL)
 	return ENOMEM;
@@ -515,7 +392,7 @@ dict_db_set_value(void *db, heim_string_t table,
 	*error = NULL;
 
     if (table == NULL)
-	table = heim_null_create();
+	table = HSTR("");
 
     return heim_path_create(dictdb->dict, 29, value, error, table, key, NULL);
 }
@@ -530,7 +407,7 @@ dict_db_del_key(void *db, heim_string_t table, heim_data_t key,
 	*error = NULL;
 
     if (table == NULL)
-	table = heim_null_create();
+	table = HSTR("");
 
     heim_path_delete(dictdb->dict, error, table, key, NULL);
     return 0;
@@ -560,7 +437,7 @@ dict_db_iter(void *db, heim_string_t table, void *iter_data,
 	*error = NULL;
 
     if (table == NULL)
-	table = heim_null_create();
+	table = HSTR("");
 
     table_dict = heim_dict_get_value(dictdb->dict, table);
     if (table_dict == NULL)
@@ -602,6 +479,7 @@ test_db(const char *dbtype, const char *dbname)
 {
     heim_data_t k1, k2, v, v1, v2, v3;
     heim_db_t db;
+    heim_dict_t options = NULL;
     int ret;
 
     if (dbtype == NULL) {
@@ -621,8 +499,7 @@ test_db(const char *dbtype, const char *dbname)
 	if (!db)
 	    return 1;
     } else {
-	heim_dict_t options = heim_dict_create(11);
-
+	options = heim_dict_create(11);
 	if (options == NULL)
 	    return ENOMEM;
 	if (heim_dict_set_value(options, HSTR("journal-filename"),
@@ -760,6 +637,37 @@ test_db(const char *dbtype, const char *dbname)
 	return 1;
     if (heim_cmp(v, v1))
 	return 1;
+
+    if (dbtype != NULL) {
+	heim_data_t k3 = heim_data_create("value-is-a-dict", strlen("value-is-a-dict"));
+	heim_dict_t vdict = heim_dict_create(11);
+	heim_db_t db2;
+
+	if (k3 == NULL || vdict == NULL) return ENOMEM;
+	ret = heim_dict_set_value(vdict, HSTR("vdict-k1"), heim_number_create(11));
+	if (ret) return ret;
+	ret = heim_dict_set_value(vdict, HSTR("vdict-k2"), heim_null_create());
+	if (ret) return ret;
+	ret = heim_dict_set_value(vdict, HSTR("vdict-k3"), HSTR("a value"));
+	if (ret) return ret;
+	ret = heim_db_set_value(db, NULL, k3, (heim_data_t)vdict, NULL);
+	if (ret) return ret;
+
+	heim_release(vdict);
+
+	db2 = heim_db_create(dbtype, dbname, options, NULL);
+	if (!db2) return 1;
+
+	vdict = (heim_dict_t)heim_db_get_value(db2, NULL, k3, NULL);
+	if (vdict == NULL) return ret;
+	if (heim_get_tid(vdict) != heim_dict_get_type_id()) return EINVAL;
+	v = heim_dict_get_value(vdict, HSTR("vdict-k1"));
+	if (v == NULL || heim_cmp(v, heim_number_create(11))) return EINVAL;
+	v = heim_dict_get_value(vdict, HSTR("vdict-k2"));
+	if (v == NULL || heim_cmp(v, heim_null_create())) return EINVAL;
+	v = heim_dict_get_value(vdict, HSTR("vdict-k3"));
+	if (v == NULL || heim_cmp(v, HSTR("a value"))) return EINVAL;
+    }
 
     heim_release(db);
 
