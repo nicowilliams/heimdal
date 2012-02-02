@@ -944,8 +944,10 @@ db_replay_log_table_set_keys_iter(heim_object_t key, heim_object_t value,
 	return;
 
     k = from_base64((heim_string_t)key, &db->error);
-    if (k == NULL)
+    if (k == NULL) {
+	db->ret = ENOMEM;
 	return;
+    }
     v = (heim_data_t)value;
 
     db->ret = db->plug->setf(db->db_data, db->current_table, k, v, &db->error);
@@ -958,7 +960,13 @@ db_replay_log_table_del_keys_iter(heim_object_t key, heim_object_t value,
     heim_db_t db = arg;
     heim_data_t k;
 
-    if (db->ret)
+    if (db->ret) {
+	db->ret = ENOMEM;
+	return;
+    }
+
+    k = from_base64((heim_string_t)key, &db->error);
+    if (k == NULL)
 	return;
 
     k = (heim_data_t)key;
@@ -1302,12 +1310,12 @@ json_db_open(void *plug, const char *dbtype, const char *dbname,
 	    return ENOMEM; /* XXX */
 	
 	len = snprintf(NULL, 0, "%s~", dbname);
-	bkpname = malloc(len + 1);
+	bkpname = malloc(len + 2);
 	if (bkpname == NULL) {
 	    heim_release(dbname_s);
 	    return ENOMEM; /* XXX */
 	}
-	(void) snprintf(bkpname, len, "%s~", dbname);
+	(void) snprintf(bkpname, len + 1, "%s~", dbname);
 	bkpname_s = heim_string_create(bkpname);
 	free(bkpname);
 	if (bkpname_s == NULL) {
