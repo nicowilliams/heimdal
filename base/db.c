@@ -791,6 +791,7 @@ heim_db_set_value(heim_db_t db, heim_string_t table,
 		  heim_data_t key, heim_data_t value, heim_error_t *error)
 {
     heim_string_t key64 = NULL;
+    int autocommit = 0;
     int ret;
 
     if (error != NULL)
@@ -832,7 +833,24 @@ heim_db_set_value(heim_db_t db, heim_string_t table,
 	return 0;
     }
 
-    return db->plug->setf(db->db_data, table, key, value, error);
+    if (!db->in_transaction) {
+	ret = heim_db_begin(db, 0, error);
+	if (ret)
+	    goto err;
+	autocommit = 1;
+    }
+
+    ret = db->plug->setf(db->db_data, table, key, value, error);
+    if (ret) {
+	if (!autocommit)
+	    return ret;
+	(void) heim_db_rollback(db, error);
+	return ret;
+    }
+    if (autocommit)
+	ret = heim_db_commit(db, error);
+
+    return ret;
 
 err:
     heim_release(key64);
@@ -863,6 +881,7 @@ heim_db_delete_key(heim_db_t db, heim_string_t table, heim_data_t key,
 		   heim_error_t *error)
 {
     heim_string_t key64;
+    int autocommit = 0;
     int ret;
 
     if (error != NULL)
@@ -895,7 +914,22 @@ heim_db_delete_key(heim_db_t db, heim_string_t table, heim_data_t key,
 	return 0;
     }
 
-    return db->plug->delf(db->db_data, table, key, error);
+    if (!db->in_transaction) {
+	ret = heim_db_begin(db, 0, error);
+	if (ret)
+	    goto err;
+	autocommit = 1;
+    }
+
+    ret = db->plug->delf(db->db_data, table, key, error);
+    if (ret) {
+	if (!autocommit)
+	    return ret;
+	(void) heim_db_rollback(db, error);
+	return ret;
+    }
+    if (autocommit)
+	ret = heim_db_commit(db, error);
 
 err:
     heim_release(key64);
@@ -1186,7 +1220,6 @@ err:
     int ret = 0;
     int fd;
 
-    fprintf(stderr, "opening json file %s for %s\n", dbname, for_write ? "write" : "read");
     if (fd_out)
 	*fd_out = -1;
 
@@ -1210,6 +1243,7 @@ err:
 
     ret = flock(fd, for_write ? LOCK_EX : LOCK_SH);
     if (ret == -1) {
+	/* Note that we if O_EXCL we're leaving the [lock] file around */
 	(void) close(fd);
 	if (error != NULL)
 	    *error = heim_error_create(ret, N_("Could not lock JSON file %s: %s", ""),
@@ -1280,7 +1314,9 @@ typedef struct json_db {
     heim_string_t dbname;
     heim_string_t bkpname;
     int fd;
-    int read_only;
+    time_t last_read_time;
+    unsigned int read_only:1;
+    unsigned int locked_needs_unlink:1;
 } *json_db_t;
 
 static int
@@ -1338,6 +1374,7 @@ json_db_open(void *plug, const char *dbtype, const char *dbname,
 	return ENOMEM;
     }
 
+    jsondb->last_read_time = time(NULL);
     jsondb->fd = -1;
     jsondb->dbname = dbname_s;
     jsondb->bkpname = bkpname_s;
@@ -1390,6 +1427,8 @@ json_db_lock(void *db, int read_only, heim_error_t *error)
     }
 
     ret = open_file(heim_string_get_utf8(jsondb->bkpname), 1, 1, &jsondb->fd, error);
+    if (ret == 0)
+	jsondb->locked_needs_unlink = 1;
     return ret;
 }
 
@@ -1403,6 +1442,9 @@ json_db_unlock(void *db, heim_error_t *error)
     ret = close(jsondb->fd);
     jsondb->fd = -1;
     jsondb->read_only = 0;
+    if (jsondb->locked_needs_unlink)
+	unlink(heim_string_get_utf8(jsondb->bkpname));
+    jsondb->locked_needs_unlink = 0;
     return ret;
 }
 
@@ -1435,7 +1477,13 @@ json_db_sync(void *db, heim_error_t *error)
     ret = fsync(jsondb->fd);
     if (ret)
 	return ret;
-    return rename(heim_string_get_utf8(jsondb->bkpname), heim_string_get_utf8(jsondb->dbname));
+    ret = rename(heim_string_get_utf8(jsondb->bkpname), heim_string_get_utf8(jsondb->dbname));
+    if (ret == 0) {
+	jsondb->locked_needs_unlink = 0;
+	return 0;
+    }
+
+    return errno;
 }
 
 static heim_data_t
@@ -1445,6 +1493,7 @@ json_db_get_value(void *db, heim_string_t table, heim_data_t key,
     json_db_t jsondb = db;
     heim_string_t key_string;
     const heim_octet_string *key_data = heim_data_get_data(key);
+    struct stat st;
 
     if (error)
 	*error = NULL;
@@ -1454,6 +1503,28 @@ json_db_get_value(void *db, heim_string_t table, heim_data_t key,
 	    *error = heim_error_create(EINVAL, "JSON DB requires keys that "
 				       "are actually strings");
 	return NULL;
+    }
+
+    if (stat(heim_string_get_utf8(jsondb->dbname), &st) == -1) {
+	HEIM_ERROR(error, errno, (errno, "Could not stat JSON DB file"));
+	return NULL;
+    }
+
+    if (st.st_mtime > jsondb->last_read_time ||
+	st.st_ctime > jsondb->last_read_time) {
+	heim_dict_t contents = NULL;
+	int ret;
+
+	/* Ignore file is gone (ENOENT) */
+	ret = read_json(heim_string_get_utf8(jsondb->dbname),
+		(heim_object_t *)&contents, error);
+	if (ret)
+	    return NULL;
+	if (contents == NULL)
+	    contents = heim_dict_create(29);
+	heim_release(jsondb->dict);
+	jsondb->dict = contents;
+	jsondb->last_read_time = time(NULL);
     }
 
     key_string = heim_string_create_with_bytes(key_data->data,
