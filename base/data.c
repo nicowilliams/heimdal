@@ -34,24 +34,22 @@
 #include "baselocl.h"
 #include <string.h>
 
-typedef struct data_ref {
-    heim_octet_string os;
-    void *arg;
-    heim_data_free_f_t dealloc;
-} data_ref, *data_ref_t;
-
 static void
 data_dealloc(void *ptr)
 {
-}
+    heim_data_t d = ptr;
+    heim_octet_string *os = (heim_octet_string *)d;
+    heim_data_free_f_t *deallocp;
+    heim_data_free_f_t dealloc;
 
-static void
-data_ref_dealloc(void *ptr)
-{
-    data_ref_t p = ptr;
+    if (os->data == NULL)
+	return;
 
-    if (p->dealloc)
-	p->dealloc(p->os.data);
+    /* Possible string ref */
+    deallocp = _heim_get_isaextra(os, 0);
+    dealloc = *deallocp;
+    if (dealloc != NULL)
+	dealloc(os->data);
 }
 
 static int
@@ -85,16 +83,6 @@ struct heim_type_data _heim_data_object = {
     data_hash
 };
 
-struct heim_type_data _heim_data_ref_object = {
-    HEIM_TID_DATA,
-    "data-object",
-    NULL,
-    data_ref_dealloc,
-    NULL,
-    data_cmp,
-    data_hash
-};
-
 /**
  * Create a data object
  *
@@ -121,16 +109,17 @@ heim_data_t
 heim_data_ref_create(const void *data, size_t length,
 		     heim_data_free_f_t dealloc)
 {
-    data_ref_t dr;
     heim_octet_string *os;
+    heim_data_free_f_t *deallocp;
 
-    dr = _heim_alloc_object(&_heim_data_ref_object, sizeof(*os) + length);
-    if (dr) {
-	dr->os.data = (void *)data;
-	dr->os.length = length;
-	dr->dealloc = dealloc;
+    os = _heim_alloc_object(&_heim_data_object, sizeof(*os) + length);
+    if (os) {
+	os->data = (void *)data;
+	os->length = length;
+	deallocp = _heim_get_isaextra(os, 0);
+	*deallocp = dealloc;
     }
-    return (heim_data_t)dr;
+    return (heim_data_t)os;
 }
 
 
