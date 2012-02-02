@@ -68,10 +68,12 @@
 #include <base64.h>
 
 #define HEIM_ENOMEM(ep) \
-    (((ep) && !*(ep)) ? heim_error_get_code(*(ep) = heim_error_enomem()) : ENOMEM)
+    (((ep) && !*(ep)) ? \
+	heim_error_get_code((*(ep) = heim_error_enomem())) : ENOMEM)
 
 #define HEIM_ERROR_HELPER(ep, ec, args) \
-    (((ep) && !*(ep)) ? heim_error_get_code(*(ep) = heim_error_create args) : (ec))
+    (((ep) && !*(ep)) ? \
+	heim_error_get_code((*(ep) = heim_error_create args)) : (ec))
 
 #define HEIM_ERROR(ep, ec, args) \
     (ec == ENOMEM) ? HEIM_ENOMEM(ep) : HEIM_ERROR_HELPER(ep, ec, args);
@@ -662,13 +664,9 @@ done:
     return ret;
 
 err:
-    if (error != NULL && *error == NULL) {
-	if (ret == ENOMEM)
-	    *error = heim_error_enomem();
-	else
-	    *error = heim_error_create(ret, "Error while committing transaction");
-    }
-    return ret;
+    return HEIM_ERROR(error, ret,
+		      (ret, N_("Error while committing transaction: %s", ""),
+		       strerror(ret)));
 }
 
 /**
@@ -808,7 +806,8 @@ heim_db_set_value(heim_db_t db, heim_string_t table,
 	return EINVAL;
 
     if (heim_get_tid(key) != HEIM_TID_DATA)
-	return HEIM_ERROR(error, EINVAL, (EINVAL, "DB keys must be data"));
+	return HEIM_ERROR(error, EINVAL,
+			  (EINVAL, N_("DB keys must be data", "")));
 
     if (db->plug->setf == NULL)
 	return EBADF;
@@ -854,14 +853,9 @@ heim_db_set_value(heim_db_t db, heim_string_t table,
 
 err:
     heim_release(key64);
-    if (error != NULL && *error == NULL) {
-	if (ret == ENOMEM)
-	    *error = heim_error_enomem();
-	else
-	    *error = heim_error_create(ret, "Could not set a dict value while "
-				       "setting a DB value");
-    }
-    return ret;
+    return HEIM_ERROR(error, ret,
+		      (ret, N_("Could not set a dict value while while "
+		       "setting a DB value", "")));
 }
 
 /**
@@ -933,14 +927,9 @@ heim_db_delete_key(heim_db_t db, heim_string_t table, heim_data_t key,
 
 err:
     heim_release(key64);
-    if (error != NULL && *error == NULL) {
-	if (ret == ENOMEM)
-	    *error = heim_error_enomem();
-	else
-	    *error = heim_error_create(ret, "Could not set a dict value while "
-				       "deleting a DB value");
-    }
-    return ret;
+    return HEIM_ERROR(error, ret,
+		      (ret, N_("Could not set a dict value while while "
+		       "deleting a DB value", "")));
 }
 
 /**
@@ -1090,12 +1079,10 @@ db_replay_log(heim_db_t db, heim_error_t *error)
     if (ret != 0)
 	return ret;
 
-    if (heim_get_tid(journal) != HEIM_TID_ARRAY) {
-	if (error)
-	    *error = heim_error_create(EINVAL, "Invalid journal contents; "
-				       "delete journal");
-	return EINVAL;
-    }
+    if (heim_get_tid(journal) != HEIM_TID_ARRAY)
+	return HEIM_ERROR(error, EINVAL,
+			  (ret, N_("Invalid journal contents; delete journal",
+				   "")));
 
     len = heim_array_get_length(journal);
 
@@ -1245,11 +1232,9 @@ err:
     if (ret == -1) {
 	/* Note that we if O_EXCL we're leaving the [lock] file around */
 	(void) close(fd);
-	if (error != NULL)
-	    *error = heim_error_create(ret, N_("Could not lock JSON file %s: %s", ""),
-				       dbname, strerror(errno));
-
-	return errno;
+	return HEIM_ERROR(error, errno,
+			  (errno, N_("Could not lock JSON file %s: %s", ""),
+			   dbname, strerror(errno)));
     }
 
     *fd_out = fd;
@@ -1273,31 +1258,26 @@ read_json(const char *dbname, heim_object_t *out, heim_error_t *error)
 	return ret;
 
     ret = fstat(fd, &st);
-    if (ret == -1) {
-	if (error)
-	    *error = heim_error_create(errno, N_("Could not stat JSON DB %s: %s", ""),
-				       dbname, strerror(errno));
-	return errno;
-    }
+    if (ret == -1)
+	return HEIM_ERROR(error, errno,
+			  (ret, N_("Could not stat JSON DB %s: %s", ""),
+			   dbname, strerror(errno)));
 
     if (st.st_size == 0)
 	return 0;
 
     str = malloc(st.st_size + 1);
-    if (str == NULL) {
-	if (error)
-	    *error = heim_error_enomem();
-	return ENOMEM;
-    }
+    if (str == NULL)
+	return HEIM_ENOMEM(error);
+
     bytes = read(fd, str, st.st_size);
     if (bytes != st.st_size) {
 	free(str);
 	if (bytes >= 0)
 	    errno = EINVAL; /* ?? */
-	if (error)
-	    *error = heim_error_create(errno, N_("Could not read JSON DB %s: %s", ""),
-				       dbname, strerror(errno));
-	return errno;
+	return HEIM_ERROR(error, errno,
+			  (ret, N_("Could not read JSON DB %s: %s", ""),
+			   dbname, strerror(errno)));
     }
     str[st.st_size] = '\0';
     (void) close(fd);
@@ -1331,7 +1311,7 @@ json_db_open(void *plug, const char *dbtype, const char *dbname,
     if (error)
 	*error = NULL;
     if (dbtype && *dbtype && strcmp(dbtype, "json"))
-	return EINVAL; /* XXX How about a heim_error_t? */
+	return HEIM_ERROR(error, EINVAL, (EINVAL, N_("Wrong DB type", "")));
     if (dbname && *dbname && strcmp(dbname, "MEMORY") != 0) {
 	char *ext = strrchr(dbname, '.');
 	char *bkpname;
@@ -1339,24 +1319,26 @@ json_db_open(void *plug, const char *dbtype, const char *dbname,
 	int ret;
 
 	if (ext == NULL || strcmp(ext, ".json") != 0)
-	    return EINVAL; /* XXX How about a heim_error_t? */
+	    return HEIM_ERROR(error, EINVAL,
+			      (EINVAL, N_("JSON DB files must end in .json",
+					  "")));
 
 	dbname_s = heim_string_create(dbname);
 	if (dbname_s == NULL)
-	    return ENOMEM; /* XXX */
+	    return HEIM_ENOMEM(error);
 	
 	len = snprintf(NULL, 0, "%s~", dbname);
 	bkpname = malloc(len + 2);
 	if (bkpname == NULL) {
 	    heim_release(dbname_s);
-	    return ENOMEM; /* XXX */
+	    return HEIM_ENOMEM(error);
 	}
 	(void) snprintf(bkpname, len + 1, "%s~", dbname);
 	bkpname_s = heim_string_create(bkpname);
 	free(bkpname);
 	if (bkpname_s == NULL) {
 	    heim_release(dbname_s);
-	    return ENOMEM; /* XXX */
+	    return HEIM_ENOMEM(error);
 	}
 
 	ret = read_json(dbname, (heim_object_t *)&contents, error);
@@ -1364,7 +1346,9 @@ json_db_open(void *plug, const char *dbtype, const char *dbname,
 	    return ret;
 
 	if (contents != NULL && heim_get_tid(contents) != HEIM_TID_DICT)
-	    return EINVAL; /* XXX How about a heim_error_t? */
+	    return HEIM_ERROR(error, EINVAL,
+			      (EINVAL, N_("JSON DB contents not valid JSON",
+					  "")));
     }
 
     jsondb = heim_alloc(sizeof (*jsondb), "json_db", NULL);
@@ -1499,14 +1483,15 @@ json_db_get_value(void *db, heim_string_t table, heim_data_t key,
 	*error = NULL;
 
     if (strnlen(key_data->data, key_data->length) != key_data->length) {
-	if (error)
-	    *error = heim_error_create(EINVAL, "JSON DB requires keys that "
-				       "are actually strings");
+	HEIM_ERROR(error, EINVAL,
+		   (EINVAL, N_("JSON DB requires keys that are actually "
+			       "strings", "")));
 	return NULL;
     }
 
     if (stat(heim_string_get_utf8(jsondb->dbname), &st) == -1) {
-	HEIM_ERROR(error, errno, (errno, "Could not stat JSON DB file"));
+	HEIM_ERROR(error, errno,
+		   (errno, N_("Could not stat JSON DB file", "")));
 	return NULL;
     }
 
@@ -1530,8 +1515,7 @@ json_db_get_value(void *db, heim_string_t table, heim_data_t key,
     key_string = heim_string_create_with_bytes(key_data->data,
 					       key_data->length);
     if (key_string == NULL) {
-	if (error)
-	    *error = heim_error_enomem();
+	(void) HEIM_ENOMEM(error);
 	return NULL;
     }
 
@@ -1555,7 +1539,8 @@ json_db_set_value(void *db, heim_string_t table,
     if (strnlen(key_data->data, key_data->length) != key_data->length)
 	return HEIM_ERROR(error, EINVAL,
 			  (EINVAL,
-			   "JSON DB requires keys that are actually strings"));
+			   N_("JSON DB requires keys that are actually strings",
+			      "")));
 
     key_string = heim_string_create_with_bytes(key_data->data,
 					       key_data->length);
@@ -1582,7 +1567,8 @@ json_db_del_key(void *db, heim_string_t table, heim_data_t key,
     if (strnlen(key_data->data, key_data->length) != key_data->length)
 	return HEIM_ERROR(error, EINVAL,
 			  (EINVAL,
-			   "JSON DB requires keys that are actually strings"));
+			   N_("JSON DB requires keys that are actually strings",
+			      "")));
 
     key_string = heim_string_create_with_bytes(key_data->data,
 					       key_data->length);
