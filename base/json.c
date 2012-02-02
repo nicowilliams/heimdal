@@ -86,7 +86,7 @@ dict2json(heim_object_t key, heim_object_t value, void *ctx)
     struct twojson *j = ctx;
     indent(j);
     base2json(key, j);
-    j->out(j->ctx, " = ");
+    j->out(j->ctx, " : ");
     base2json(value, j);
     j->out(j->ctx, ",\n");
 }
