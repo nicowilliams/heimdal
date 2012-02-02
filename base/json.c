@@ -566,7 +566,7 @@ strbuf_add(void *ctx, const char *str)
 
     len = strlen(str);
     if ((len + 1) > (strbuf->alloced - strbuf->len + 1)) {
-	size_t new_len = strbuf->alloced + (strbuf->alloced >> 1) + len + 1;
+	size_t new_len = strbuf->alloced + (strbuf->alloced >> 2) + len + 1;
 	char *s;
 
 	s = realloc(strbuf->str, new_len);
@@ -577,7 +577,7 @@ strbuf_add(void *ctx, const char *str)
 	strbuf->str = s;
 	strbuf->alloced = new_len;
     }
-    (void) strcpy(strbuf->str + strbuf->len, str);
+    (void) memcpy(strbuf->str + strbuf->len, str, len + 1);
     strbuf->len += len;
 }
 

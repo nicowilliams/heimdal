@@ -1291,6 +1291,7 @@ json_db_open(void *plug, const char *dbtype, const char *dbname,
     if (dbname && *dbname && strcmp(dbname, "MEMORY") != 0) {
 	char *ext = strrchr(dbname, '.');
 	char *bkpname;
+	size_t len;
 	int ret;
 
 	if (ext == NULL || strcmp(ext, ".json") != 0)
@@ -1300,13 +1301,13 @@ json_db_open(void *plug, const char *dbtype, const char *dbname,
 	if (dbname_s == NULL)
 	    return ENOMEM; /* XXX */
 	
-	bkpname = malloc(strlen(dbname) + 2);
+	len = snprintf(NULL, 0, "%s~", dbname);
+	bkpname = malloc(len + 1);
 	if (bkpname == NULL) {
 	    heim_release(dbname_s);
 	    return ENOMEM; /* XXX */
 	}
-	(void) strcpy(bkpname, dbname);
-	(void) strcat(bkpname, "~");
+	(void) snprintf(bkpname, len, "%s~", dbname);
 	bkpname_s = heim_string_create(bkpname);
 	free(bkpname);
 	if (bkpname_s == NULL) {
