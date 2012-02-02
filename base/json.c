@@ -146,7 +146,7 @@ base2json(heim_object_t obj, struct twojson *j)
 	    return ENOMEM;
 	data = heim_data_get_data(obj);
 	ret = base64_encode(data->data, data->length, &b64);
-	if (ret || b64 == NULL) {
+	if (ret < 0 || b64 == NULL) {
 	    heim_release(d);
 	    return ENOMEM;
 	}
@@ -162,6 +162,10 @@ base2json(heim_object_t obj, struct twojson *j)
 	    heim_release(d);
 	    return ENOMEM;
 	}
+	ret = base2json(d, j);
+	heim_release(d);
+	if (ret)
+	    return ret;
 	break;
     }
 
@@ -552,7 +556,7 @@ heim_show(heim_object_t obj)
 }
 
 static void
-strbuf_printf(void *ctx, const char *str)
+strbuf_add(void *ctx, const char *str)
 {
     struct strbuf *strbuf = ctx;
     size_t len;
@@ -561,7 +565,7 @@ strbuf_printf(void *ctx, const char *str)
 	return;
 
     len = strlen(str);
-    if ((len + 1) > (strbuf->alloced - strbuf->len)) {
+    if ((len + 1) > (strbuf->alloced - strbuf->len + 1)) {
 	size_t new_len = strbuf->alloced + (strbuf->alloced >> 1) + len + 1;
 	char *s;
 
@@ -574,6 +578,7 @@ strbuf_printf(void *ctx, const char *str)
 	strbuf->alloced = new_len;
     }
     (void) strcpy(strbuf->str + strbuf->len, str);
+    strbuf->len += len;
 }
 
 #define STRBUF_INIT_SZ 64
@@ -595,10 +600,11 @@ heim_serialize(heim_object_t obj, heim_error_t *error)
 	    *error = heim_error_enomem();
 	return NULL;
     }
+    strbuf.len = 0;
     strbuf.alloced = STRBUF_INIT_SZ;
-    *strbuf.str = '\0';
+    strbuf.str[0] = '\0';
 
-    ret = heim_base2json(obj, &strbuf, strbuf_printf);
+    ret = heim_base2json(obj, &strbuf, strbuf_add);
     if (ret || strbuf.enomem) {
 	if (error) {
 	    if (strbuf.enomem || ret == ENOMEM)

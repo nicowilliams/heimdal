@@ -134,30 +134,6 @@ heim_error_createv(int error_code, const char *fmt, va_list ap)
     return e;
 }
 
-int
-heim_error_create2(heim_error_t *e, int error_code, const char *fmt, ...)
-{
-    va_list ap;
-
-    if (e == NULL)
-	return error_code;
-
-    va_start(ap, fmt);
-    *e = heim_error_createv(error_code, fmt, ap);
-    va_end(ap);
-
-    return error_code;
-}
-
-int
-heim_error_createv2(heim_error_t *e, int error_code, const char *fmt, va_list ap)
-{
-    if (e == NULL)
-	return error_code;
-    *e = heim_error_createv(error_code, fmt, ap);
-    return error_code;
-}
-
 heim_string_t
 heim_error_copy_string(heim_error_t error)
 {

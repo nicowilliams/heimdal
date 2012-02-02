@@ -598,27 +598,41 @@ static struct heim_db_type dbt = {
 };
 
 static int
-test_db()
+test_db(const char *dbtype, const char *dbname)
 {
     heim_data_t k1, k2, v, v1, v2, v3;
     heim_db_t db;
     int ret;
 
-    ret = heim_db_register("dictdb", NULL, &dbt);
-    if (ret)
-	return 1;
+    if (dbtype == NULL) {
+	ret = heim_db_register("dictdb", NULL, &dbt);
+	if (ret)
+	    return 1;
 
-    db = heim_db_create("dictdb", "foo", NULL, NULL);
-    if (db)
-	return 1;
+	db = heim_db_create("dictdb", "foo", NULL, NULL);
+	if (db)
+	    return 1;
 
-    db = heim_db_create("foobar", "MEMORY", NULL, NULL);
-    if (db)
-	return 1;
+	db = heim_db_create("foobar", "MEMORY", NULL, NULL);
+	if (db)
+	    return 1;
 
-    db = heim_db_create("dictdb", "MEMORY", NULL, NULL);
-    if (!db)
-	return ret;
+	db = heim_db_create("dictdb", "MEMORY", NULL, NULL);
+	if (!db)
+	    return 1;
+    } else {
+	heim_dict_t options = heim_dict_create(11);
+
+	if (options == NULL)
+	    return ENOMEM;
+	if (heim_dict_set_value(options, HSTR("journal-filename"),
+				HSTR("json-journal")))
+	    return ENOMEM;
+	fprintf(stderr, "testing with dbtype %s, dbname %s\n", dbtype, dbname);
+	db = heim_db_create(dbtype, dbname, options, NULL);
+	if (!db)
+	    return 1;
+    }
 
     k1 = heim_data_create("msg", strlen("msg"));
     k2 = heim_data_create("msg2", strlen("msg2"));
@@ -865,7 +879,8 @@ main(int argc, char **argv)
     res |= test_error();
     res |= test_json();
     res |= test_path();
-    res |= test_db();
+    res |= test_db(NULL, NULL);
+    res |= test_db("json", "test_db.json");
     res |= test_array();
 
     return res ? 1 : 0;
