@@ -400,7 +400,7 @@ an2ln_def_plug_an2ln(void *plug_ctx, krb5_context context,
 
     db_options = heim_dict_create(11);
     if (db_options != NULL)
-	heim_dict_set_value(db_options, heim_string_create("read-only"),
+	heim_dict_set_value(db_options, HSTR("read-only"),
 			    heim_number_create(1));
     dbh = heim_db_create(NULL, an2ln_db_fname, db_options, &error);
     if (dbh == NULL) {
