@@ -552,7 +552,6 @@ heim_db_commit(heim_db_t db, heim_error_t *error)
 {
     int ret, ret2;
     heim_string_t journal_fname = NULL;
-    int fd;
 
     if (heim_get_tid(db) != HEIM_TID_DB)
 	return EINVAL;
@@ -605,25 +604,27 @@ heim_db_commit(heim_db_t db, heim_error_t *error)
 
 	/* Write replay log */
 	if (journal_fname != NULL) {
+	    int fd;
+
 	    ret = open_file(heim_string_get_utf8(journal_fname), 1, 0, &fd, error);
 	    if (ret) {
 		heim_release(journal_contents);
 		goto err;
 	    }
+	    len = strlen(heim_string_get_utf8(journal_contents));
+	    bytes = write(fd, heim_string_get_utf8(journal_contents), len);
+	    save_errno = errno;
+	    heim_release(journal_contents);
+	    ret = close(fd);
+	    if (bytes != len) {
+		/* Truncate replay log */
+		(void) open_file(heim_string_get_utf8(journal_fname), 1, 0, NULL, error);
+		ret = save_errno;
+		goto err;
+	    }
+	    if (ret)
+		goto err;
 	}
-	len = strlen(heim_string_get_utf8(journal_contents));
-	bytes = write(fd, heim_string_get_utf8(journal_contents), len);
-	save_errno = errno;
-	heim_release(journal_contents);
-	ret = close(fd);
-	if (bytes != len) {
-	    /* Truncate replay log */
-	    (void) open_file(heim_string_get_utf8(journal_fname), 1, 0, NULL, error);
-	    ret = save_errno;
-	    goto err;
-	}
-	if (ret)
-	    goto err;
     }
 
     /* Apply logged actions */
@@ -640,6 +641,8 @@ heim_db_commit(heim_db_t db, heim_error_t *error)
 
     /* Truncate replay log and we're done */
     if (journal_fname != NULL) {
+	int fd;
+
 	ret2 = open_file(heim_string_get_utf8(journal_fname), 1, 0, &fd, error);
 	if (ret2 == 0)
 	    (void) close(fd);
@@ -874,7 +877,7 @@ int
 heim_db_delete_key(heim_db_t db, heim_string_t table, heim_data_t key,
 		   heim_error_t *error)
 {
-    heim_string_t key64;
+    heim_string_t key64 = NULL;
     int autocommit = 0;
     int ret;
 
