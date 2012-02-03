@@ -37,6 +37,8 @@ intcflags=-I$(SRCDIR) -I$(OBJ)
 
 INCFILES=$(INCDIR)\heimbase.h
 
+test_binaries = $(OBJ)\test_base.exe
+
 libheimbase_OBJS =		\
 	$(OBJ)\array.obj	\
 	$(OBJ)\bool.obj		\
@@ -57,8 +59,21 @@ $(libheimbase_OBJS: =
 )
 <<
 
+test:: test-binaries test-run
+
+test-run:
+	cd $(OBJ)
+	test_base.exe
+	cd $(SRCDIR)
 
 all:: $(INCFILES) $(LIBHEIMBASE)
 
 clean::
 	-$(RM) $(INCFILES)
+
+$(test_binaries): $$(@R).obj $(LIBHEIMBASE) $(LIBVERS) $(LIBROKEN)
+	$(EXECONLINK)
+	$(EXEPREP_NODIST)
+
+$(test_binaries:.exe=.obj): $$(@B).c
+	$(C2OBJ_C) -Fo$@ -Fd$(@D)\ $** -DBlah

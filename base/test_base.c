@@ -39,7 +39,9 @@
 #include <string.h>
 #include <sys/types.h>
 #include <sys/stat.h>
+#ifndef WIN32
 #include <sys/file.h>
+#endif
 #ifdef HAVE_IO_H
 #include <io.h>
 #endif
