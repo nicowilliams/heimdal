@@ -71,6 +71,8 @@ all:: $(INCFILES) $(LIBHEIMBASE)
 clean::
 	-$(RM) $(INCFILES)
 
+test-binaries: $(test_binaries)
+
 $(test_binaries): $$(@R).obj $(LIBHEIMBASE) $(LIBVERS) $(LIBROKEN)
 	$(EXECONLINK)
 	$(EXEPREP_NODIST)

@@ -1169,7 +1169,7 @@ open_file(const char *dbname, int for_write, int excl, int *fd_out, heim_error_t
 	*fd_out = -1;
 
     if (for_write)
-	hFile = CreateFile(dbname, GENERIC_WRITE, 0,
+	hFile = CreateFile(dbname, GENERIC_WRITE | GENERIC_READ, 0,
 			   NULL, /* we'll close as soon as we read */
 			   CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
     else
@@ -1178,7 +1178,7 @@ open_file(const char *dbname, int for_write, int excl, int *fd_out, heim_error_t
 			   OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
     if (hFile == INVALID_HANDLE_VALUE) {
 	ret = GetLastError();
-	_set_errno(ENOENT); /* CreateFile() does not set errno */
+	_set_errno(ret); /* CreateFile() does not set errno */
 	goto err;
     }
     if (fd_out == NULL) {
@@ -1261,19 +1261,26 @@ read_json(const char *dbname, heim_object_t *out, heim_error_t *error)
 	return ret;
 
     ret = fstat(fd, &st);
-    if (ret == -1)
+    if (ret == -1) {
+	(void) close(fd);
 	return HEIM_ERROR(error, errno,
 			  (ret, N_("Could not stat JSON DB %s: %s", ""),
 			   dbname, strerror(errno)));
+    }
 
-    if (st.st_size == 0)
+    if (st.st_size == 0) {
+	(void) close(fd);
 	return 0;
+    }
 
     str = malloc(st.st_size + 1);
-    if (str == NULL)
+    if (str == NULL) {
+	 (void) close(fd);
 	return HEIM_ENOMEM(error);
+    }
 
     bytes = read(fd, str, st.st_size);
+     (void) close(fd);
     if (bytes != st.st_size) {
 	free(str);
 	if (bytes >= 0)
@@ -1283,7 +1290,6 @@ read_json(const char *dbname, heim_object_t *out, heim_error_t *error)
 			   dbname, strerror(errno)));
     }
     str[st.st_size] = '\0';
-    (void) close(fd);
     *out = heim_json_create(str, error);
     free(str);
     if (*out == NULL)
@@ -1299,6 +1305,7 @@ typedef struct json_db {
     int fd;
     time_t last_read_time;
     unsigned int read_only:1;
+    unsigned int locked:1;
     unsigned int locked_needs_unlink:1;
 } *json_db_t;
 
@@ -1446,14 +1453,15 @@ json_db_lock(void *db, int read_only, heim_error_t *error)
     heim_assert(jsondb->fd == -1 || (jsondb->read_only && !read_only),
 		"DB locks are not recursive");
 
-    if (jsondb->fd > -1) {
-	jsondb->read_only = 0;
+    jsondb->read_only = read_only ? 1 : 0;
+    if (jsondb->fd > -1)
 	return 0;
-    }
 
     ret = open_file(heim_string_get_utf8(jsondb->bkpname), 1, 1, &jsondb->fd, error);
-    if (ret == 0)
+    if (ret == 0) {
 	jsondb->locked_needs_unlink = 1;
+	jsondb->locked = 1;
+    }
     return ret;
 }
 
@@ -1461,12 +1469,14 @@ static int
 json_db_unlock(void *db, heim_error_t *error)
 {
     json_db_t jsondb = db;
-    int ret;
+    int ret = 0;
 
-    heim_assert(jsondb->fd > -1, "DB not locked when unlock attempted");
-    ret = close(jsondb->fd);
+    heim_assert(jsondb->locked, "DB not locked when unlock attempted");
+    if (jsondb->fd > -1)
+	ret = close(jsondb->fd);
     jsondb->fd = -1;
     jsondb->read_only = 0;
+    jsondb->locked = 0;
     if (jsondb->locked_needs_unlink)
 	unlink(heim_string_get_utf8(jsondb->bkpname));
     jsondb->locked_needs_unlink = 0;
@@ -1480,7 +1490,11 @@ json_db_sync(void *db, heim_error_t *error)
     size_t len, bytes;
     heim_error_t e;
     heim_string_t json;
-    int ret;
+    int ret = 0;
+    int fd = -1;
+#ifdef WIN32
+    int tries = 3;
+#endif
 
     heim_assert(jsondb->fd > -1, "DB not locked when sync attempted");
 
@@ -1495,18 +1509,39 @@ json_db_sync(void *db, heim_error_t *error)
 
     len = strlen(heim_string_get_utf8(json));
     errno = 0;
-    bytes = write(jsondb->fd, heim_string_get_utf8(json), len);
+
+#ifdef WIN32
+    while (tries--) {
+	ret = open_file(heim_string_get_utf8(jsondb->dbname), 1, 0, &fd, error);
+	if (ret == 0)
+	    break;
+	sleep(1);
+    }
+    if (ret)
+	return ret;
+#else
+    fd = jsondb->fd;
+#endif /* WIN32 */
+
+    bytes = write(fd, heim_string_get_utf8(json), len);
     heim_release(json);
     if (bytes != len)
 	return errno ? errno : EIO;
-    ret = fsync(jsondb->fd);
+    ret = fsync(fd);
     if (ret)
 	return ret;
+
+#ifdef WIN32
+    ret = close(fd);
+    if (ret)
+	return GetLastError();
+#else
     ret = rename(heim_string_get_utf8(jsondb->bkpname), heim_string_get_utf8(jsondb->dbname));
     if (ret == 0) {
 	jsondb->locked_needs_unlink = 0;
 	return 0;
     }
+#endif /* WIN32 */
 
     return errno;
 }
