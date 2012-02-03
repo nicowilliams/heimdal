@@ -197,6 +197,7 @@ test_json(void)
     heim_assert(heim_get_tid(o) == heim_dict_get_type_id(), "dict-tid");
     o2 = heim_dict_get_value(o, k1);
     heim_assert(heim_get_tid(o2) == heim_string_get_type_id(), "string-tid");
+    heim_release(o2);
     heim_release(o);
 
     o = heim_json_create(" { \"k1\" : { \"k2\" : \"s2\" } }", NULL);
@@ -204,6 +205,7 @@ test_json(void)
     heim_assert(heim_get_tid(o) == heim_dict_get_type_id(), "dict-tid");
     o2 = heim_dict_get_value(o, k1);
     heim_assert(heim_get_tid(o2) == heim_dict_get_type_id(), "dict-tid");
+    heim_release(o2);
     heim_release(o);
 
     o = heim_json_create("{ \"k1\" : 1 }", NULL);
@@ -211,6 +213,7 @@ test_json(void)
     heim_assert(heim_get_tid(o) == heim_dict_get_type_id(), "dict-tid");
     o2 = heim_dict_get_value(o, k1);
     heim_assert(heim_get_tid(o2) == heim_number_get_type_id(), "number-tid");
+    heim_release(o2);
     heim_release(o);
 
     o = heim_json_create("-10", NULL);
@@ -660,11 +663,11 @@ test_db(const char *dbtype, const char *dbname)
 
 	heim_release(vdict);
 
-	db2 = heim_db_create(dbtype, dbname, options, NULL);
+	db2 = heim_db_create(dbtype, dbname, NULL, NULL);
 	if (!db2) return 1;
 
 	vdict = (heim_dict_t)heim_db_get_value(db2, NULL, k3, NULL);
-	if (vdict == NULL) return ret;
+	if (vdict == NULL) return 1;
 	if (heim_get_tid(vdict) != heim_dict_get_type_id()) return EINVAL;
 	v = heim_dict_get_value(vdict, HSTR("vdict-k1"));
 	if (v == NULL || heim_cmp(v, heim_number_create(11))) return EINVAL;
@@ -672,6 +675,8 @@ test_db(const char *dbtype, const char *dbname)
 	if (v == NULL || heim_cmp(v, heim_null_create())) return EINVAL;
 	v = heim_dict_get_value(vdict, HSTR("vdict-k3"));
 	if (v == NULL || heim_cmp(v, HSTR("a value"))) return EINVAL;
+
+	heim_release(db2);
     }
 
     heim_release(db);
