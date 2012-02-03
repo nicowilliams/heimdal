@@ -388,6 +388,7 @@ heim_db_create(const char *dbtype, const char *dbname,
     db->set_keys = NULL;
     db->del_keys = NULL;
     db->plug = plug;
+    db->options = options;
 
     ret = plug->openf(plug->data, dbtype, dbname, options, &db->db_data, error);
     if (ret) {
@@ -408,7 +409,6 @@ heim_db_create(const char *dbtype, const char *dbname,
     if (plug->clonef == NULL) {
 	db->dbtype = heim_string_create(dbtype);
 	db->dbname = heim_string_create(dbname);
-	db->options = heim_retain(options);
 
 	if (!db->dbtype || ! db->dbname) {
 	    heim_release(db);
@@ -764,10 +764,9 @@ heim_db_get_value(heim_db_t db, heim_string_t table, heim_data_t key,
 	    return v;
 	}
 	v = heim_path_get(db->del_keys, error, table, key64, NULL); /* can't be NULL */
-	if (v != NULL) {
-	    heim_release(key64);
+	heim_release(key64);
+	if (v != NULL)
 	    return NULL;
-	}
     }
 
     result = db->plug->getf(db->db_data, table, key, error);
@@ -907,6 +906,7 @@ heim_db_delete_key(heim_db_t db, heim_string_t table, heim_data_t key,
 	if (ret)
 	    goto err;
 	heim_path_delete(db->set_keys, error, table, key64, NULL);
+	heim_release(key64);
 
 	return 0;
     }
@@ -977,6 +977,7 @@ db_replay_log_table_set_keys_iter(heim_object_t key, heim_object_t value,
     v = (heim_data_t)value;
 
     db->ret = db->plug->setf(db->db_data, db->current_table, k, v, &db->error);
+    heim_release(k);
 }
 
 static void
@@ -998,6 +999,7 @@ db_replay_log_table_del_keys_iter(heim_object_t key, heim_object_t value,
     k = (heim_data_t)key;
 
     db->ret = db->plug->delf(db->db_data, db->current_table, k, &db->error);
+    heim_release(k);
 }
 
 static void
@@ -1517,8 +1519,10 @@ json_db_sync(void *db, heim_error_t *error)
 	    break;
 	sleep(1);
     }
-    if (ret)
+    if (ret) {
+	heim_release(json);
 	return ret;
+    }
 #else
     fd = jsondb->fd;
 #endif /* WIN32 */
@@ -1554,6 +1558,7 @@ json_db_get_value(void *db, heim_string_t table, heim_data_t key,
     heim_string_t key_string;
     const heim_octet_string *key_data = heim_data_get_data(key);
     struct stat st;
+    heim_data_t ret;
 
     if (error)
 	*error = NULL;
@@ -1598,7 +1603,9 @@ json_db_get_value(void *db, heim_string_t table, heim_data_t key,
     heim_release(jsondb->to_release);
     jsondb->to_release = NULL;
 
-    return (heim_path_get(jsondb->dict, error, table, key_string, NULL));
+    ret = heim_path_get(jsondb->dict, error, table, key_string, NULL);
+    heim_release(key_string);
+    return ret;
 }
 
 static int
@@ -1608,6 +1615,7 @@ json_db_set_value(void *db, heim_string_t table,
     json_db_t jsondb = db;
     heim_string_t key_string;
     const heim_octet_string *key_data = heim_data_get_data(key);
+    int ret;
 
     if (error)
 	*error = NULL;
@@ -1626,7 +1634,9 @@ json_db_set_value(void *db, heim_string_t table,
     if (table == NULL)
 	table = HSTR("");
 
-    return heim_path_create(jsondb->dict, 29, value, error, table, key_string, NULL);
+    ret = heim_path_create(jsondb->dict, 29, value, error, table, key_string, NULL);
+    heim_release(key_string);
+    return ret;
 }
 
 static int
@@ -1655,6 +1665,7 @@ json_db_del_key(void *db, heim_string_t table, heim_data_t key,
 	table = HSTR("");
 
     heim_path_delete(jsondb->dict, error, table, key_string, NULL);
+    heim_release(key_string);
     return 0;
 }
 
@@ -1671,8 +1682,8 @@ static void json_db_iter_f(heim_object_t key, heim_object_t value, void *arg)
 
     key_string = heim_string_get_utf8((heim_string_t)key);
     key_data = heim_data_ref_create(key_string, strlen(key_string), NULL);
-
     ctx->iter_f(key_data, (heim_object_t)value, ctx->iter_ctx);
+    heim_release(key_data);
 }
 
 static void
