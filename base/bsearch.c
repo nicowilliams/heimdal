@@ -153,7 +153,7 @@ bsearch_common(const char *buf, size_t sz, const char *key,
     const char *linep;
     size_t key_start, key_len; /* key string in buf */
     size_t val_start, val_len; /* value string in buf */
-    int key_cmp;
+    int key_cmp = -1;
     size_t k;
     size_t l;    /* left side of buffer for binary search */
     size_t r;    /* right side of buffer for binary search */
@@ -349,7 +349,7 @@ int
 _bsearch_file_open(const char *fname, size_t max_sz, size_t page_sz,
 		    bsearch_file_handle *bfh, size_t *reads)
 {
-    bsearch_file_handle new_bfh;
+    bsearch_file_handle new_bfh = NULL;
     struct stat st;
     size_t i;
     int fd;
