@@ -565,7 +565,7 @@ strbuf_add(void *ctx, const char *str)
 	return;
 
     len = strlen(str);
-    if ((len + 1) > (strbuf->alloced - strbuf->len + 1)) {
+    if ((len + 1) > (strbuf->alloced - strbuf->len)) {
 	size_t new_len = strbuf->alloced + (strbuf->alloced >> 2) + len + 1;
 	char *s;
 
@@ -577,6 +577,7 @@ strbuf_add(void *ctx, const char *str)
 	strbuf->str = s;
 	strbuf->alloced = new_len;
     }
+    /* +1 so we copy the NUL */
     (void) memcpy(strbuf->str + strbuf->len, str, len + 1);
     strbuf->len += len;
 }
