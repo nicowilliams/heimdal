@@ -1323,6 +1323,44 @@ json_db_open(void *plug, const char *dbtype, const char *dbname,
 			      (EINVAL, N_("JSON DB files must end in .json",
 					  "")));
 
+	if (options) {
+	    heim_object_t vc, ve, vt;
+
+	    vc = heim_dict_get_value(options, HSTR("create"));
+	    ve = heim_dict_get_value(options, HSTR("exclusive"));
+	    vt = heim_dict_get_value(options, HSTR("truncate"));
+	    heim_release(vc);
+	    heim_release(ve);
+	    heim_release(vt);
+	    if (vc && vt) {
+		ret = open_file(dbname, 1, ve ? 1 : 0, NULL, error);
+		if (ret)
+		    return ret;
+	    } else if (vc || ve || vt) {
+		return HEIM_ERROR(error, EINVAL,
+				  (EINVAL, N_("Invalid JSON DB open options",
+					      "")));
+	    }
+	    /*
+	     * We don't want cloned handles to truncate the DB, eh?
+	     *
+	     * We should really just create a copy of the options dict
+	     * rather than modify the caller's!  But for that it'd be
+	     * nicer to have copy utilities in heimbase, something like
+	     * this:
+	     *
+	     * heim_object_t heim_copy(heim_object_t src, int depth,
+	     *                         heim_error_t *error);
+	     * 
+	     * so that options = heim_copy(options, 1); means copy the
+	     * dict but nothing else (whereas depth == 0 would mean
+	     * heim_retain(), and depth > 1 would be copy that many
+	     * levels).
+	     */
+	    heim_dict_delete_key(options, HSTR("create"));
+	    heim_dict_delete_key(options, HSTR("exclusive"));
+	    heim_dict_delete_key(options, HSTR("truncate"));
+	}
 	dbname_s = heim_string_create(dbname);
 	if (dbname_s == NULL)
 	    return HEIM_ENOMEM(error);

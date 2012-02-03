@@ -505,6 +505,10 @@ test_db(const char *dbtype, const char *dbname)
 	if (heim_dict_set_value(options, HSTR("journal-filename"),
 				HSTR("json-journal")))
 	    return ENOMEM;
+	if (heim_dict_set_value(options, HSTR("create"), heim_null_create()))
+	    return ENOMEM;
+	if (heim_dict_set_value(options, HSTR("truncate"), heim_null_create()))
+	    return ENOMEM;
 	fprintf(stderr, "testing with dbtype %s, dbname %s\n", dbtype, dbname);
 	db = heim_db_create(dbtype, dbname, options, NULL);
 	if (!db)
