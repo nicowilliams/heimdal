@@ -791,7 +791,6 @@ heim_db_set_value(heim_db_t db, heim_string_t table,
 		  heim_data_t key, heim_data_t value, heim_error_t *error)
 {
     heim_string_t key64 = NULL;
-    int autocommit = 0;
     int ret;
 
     if (error != NULL)
@@ -814,44 +813,37 @@ heim_db_set_value(heim_db_t db, heim_string_t table,
     if (db->plug->setf == NULL)
 	return EBADF;
 
-    if (db->set_keys != NULL) {
-	/* Transaction emulation */
-	key64 = to_base64(key, error);
-	if (key64 == NULL)
-	    return HEIM_ENOMEM(error);
-
-	if (db->ro_tx) {
-	    ret = heim_db_begin(db, 0, error);
-	    if (ret)
-		goto err;
-	}
-	ret = heim_path_create(db->set_keys, 29, value, error, table, key64, NULL);
-	if (ret)
-	    goto err;
-	heim_path_delete(db->del_keys, error, table, key64, NULL);
-	heim_release(key64);
-
-	return 0;
-    }
-
     if (!db->in_transaction) {
 	ret = heim_db_begin(db, 0, error);
 	if (ret)
 	    goto err;
-	autocommit = 1;
-    }
-
-    ret = db->plug->setf(db->db_data, table, key, value, error);
-    if (ret) {
-	if (!autocommit)
+	heim_assert(db->in_transaction, "Internal error");
+	ret = heim_db_set_value(db, table, key, value, error);
+	if (ret) {
+	    (void) heim_db_rollback(db, NULL);
 	    return ret;
-	(void) heim_db_rollback(db, error);
-	return ret;
+	}
+	return heim_db_commit(db, error);
     }
-    if (autocommit)
-	ret = heim_db_commit(db, error);
 
-    return ret;
+    /* Transaction emulation */
+    heim_assert(db->set_keys != NULL, "Internal error");
+    key64 = to_base64(key, error);
+    if (key64 == NULL)
+	return HEIM_ENOMEM(error);
+
+    if (db->ro_tx) {
+	ret = heim_db_begin(db, 0, error);
+	if (ret)
+	    goto err;
+    }
+    ret = heim_path_create(db->set_keys, 29, value, error, table, key64, NULL);
+    if (ret)
+	goto err;
+    heim_path_delete(db->del_keys, error, table, key64, NULL);
+    heim_release(key64);
+
+    return 0;
 
 err:
     heim_release(key64);
@@ -877,7 +869,6 @@ heim_db_delete_key(heim_db_t db, heim_string_t table, heim_data_t key,
 		   heim_error_t *error)
 {
     heim_string_t key64 = NULL;
-    int autocommit = 0;
     int ret;
 
     if (error != NULL)
@@ -892,41 +883,36 @@ heim_db_delete_key(heim_db_t db, heim_string_t table, heim_data_t key,
     if (db->plug->delf == NULL)
 	return EBADF;
 
-    if (db->del_keys != NULL) {
-	/* Transaction emulation */
-	key64 = to_base64(key, error);
-	if (key64 == NULL)
-	    return HEIM_ENOMEM(error);
-	if (db->ro_tx) {
-	    ret = heim_db_begin(db, 0, error);
-	    if (ret)
-		goto err;
-	}
-	ret = heim_path_create(db->del_keys, 29, heim_number_create(1), error, table, key64, NULL);
-	if (ret)
-	    goto err;
-	heim_path_delete(db->set_keys, error, table, key64, NULL);
-	heim_release(key64);
-
-	return 0;
-    }
-
     if (!db->in_transaction) {
 	ret = heim_db_begin(db, 0, error);
 	if (ret)
 	    goto err;
-	autocommit = 1;
+	heim_assert(db->in_transaction, "Internal error");
+	ret = heim_db_delete_key(db, table, key, error);
+	if (ret) {
+	    (void) heim_db_rollback(db, NULL);
+	    return ret;
+	}
+	return heim_db_commit(db, error);
     }
 
-    ret = db->plug->delf(db->db_data, table, key, error);
-    if (ret) {
-	if (!autocommit)
-	    return ret;
-	(void) heim_db_rollback(db, error);
-	return ret;
+    /* Transaction emulation */
+    heim_assert(db->set_keys != NULL, "Internal error");
+    key64 = to_base64(key, error);
+    if (key64 == NULL)
+	return HEIM_ENOMEM(error);
+    if (db->ro_tx) {
+	ret = heim_db_begin(db, 0, error);
+	if (ret)
+	    goto err;
     }
-    if (autocommit)
-	ret = heim_db_commit(db, error);
+    ret = heim_path_create(db->del_keys, 29, heim_number_create(1), error, table, key64, NULL);
+    if (ret)
+	goto err;
+    heim_path_delete(db->set_keys, error, table, key64, NULL);
+    heim_release(key64);
+
+    return 0;
 
 err:
     heim_release(key64);
@@ -1216,9 +1202,9 @@ err:
 	*fd_out = -1;
 
     if (for_write && excl)
-	fd = open(dbname, O_CREAT | O_EXCL | O_WRONLY, 0700);
+	fd = open(dbname, O_CREAT | O_EXCL | O_WRONLY, 0600);
     else if (for_write)
-	fd = open(dbname, O_CREAT | O_TRUNC | O_WRONLY, 0700);
+	fd = open(dbname, O_CREAT | O_TRUNC | O_WRONLY, 0600);
     else
 	fd = open(dbname, O_RDONLY);
     if (fd < 0) {
@@ -1492,6 +1478,7 @@ json_db_sync(void *db, heim_error_t *error)
     size_t len, bytes;
     heim_error_t e;
     heim_string_t json;
+    const char *json_text = NULL;
     int ret = 0;
     int fd = -1;
 #ifdef WIN32
@@ -1509,7 +1496,8 @@ json_db_sync(void *db, heim_error_t *error)
 	return heim_error_get_code(e);
     }
 
-    len = strlen(heim_string_get_utf8(json));
+    json_text = heim_string_get_utf8(json);
+    len = strlen(json_text);
     errno = 0;
 
 #ifdef WIN32
@@ -1527,7 +1515,7 @@ json_db_sync(void *db, heim_error_t *error)
     fd = jsondb->fd;
 #endif /* WIN32 */
 
-    bytes = write(fd, heim_string_get_utf8(json), len);
+    bytes = write(fd, json_text, len);
     heim_release(json);
     if (bytes != len)
 	return errno ? errno : EIO;
