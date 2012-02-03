@@ -74,20 +74,19 @@ static void
 array2json(heim_object_t value, void *ctx)
 {
     struct twojson *j = ctx;
-    indent(j);
     base2json(value, j);
     j->out(j->ctx, ",\n");
-    j->indent--;
 }
 
 static void
 dict2json(heim_object_t key, heim_object_t value, void *ctx)
 {
     struct twojson *j = ctx;
-    indent(j);
     base2json(key, j);
-    j->out(j->ctx, " : ");
+    j->out(j->ctx, " : \n");
+    j->indent++;
     base2json(value, j);
+    j->indent--;
     j->out(j->ctx, ",\n");
 }
 
@@ -98,7 +97,7 @@ base2json(heim_object_t obj, struct twojson *j)
 
     if (obj == NULL) {
 	indent(j);
-	j->out(j->ctx, "<NULL>\n");
+	j->out(j->ctx, "<NULL>\n"); /* NOTE: this is NOT valid JSON! */
     }
 
     type = heim_get_tid(obj);
@@ -138,6 +137,9 @@ base2json(heim_object_t obj, struct twojson *j)
 	int ret;
 
 	/*
+	 * NOTE: JSON has not way to represent binary data!  Therefore
+	 * the following is a Heimdal-specific convention.
+	 *
 	 * We encode binary data as a dict with a single very magic key
 	 * with a base64-encoded value.
 	 */
@@ -326,8 +328,10 @@ parse_pair(heim_dict_t dict, struct parse_ctx *ctx)
     if (white_spaces(ctx))
 	return -1;
 
-    if (*ctx->p == '}')
+    if (*ctx->p == '}') {
+	ctx->p++;
 	return 0;
+    }
 
     key = parse_string(ctx);
     if (key == NULL)
