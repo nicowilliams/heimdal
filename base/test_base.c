@@ -800,7 +800,7 @@ main(int argc, char **argv)
     res |= test_json();
     res |= test_path();
     res |= test_db(NULL, NULL);
-    res |= test_db("json", "test_db.json");
+    res |= test_db("json", argc > 1 ? argv[1] : "test_db.json");
     res |= test_array();
 
     return res ? 1 : 0;
