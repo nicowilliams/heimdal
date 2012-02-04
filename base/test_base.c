@@ -33,6 +33,17 @@
  * SUCH DAMAGE.
  */
 
+/*
+ * This is a test of libheimbase functionality.  If you make any changes
+ * to libheimbase or to this test you should run it under valgrind with
+ * the following options:
+ *
+ *  -v --track-fds=yes --num-callers=30 --leak-check=full
+ *  
+ * and make sure that there are no leaks that don't have
+ * __heim_string_constant() or heim_db_register() in their stack trace.
+ */
+
 #include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -172,6 +183,16 @@ test_error(void)
 static int
 test_json(void)
 {
+    static char *j[] = {
+	"{ \"k1\" : \"s1\", \"k2\" : \"s2\" }",
+	"{ \"k1\" : [\"s1\", \"s2\", \"s3\"], \"k2\" : \"s3\" }",
+	"{ \"k1\" : {\"k2\":\"s1\",\"k3\":\"s2\",\"k4\":\"s3\"}, \"k5\" : \"s4\" }",
+	"[ \"v1\", \"v2\", [\"v3\",\"v4\",[\"v 5\",\" v 7 \"]], -123456789, "
+	    "null, true, false, 123456789, \"\"]",
+	" -1"
+    };
+    char *s;
+    size_t i, k;
     heim_object_t o, o2;
     heim_string_t k1 = heim_string_create("k1");
 
@@ -191,6 +212,14 @@ test_json(void)
     heim_assert(o != NULL, "dict");
     heim_assert(heim_get_tid(o) == heim_dict_get_type_id(), "dict-tid");
     heim_release(o);
+
+#ifdef NOTYET
+    o = heim_json_create("{ { \"k1\" : \"s1\", \"k2\" : \"s2\" } : \"s3\", "
+			 "{ \"k3\" : \"s4\" } }", 0, NULL);
+    heim_assert(o != NULL, "dict");
+    heim_assert(heim_get_tid(o) == heim_dict_get_type_id(), "dict-tid");
+    heim_release(o);
+#endif
 
     o = heim_json_create(" { \"k1\" : \"s1\", \"k2\" : \"s2\" }", 0, NULL);
     heim_assert(o != NULL, "dict");
@@ -235,6 +264,48 @@ test_json(void)
     heim_assert(o != NULL, "array");
     heim_assert(heim_get_tid(o) == heim_array_get_type_id(), "array-tid");
     heim_release(o);
+
+    for (i = 0; i < (sizeof (j) / sizeof (j[0])); i++) {
+	o = heim_json_create(j[i], 0, NULL);
+	if (o == NULL) {
+	    fprintf(stderr, "Failed to parse this JSON: %s\n", j[i]);
+	    return 1;
+	}
+	heim_release(o);
+	/* Simple fuzz test */
+	for (k = strlen(j[i]) - 1; k > 0; k--) {
+	    o = heim_json_create_with_bytes(j[i], k, 0, NULL);
+	    if (o != NULL) {
+		fprintf(stderr, "Invalid JSON parsed: %.*s\n", k, j[i]);
+		return EINVAL;
+	    }
+	}
+	/* Again, but this time make it so valgrind can find invalid accesses */
+	for (k = strlen(j[i]) - 1; k > 0; k--) {
+	    s = strndup(j[i], k);
+	    if (s == NULL)
+		return ENOMEM;
+	    o = heim_json_create(s, 0, NULL);
+	    free(s);
+	    if (o != NULL) {
+		fprintf(stderr, "Invalid JSON parsed: %s\n", j[i]);
+		return EINVAL;
+	    }
+	}
+	/* Again, but with no NUL termination */
+	for (k = strlen(j[i]) - 1; k > 0; k--) {
+	    s = malloc(k);
+	    if (s == NULL)
+		return ENOMEM;
+	    memcpy(s, j[i], k);
+	    o = heim_json_create_with_bytes(s, k, 0, NULL);
+	    free(s);
+	    if (o != NULL) {
+		fprintf(stderr, "Invalid JSON parsed: %s\n", j[i]);
+		return EINVAL;
+	    }
+	}
+    }
 
     heim_release(k1);
 
