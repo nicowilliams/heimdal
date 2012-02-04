@@ -159,8 +159,8 @@ base2json(heim_object_t obj, struct twojson *j)
 	    return ENOMEM;
 	}
 	ret = heim_dict_set_value(d, heim_tid_data_uuid_key, v);
+	heim_release(v);
 	if (ret) {
-	    heim_release(v);
 	    heim_release(d);
 	    return ENOMEM;
 	}
@@ -411,10 +411,13 @@ parse_dict(struct parse_ctx *ctx)
 
 	    buf = malloc(strlen(heim_string_get_utf8(v)));
 	    if (buf == NULL) {
+		heim_release(v);
+		heim_release(dict);
 		ctx->error = heim_error_enomem();
 		return NULL;
 	    }
 	    len = base64_decode(heim_string_get_utf8(v), buf);
+	    heim_release(v);
 	    if (len == -1) {
 		free(buf);
 		return dict;
