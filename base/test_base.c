@@ -484,29 +484,22 @@ test_db(const char *dbtype, const char *dbname)
 {
     heim_data_t k1, k2, v, v1, v2, v3;
     heim_db_t db;
-    heim_dict_t options = NULL;
     int ret;
 
     if (dbtype == NULL) {
 	ret = heim_db_register("dictdb", NULL, &dbt);
-	if (ret)
-	    return 1;
-
+	if (ret) return 1;
 	db = heim_db_create("dictdb", "foo", NULL, NULL);
-	if (db)
-	    return 1;
-
+	if (db) return 1;
 	db = heim_db_create("foobar", "MEMORY", NULL, NULL);
-	if (db)
-	    return 1;
-
+	if (db) return 1;
 	db = heim_db_create("dictdb", "MEMORY", NULL, NULL);
-	if (!db)
-	    return 1;
+	if (!db) return 1;
     } else {
+	heim_dict_t options;
+
 	options = heim_dict_create(11);
-	if (options == NULL)
-	    return ENOMEM;
+	if (options == NULL) return ENOMEM;
 	if (heim_dict_set_value(options, HSTR("journal-filename"),
 				HSTR("json-journal")))
 	    return ENOMEM;
@@ -515,8 +508,8 @@ test_db(const char *dbtype, const char *dbname)
 	if (heim_dict_set_value(options, HSTR("truncate"), heim_null_create()))
 	    return ENOMEM;
 	db = heim_db_create(dbtype, dbname, options, NULL);
-	if (!db)
-	    return 1;
+	if (!db) return 1;
+	heim_release(options);
     }
 
     k1 = heim_data_create("msg", strlen("msg"));
@@ -526,125 +519,100 @@ test_db(const char *dbtype, const char *dbname)
     v3 = heim_data_create("abc", strlen("abc"));
 
     ret = heim_db_set_value(db, NULL, k1, v1, NULL);
-    if (ret)
-	return ret;
+    if (ret) return ret;
 
     v = heim_db_get_value(db, NULL, k1, NULL);
-    if (v == NULL)
-	return 1;
-    if (heim_cmp(v, v1))
-	return 1;
+    if (v == NULL) return 1;
+    if (heim_cmp(v, v1)) return 1;
+    heim_release(v);
 
     ret = heim_db_set_value(db, NULL, k2, v2, NULL);
-    if (ret)
-	return ret;
+    if (ret) return ret;
 
     v = heim_db_get_value(db, NULL, k2, NULL);
-    if (v == NULL)
-	return 1;
-    if (heim_cmp(v, v2))
-	return 1;
+    if (v == NULL) return 1;
+    if (heim_cmp(v, v2)) return 1;
+    heim_release(v);
 
     ret = heim_db_set_value(db, NULL, k1, v3, NULL);
-    if (ret)
-	return ret;
+    if (ret) return ret;
 
     v = heim_db_get_value(db, NULL, k1, NULL);
-    if (v == NULL)
-	return 1;
-    if (heim_cmp(v, v3))
-	return 1;
+    if (v == NULL) return 1;
+    if (heim_cmp(v, v3)) return 1;
+    heim_release(v);
 
     ret = 3;
     heim_db_iterate_f(db, NULL, &ret, test_db_iter, NULL);
-    if (ret)
-	return ret;
+    if (ret) return ret;
 
     ret = heim_db_begin(db, 0, NULL);
-    if (ret)
-	return ret;
+    if (ret) return ret;
 
     ret = heim_db_commit(db, NULL);
-    if (ret)
-	return ret;
+    if (ret) return ret;
 
     ret = heim_db_begin(db, 0, NULL);
-    if (ret)
-	return ret;
+    if (ret) return ret;
 
     ret = heim_db_rollback(db, NULL);
-    if (ret)
-	return ret;
+    if (ret) return ret;
 
     ret = heim_db_begin(db, 0, NULL);
-    if (ret)
-	return ret;
+    if (ret) return ret;
 
     ret = heim_db_set_value(db, NULL, k1, v1, NULL);
-    if (ret)
-	return ret;
+    if (ret) return ret;
 
     v = heim_db_get_value(db, NULL, k1, NULL);
-    if (v == NULL)
-	return 1;
-    if (heim_cmp(v, v1))
-	return 1;
+    if (v == NULL) return 1;
+    if (heim_cmp(v, v1)) return 1;
+    heim_release(v);
 
     ret = heim_db_rollback(db, NULL);
-    if (ret)
-	return ret;
+    if (ret) return ret;
 
     v = heim_db_get_value(db, NULL, k1, NULL);
-    if (v == NULL)
-	return 1;
-    if (heim_cmp(v, v3))
-	return 1;
+    if (v == NULL) return 1;
+    if (heim_cmp(v, v3)) return 1;
+    heim_release(v);
 
     ret = heim_db_begin(db, 0, NULL);
-    if (ret)
-	return ret;
+    if (ret) return ret;
 
     ret = heim_db_set_value(db, NULL, k1, v1, NULL);
-    if (ret)
-	return ret;
+    if (ret) return ret;
 
     v = heim_db_get_value(db, NULL, k1, NULL);
-    if (v == NULL)
-	return 1;
-    if (heim_cmp(v, v1))
-	return 1;
+    if (v == NULL) return 1;
+    if (heim_cmp(v, v1)) return 1;
+    heim_release(v);
 
     ret = heim_db_commit(db, NULL);
-    if (ret)
-	return ret;
+    if (ret) return ret;
 
     v = heim_db_get_value(db, NULL, k1, NULL);
-    if (v == NULL)
-	return 1;
-    if (heim_cmp(v, v1))
-	return 1;
+    if (v == NULL) return 1;
+    if (heim_cmp(v, v1)) return 1;
+    heim_release(v);
 
     ret = heim_db_begin(db, 0, NULL);
-    if (ret)
-	return ret;
+    if (ret) return ret;
 
     ret = heim_db_delete_key(db, NULL, k1, NULL);
-    if (ret)
-	return ret;
+    if (ret) return ret;
 
     v = heim_db_get_value(db, NULL, k1, NULL);
-    if (v != NULL)
-	return 1;
+    if (v != NULL) return 1;
+    heim_release(v);
 
     ret = heim_db_rollback(db, NULL);
-    if (ret)
-	return ret;
+    if (ret) return ret;
 
     v = heim_db_get_value(db, NULL, k1, NULL);
-    if (v == NULL)
-	return 1;
-    if (heim_cmp(v, v1))
-	return 1;
+    if (v == NULL) return 1;
+    if (heim_cmp(v, v1)) return 1;
+    heim_release(v);
 
     if (dbtype != NULL) {
 	heim_data_t k3 = heim_data_create("value-is-a-dict", strlen("value-is-a-dict"));
@@ -667,16 +635,24 @@ test_db(const char *dbtype, const char *dbname)
 	if (!db2) return 1;
 
 	vdict = (heim_dict_t)heim_db_get_value(db2, NULL, k3, NULL);
+	heim_release(db2);
+	heim_release(k3);
 	if (vdict == NULL) return 1;
 	if (heim_get_tid(vdict) != heim_dict_get_type_id()) return EINVAL;
+
 	v = heim_dict_get_value(vdict, HSTR("vdict-k1"));
 	if (v == NULL || heim_cmp(v, heim_number_create(11))) return EINVAL;
+	heim_release(v);
+
 	v = heim_dict_get_value(vdict, HSTR("vdict-k2"));
 	if (v == NULL || heim_cmp(v, heim_null_create())) return EINVAL;
+	heim_release(v);
+
 	v = heim_dict_get_value(vdict, HSTR("vdict-k3"));
 	if (v == NULL || heim_cmp(v, HSTR("a value"))) return EINVAL;
+	heim_release(v);
 
-	heim_release(db2);
+	heim_release(vdict);
     }
 
     heim_release(db);
