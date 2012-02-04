@@ -81,6 +81,7 @@ array2json(heim_object_t value, void *ctx)
     if (j->ret)
 	return;
     j->ret = base2json(value, j);
+    /* XXX FIXME This is not legal JSON! */
     j->out(j->ctx, ",\n");
 }
 
@@ -99,6 +100,7 @@ dict2json(heim_object_t key, heim_object_t value, void *ctx)
     if (j->ret)
 	return;
     j->indent--;
+    /* XXX FIXME This is not legal JSON! */
     j->out(j->ctx, ",\n");
 }
 
@@ -423,8 +425,10 @@ parse_pair(heim_dict_t dict, struct parse_ctx *ctx)
 	/* Even heim_dict_t does not allow C NULLs as keys though! */
 	return -1;
 
-    if (white_spaces(ctx))
+    if (white_spaces(ctx)) {
+	heim_release(key);
 	return -1;
+    }
 
     if (*ctx->p != ':') {
 	heim_release(key);
