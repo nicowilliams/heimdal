@@ -620,7 +620,7 @@ heim_path_vget2(heim_object_t ptr, heim_object_t *parent, heim_object_t *key,
 	if (path_element == NULL) {
 	    *parent = node;
 	    *key = path_element;
-	    return node;
+	    return heim_retain(node);
 	}
 
 	node_type = heim_get_tid(node);
