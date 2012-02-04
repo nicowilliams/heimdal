@@ -54,6 +54,7 @@ struct twojson {
     size_t indent;
     heim_json_flags_t flags;
     int ret;
+    int first;
 };
 
 struct strbuf {
@@ -80,9 +81,11 @@ array2json(heim_object_t value, void *ctx)
     struct twojson *j = ctx;
     if (j->ret)
 	return;
+    if (j->first)
+	j->first = 0;
+    else
+	j->out(j->ctx, ",\n");
     j->ret = base2json(value, j);
-    /* XXX FIXME This is not legal JSON! */
-    j->out(j->ctx, ",\n");
 }
 
 static void
@@ -91,6 +94,10 @@ dict2json(heim_object_t key, heim_object_t value, void *ctx)
     struct twojson *j = ctx;
     if (j->ret)
 	return;
+    if (j->first)
+	j->first = 0;
+    else
+	j->out(j->ctx, ",\n");
     j->ret = base2json(key, j);
     if (j->ret)
 	return;
@@ -100,14 +107,13 @@ dict2json(heim_object_t key, heim_object_t value, void *ctx)
     if (j->ret)
 	return;
     j->indent--;
-    /* XXX FIXME This is not legal JSON! */
-    j->out(j->ctx, ",\n");
 }
 
 static int
 base2json(heim_object_t obj, struct twojson *j)
 {
     heim_tid_t type;
+    int first = 0;
 
     if (obj == NULL) {
 	if (j->flags & HEIM_JSON_F_CNULL2JSNULL) {
@@ -127,7 +133,10 @@ base2json(heim_object_t obj, struct twojson *j)
 	indent(j);
 	j->out(j->ctx, "[\n");
 	j->indent++;
+	first = j->first;
+	j->first = 1;
 	heim_array_iterate_f(obj, j, array2json);
+	j->first = first;
 	j->indent--;
 	indent(j);
 	j->out(j->ctx, "]\n");
@@ -137,7 +146,10 @@ base2json(heim_object_t obj, struct twojson *j)
 	indent(j);
 	j->out(j->ctx, "{\n");
 	j->indent++;
+	first = j->first;
+	j->first = 1;
 	heim_dict_iterate_f(obj, j, dict2json);
+	j->first = first;
 	j->indent--;
 	indent(j);
 	j->out(j->ctx, "}\n");
@@ -242,6 +254,7 @@ heim_base2json(heim_object_t obj, void *ctx, heim_json_flags_t flags,
     j.out = out;
     j.flags = flags;
     j.ret = 0;
+    j.first = 1;
 
     return base2json(obj, &j);
 }
