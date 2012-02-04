@@ -39,6 +39,8 @@
 
 static heim_base_once_t heim_json_once = HEIM_BASE_ONCE_INIT;
 static heim_string_t heim_tid_data_uuid_key = NULL;
+static const char base64_chars[] =
+    "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 
 static void
 json_init_once(void *arg)
@@ -48,8 +50,10 @@ json_init_once(void *arg)
 
 struct twojson {
     void *ctx;
-    size_t indent;
     void (*out)(void *, const char *);
+    size_t indent;
+    heim_json_flags_t flags;
+    int ret;
 };
 
 struct strbuf {
@@ -74,7 +78,9 @@ static void
 array2json(heim_object_t value, void *ctx)
 {
     struct twojson *j = ctx;
-    base2json(value, j);
+    if (j->ret)
+	return;
+    j->ret = base2json(value, j);
     j->out(j->ctx, ",\n");
 }
 
@@ -82,10 +88,16 @@ static void
 dict2json(heim_object_t key, heim_object_t value, void *ctx)
 {
     struct twojson *j = ctx;
-    base2json(key, j);
+    if (j->ret)
+	return;
+    j->ret = base2json(key, j);
+    if (j->ret)
+	return;
     j->out(j->ctx, " : \n");
     j->indent++;
-    base2json(value, j);
+    j->ret = base2json(value, j);
+    if (j->ret)
+	return;
     j->indent--;
     j->out(j->ctx, ",\n");
 }
@@ -96,8 +108,15 @@ base2json(heim_object_t obj, struct twojson *j)
     heim_tid_t type;
 
     if (obj == NULL) {
-	indent(j);
-	j->out(j->ctx, "<NULL>\n"); /* NOTE: this is NOT valid JSON! */
+	if (j->flags & HEIM_JSON_F_CNULL2JSNULL) {
+	    obj = heim_null_create();
+	} else if (j->flags & HEIM_JSON_F_NO_C_NULL) {
+	    return EINVAL;
+	} else {
+	    indent(j);
+	    j->out(j->ctx, "<NULL>\n"); /* This is NOT valid JSON! */
+	    return 0;
+	}
     }
 
     type = heim_get_tid(obj);
@@ -136,43 +155,56 @@ base2json(heim_object_t obj, struct twojson *j)
 	char *b64 = NULL;
 	int ret;
 
-	/*
-	 * NOTE: JSON has not way to represent binary data!  Therefore
-	 * the following is a Heimdal-specific convention.
-	 *
-	 * We encode binary data as a dict with a single very magic key
-	 * with a base64-encoded value.
-	 */
-	d = heim_dict_create(2);
-	if (d == NULL)
-	    return ENOMEM;
+	if (j->flags & HEIM_JSON_F_NO_DATA)
+	    return EINVAL; /* JSON doesn't do binary */
+
 	data = heim_data_get_data(obj);
 	ret = base64_encode(data->data, data->length, &b64);
-	if (ret < 0 || b64 == NULL) {
-	    heim_release(d);
+	if (ret < 0 || b64 == NULL)
 	    return ENOMEM;
-	}
-	v = heim_string_ref_create(b64, free);
-	if (v == NULL) {
+
+	if (j->flags & HEIM_JSON_F_NO_DATA_DICT) {
+	    indent(j);
+	    j->out(j->ctx, "\"");
+	    j->out(j->ctx, b64); /* base64-encode; hope there's no aliasing */
+	    j->out(j->ctx, "\"");
 	    free(b64);
+	} else {
+	    /*
+	     * JSON has no way to represent binary data, therefore the
+	     * following is a Heimdal-specific convention.
+	     *
+	     * We encode binary data as a dict with a single very magic
+	     * key with a base64-encoded value.  The magic key includes
+	     * a uuid, so we're not likely to alias accidentally.
+	     */
+	    d = heim_dict_create(2);
+	    if (d == NULL) {
+		free(b64);
+		return ENOMEM;
+	    }
+	    v = heim_string_ref_create(b64, free);
+	    if (v == NULL) {
+		free(b64);
+		heim_release(d);
+		return ENOMEM;
+	    }
+	    ret = heim_dict_set_value(d, heim_tid_data_uuid_key, v);
+	    heim_release(v);
+	    if (ret) {
+		heim_release(d);
+		return ENOMEM;
+	    }
+	    ret = base2json(d, j);
 	    heim_release(d);
-	    return ENOMEM;
+	    if (ret)
+		return ret;
 	}
-	ret = heim_dict_set_value(d, heim_tid_data_uuid_key, v);
-	heim_release(v);
-	if (ret) {
-	    heim_release(d);
-	    return ENOMEM;
-	}
-	ret = base2json(d, j);
-	heim_release(d);
-	if (ret)
-	    return ret;
 	break;
     }
 
     case HEIM_TID_NUMBER: {
-	char num[32]; /* XXX Figure out how to get roken's snprintf on Win32 */
+	char num[32];
 	indent(j);
 	snprintf(num, sizeof (num), "%d", heim_number_get_int(obj));
 	j->out(j->ctx, num);
@@ -193,16 +225,21 @@ base2json(heim_object_t obj, struct twojson *j)
 }
 
 static int
-heim_base2json(heim_object_t obj, void *ctx,
+heim_base2json(heim_object_t obj, void *ctx, heim_json_flags_t flags,
 	       void (*out)(void *, const char *))
 {
     struct twojson j;
+
+    if (flags & HEIM_JSON_F_STRICT_STRINGS)
+	return ENOTSUP; /* Sorry, not yet! */
 
     heim_base_once_f(&heim_json_once, NULL, json_init_once);
 
     j.indent = 0;
     j.ctx = ctx;
     j.out = out;
+    j.flags = flags;
+    j.ret = 0;
 
     return base2json(obj, &j);
 }
@@ -218,12 +255,17 @@ struct parse_ctx {
     const uint8_t *pstart;
     const uint8_t *pend;
     heim_error_t error;
+    heim_json_flags_t flags;
 };
 
 
 static heim_object_t
 parse_value(struct parse_ctx *ctx);
 
+/*
+ * This function eats whitespace, but, critically, it also succeeds
+ * only if there's anything left to parse.
+ */
 static int
 white_spaces(struct parse_ctx *ctx)
 {
@@ -255,6 +297,8 @@ parse_number(struct parse_ctx *ctx)
 	return NULL;
 
     if (*ctx->p == '-') {
+	if (ctx->p + 1 >= ctx->pend)
+	    return NULL;
 	neg = -1;
 	ctx->p += 1;
     }
@@ -277,6 +321,12 @@ parse_string(struct parse_ctx *ctx)
     const uint8_t *start;
     int quote = 0;
 
+    if (ctx->flags & HEIM_JSON_F_STRICT_STRINGS) {
+	ctx->error = heim_error_create(EINVAL, "Strict JSON string encoding "
+				       "not yet supported");
+	return NULL;
+    }
+
     heim_assert(*ctx->p == '"', "string doesnt' start with \"");
     start = ++ctx->p;
 
@@ -286,7 +336,7 @@ parse_string(struct parse_ctx *ctx)
 	} else if (*ctx->p == '\\') {
 	    if (ctx->p + 1 == ctx->pend)
 		goto out;
-	    ctx->p += 1;
+	    ctx->p++;
 	    quote = 1;
 	} else if (*ctx->p == '"') {
 	    heim_object_t o;
@@ -299,7 +349,7 @@ parse_string(struct parse_ctx *ctx)
 		while (start < ctx->p) {
 		    if (*start == '\\') {
 			start++;
-			/* XXX validate qouted char */
+			/* XXX validate quoted char */
 		    }
 		    *p++ = *start++;
 		}
@@ -307,11 +357,41 @@ parse_string(struct parse_ctx *ctx)
 		free(p0);
 	    } else {
 		o = heim_string_create_with_bytes(start, ctx->p - start);
+		if (o == NULL) {
+		    ctx->error = heim_error_enomem();
+		    return NULL;
+		}
+
+		/* If we can decode as base64, then let's */
+		if (ctx->flags & HEIM_JSON_F_TRY_DECODE_DATA) {
+		    void *buf;
+		    size_t len;
+		    const char *s;
+
+		    s = heim_string_get_utf8(o);
+		    len = strlen(s);
+
+		    if (len >= 4 && strspn(s, base64_chars) >= len - 2) {
+			buf = malloc(len);
+			if (buf == NULL) {
+			    heim_release(o);
+			    ctx->error = heim_error_enomem();
+			    return NULL;
+			}
+			len = base64_decode(s, buf);
+			if (len == -1) {
+			    free(buf);
+			    return o;
+			}
+			heim_release(o);
+			o = heim_data_ref_create(buf, len, free);
+		    }
+		}
 	    }
 	    ctx->p += 1;
 
 	    return o;
-	}    
+	}
 	ctx->p += 1;
     }
     out:
@@ -333,8 +413,14 @@ parse_pair(heim_dict_t dict, struct parse_ctx *ctx)
 	return 0;
     }
 
-    key = parse_string(ctx);
+    if (ctx->flags & HEIM_JSON_F_STRICT_DICT)
+	/* JSON allows only string keys */
+	key = parse_string(ctx);
+    else
+	/* heim_dict_t allows any heim_object_t as key */
+	key = parse_value(ctx);
     if (key == NULL)
+	/* Even heim_dict_t does not allow C NULLs as keys though! */
 	return -1;
 
     if (white_spaces(ctx))
@@ -345,7 +431,7 @@ parse_pair(heim_dict_t dict, struct parse_ctx *ctx)
 	return -1;
     }
 
-    ctx->p += 1;
+    ctx->p += 1; /* safe because we call white_spaces() next */
 
     if (white_spaces(ctx)) {
 	heim_release(key);
@@ -353,7 +439,10 @@ parse_pair(heim_dict_t dict, struct parse_ctx *ctx)
     }
 
     value = parse_value(ctx);
-    if (value == NULL) {
+    if (value == NULL &&
+	(ctx->error != NULL || (ctx->flags & HEIM_JSON_F_NO_C_NULL))) {
+	if (ctx->error == NULL)
+	    ctx->error = heim_error_create(EINVAL, "Invalid JSON encoding");
 	heim_release(key);
 	return -1;
     }
@@ -389,7 +478,7 @@ parse_dict(struct parse_ctx *ctx)
 	return NULL;
     }
 
-    ctx->p += 1;
+    ctx->p += 1; /* safe because parse_pair() calls white_spaces() first */
 
     while ((ret = parse_pair(dict, ctx)) > 0)
 	count++;
@@ -397,12 +486,12 @@ parse_dict(struct parse_ctx *ctx)
 	heim_release(dict);
 	return NULL;
     }
-    if (count == 1) {
+    if (count == 1 && !(ctx->flags & HEIM_JSON_F_NO_DATA_DICT)) {
 	heim_object_t v = heim_dict_get_value(dict, heim_tid_data_uuid_key);
 
 	/*
-	 * We encode binary data as a dict with a single magic key with
-	 * base64-encoded data.
+	 * Binary data encoded as a dict with a single magic key with
+	 * base64-encoded value?  Decode as heim_data_t.
 	 */
 	if (v != NULL && heim_get_tid(v) == HEIM_TID_STRING) {
 	    void *buf;
@@ -420,7 +509,7 @@ parse_dict(struct parse_ctx *ctx)
 	    heim_release(v);
 	    if (len == -1) {
 		free(buf);
-		return dict;
+		return dict; /* assume aliasing accident */
 	    }
 	    heim_release(dict);
 	    data = heim_data_ref_create(buf, len, free);
@@ -438,11 +527,14 @@ parse_item(heim_array_t array, struct parse_ctx *ctx)
     if (white_spaces(ctx))
 	return -1;
 
-    if (*ctx->p == ']')
+    if (*ctx->p == ']') {
+	ctx->p++; /* safe because parse_value() calls white_spaces() first */
 	return 0;
+    }
 
     value = parse_value(ctx);
-    if (value == NULL)
+    if (value == NULL &&
+	(ctx->error || (ctx->flags & HEIM_JSON_F_NO_C_NULL)))
 	return -1;
 
     heim_array_append_value(array, value);
@@ -499,7 +591,11 @@ parse_value(struct parse_ctx *ctx)
 
     len = ctx->pend - ctx->p;
 
-    if (len >= 4 && memcmp(ctx->p, "null", 4) == 0) {
+    if ((ctx->flags & HEIM_JSON_F_NO_C_NULL) == 0 &&
+	len >= 6 && memcmp(ctx->p, "<NULL>", 6) == 0) {
+	ctx->p += 6;
+	return heim_null_create();
+    } else if (len >= 4 && memcmp(ctx->p, "null", 4) == 0) {
 	ctx->p += 4;
 	return heim_null_create();
     } else if (len >= 4 && strncasecmp((char *)ctx->p, "true", 4) == 0) {
@@ -519,13 +615,15 @@ parse_value(struct parse_ctx *ctx)
 
 
 heim_object_t
-heim_json_create(const char *string, heim_error_t *error)
+heim_json_create(const char *string, heim_json_flags_t flags,
+		 heim_error_t *error)
 {
-    return heim_json_create_with_bytes(string, strlen(string), error);
+    return heim_json_create_with_bytes(string, strlen(string), flags, error);
 }
 
 heim_object_t
-heim_json_create_with_bytes(const void *data, size_t length, heim_error_t *error)
+heim_json_create_with_bytes(const void *data, size_t length,
+			    heim_json_flags_t flags, heim_error_t *error)
 {
     struct parse_ctx ctx;
     heim_object_t o;
@@ -537,6 +635,7 @@ heim_json_create_with_bytes(const void *data, size_t length, heim_error_t *error
     ctx.pstart = data;
     ctx.pend = ((uint8_t *)data) + length;
     ctx.error = NULL;
+    ctx.flags = flags;
 
     o = parse_value(&ctx);
 
@@ -566,7 +665,7 @@ show_printf(void *ctx, const char *str)
 void
 heim_show(heim_object_t obj)
 {
-    heim_base2json(obj, stderr, show_printf);
+    heim_base2json(obj, stderr, 0, show_printf);
 }
 
 static void
@@ -599,7 +698,7 @@ strbuf_add(void *ctx, const char *str)
 #define STRBUF_INIT_SZ 64
 
 heim_string_t
-heim_serialize(heim_object_t obj, heim_error_t *error)
+heim_serialize(heim_object_t obj, heim_json_flags_t flags, heim_error_t *error)
 {
     heim_string_t str;
     struct strbuf strbuf;
@@ -619,7 +718,7 @@ heim_serialize(heim_object_t obj, heim_error_t *error)
     strbuf.alloced = STRBUF_INIT_SZ;
     strbuf.str[0] = '\0';
 
-    ret = heim_base2json(obj, &strbuf, strbuf_add);
+    ret = heim_base2json(obj, &strbuf, flags, strbuf_add);
     if (ret || strbuf.enomem) {
 	if (error) {
 	    if (strbuf.enomem || ret == ENOMEM)

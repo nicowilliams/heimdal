@@ -175,24 +175,24 @@ test_json(void)
     heim_object_t o, o2;
     heim_string_t k1 = heim_string_create("k1");
 
-    o = heim_json_create("\"string\"", NULL);
+    o = heim_json_create("\"string\"", 0, NULL);
     heim_assert(o != NULL, "string");
     heim_assert(heim_get_tid(o) == heim_string_get_type_id(), "string-tid");
     heim_assert(strcmp("string", heim_string_get_utf8(o)) == 0, "wrong string");
     heim_release(o);
 
-    o = heim_json_create(" \"foo\\\"bar\" ]", NULL);
+    o = heim_json_create(" \"foo\\\"bar\" ]", 0, NULL);
     heim_assert(o != NULL, "string");
     heim_assert(heim_get_tid(o) == heim_string_get_type_id(), "string-tid");
     heim_assert(strcmp("foo\"bar", heim_string_get_utf8(o)) == 0, "wrong string");
     heim_release(o);
 
-    o = heim_json_create(" { \"key\" : \"value\" }", NULL);
+    o = heim_json_create(" { \"key\" : \"value\" }", 0, NULL);
     heim_assert(o != NULL, "dict");
     heim_assert(heim_get_tid(o) == heim_dict_get_type_id(), "dict-tid");
     heim_release(o);
 
-    o = heim_json_create(" { \"k1\" : \"s1\", \"k2\" : \"s2\" }", NULL);
+    o = heim_json_create(" { \"k1\" : \"s1\", \"k2\" : \"s2\" }", 0, NULL);
     heim_assert(o != NULL, "dict");
     heim_assert(heim_get_tid(o) == heim_dict_get_type_id(), "dict-tid");
     o2 = heim_dict_get_value(o, k1);
@@ -200,7 +200,7 @@ test_json(void)
     heim_release(o2);
     heim_release(o);
 
-    o = heim_json_create(" { \"k1\" : { \"k2\" : \"s2\" } }", NULL);
+    o = heim_json_create(" { \"k1\" : { \"k2\" : \"s2\" } }", 0, NULL);
     heim_assert(o != NULL, "dict");
     heim_assert(heim_get_tid(o) == heim_dict_get_type_id(), "dict-tid");
     o2 = heim_dict_get_value(o, k1);
@@ -208,7 +208,7 @@ test_json(void)
     heim_release(o2);
     heim_release(o);
 
-    o = heim_json_create("{ \"k1\" : 1 }", NULL);
+    o = heim_json_create("{ \"k1\" : 1 }", 0, NULL);
     heim_assert(o != NULL, "array");
     heim_assert(heim_get_tid(o) == heim_dict_get_type_id(), "dict-tid");
     o2 = heim_dict_get_value(o, k1);
@@ -216,22 +216,22 @@ test_json(void)
     heim_release(o2);
     heim_release(o);
 
-    o = heim_json_create("-10", NULL);
+    o = heim_json_create("-10", 0, NULL);
     heim_assert(o != NULL, "number");
     heim_assert(heim_get_tid(o) == heim_number_get_type_id(), "number-tid");
     heim_release(o);
 
-    o = heim_json_create("99", NULL);
+    o = heim_json_create("99", 0, NULL);
     heim_assert(o != NULL, "number");
     heim_assert(heim_get_tid(o) == heim_number_get_type_id(), "number-tid");
     heim_release(o);
 
-    o = heim_json_create(" [ 1 ]", NULL);
+    o = heim_json_create(" [ 1 ]", 0, NULL);
     heim_assert(o != NULL, "array");
     heim_assert(heim_get_tid(o) == heim_array_get_type_id(), "array-tid");
     heim_release(o);
 
-    o = heim_json_create(" [ -1 ]", NULL);
+    o = heim_json_create(" [ -1 ]", 0, NULL);
     heim_assert(o != NULL, "array");
     heim_assert(heim_get_tid(o) == heim_array_get_type_id(), "array-tid");
     heim_release(o);

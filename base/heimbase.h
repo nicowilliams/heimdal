@@ -338,9 +338,24 @@ void heim_auto_release(heim_object_t);
 /*
  * JSON
  */
-heim_object_t heim_json_create(const char *, heim_error_t *);
-heim_object_t heim_json_create_with_bytes(const void *, size_t, heim_error_t *);
-heim_string_t heim_serialize(heim_object_t, heim_error_t *);
+typedef enum heim_json_flags {
+	HEIM_JSON_F_NO_C_NULL = 1, /* checked */
+	HEIM_JSON_F_STRICT_STRINGS = 2, /* checked */
+	HEIM_JSON_F_NO_DATA = 4, /* checked */
+	HEIM_JSON_F_NO_DATA_DICT = 8, /* checked */
+	HEIM_JSON_F_STRICT_DICT = 16, /* checked */
+	HEIM_JSON_F_STRICT = 31,
+	HEIM_JSON_F_CNULL2JSNULL = 32, /* checked */
+	HEIM_JSON_F_TRY_DECODE_DATA = 64 /* checked */
+} heim_json_flags_t;
+
+heim_object_t heim_json_create(const char *, heim_json_flags_t flags,
+			       heim_error_t *);
+heim_object_t heim_json_create_with_bytes(const void *, size_t,
+					  heim_json_flags_t flags,
+					  heim_error_t *);
+heim_string_t heim_serialize(heim_object_t, heim_json_flags_t flags,
+			     heim_error_t *);
 
 
 /*

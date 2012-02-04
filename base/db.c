@@ -599,7 +599,7 @@ heim_db_commit(heim_db_t db, heim_error_t *error)
 	    heim_release(a);
 	    goto err;
 	}
-	journal_contents = heim_serialize(a, error);
+	journal_contents = heim_serialize(a, 0, error);
 	heim_release(a);
 
 	/* Write replay log */
@@ -1278,7 +1278,7 @@ read_json(const char *dbname, heim_object_t *out, heim_error_t *error)
 			   dbname, strerror(errno)));
     }
     str[st.st_size] = '\0';
-    *out = heim_json_create(str, error);
+    *out = heim_json_create(str, 0, error);
     free(str);
     if (*out == NULL)
 	return (error && *error) ? heim_error_get_code(*error) : EINVAL;
@@ -1487,7 +1487,7 @@ json_db_sync(void *db, heim_error_t *error)
 
     heim_assert(jsondb->fd > -1, "DB not locked when sync attempted");
 
-    json = heim_serialize(jsondb->dict, &e);
+    json = heim_serialize(jsondb->dict, 0, &e);
     if (json == NULL) {
 	if (error)
 	    *error = e;
