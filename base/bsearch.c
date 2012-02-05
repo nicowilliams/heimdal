@@ -845,7 +845,7 @@ stdb_close(void *db, heim_error_t *error)
 }
 
 static heim_data_t
-stdb_get_value(void *db, heim_string_t table, heim_data_t key,
+stdb_copy_value(void *db, heim_string_t table, heim_data_t key,
 	       heim_error_t *error)
 {
     bsearch_file_handle bfh = db;
@@ -881,5 +881,5 @@ stdb_get_value(void *db, heim_string_t table, heim_data_t key,
 
 struct heim_db_type heim_sorted_text_file_dbtype = {
     1, stdb_open, NULL, stdb_close, NULL, NULL, NULL, NULL, NULL, NULL,
-    stdb_get_value, NULL, NULL, NULL
+    stdb_copy_value, NULL, NULL, NULL
 };
