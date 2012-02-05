@@ -833,13 +833,20 @@ heim_path_vcreate(heim_object_t ptr, size_t size, heim_object_t leaf,
 		goto err;
 	    }
 
-	    if (node_type == HEIM_TID_DICT)
+	    if (node_type == HEIM_TID_DICT) {
 		ret = heim_dict_set_value(node, path_element, next_node);
-	    else if (node_type == HEIM_TID_ARRAY &&
-		heim_number_get_int(path_element) <= heim_array_get_length(node))
+	    } else if (node_type == HEIM_TID_ARRAY &&
+		heim_number_get_int(path_element) <= heim_array_get_length(node)) {
 		ret = heim_array_insert_value(node,
 					      heim_number_get_int(path_element),
 					      next_node);
+	    } else {
+		ret = EINVAL;
+		if (error)
+		    *error = heim_error_create(ret, "Node in path not a "
+					       "container");
+		goto err;
+	    }
 	    heim_release(next_node);
 	    if (ret)
 		goto err;
@@ -849,6 +856,9 @@ heim_path_vcreate(heim_object_t ptr, size_t size, heim_object_t leaf,
 	node = next_node;
 	next_node = NULL;
     }
+
+    if (path_element == NULL)
+	goto err;
 
     /* Add the leaf */
     if (leaf != NULL) {
@@ -862,7 +872,7 @@ heim_path_vcreate(heim_object_t ptr, size_t size, heim_object_t leaf,
     return 0;
 
 err:
-    if (error) {
+    if (error && !*error) {
 	if (ret == ENOMEM)
 	    *error = heim_error_enomem();
 	else
