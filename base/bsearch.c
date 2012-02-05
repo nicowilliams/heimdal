@@ -858,9 +858,9 @@ stdb_copy_value(void *db, heim_string_t table, heim_data_t key,
 	*error = NULL;
 
     if (table == NULL)
-	table = heim_null_create();
+	table = HSTR("");
 
-    if (table != heim_null_create())
+    if (table != HSTR(""))
 	return NULL;
 
     if (heim_get_tid(key) == HEIM_TID_STRING)
