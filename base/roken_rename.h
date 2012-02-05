@@ -54,5 +54,8 @@
 #ifndef HAVE_STRDUP
 #define rk_strdup heimbase_strdup
 #endif
+#ifndef HAVE_STRNDUP
+#define rk_strndup heimbase_strndup
+#endif
 
 #endif /* __heimbase_roken_rename_h__ */
