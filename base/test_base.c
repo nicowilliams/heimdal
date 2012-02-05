@@ -196,35 +196,35 @@ test_json(void)
     heim_object_t o, o2;
     heim_string_t k1 = heim_string_create("k1");
 
-    o = heim_json_create("\"string\"", 0, NULL);
+    o = heim_json_create("\"string\"", 10, 0, NULL);
     heim_assert(o != NULL, "string");
     heim_assert(heim_get_tid(o) == heim_string_get_type_id(), "string-tid");
     heim_assert(strcmp("string", heim_string_get_utf8(o)) == 0, "wrong string");
     heim_release(o);
 
-    o = heim_json_create(" \"foo\\\"bar\" ]", 0, NULL);
+    o = heim_json_create(" \"foo\\\"bar\" ]", 10, 0, NULL);
     heim_assert(o != NULL, "string");
     heim_assert(heim_get_tid(o) == heim_string_get_type_id(), "string-tid");
     heim_assert(strcmp("foo\"bar", heim_string_get_utf8(o)) == 0, "wrong string");
     heim_release(o);
 
-    o = heim_json_create(" { \"key\" : \"value\" }", 0, NULL);
+    o = heim_json_create(" { \"key\" : \"value\" }", 10, 0, NULL);
     heim_assert(o != NULL, "dict");
     heim_assert(heim_get_tid(o) == heim_dict_get_type_id(), "dict-tid");
     heim_release(o);
 
     o = heim_json_create("{ { \"k1\" : \"s1\", \"k2\" : \"s2\" } : \"s3\", "
-			 "{ \"k3\" : \"s4\" } : -1 }", 0, NULL);
+			 "{ \"k3\" : \"s4\" } : -1 }", 10, 0, NULL);
     heim_assert(o != NULL, "dict");
     heim_assert(heim_get_tid(o) == heim_dict_get_type_id(), "dict-tid");
     heim_release(o);
 
     o = heim_json_create("{ { \"k1\" : \"s1\", \"k2\" : \"s2\" } : \"s3\", "
-			 "{ \"k3\" : \"s4\" } : -1 }", HEIM_JSON_F_STRICT_DICT,
-			 NULL);
+			 "{ \"k3\" : \"s4\" } : -1 }", 10,
+			 HEIM_JSON_F_STRICT_DICT, NULL);
     heim_assert(o == NULL, "dict");
 
-    o = heim_json_create(" { \"k1\" : \"s1\", \"k2\" : \"s2\" }", 0, NULL);
+    o = heim_json_create(" { \"k1\" : \"s1\", \"k2\" : \"s2\" }", 10, 0, NULL);
     heim_assert(o != NULL, "dict");
     heim_assert(heim_get_tid(o) == heim_dict_get_type_id(), "dict-tid");
     o2 = heim_dict_get_value(o, k1);
@@ -232,7 +232,7 @@ test_json(void)
     heim_release(o2);
     heim_release(o);
 
-    o = heim_json_create(" { \"k1\" : { \"k2\" : \"s2\" } }", 0, NULL);
+    o = heim_json_create(" { \"k1\" : { \"k2\" : \"s2\" } }", 10, 0, NULL);
     heim_assert(o != NULL, "dict");
     heim_assert(heim_get_tid(o) == heim_dict_get_type_id(), "dict-tid");
     o2 = heim_dict_get_value(o, k1);
@@ -240,7 +240,7 @@ test_json(void)
     heim_release(o2);
     heim_release(o);
 
-    o = heim_json_create("{ \"k1\" : 1 }", 0, NULL);
+    o = heim_json_create("{ \"k1\" : 1 }", 10, 0, NULL);
     heim_assert(o != NULL, "array");
     heim_assert(heim_get_tid(o) == heim_dict_get_type_id(), "dict-tid");
     o2 = heim_dict_get_value(o, k1);
@@ -248,28 +248,28 @@ test_json(void)
     heim_release(o2);
     heim_release(o);
 
-    o = heim_json_create("-10", 0, NULL);
+    o = heim_json_create("-10", 10, 0, NULL);
     heim_assert(o != NULL, "number");
     heim_assert(heim_get_tid(o) == heim_number_get_type_id(), "number-tid");
     heim_release(o);
 
-    o = heim_json_create("99", 0, NULL);
+    o = heim_json_create("99", 10, 0, NULL);
     heim_assert(o != NULL, "number");
     heim_assert(heim_get_tid(o) == heim_number_get_type_id(), "number-tid");
     heim_release(o);
 
-    o = heim_json_create(" [ 1 ]", 0, NULL);
+    o = heim_json_create(" [ 1 ]", 10, 0, NULL);
     heim_assert(o != NULL, "array");
     heim_assert(heim_get_tid(o) == heim_array_get_type_id(), "array-tid");
     heim_release(o);
 
-    o = heim_json_create(" [ -1 ]", 0, NULL);
+    o = heim_json_create(" [ -1 ]", 10, 0, NULL);
     heim_assert(o != NULL, "array");
     heim_assert(heim_get_tid(o) == heim_array_get_type_id(), "array-tid");
     heim_release(o);
 
     for (i = 0; i < (sizeof (j) / sizeof (j[0])); i++) {
-	o = heim_json_create(j[i], 0, NULL);
+	o = heim_json_create(j[i], 10, 0, NULL);
 	if (o == NULL) {
 	    fprintf(stderr, "Failed to parse this JSON: %s\n", j[i]);
 	    return 1;
@@ -277,7 +277,7 @@ test_json(void)
 	heim_release(o);
 	/* Simple fuzz test */
 	for (k = strlen(j[i]) - 1; k > 0; k--) {
-	    o = heim_json_create_with_bytes(j[i], k, 0, NULL);
+	    o = heim_json_create_with_bytes(j[i], k, 10, 0, NULL);
 	    if (o != NULL) {
 		fprintf(stderr, "Invalid JSON parsed: %.*s\n", k, j[i]);
 		return EINVAL;
@@ -288,7 +288,7 @@ test_json(void)
 	    s = strndup(j[i], k);
 	    if (s == NULL)
 		return ENOMEM;
-	    o = heim_json_create(s, 0, NULL);
+	    o = heim_json_create(s, 10, 0, NULL);
 	    free(s);
 	    if (o != NULL) {
 		fprintf(stderr, "Invalid JSON parsed: %s\n", j[i]);
@@ -301,7 +301,7 @@ test_json(void)
 	    if (s == NULL)
 		return ENOMEM;
 	    memcpy(s, j[i], k);
-	    o = heim_json_create_with_bytes(s, k, 0, NULL);
+	    o = heim_json_create_with_bytes(s, k, 10, 0, NULL);
 	    free(s);
 	    if (o != NULL) {
 		fprintf(stderr, "Invalid JSON parsed: %s\n", j[i]);
@@ -381,7 +381,7 @@ test_path(void)
 				    "\"k2-3\":true,"
 				    "\"k2-4\":false,"
 				    "\"k2-5\":[1,2,3,{\"k2-5-1\":-1},-2]},"
-			    "\"k3\":[true,false,0,42]}", 0, NULL);
+			    "\"k3\":[true,false,0,42]}", 10, 0, NULL);
     heim_assert(dict != NULL, "dict");
     o = heim_path_get(dict, NULL, k1, NULL);
     if (heim_cmp(o, heim_number_create(1))) return 1;

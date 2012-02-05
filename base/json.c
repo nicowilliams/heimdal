@@ -277,6 +277,7 @@ struct parse_ctx {
     const uint8_t *pstart;
     const uint8_t *pend;
     heim_error_t error;
+    size_t depth;
     heim_json_flags_t flags;
 };
 
@@ -611,9 +612,19 @@ parse_value(struct parse_ctx *ctx)
     if (*ctx->p == '"') {
 	return parse_string(ctx);
     } else if (*ctx->p == '{') {
+	if (ctx->depth-- == 1) {
+	    ctx->error = heim_error_create(EINVAL, "JSON object too deep");
+	    return NULL;
+	}
 	return parse_dict(ctx);
+	ctx->depth++;
     } else if (*ctx->p == '[') {
+	if (ctx->depth-- == 1) {
+	    ctx->error = heim_error_create(EINVAL, "JSON object too deep");
+	    return NULL;
+	}
 	return parse_array(ctx);
+	ctx->depth++;
     } else if (is_number(*ctx->p) || *ctx->p == '-') {
 	return parse_number(ctx);
     }
@@ -644,14 +655,15 @@ parse_value(struct parse_ctx *ctx)
 
 
 heim_object_t
-heim_json_create(const char *string, heim_json_flags_t flags,
+heim_json_create(const char *string, size_t max_depth, heim_json_flags_t flags,
 		 heim_error_t *error)
 {
-    return heim_json_create_with_bytes(string, strlen(string), flags, error);
+    return heim_json_create_with_bytes(string, strlen(string), max_depth, flags,
+				       error);
 }
 
 heim_object_t
-heim_json_create_with_bytes(const void *data, size_t length,
+heim_json_create_with_bytes(const void *data, size_t length, size_t max_depth,
 			    heim_json_flags_t flags, heim_error_t *error)
 {
     struct parse_ctx ctx;
@@ -665,6 +677,7 @@ heim_json_create_with_bytes(const void *data, size_t length,
     ctx.pend = ((uint8_t *)data) + length;
     ctx.error = NULL;
     ctx.flags = flags;
+    ctx.depth = max_depth;
 
     o = parse_value(&ctx);
 

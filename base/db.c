@@ -1278,7 +1278,7 @@ read_json(const char *dbname, heim_object_t *out, heim_error_t *error)
 			   dbname, strerror(errno)));
     }
     str[st.st_size] = '\0';
-    *out = heim_json_create(str, 0, error);
+    *out = heim_json_create(str, 10, 0, error);
     free(str);
     if (*out == NULL)
 	return (error && *error) ? heim_error_get_code(*error) : EINVAL;
