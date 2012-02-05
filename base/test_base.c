@@ -213,13 +213,16 @@ test_json(void)
     heim_assert(heim_get_tid(o) == heim_dict_get_type_id(), "dict-tid");
     heim_release(o);
 
-#ifdef NOTYET
     o = heim_json_create("{ { \"k1\" : \"s1\", \"k2\" : \"s2\" } : \"s3\", "
-			 "{ \"k3\" : \"s4\" } }", 0, NULL);
+			 "{ \"k3\" : \"s4\" } : -1 }", 0, NULL);
     heim_assert(o != NULL, "dict");
     heim_assert(heim_get_tid(o) == heim_dict_get_type_id(), "dict-tid");
     heim_release(o);
-#endif
+
+    o = heim_json_create("{ { \"k1\" : \"s1\", \"k2\" : \"s2\" } : \"s3\", "
+			 "{ \"k3\" : \"s4\" } : -1 }", HEIM_JSON_F_STRICT_DICT,
+			 NULL);
+    heim_assert(o == NULL, "dict");
 
     o = heim_json_create(" { \"k1\" : \"s1\", \"k2\" : \"s2\" }", 0, NULL);
     heim_assert(o != NULL, "dict");
@@ -326,7 +329,17 @@ test_path(void)
     heim_number_t l1 = heim_number_create(42);
     heim_number_t l2 = heim_number_create(813);
     heim_number_t l3 = heim_number_create(1234);
+    heim_string_t k1 = heim_string_create("k1");
+    heim_string_t k2 = heim_string_create("k2");
+    heim_string_t k3 = heim_string_create("k3");
+    heim_string_t k2_1 = heim_string_create("k2-1");
+    heim_string_t k2_2 = heim_string_create("k2-2");
+    heim_string_t k2_3 = heim_string_create("k2-3");
+    heim_string_t k2_4 = heim_string_create("k2-4");
+    heim_string_t k2_5 = heim_string_create("k2-5");
+    heim_string_t k2_5_1 = heim_string_create("k2-5-1");
     heim_object_t o;
+    heim_object_t neg_num;
     int ret;
 
     if (!dict || !p1 || !p2a || !p2b || !p4a || !p4b)
@@ -360,11 +373,62 @@ test_path(void)
 	return 1;
 
     heim_release(dict);
+
+    /* Test that JSON parsing works right by using heim_path_get() */
+    dict = heim_json_create("{\"k1\":1,"
+			    "\"k2\":{\"k2-1\":21,"
+				    "\"k2-2\":null,"
+				    "\"k2-3\":true,"
+				    "\"k2-4\":false,"
+				    "\"k2-5\":[1,2,3,{\"k2-5-1\":-1},-2]},"
+			    "\"k3\":[true,false,0,42]}", 0, NULL);
+    heim_assert(dict != NULL, "dict");
+    o = heim_path_get(dict, NULL, k1, NULL);
+    if (heim_cmp(o, heim_number_create(1))) return 1;
+    o = heim_path_get(dict, NULL, k2, NULL);
+    if (heim_get_tid(o) != heim_dict_get_type_id()) return 1;
+    heim_release(o);
+    o = heim_path_get(dict, NULL, k2, k2_1, NULL);
+    if (heim_cmp(o, heim_number_create(21))) return 1;
+    o = heim_path_get(dict, NULL, k2, k2_2, NULL);
+    if (heim_cmp(o, heim_null_create())) return 1;
+    o = heim_path_get(dict, NULL, k2, k2_3, NULL);
+    if (heim_cmp(o, heim_bool_create(1))) return 1;
+    o = heim_path_get(dict, NULL, k2, k2_4, NULL);
+    if (heim_cmp(o, heim_bool_create(0))) return 1;
+    o = heim_path_get(dict, NULL, k2, k2_5, NULL);
+    if (heim_get_tid(o) != heim_array_get_type_id()) return 1;
+    heim_release(o);
+    o = heim_path_get(dict, NULL, k2, k2_5, heim_number_create(0), NULL);
+    if (heim_cmp(o, heim_number_create(1))) return 1;
+    o = heim_path_get(dict, NULL, k2, k2_5, heim_number_create(1), NULL);
+    if (heim_cmp(o, heim_number_create(2))) return 1;
+    o = heim_path_get(dict, NULL, k2, k2_5, heim_number_create(3), k2_5_1, NULL);
+    if (heim_cmp(o, neg_num = heim_number_create(-1))) return 1;
+    heim_release(o);
+    heim_release(neg_num);
+    o = heim_path_get(dict, NULL, k2, k2_5, heim_number_create(4), NULL);
+    if (heim_cmp(o, neg_num = heim_number_create(-2))) return 1;
+    heim_release(o);
+    heim_release(neg_num);
+    o = heim_path_get(dict, NULL, k3, heim_number_create(3), NULL);
+    if (heim_cmp(o, heim_number_create(42))) return 1;
+
+    heim_release(dict);
     heim_release(p1);
     heim_release(p2a);
     heim_release(p2b);
     heim_release(p4a);
     heim_release(p4b);
+    heim_release(k1);
+    heim_release(k2);
+    heim_release(k3);
+    heim_release(k2_1);
+    heim_release(k2_2);
+    heim_release(k2_3);
+    heim_release(k2_4);
+    heim_release(k2_5);
+    heim_release(k2_5_1);
 
     return 0;
 }
