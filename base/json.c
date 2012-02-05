@@ -62,6 +62,7 @@ struct strbuf {
     size_t len;
     size_t alloced;
     int	enomem;
+    heim_json_flags_t flags;
 };
 
 static int
@@ -71,6 +72,8 @@ static void
 indent(struct twojson *j)
 {
     size_t indent = j->indent;
+    if (j->flags & HEIM_JSON_F_ONE_LINE)
+	return;
     while (indent--)
 	j->out(j->ctx, "\t");
 }
@@ -81,10 +84,12 @@ array2json(heim_object_t value, void *ctx)
     struct twojson *j = ctx;
     if (j->ret)
 	return;
-    if (j->first)
+    if (j->first) {
 	j->first = 0;
-    else
+    } else {
+	j->out(j->ctx, NULL); /* eat previous '\n' if possible */
 	j->out(j->ctx, ",\n");
+    }
     j->ret = base2json(value, j);
 }
 
@@ -94,10 +99,12 @@ dict2json(heim_object_t key, heim_object_t value, void *ctx)
     struct twojson *j = ctx;
     if (j->ret)
 	return;
-    if (j->first)
+    if (j->first) {
 	j->first = 0;
-    else
+    } else {
+	j->out(j->ctx, NULL); /* eat previous '\n' if possible */
 	j->out(j->ctx, ",\n");
+    }
     j->ret = base2json(key, j);
     if (j->ret)
 	return;
@@ -342,7 +349,12 @@ parse_string(struct parse_ctx *ctx)
 	return NULL;
     }
 
-    heim_assert(*ctx->p == '"', "string doesnt' start with \"");
+    if (*ctx->p != '"') {
+	ctx->error = heim_error_create(EINVAL, "Expected a JSON string but "
+				       "found something else at line %lu",
+				       ctx->lineno);
+	return NULL;
+    }
     start = ++ctx->p;
 
     while (ctx->p < ctx->pend) {
@@ -669,6 +681,8 @@ heim_json_create_with_bytes(const void *data, size_t length,
 static void
 show_printf(void *ctx, const char *str)
 {
+    if (str == NULL)
+	return;
     fprintf(ctx, "%s", str);
 }
 
@@ -694,6 +708,17 @@ strbuf_add(void *ctx, const char *str)
     if (strbuf->enomem)
 	return;
 
+    if (str == NULL) {
+	/*
+	 * Eat the last '\n'; this is used when formatting dict pairs
+	 * and array items so that the ',' separating them is never
+	 * preceded by a '\n'.
+	 */
+	if (strbuf->len > 0 && strbuf->str[strbuf->len - 1] == '\n')
+	    strbuf->len--;
+	return;
+    }
+
     len = strlen(str);
     if ((len + 1) > (strbuf->alloced - strbuf->len)) {
 	size_t new_len = strbuf->alloced + (strbuf->alloced >> 2) + len + 1;
@@ -710,6 +735,9 @@ strbuf_add(void *ctx, const char *str)
     /* +1 so we copy the NUL */
     (void) memcpy(strbuf->str + strbuf->len, str, len + 1);
     strbuf->len += len;
+    if (strbuf->str[strbuf->len - 1] == '\n' && 
+	strbuf->flags & HEIM_JSON_F_ONE_LINE)
+	strbuf->len--;
 }
 
 #define STRBUF_INIT_SZ 64
@@ -734,6 +762,7 @@ heim_serialize(heim_object_t obj, heim_json_flags_t flags, heim_error_t *error)
     strbuf.len = 0;
     strbuf.alloced = STRBUF_INIT_SZ;
     strbuf.str[0] = '\0';
+    strbuf.flags = flags;
 
     ret = heim_base2json(obj, &strbuf, flags, strbuf_add);
     if (ret || strbuf.enomem) {
@@ -746,6 +775,10 @@ heim_serialize(heim_object_t obj, heim_json_flags_t flags, heim_error_t *error)
 	}
 	free(strbuf.str);
 	return NULL;
+    }
+    if (flags & HEIM_JSON_F_ONE_LINE) {
+	strbuf.flags &= ~HEIM_JSON_F_ONE_LINE;
+	strbuf_add(&strbuf, "\n");
     }
     str = heim_string_ref_create(strbuf.str, free);
     if (str == NULL) {

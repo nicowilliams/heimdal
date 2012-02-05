@@ -339,14 +339,15 @@ void heim_auto_release(heim_object_t);
  * JSON
  */
 typedef enum heim_json_flags {
-	HEIM_JSON_F_NO_C_NULL = 1, /* checked */
-	HEIM_JSON_F_STRICT_STRINGS = 2, /* checked */
-	HEIM_JSON_F_NO_DATA = 4, /* checked */
-	HEIM_JSON_F_NO_DATA_DICT = 8, /* checked */
-	HEIM_JSON_F_STRICT_DICT = 16, /* checked */
+	HEIM_JSON_F_NO_C_NULL = 1,
+	HEIM_JSON_F_STRICT_STRINGS = 2,
+	HEIM_JSON_F_NO_DATA = 4,
+	HEIM_JSON_F_NO_DATA_DICT = 8,
+	HEIM_JSON_F_STRICT_DICT = 16,
 	HEIM_JSON_F_STRICT = 31,
-	HEIM_JSON_F_CNULL2JSNULL = 32, /* checked */
-	HEIM_JSON_F_TRY_DECODE_DATA = 64 /* checked */
+	HEIM_JSON_F_CNULL2JSNULL = 32,
+	HEIM_JSON_F_TRY_DECODE_DATA = 64,
+	HEIM_JSON_F_ONE_LINE = 128
 } heim_json_flags_t;
 
 heim_object_t heim_json_create(const char *, heim_json_flags_t flags,
