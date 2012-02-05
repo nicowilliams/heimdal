@@ -329,7 +329,7 @@ heim_array_get_length(heim_array_t array)
  * @param idx index of object, 0 based, must be smaller then
  *        heim_array_get_length()
  *
- * @return a retained copy of the object
+ * @return a not-retained copy of the object
  */
 
 heim_object_t
@@ -338,6 +338,24 @@ heim_array_get_value(heim_array_t array, size_t idx)
     if (idx >= array->len)
 	heim_abort("index too large");
     return array->val[idx];
+}
+
+/**
+ * Get value of element at array index
+ *
+ * @param array array copy object from
+ * @param idx index of object, 0 based, must be smaller then
+ *        heim_array_get_length()
+ *
+ * @return a retained copy of the object
+ */
+
+heim_object_t
+heim_array_copy_value(heim_array_t array, size_t idx)
+{
+    if (idx >= array->len)
+	heim_abort("index too large");
+    return heim_retain(array->val[idx]);
 }
 
 /**

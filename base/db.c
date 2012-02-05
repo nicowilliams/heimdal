@@ -113,7 +113,7 @@ typedef struct db_plugin {
     heim_db_plug_begin_f_t      beginf;
     heim_db_plug_commit_f_t     commitf;
     heim_db_plug_rollback_f_t   rollbackf;
-    heim_db_plug_get_value_f_t  getf;
+    heim_db_plug_copy_value_f_t copyf;
     heim_db_plug_set_value_f_t  setf;
     heim_db_plug_del_key_f_t    delf;
     heim_db_plug_iter_f_t       iterf;
@@ -126,6 +126,7 @@ struct heim_db_data {
     heim_string_t       dbname;
     heim_dict_t         options;
     void                *db_data;
+    heim_data_t		to_release;
     heim_error_t        error;
     int                 ret;
     unsigned int        in_transaction:1;
@@ -193,7 +194,7 @@ heim_db_register(const char *dbtype,
     if ((plugin->beginf != NULL && plugin->commitf == NULL) ||
 	(plugin->beginf != NULL && plugin->rollbackf == NULL) ||
 	(plugin->lockf != NULL && plugin->unlockf == NULL) ||
-	plugin->getf == NULL)
+	plugin->copyf == NULL)
 	heim_abort("Invalid DB plugin; make sure methods are paired");
 
     /* Initialize */
@@ -224,7 +225,7 @@ heim_db_register(const char *dbtype,
     plug->beginf = plugin->beginf;
     plug->commitf = plugin->commitf;
     plug->rollbackf = plugin->rollbackf;
-    plug->getf = plugin->getf;
+    plug->copyf = plugin->copyf;
     plug->setf = plugin->setf;
     plug->delf = plugin->delf;
     plug->iterf = plugin->iterf;
@@ -235,7 +236,6 @@ heim_db_register(const char *dbtype,
     if (plug2 == NULL)
 	ret = heim_dict_set_value(db_plugins, s, plug);
     HEIMDAL_MUTEX_unlock(&db_type_mutex);
-    heim_release(plug2);
     heim_release(plug);
     heim_release(s);
 
@@ -250,13 +250,13 @@ db_dealloc(void *arg)
 		"rollback or commit heim_db_t before releasing it");
     if (db->db_data)
 	(void) db->plug->closef(db->db_data, NULL);
+    heim_release(db->to_release);
     heim_release(db->dbtype);
     heim_release(db->dbname);
     heim_release(db->options);
     heim_release(db->set_keys);
     heim_release(db->del_keys);
     heim_release(db->error);
-    heim_release(db->plug);
 }
 
 struct dbtype_iter {
@@ -718,6 +718,15 @@ heim_db_get_type_id(void)
     return HEIM_TID_DB;
 }
 
+heim_data_t
+_heim_db_get_value(heim_db_t db, heim_string_t table, heim_data_t key,
+		   heim_error_t *error)
+{
+    heim_release(db->to_release);
+    db->to_release = heim_db_copy_value(db, table, key, error);
+    return db->to_release;
+}
+
 /**
  * Lookup a key's value in the DB.
  *
@@ -728,13 +737,13 @@ heim_db_get_type_id(void)
  * @param key   Key
  * @param error Output error object
  *
- * @return the value, if there is one for the given key
+ * @return the value (retained), if there is one for the given key
  *
  * @addtogroup heimbase
  */
 heim_data_t
-heim_db_get_value(heim_db_t db, heim_string_t table, heim_data_t key,
-		  heim_error_t *error)
+heim_db_copy_value(heim_db_t db, heim_string_t table, heim_data_t key,
+		   heim_error_t *error)
 {
     heim_object_t v;
     heim_data_t result;
@@ -758,18 +767,18 @@ heim_db_get_value(heim_db_t db, heim_string_t table, heim_data_t key,
 	    return NULL;
 	}
 
-	v = heim_path_get(db->set_keys, error, table, key64, NULL);
+	v = heim_path_copy(db->set_keys, error, table, key64, NULL);
 	if (v != NULL) {
 	    heim_release(key64);
 	    return v;
 	}
-	v = heim_path_get(db->del_keys, error, table, key64, NULL); /* can't be NULL */
+	v = heim_path_copy(db->del_keys, error, table, key64, NULL); /* can't be NULL */
 	heim_release(key64);
 	if (v != NULL)
 	    return NULL;
     }
 
-    result = db->plug->getf(db->db_data, table, key, error);
+    result = db->plug->copyf(db->db_data, table, key, error);
 
     return result;
 }
@@ -1287,7 +1296,6 @@ read_json(const char *dbname, heim_object_t *out, heim_error_t *error)
 
 typedef struct json_db {
     heim_dict_t dict;
-    heim_object_t to_release;
     heim_string_t dbname;
     heim_string_t bkpname;
     int fd;
@@ -1327,9 +1335,6 @@ json_db_open(void *plug, const char *dbtype, const char *dbname,
 	    vc = heim_dict_get_value(options, HSTR("create"));
 	    ve = heim_dict_get_value(options, HSTR("exclusive"));
 	    vt = heim_dict_get_value(options, HSTR("truncate"));
-	    heim_release(vc);
-	    heim_release(ve);
-	    heim_release(vt);
 	    if (vc && vt) {
 		ret = open_file(dbname, 1, ve ? 1 : 0, NULL, error);
 		if (ret)
@@ -1426,7 +1431,6 @@ json_db_close(void *db, heim_error_t *error)
     jsondb->fd = -1;
     heim_release(jsondb->dbname);
     heim_release(jsondb->bkpname);
-    heim_release(jsondb->to_release);
     heim_release(jsondb->dict);
     heim_release(jsondb);
     return 0;
@@ -1539,7 +1543,7 @@ json_db_sync(void *db, heim_error_t *error)
 }
 
 static heim_data_t
-json_db_get_value(void *db, heim_string_t table, heim_data_t key,
+json_db_copy_value(void *db, heim_string_t table, heim_data_t key,
 		  heim_error_t *error)
 {
     json_db_t jsondb = db;
@@ -1588,10 +1592,7 @@ json_db_get_value(void *db, heim_string_t table, heim_data_t key,
 	return NULL;
     }
 
-    heim_release(jsondb->to_release);
-    jsondb->to_release = NULL;
-
-    ret = heim_path_get(jsondb->dict, error, table, key_string, NULL);
+    ret = heim_path_copy(jsondb->dict, error, table, key_string, NULL);
     heim_release(key_string);
     return ret;
 }
@@ -1696,14 +1697,13 @@ json_db_iter(void *db, heim_string_t table, void *iter_data,
     ctx.iter_f = iter_f;
 
     heim_dict_iterate_f(table_dict, &ctx, json_db_iter_f);
-    heim_release(table_dict);
 }
 
 static struct heim_db_type json_dbt = {
     1, json_db_open, NULL, json_db_close,
     json_db_lock, json_db_unlock, json_db_sync,
     NULL, NULL, NULL,
-    json_db_get_value, json_db_set_value,
+    json_db_copy_value, json_db_set_value,
     json_db_del_key, json_db_iter
 };
 

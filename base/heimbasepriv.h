@@ -93,6 +93,10 @@ _heim_type_get_tid(heim_type_t type);
 void
 _heim_make_permanent(heim_object_t ptr);
 
+heim_data_t
+_heim_db_get_value(heim_db_t, heim_string_t, heim_data_t, heim_error_t *);
+
+
 /* tagged tid */
 extern struct heim_type_data _heim_null_object;
 extern struct heim_type_data _heim_bool_object;

@@ -134,6 +134,8 @@ void	heim_array_iterate_reverse(heim_array_t, void (^)(heim_object_t));
 size_t	heim_array_get_length(heim_array_t);
 heim_object_t
 	heim_array_get_value(heim_array_t, size_t);
+heim_object_t
+	heim_array_copy_value(heim_array_t, size_t);
 void	heim_array_set_value(heim_array_t, size_t, heim_object_t);
 void	heim_array_delete_value(heim_array_t, size_t);
 #ifdef __BLOCKS__
@@ -159,6 +161,8 @@ void	heim_dict_iterate(heim_dict_t, void (^)(heim_object_t, heim_object_t));
 
 heim_object_t
 	heim_dict_get_value(heim_dict_t, heim_object_t);
+heim_object_t
+	heim_dict_copy_value(heim_dict_t, heim_object_t);
 void	heim_dict_delete_key(heim_dict_t, heim_object_t);
 
 /*
@@ -203,10 +207,10 @@ heim_error_t heim_error_append(heim_error_t, heim_error_t);
  */
 
 heim_object_t heim_path_get(heim_object_t ptr, heim_error_t *error, ...);
-heim_object_t heim_path_get_copy(heim_object_t ptr, heim_error_t *error, ...);
+heim_object_t heim_path_copy(heim_object_t ptr, heim_error_t *error, ...);
 heim_object_t heim_path_vget(heim_object_t ptr, heim_error_t *error,
 			     va_list ap);
-heim_object_t heim_path_vget_copy(heim_object_t ptr, heim_error_t *error,
+heim_object_t heim_path_vcopy(heim_object_t ptr, heim_error_t *error,
 				  va_list ap);
 
 int heim_path_vcreate(heim_object_t ptr, size_t size, heim_object_t leaf,
@@ -258,9 +262,9 @@ typedef int (*heim_db_plug_sync_f_t)(void *, heim_error_t *);
 typedef int (*heim_db_plug_begin_f_t)(void *, int, heim_error_t *);
 typedef int (*heim_db_plug_commit_f_t)(void *, heim_error_t *);
 typedef int (*heim_db_plug_rollback_f_t)(void *, heim_error_t *);
-typedef heim_data_t (*heim_db_plug_get_value_f_t)(void *, heim_string_t,
-                                                  heim_data_t,
-                                                  heim_error_t *);
+typedef heim_data_t (*heim_db_plug_copy_value_f_t)(void *, heim_string_t,
+                                                   heim_data_t,
+                                                   heim_error_t *);
 typedef int (*heim_db_plug_set_value_f_t)(void *, heim_string_t, heim_data_t,
                                           heim_data_t, heim_error_t *);
 typedef int (*heim_db_plug_del_key_f_t)(void *, heim_string_t, heim_data_t,
@@ -279,7 +283,7 @@ struct heim_db_type {
     heim_db_plug_begin_f_t      beginf;
     heim_db_plug_commit_f_t     commitf;
     heim_db_plug_rollback_f_t   rollbackf;
-    heim_db_plug_get_value_f_t  getf;
+    heim_db_plug_copy_value_f_t copyf;
     heim_db_plug_set_value_f_t  setf;
     heim_db_plug_del_key_f_t    delf;
     heim_db_plug_iter_f_t       iterf;
@@ -303,8 +307,8 @@ heim_tid_t heim_db_get_type_id(void);
 
 int     heim_db_set_value(heim_db_t, heim_string_t, heim_data_t, heim_data_t,
                           heim_error_t *);
-heim_data_t heim_db_get_value(heim_db_t, heim_string_t, heim_data_t,
-                              heim_error_t *);
+heim_data_t heim_db_copy_value(heim_db_t, heim_string_t, heim_data_t,
+                               heim_error_t *);
 int     heim_db_delete_key(heim_db_t, heim_string_t, heim_data_t,
                            heim_error_t *);
 void    heim_db_iterate_f(heim_db_t, heim_string_t, void *,

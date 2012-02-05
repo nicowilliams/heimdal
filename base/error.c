@@ -82,15 +82,6 @@ heim_error_enomem(void)
     return (heim_error_t)heim_number_create(ENOMEM);
 }
 
-int
-heim_error_enomem2(heim_error_t *e)
-{
-    if (e != NULL)
-	*e = heim_error_enomem();
-    return ENOMEM;
-
-}
-
 heim_error_t
 heim_error_create(int error_code, const char *fmt, ...)
 {

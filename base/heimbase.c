@@ -620,7 +620,7 @@ heim_path_vget2(heim_object_t ptr, heim_object_t *parent, heim_object_t *key,
 	if (path_element == NULL) {
 	    *parent = node;
 	    *key = path_element;
-	    return heim_retain(node);
+	    return node;
 	}
 
 	node_type = heim_get_tid(node);
@@ -637,10 +637,8 @@ heim_path_vget2(heim_object_t ptr, heim_object_t *parent, heim_object_t *key,
 
 	if (node_type == HEIM_TID_DICT) {
 	    next_node = heim_dict_get_value(node, path_element);
-	    heim_release(next_node);
 	} else if (node_type == HEIM_TID_DB) {
-	    next_node = heim_db_get_value(node, NULL, path_element, NULL);
-	    heim_release(next_node);
+	    next_node = _heim_db_get_value(node, NULL, path_element, NULL);
 	} else if (node_type == HEIM_TID_ARRAY) {
 	    int idx = -1;
 
@@ -668,7 +666,7 @@ heim_path_vget2(heim_object_t ptr, heim_object_t *parent, heim_object_t *key,
  * @param error error (output)
  * @param ap NULL-terminated va_list of heim_object_ts that form a path
  *
- * @return object if found
+ * @return object (not retained) if found
  *
  * @addtogroup heimbase
  */
@@ -688,13 +686,13 @@ heim_path_vget(heim_object_t ptr, heim_error_t *error, va_list ap)
  * @param error error (output)
  * @param ap NULL-terminated va_list of heim_object_ts that form a path
  *
- * @return object if found
+ * @return retained object if found
  *
  * @addtogroup heimbase
  */
 
 heim_object_t
-heim_path_vget_copy(heim_object_t ptr, heim_error_t *error, va_list ap)
+heim_path_vcopy(heim_object_t ptr, heim_error_t *error, va_list ap)
 {
     heim_object_t p, k;
 
@@ -708,7 +706,7 @@ heim_path_vget_copy(heim_object_t ptr, heim_error_t *error, va_list ap)
  * @param error error (output)
  * @param ... NULL-terminated va_list of heim_object_ts that form a path
  *
- * @return object if found
+ * @return object (not retained) if found
  *
  * @addtogroup heimbase
  */
@@ -736,13 +734,13 @@ heim_path_get(heim_object_t ptr, heim_error_t *error, ...)
  * @param error error (output)
  * @param ... NULL-terminated va_list of heim_object_ts that form a path
  *
- * @return object if found
+ * @return retained object if found
  *
  * @addtogroup heimbase
  */
 
 heim_object_t
-heim_path_get_copy(heim_object_t ptr, heim_error_t *error, ...)
+heim_path_copy(heim_object_t ptr, heim_error_t *error, ...)
 {
     heim_object_t o;
     heim_object_t p, k;
@@ -795,7 +793,6 @@ heim_path_vcreate(heim_object_t ptr, size_t size, heim_object_t leaf,
 
 	if (node_type == HEIM_TID_DICT) {
 	    next_node = heim_dict_get_value(node, path_element);
-	    heim_release(next_node);
 	} else if (node_type == HEIM_TID_ARRAY) {
 	    int idx = -1;
 
@@ -810,7 +807,6 @@ heim_path_vcreate(heim_object_t ptr, size_t size, heim_object_t leaf,
 		return EINVAL;
 	    }
 	    if (idx < heim_array_get_length(node))
-		/* heim_array_get_value() does not heim_retain() the result */
 		next_node = heim_array_get_value(node, idx);
 	    else
 		next_node = NULL;

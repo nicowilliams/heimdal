@@ -143,10 +143,12 @@ base2json(heim_object_t obj, struct twojson *j)
 	first = j->first;
 	j->first = 1;
 	heim_array_iterate_f(obj, j, array2json);
-	j->first = first;
 	j->indent--;
+	if (!j->first)
+	    j->out(j->ctx, "\n");
 	indent(j);
 	j->out(j->ctx, "]\n");
+	j->first = first;
 	break;
 
     case HEIM_TID_DICT:
@@ -156,10 +158,12 @@ base2json(heim_object_t obj, struct twojson *j)
 	first = j->first;
 	j->first = 1;
 	heim_dict_iterate_f(obj, j, dict2json);
-	j->first = first;
 	j->indent--;
+	if (!j->first)
+	    j->out(j->ctx, "\n");
 	indent(j);
 	j->out(j->ctx, "}\n");
+	j->first = first;
 	break;
 
     case HEIM_TID_STRING:
@@ -484,8 +488,11 @@ parse_pair(heim_dict_t dict, struct parse_ctx *ctx)
 	return -1;
 
     if (*ctx->p == '}') {
-	ctx->p++;
-	return 0;
+	/*
+	 * Return 1 but don't consume the '}' so we can count the one
+	 * pair in a one-pair dict
+	 */
+	return 1;
     } else if (*ctx->p == ',') {
 	ctx->p++;
 	return 1;
@@ -517,7 +524,7 @@ parse_dict(struct parse_ctx *ctx)
 	return NULL;
     }
     if (count == 1 && !(ctx->flags & HEIM_JSON_F_NO_DATA_DICT)) {
-	heim_object_t v = heim_dict_get_value(dict, heim_tid_data_uuid_key);
+	heim_object_t v = heim_dict_copy_value(dict, heim_tid_data_uuid_key);
 
 	/*
 	 * Binary data encoded as a dict with a single magic key with
@@ -526,12 +533,11 @@ parse_dict(struct parse_ctx *ctx)
 	if (v != NULL && heim_get_tid(v) == HEIM_TID_STRING) {
 	    void *buf;
 	    size_t len;
-	    heim_data_t data;
 
 	    buf = malloc(strlen(heim_string_get_utf8(v)));
 	    if (buf == NULL) {
-		heim_release(v);
 		heim_release(dict);
+		heim_release(v);
 		ctx->error = heim_error_enomem();
 		return NULL;
 	    }
@@ -542,8 +548,7 @@ parse_dict(struct parse_ctx *ctx)
 		return dict; /* assume aliasing accident */
 	    }
 	    heim_release(dict);
-	    data = heim_data_ref_create(buf, len, free);
-	    return (heim_dict_t)data;
+	    return (heim_dict_t)heim_data_ref_create(buf, len, free);
 	}
     }
     return dict;
@@ -605,6 +610,7 @@ static heim_object_t
 parse_value(struct parse_ctx *ctx)
 {
     size_t len;
+    heim_object_t o;
 
     if (white_spaces(ctx))
 	return NULL;
@@ -616,15 +622,17 @@ parse_value(struct parse_ctx *ctx)
 	    ctx->error = heim_error_create(EINVAL, "JSON object too deep");
 	    return NULL;
 	}
-	return parse_dict(ctx);
+	o = parse_dict(ctx);
 	ctx->depth++;
+	return o;
     } else if (*ctx->p == '[') {
 	if (ctx->depth-- == 1) {
 	    ctx->error = heim_error_create(EINVAL, "JSON object too deep");
 	    return NULL;
 	}
-	return parse_array(ctx);
+	o = parse_array(ctx);
 	ctx->depth++;
+	return o;
     } else if (is_number(*ctx->p) || *ctx->p == '-') {
 	return parse_number(ctx);
     }
@@ -709,7 +717,7 @@ show_printf(void *ctx, const char *str)
 void
 heim_show(heim_object_t obj)
 {
-    heim_base2json(obj, stderr, 0, show_printf);
+    heim_base2json(obj, stderr, HEIM_JSON_F_NO_DATA_DICT, show_printf);
 }
 
 static void
