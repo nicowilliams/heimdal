@@ -414,7 +414,7 @@ an2ln_def_plug_an2ln(void *plug_ctx, krb5_context context,
     k = heim_data_ref_create(unparsed, strlen(unparsed), NULL);
     if (k == NULL)
 	return krb5_enomem(context);
-    v = heim_db_get_value(dbh, NULL, k, &error);
+    v = heim_db_copy_value(dbh, NULL, k, &error);
     heim_release(k);
     if (v == NULL && error != NULL) {
 	krb5_set_error_message(context, heim_error_get_code(error),
