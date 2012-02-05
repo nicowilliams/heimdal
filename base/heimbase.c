@@ -653,6 +653,12 @@ heim_path_vget2(heim_object_t ptr, heim_object_t *parent, heim_object_t *key,
 		return NULL;
 	    }
 	    next_node = heim_array_get_value(node, idx);
+	} else {
+	    if (error)
+		*error = heim_error_create(EINVAL,
+					   "heim_path_get() node in path "
+					   "not a container type");
+	    return NULL;
 	}
 	node = next_node;
     }
