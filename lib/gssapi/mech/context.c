@@ -27,7 +27,8 @@ destroy_context(void *ptr)
     if (mg == NULL)
 	return;
 
-    _gss_release_thr_call_context(&mg->cc); /* but not last_cc */
+    _gss_release_thr_call_context(&mg->last_cc);
+    _gss_release_thr_call_context(&mg->cc);
     gss_release_buffer(&junk, &mg->maj_error);
     gss_release_buffer(&junk, &mg->min_error);
     free(mg);
@@ -73,6 +74,8 @@ _gss_mg_get_error(const gss_OID mech, OM_uint32 type,
 {
     struct mg_thread_ctx *mg;
 
+    /* XXX Convert this to use call contexts. */
+
     mg = _gss_mechglue_thread();
     if (mg == NULL)
 	return GSS_S_BAD_STATUS;
@@ -117,6 +120,8 @@ _gss_mg_error(gssapi_mech_interface m, OM_uint32 maj, OM_uint32 min)
     OM_uint32 major_status, minor_status;
     OM_uint32 message_content;
     struct mg_thread_ctx *mg;
+
+    /* XXX Convert this to use call contexts */
 
     /*
      * Mechs without gss_display_status() does
@@ -164,6 +169,8 @@ gss_mg_collect_error(gss_OID mech, OM_uint32 maj, OM_uint32 min)
     _gss_call_context cc;
     struct _gss_mech_switch_list *mech_list;
     gssapi_mech_interface m;
+
+    /* XXX Convert this to use call contexts */
 
     cc = _gss_get_thr_best_call_context();
     if (!cc)
@@ -254,7 +261,7 @@ _gss_remember_call_context(OM_uint32 *cc_ref, _gss_call_context cc)
     if (mg == NULL)
 	return;
 
-    mg->last_cc = cc;
+    mg->last_cc = _gss_ref_call_context(cc);
     mg->last_cc_min_stat = cc_ref;
 }
 
