@@ -53,7 +53,7 @@ struct _gss_mech_call_context {
 	OM_uint32		*gmcc_minor_status;
 	OM_uint32		gmcc_minor_status_actual;
 	gssapi_mech_interface	gmcc_mech;
-	HEIM_SLIST_ENTRY(_gss_mech_call_context) gmcc_link;
+	HEIM_SLIST_ENTRY(_gss_mech_call_context) gmcc_link; /* XXX Use a dict */
 };
 
 typedef struct _gss_call_context *_gss_call_context;
@@ -63,6 +63,10 @@ struct _gss_call_context {
 	gss_buffer_desc		cc_configuration;
 	_gss_call_context	cc_parent;
 	AO_t			cc_refs;
+	/*
+	 * XXX Should use a dict instead of putting call contexts on a
+	 * singly linked list.
+	 */
 	HEIM_SLIST_HEAD(cc_mech, _gss_mech_call_context) *cc_mech;
 	HEIM_SLIST_ENTRY(_gss_call_context) cc_link;
 	/*
@@ -71,7 +75,7 @@ struct _gss_call_context {
 	 *
 	 * Use:
 	 *
-	 * % nm *.o|grep -v ' [NpRrTtU] '|grep ' [a-zA-Z] '|grep -v * oid_desc
+	 * % nm *.o|grep -v ' [NpRrTtU] '|grep ' [a-zA-Z] '|grep -v oid
 	 *
 	 * (using the GNU nm) to find global variables in the mechglue
 	 * that might need to move here.
@@ -96,5 +100,6 @@ void _gss_remember_call_context(OM_uint32 *cc_ref, _gss_call_context cc);
 _gss_call_context _gss_get_thr_call_context(OM_uint32 *cc);
 _gss_call_context _gss_get_thr_best_call_context(void);
 void _gss_release_thr_call_context(_gss_call_context *cc);
+_gss_call_context _gss_ref_call_context(_gss_call_context cc);
 OM_uint32 _gss_release_call_context(_gss_call_context *ccp);
 

@@ -42,10 +42,11 @@
  *
  * The mechglue will always invoke PGSS-capable mechanism providers with
  * minor_status arguments associated with call contexts, thus for
- * mechanism providers a trivial cast (and possibly pointer arithmetic)
- * will suffice for mapping minor_status<->call context.  But not all
- * GSS applications will be PGSS-aware, so the mapping for the mechglue
- * is more complex; see below.
+ * mechanism providers a trivial cast (and/or possibly pointer
+ * arithmetic) will suffice for mapping minor_status<->call context.
+ * But not all GSS applications will be PGSS-aware, so the mapping for
+ * the mechglue is more complex, effectively necessitating a table
+ * lookup.  See below.
  */
 
 static HEIMDAL_MUTEX call_context_mutex = HEIMDAL_MUTEX_INITIALIZER;
@@ -77,8 +78,20 @@ AO_t AO_fetch_and_sub1_full(volatile AO_t *addr)
 }
 #endif /* AO_HAVE_fetch_and_sub1_full */
 
+/*
+ * This is the number of call contexts for which we'll do a very fast
+ * mapping of OM_uint32 * to call context lookup.  The lookup consists
+ * of checking the call_contexts_fast[] array bounds and if the
+ * OM_uint32 * fits then compute the index into that array.
+ */
 #define CALL_CTX_FAST 8
 static struct _gss_call_context call_contexts_fast[CALL_CTX_FAST];
+
+/*
+ * Call contexts beyond 8 are placed on a linked list.
+ *
+ * XXX Switch to a heim_dict_t instead; that will scale much better!
+ */
 static _gss_call_context_list call_contexts_slow;
 
 /* Allocate a call context */
@@ -459,6 +472,12 @@ gss_duplicate_call_context(OM_uint32 *minor_status,
     return GSS_S_COMPLETE;
 }
 
+GSSAPI_LIB_FUNCTION _gss_call_context GSSAPI_LIB_CALL
+_gss_ref_call_context(_gss_call_context cc)
+{
+    cc->cc_refs++;
+}
+
 GSSAPI_LIB_FUNCTION OM_uint32 GSSAPI_LIB_CALL
 _gss_release_call_context(_gss_call_context *ccp)
 {
@@ -470,10 +489,11 @@ _gss_release_call_context(_gss_call_context *ccp)
     if (cc == NULL)
 	return GSS_S_COMPLETE;
 
+    /* This check is silly; give us a bad handle and results are undefined */
     if (AO_load(&cc->cc_refs) == 0)
 	return GSS_S_BAD_CALL_CONTEXT;
 
-    if (AO_load(&cc->cc_refs) == 1) {
+    if (AO_fetch_and_sub1_full(&cc->cc_refs) == 0) {
 	while (cc->cc_mech) {
 	    p = HEIM_SLIST_FIRST(cc->cc_mech);
 	    if (p->gmcc_mech->gm_release_call_context)
@@ -485,7 +505,6 @@ _gss_release_call_context(_gss_call_context *ccp)
 	    /* XXX Free loaded mechs, if any */
 	    free(cc->cc_configuration.value);
 	}
-	AO_store(&cc->cc_refs, 0);
 	if (cc >= &call_contexts_fast[0] &&
 	    cc <= &call_contexts_fast[CALL_CTX_FAST - 1])
 	    return GSS_S_COMPLETE;
@@ -493,8 +512,6 @@ _gss_release_call_context(_gss_call_context *ccp)
 	HEIM_SLIST_REMOVE(call_contexts_slow, cc, _gss_call_context, cc_link);
 	HEIMDAL_MUTEX_unlock(&call_context_mutex);
 	free(cc);
-    } else {
-	AO_fetch_and_sub1_full(&cc->cc_refs);
     }
 
     return GSS_S_COMPLETE;
