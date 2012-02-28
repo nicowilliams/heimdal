@@ -57,6 +57,7 @@ R7=SOME-REALM7.UK
 port=@port@
 
 kadmin="${kadmin} -l -r $R"
+kadmin5="${kadmin} -l -r $R5"
 kdc="${kdc} --addresses=localhost -P $port"
 
 server=host/datan.test.h5l.se
@@ -149,7 +150,8 @@ ${kadmin} add -p foo --use-defaults foo@${R} || exit 1
 ${kadmin} add -p foo --use-defaults foo@${R2} || exit 1
 ${kadmin} add -p foo --use-defaults foo@${R3} || exit 1
 ${kadmin} add -p foo --use-defaults foo@${R4} || exit 1
-${kadmin} add -p foo --use-defaults foo@${R5} || exit 1
+${kadmin5} add -p foo --use-defaults foo@${R5} || exit 1
+${kadmin5} modify --attributes=-disallow-svr foo || exit 1
 ${kadmin} add -p foo --use-defaults foo@${R6} || exit 1
 ${kadmin} add -p foo --use-defaults foo@${R7} || exit 1
 ${kadmin} add -p bar --use-defaults bar@${R} || exit 1
