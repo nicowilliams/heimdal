@@ -38,6 +38,22 @@ gss_acquire_cred(OM_uint32 *minor_status,
     gss_OID_set *actual_mechs,
     OM_uint32 *time_rec)
 {
+    return gss_acquire_cred_from(minor_status, desired_name, time_req,
+				 desired_mechs, cred_usage, GSS_C_NO_CRED_STORE,
+				 output_cred_handle, actual_mechs, time_rec);
+}
+
+GSSAPI_LIB_FUNCTION OM_uint32 GSSAPI_LIB_CALL
+gss_acquire_cred_from(OM_uint32 *minor_status,
+    const gss_name_t desired_name,
+    OM_uint32 time_req,
+    const gss_OID_set desired_mechs,
+    gss_cred_usage_t cred_usage,
+    gss_const_cred_store_t cred_store,
+    gss_cred_id_t *output_cred_handle,
+    gss_OID_set *actual_mechs,
+    OM_uint32 *time_rec)
+{
 	OM_uint32 major_status;
 	gss_OID_set mechs = desired_mechs;
 	gss_OID_set_desc set;
@@ -122,11 +138,21 @@ gss_acquire_cred(OM_uint32 *minor_status,
 		 * XXX Probably need to do something with actual_mechs.
 		 */
 		set.elements = &mechs->elements[i];
-		major_status = m->gm_acquire_cred(minor_status,
-		    (desired_name != GSS_C_NO_NAME
-			? mn->gmn_name : GSS_C_NO_NAME),
-		    time_req, &set, cred_usage,
-		    &mc->gmc_cred, NULL, &cred_time);
+		if (m->gm_acquire_cred_from) {
+		    major_status = m->gm_acquire_cred_from(minor_status,
+			(desired_name != GSS_C_NO_NAME
+			    ? mn->gmn_name : GSS_C_NO_NAME),
+			time_req, cred_store, &set, cred_usage,
+			&mc->gmc_cred, NULL, &cred_time);
+		} else if (cred_store == GSS_C_NO_CRED_STORE) {
+		    major_status = m->gm_acquire_cred(minor_status,
+			(desired_name != GSS_C_NO_NAME
+			    ? mn->gmn_name : GSS_C_NO_NAME),
+			time_req, &set, cred_usage,
+			&mc->gmc_cred, NULL, &cred_time);
+		} else {
+		    major_status = GSS_S_UNAVAILABLE;
+		}
 		if (major_status) {
 			free(mc);
 			continue;

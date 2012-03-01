@@ -83,6 +83,27 @@ gss_add_cred(OM_uint32 *minor_status,
     OM_uint32 *initiator_time_rec,
     OM_uint32 *acceptor_time_rec)
 {
+    return gss_add_cred_from(minor_status, input_cred_handle, desired_name,
+			     desired_mech, cred_usage, initiator_time_req,
+			     acceptor_time_req, GSS_C_NO_CRED_STORE,
+			     output_cred_handle, actual_mechs,
+			     initiator_time_rec, acceptor_time_rec);
+}
+
+GSSAPI_LIB_FUNCTION OM_uint32 GSSAPI_LIB_CALL
+gss_add_cred_from(OM_uint32 *minor_status,
+    const gss_cred_id_t input_cred_handle,
+    const gss_name_t desired_name,
+    const gss_OID desired_mech,
+    gss_cred_usage_t cred_usage,
+    OM_uint32 initiator_time_req,
+    OM_uint32 acceptor_time_req,
+    gss_const_cred_store_t cred_store,
+    gss_cred_id_t *output_cred_handle,
+    gss_OID_set *actual_mechs,
+    OM_uint32 *initiator_time_rec,
+    OM_uint32 *acceptor_time_rec)
+{
 	OM_uint32 major_status;
 	gssapi_mech_interface m;
 	struct _gss_cred *cred = (struct _gss_cred *) input_cred_handle;
@@ -159,17 +180,34 @@ gss_add_cred(OM_uint32 *minor_status,
 	mc->gmc_mech = m;
 	mc->gmc_mech_oid = &m->gm_mech_oid;
 
-	major_status = m->gm_add_cred(minor_status,
-	    target_mc ? target_mc->gmc_cred : GSS_C_NO_CREDENTIAL,
-	    desired_name ? mn->gmn_name : GSS_C_NO_NAME,
-	    desired_mech,
-	    cred_usage,
-	    initiator_time_req,
-	    acceptor_time_req,
-	    &mc->gmc_cred,
-	    actual_mechs,
-	    initiator_time_rec,
-	    acceptor_time_rec);
+	if (m->gm_add_cred_from) {
+	    major_status = m->gm_add_cred_from(minor_status,
+		target_mc ? target_mc->gmc_cred : GSS_C_NO_CREDENTIAL,
+		desired_name ? mn->gmn_name : GSS_C_NO_NAME,
+		desired_mech,
+		cred_usage,
+		initiator_time_req,
+		acceptor_time_req,
+		GSS_C_NO_CRED_STORE,
+		&mc->gmc_cred,
+		actual_mechs,
+		initiator_time_rec,
+		acceptor_time_rec);
+	} else if (cred_store == NULL) {
+	    major_status = m->gm_add_cred(minor_status,
+		target_mc ? target_mc->gmc_cred : GSS_C_NO_CREDENTIAL,
+		desired_name ? mn->gmn_name : GSS_C_NO_NAME,
+		desired_mech,
+		cred_usage,
+		initiator_time_req,
+		acceptor_time_req,
+		&mc->gmc_cred,
+		actual_mechs,
+		initiator_time_rec,
+		acceptor_time_rec);
+	} else {
+	    major_status = GSS_S_UNAVAILABLE;
+	}
 
 	if (major_status) {
 		_gss_mg_error(m, major_status, *minor_status);

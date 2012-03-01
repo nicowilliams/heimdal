@@ -43,6 +43,23 @@ gss_store_cred(OM_uint32         *minor_status,
 	       gss_OID_set       *elements_stored,
 	       gss_cred_usage_t  *cred_usage_stored)
 {
+    return gss_store_cred_into(minor_status, input_cred_handle, cred_usage,
+			       desired_mech, overwrite_cred, default_cred,
+			       GSS_C_NO_CRED_STORE, elements_stored,
+			       cred_usage_stored);
+}
+
+GSSAPI_LIB_FUNCTION OM_uint32 GSSAPI_LIB_CALL
+gss_store_cred_into(OM_uint32              *minor_status,
+		    gss_cred_id_t          input_cred_handle,
+		    gss_cred_usage_t       cred_usage,
+		    const gss_OID          desired_mech,
+		    OM_uint32              overwrite_cred,
+		    OM_uint32              default_cred,
+		    gss_const_cred_store_t cred_store,
+		    gss_OID_set            *elements_stored,
+		    gss_cred_usage_t       *cred_usage_stored)
+{
     struct _gss_cred *cred = (struct _gss_cred *) input_cred_handle;
     struct _gss_mechanism_cred *mc;
     OM_uint32 maj, junk;
@@ -66,7 +83,8 @@ gss_store_cred(OM_uint32         *minor_status,
     HEIM_SLIST_FOREACH(mc, &cred->gc_mc, gmc_link) {
 	gssapi_mech_interface m = mc->gmc_mech;
 
-	if (m == NULL || m->gm_store_cred == NULL)
+	if (m == NULL ||
+	    (m->gm_store_cred_into == NULL && m->gm_store_cred == NULL))
 	    continue;
 
 	if (desired_mech) {
@@ -75,9 +93,19 @@ gss_store_cred(OM_uint32         *minor_status,
 		continue;
 	}
 
-	maj = (m->gm_store_cred)(minor_status, mc->gmc_cred,
-				 cred_usage, desired_mech, overwrite_cred,
-				 default_cred, NULL, cred_usage_stored);
+	if (m->gm_store_cred_into) {
+	    maj = (m->gm_store_cred_into)(minor_status, mc->gmc_cred,
+					  cred_usage, desired_mech,
+					  overwrite_cred, default_cred,
+					  GSS_C_NO_CRED_STORE, NULL,
+					  cred_usage_stored);
+	} else {
+	    maj = (m->gm_store_cred)(minor_status, mc->gmc_cred,
+				     cred_usage, desired_mech, overwrite_cred,
+				     default_cred, NULL, cred_usage_stored);
+	} else {
+	    maj = GSS_S_UNAVAILABLE;
+	}
 	if (maj != GSS_S_COMPLETE) {
 	    gss_release_oid_set(&junk, elements_stored);
 	    return maj;
