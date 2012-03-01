@@ -81,7 +81,10 @@ static gssapi_mech_interface_desc netlogon_mech = {
     NULL,
     NULL,
     NULL,
-    NULL
+    NULL,
+    NULL,
+    NULL,
+    NULL,
 };
 
 gssapi_mech_interface

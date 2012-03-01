@@ -146,11 +146,11 @@ typedef struct gss_cred_store_element_struct {
     const char *urn;
     const char *value;
 } gss_cred_store_element, *gss_cred_store_element_t;
-typedef const struct gss_cred_store_element *gss_cred_store_element_t;
+typedef const struct gss_cred_store_element *gss_const_cred_store_element_t;
 
 typedef struct gss_cred_store_struct {
     OM_uint32 count;
-    gss_const_cred_store_element *elements;
+    gss_const_cred_store_element_t *elements;
 } gss_cred_store, *gss_cred_store_t;
 typedef const struct gss_cred_store_struct *gss_const_cred_store_t;
 

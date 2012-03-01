@@ -142,7 +142,7 @@ gss_acquire_cred_from(OM_uint32 *minor_status,
 		    major_status = m->gm_acquire_cred_from(minor_status,
 			(desired_name != GSS_C_NO_NAME
 			    ? mn->gmn_name : GSS_C_NO_NAME),
-			time_req, cred_store, &set, cred_usage,
+			time_req, &set, cred_usage, cred_store,
 			&mc->gmc_cred, NULL, &cred_time);
 		} else if (cred_store == GSS_C_NO_CRED_STORE) {
 		    major_status = m->gm_acquire_cred(minor_status,

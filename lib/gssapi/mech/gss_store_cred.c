@@ -99,7 +99,7 @@ gss_store_cred_into(OM_uint32              *minor_status,
 					  overwrite_cred, default_cred,
 					  GSS_C_NO_CRED_STORE, NULL,
 					  cred_usage_stored);
-	} else {
+	} else if (cred_store == NULL) {
 	    maj = (m->gm_store_cred)(minor_status, mc->gmc_cred,
 				     cred_usage, desired_mech, overwrite_cred,
 				     default_cred, NULL, cred_usage_stored);

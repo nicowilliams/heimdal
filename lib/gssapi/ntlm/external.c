@@ -123,6 +123,9 @@ static gssapi_mech_interface_desc ntlm_mech = {
     NULL,
     NULL,
     NULL,
+    NULL,
+    NULL,
+    NULL,
 };
 
 gssapi_mech_interface
