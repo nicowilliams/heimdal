@@ -845,6 +845,86 @@ get_cred_kdc_capath_worker(krb5_context context,
     return ret;
 }
 
+/* Returns true if one realm is hierarhically above the other */
+static int
+are_realms_hier(krb5_context context, krb5_const_realm r1, krb5_const_realm r2, int *r2_is_parent)
+{
+    const char *p, *q;
+    int p_eq_r2, q_eq_r1;
+
+    *r2_is_parent = -1;
+    if (strcmp(r1, r2) == 0)
+	return 0;
+
+    p = strstr(r1, r2);
+    q = strstr(r2, r1);
+    p_eq_r2 = (strcmp(p ? p : "", r2) == 0);
+    q_eq_r1 = (strcmp(q ? q : "", r1) == 0);
+    if (!p_eq_r2 && !q_eq_r1)
+	return 0;
+
+    *r2_is_parent = 1;
+    if ((p_eq_r2 && p[-1] == '.'))
+	return 1;
+    *r2_is_parent = 0;
+    if ((q_eq_r1 && q[-1] == '.'))
+	return 1;
+    return 0;
+}
+
+/*
+ * Iterator of intermediate realms on the way up the hierarchy from the
+ * client to the server realms.  *try_realm must == NULL on the initial
+ * call.  Outputs next realm to try via  try_realm.  Returns
+ * KRB5_NO_TKT_IN_RLM when there are no more realms to try.
+ */
+static krb5_error_code
+walk_hier_up(krb5_context context, krb5_const_realm client_realm,
+	     krb5_const_realm server_realm, krb5_const_realm *try_realm)
+{
+    const char *p;
+
+    p = strchr((*try_realm ? *try_realm : client_realm), '.');
+    *try_realm = NULL;
+    if (p && *(++p) && strlen(p) >= strlen(server_realm)) {
+	*try_realm = p;
+	return 0;
+    }
+    return KRB5_NO_TKT_IN_RLM;
+}
+
+/*
+ * Iterator of intermediate realms on the way down the hierarchy from
+ * the client to the server realms.  *try_realm must == NULL on the
+ * initial call.  Outputs next realm to try via  try_realm.  Returns
+ * KRB5_NO_TKT_IN_RLM when there are no more realms to try.
+ */
+static krb5_error_code
+walk_hier_down(krb5_context context, krb5_const_realm client_realm,
+	       krb5_const_realm server_realm, krb5_const_realm *try_realm)
+{
+    const char *p, *r;
+
+    /*
+     * We walk up from the server to the next to last tried realm (or the
+     * client realm if this is the initial call).
+     */
+    for (p = r = strchr(server_realm, '.'); p && p[0] && p[1]; p = strchr(p, '.')) {
+	p++;
+	if (r && *r == '.')
+	    r++;
+	if (strcmp(p, *try_realm ? *try_realm : client_realm) == 0 &&
+	    strcmp(*try_realm ? *try_realm : ".", r) != 0) {
+	    *try_realm = r;
+	    return 0;
+	}
+	r = p;
+    }
+
+    return KRB5_NO_TKT_IN_RLM;
+}
+
+
 /*
 get_cred(server)
 	creds = cc_get_cred(server)
@@ -872,6 +952,7 @@ get_cred_kdc_capath(krb5_context context,
 {
     krb5_error_code ret;
     krb5_const_realm client_realm, server_realm, try_realm;
+    int srealm_is_above_crealm;
 
     client_realm = krb5_principal_get_realm(context, in_creds->client);
     server_realm = krb5_principal_get_realm(context, in_creds->server);
@@ -885,11 +966,43 @@ get_cred_kdc_capath(krb5_context context,
         try_realm = krb5_config_get_string(context, NULL, "capaths",
                                            client_realm, server_realm, NULL);
 
+
         if (try_realm != NULL && strcmp(try_realm, client_realm)) {
             ret = get_cred_kdc_capath_worker(context, flags, ccache, in_creds,
                                              try_realm, impersonate_principal,
                                              second_ticket, out_creds, ret_tgts);
-        }
+	} else if (are_realms_hier(context, client_realm, server_realm,
+				   &srealm_is_above_crealm)) {
+
+	    /*
+	     * Try hierarchical trust paths.  Note that we only try this
+	     * between the client and server realms.  If there's a trust
+	     * between two realms and hierarchical trusts below those
+	     * two, then cross-realm requests between descendants of
+	     * those two realms will not work with just that one trust
+	     * documented in [capaths].
+	     */
+	    try_realm = NULL;
+
+	    do {
+		if (srealm_is_above_crealm)
+		    ret = walk_hier_up(context, client_realm, server_realm,
+				       &try_realm);
+		else
+		    ret = walk_hier_down(context, client_realm, server_realm,
+				         &try_realm);
+		if (ret)
+		    break;
+		ret = get_cred_kdc_capath_worker(context, flags, ccache,
+						 in_creds, try_realm,
+						 impersonate_principal,
+						 second_ticket,
+						 out_creds, ret_tgts);
+		if (ret == 0 ||
+		    strcmp(try_realm, srealm_is_above_crealm ? server_realm : client_realm) == 0)
+		    break;
+	    } while (1);
+	}
     }
 
     return ret;
