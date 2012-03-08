@@ -53,6 +53,9 @@ R4=TEST4.H5L.SE
 R5=SOME-REALM5.FR
 R6=SOME-REALM6.US
 R7=SOME-REALM7.UK
+HR1=SUB.TEST.H5L.SE
+HR2=B.SUB.TEST.H5L.SE
+HR3=A.B.SUB.TEST.H5L.SE
 
 port=@port@
 
@@ -141,6 +144,24 @@ ${kadmin} \
     --realm-max-renewable-life=1month \
     ${RH} || exit 1
 
+${kadmin} \
+    init \
+    --realm-max-ticket-life=1day \
+    --realm-max-renewable-life=1month \
+    ${HR1} || exit 1
+
+${kadmin} \
+    init \
+    --realm-max-ticket-life=1day \
+    --realm-max-renewable-life=1month \
+    ${HR2} || exit 1
+
+${kadmin} \
+    init \
+    --realm-max-ticket-life=1day \
+    --realm-max-renewable-life=1month \
+    ${HR3} || exit 1
+
 ${kadmin} cpw -r krbtgt/${R}@${R} || exit 1
 ${kadmin} cpw -r krbtgt/${R}@${R} || exit 1
 ${kadmin} cpw -r krbtgt/${R}@${R} || exit 1
@@ -198,10 +219,21 @@ ${kadmin} add -p cross2 --use-defaults krbtgt/${R5}@${R6} || exit 1
 ${kadmin} add -p cross1 --use-defaults krbtgt/${R7}@${R6} || exit 1
 ${kadmin} add -p cross2 --use-defaults krbtgt/${R6}@${R7} || exit 1
 
+# Setup hierarchical trusts (e.g., for test of hierarchical capath assumption)
+${kadmin} add -p cross1 --use-defaults krbtgt/${R}@${HR1} || exit 1
+${kadmin} add -p cross2 --use-defaults krbtgt/${HR1}@${R} || exit 1
+${kadmin} add -p cross1 --use-defaults krbtgt/${HR1}@${HR2} || exit 1
+${kadmin} add -p cross2 --use-defaults krbtgt/${HR2}@${HR1} || exit 1
+${kadmin} add -p cross1 --use-defaults krbtgt/${HR2}@${HR3} || exit 1
+${kadmin} add -p cross2 --use-defaults krbtgt/${HR3}@${HR2} || exit 1
+
 ${kadmin} add -p foo --use-defaults pw-expire@${R} || exit 1
 ${kadmin} modify --pw-expiration-time=+1day  pw-expire@${R} || exit 1
 
 ${kadmin} add -p foo --use-defaults foo@${RH} || exit 1
+
+${kadmin} add -p foo --use-defaults foo@${HR2} || exit 1
+${kadmin} add -p foo --use-defaults foo@${HR3} || exit 1
 
 echo "Check parser"
 ${kadmin} add -p foo --use-defaults -- -p || exit 1
@@ -215,6 +247,9 @@ ${kadmin} check ${R4} || exit 1
 ${kadmin5} check ${R5} || exit 1
 ${kadmin} check ${R6} || exit 1
 ${kadmin} check ${R7} || exit 1
+${kadmin} check ${HR1} || exit 1
+${kadmin} check ${HR2} || exit 1
+${kadmin} check ${HR3} || exit 1
 
 echo "Extracting enctypes"
 ${ktutil} -k ${keytab} list > tempfile || exit 1
@@ -286,6 +321,10 @@ echo "Getting x-realm tickets with capaths for $R -> $R6"
 ${kgetcred} foo@${R6} || { ec=1 ; eval "${testfailed}"; }
 echo "Getting x-realm tickets with capaths for $R -> $R7"
 ${kgetcred} foo@${R7} || { ec=1 ; eval "${testfailed}"; }
+echo "Getting x-realm tickets with capaths for $R -> $HR2"
+${kgetcred} foo@${HR2} || { ec=1 ; eval "${testfailed}"; }
+echo "Getting x-realm tickets with capaths for $R -> $HR3"
+${kgetcred} foo@${HR3} || { ec=1 ; eval "${testfailed}"; }
 ${kdestroy}
 
 echo "Testing capaths logic (reverse order)"
@@ -306,6 +345,26 @@ echo "Getting x-realm tickets with capaths for $R -> $R6"
 ${kgetcred} foo@${R6} || { ec=1 ; eval "${testfailed}"; }
 echo "Getting x-realm tickets with capaths for $R -> $R5"
 ${kgetcred} foo@${R5} || { ec=1 ; eval "${testfailed}"; }
+echo "Getting x-realm tickets with capaths for $R -> $HR3"
+${kgetcred} foo@${HR3} || { ec=1 ; eval "${testfailed}"; }
+echo "Getting x-realm tickets with capaths for $R -> $HR2"
+${kgetcred} foo@${HR2} || { ec=1 ; eval "${testfailed}"; }
+${kdestroy}
+
+echo "Testing implied hierarchical capaths"
+echo "Getting x-realm tickets with capaths for $HR2 -> $R"
+${kinit} --password-file=${objdir}/foopassword \
+    -e ${aesenctype} -e ${aesenctype} \
+    foo@$HR2 || \
+	{ ec=1 ; eval "${testfailed}"; }
+${kgetcred} foo@${R} || { ec=1 ; eval "${testfailed}"; }
+${kdestroy}
+echo "Getting x-realm tickets with capaths for $HR3 -> $R"
+${kinit} --password-file=${objdir}/foopassword \
+    -e ${aesenctype} -e ${aesenctype} \
+    foo@$HR3 || \
+	{ ec=1 ; eval "${testfailed}"; }
+${kgetcred} foo@${R} || { ec=1 ; eval "${testfailed}"; }
 ${kdestroy}
 
 echo "Specific enctype"; > messages.log

@@ -18,6 +18,12 @@
 	SUB.TEST.H5L.SE = {
 		kdc = localhost:@port@
 	}
+	B.SUB.TEST.H5L.SE = {
+		kdc = localhost:@port@
+	}
+	A.B.SUB.TEST.H5L.SE = {
+		kdc = localhost:@port@
+	}
 	TEST2.H5L.SE = {
 		kdc = localhost:@port@
 		kpasswd_server = localhost:@pwport@
