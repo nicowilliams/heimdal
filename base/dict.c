@@ -161,8 +161,8 @@ _search(heim_dict_t dict, heim_object_t ptr)
 /**
  * Search for element in hash table
  *
- * @value dict the dict to search in
- * @value key the key to search for
+ * @param dict the dict to search in
+ * @param key the key to search for
  *
  * @return a not-retained copy of the value for key or NULL if not found
  */
@@ -181,8 +181,8 @@ heim_dict_get_value(heim_dict_t dict, heim_object_t key)
 /**
  * Search for element in hash table
  *
- * @value dict the dict to search in
- * @value key the key to search for
+ * @param dict the dict to search in
+ * @param key the key to search for
  *
  * @return a retained copy of the value for key or NULL if not found
  */
@@ -201,9 +201,9 @@ heim_dict_copy_value(heim_dict_t dict, heim_object_t key)
 /**
  * Add key and value to dict
  *
- * @value dict the dict to add too
- * @value key the key to add
- * @value value the value to add
+ * @param dict the dict to add too
+ * @param key the key to add
+ * @param value the value to add
  *
  * @return 0 if added, errno if not
  */
@@ -243,8 +243,8 @@ heim_dict_set_value(heim_dict_t dict, heim_object_t key, heim_object_t value)
 /**
  * Delete element with key key
  *
- * @value dict the dict to delete from
- * @value key the key to delete
+ * @param dict the dict to delete from
+ * @param key the key to delete
  */
 
 void
@@ -265,11 +265,11 @@ heim_dict_delete_key(heim_dict_t dict, heim_object_t key)
 }
 
 /**
- * Do something for each element
+ * Iterate a callback over elements in a dict
  *
- * @value dict the dict to interate over
- * @value func the function to search for
- * @value arg argument to func
+ * @param [in] dict the dict to interate over
+ * @param [in] arg argument to func
+ * @param [in] func the function to search for
  */
 
 void
@@ -282,12 +282,57 @@ heim_dict_iterate_f(heim_dict_t dict, void *arg, heim_dict_iterator_f_t func)
 	    func(g->key, g->value, arg);
 }
 
+/**
+ * Iterate over elements in a dict without a callback
+ *
+ * @param [in] dict the dict to interate over
+ * @param [inout] statep iteration state variable; must point to a NULL void *
+ * @param [out] key key
+ * @param [out] value value
+ */
+
+int
+heim_dict_iterate_nf(heim_dict_t dict, void **statep, heim_object_t *key,
+		     heim_object_t *value)
+{
+    struct dict_iter_state {
+	struct hashentry **h;
+	struct hashentry *g;
+    } *state;
+
+    if (*statep == NULL) {
+	state = calloc(1, *state);
+	if (state == NULL)
+	    return heim_error_enomem();
+	state->h = dict->tab;
+	state->g = *dict->tab;
+	*statep = state;
+    } else {
+	state = *statep;
+    }
+
+    while (!state->g && state->h >= &dict->tab[dict->size])
+	state->g = *++h;
+
+    if (state->h >= &dict->tab[dict->size]) {
+	free(state);
+	return -1;
+    }
+
+    if (key)
+	*key = state->g->key;
+    if (value)
+	*value = state->g->value;
+    state->g = state->g->value;
+    return 0;
+}
+
 #ifdef __BLOCKS__
 /**
  * Do something for each element
  *
- * @value dict the dict to interate over
- * @value func the function to search for
+ * @param dict the dict to interate over
+ * @param func the function to search for
  */
 
 void
