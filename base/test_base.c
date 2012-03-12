@@ -915,12 +915,18 @@ test_spf(void)
   "           \"e2\" : { \"distance\" : 1 },"
   "           \"b2\" : { \"distance\" : 5 } },"
 "} ", 10, 0, NULL);
+#if 0
+    g = heim_json_create(" { "
+  "\"a\" : { \"b\" : { \"distance\" : 1 } }"
+"} ", 10, 0, NULL);
+#endif
     if (!g) fprintf(stderr, "Failed to parse graph!\n");
     if (!g) return ENOMEM;
 
     ret = heim_shortest_path_first(g, HSTR("a"), NULL, &paths, NULL, NULL);
     if (ret) return ret;
     (void) heim_show(g);
+    (void) heim_show(paths);
     return 0;
 }
 

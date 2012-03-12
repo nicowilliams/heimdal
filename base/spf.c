@@ -35,7 +35,8 @@ heim_shortest_path_first(heim_dict_t g, heim_object_t source,
 			    *     any value when node has been visited
 			    */
     heim_object_t u;       /* node in g and priority queue */
-    heim_object_t k;       /* node in g used in picking next u */
+    heim_dict_t uobj;	   /* g[u] */
+    heim_object_t k;       /* node in g; used in picking next u */
     heim_object_t neighbor;/* neighbor of u */
     int dist;              /* a distance */
     void *iters;           /* dict iterator */
@@ -92,8 +93,10 @@ heim_shortest_path_first(heim_dict_t g, heim_object_t source,
 	if (ret) break;
 
 	/* For each neighbor of u and its distance to u */
+	uobj = heim_dict_get_value(g, u);
+	heim_assert(heim_get_tid(uobj) == dict_type, "g[u] must be a dict");
 	iters = NULL;
-	ret = heim_dict_iterate_nf(u, &iters, &neighbor, &nobj);
+	ret = heim_dict_iterate_nf(uobj, &iters, &neighbor, &nobj);
 	while (ret == 0) {
 	    heim_number_t num;
 	    int alt, btween;
@@ -134,7 +137,7 @@ heim_shortest_path_first(heim_dict_t g, heim_object_t source,
 	    }
 
 	    /* Inner loop bottom: get next neighbor of node u */
-	    ret = heim_dict_iterate_nf(u, &iters, &neighbor, &nobj);
+	    ret = heim_dict_iterate_nf(uobj, &iters, &neighbor, &nobj);
 	    if (ret > 0) goto out;
 	}
 
@@ -155,9 +158,11 @@ heim_shortest_path_first(heim_dict_t g, heim_object_t source,
 		u = k;
 	    }
 
-	    ret = heim_dict_iterate_nf(g, &iters2, &k, NULL);
+	    ret = heim_dict_iterate_nf(g, &iters2, &u, NULL);
 	}
     }
+    if (ret == -1)
+	ret = 0;
 
 out:
     if (!ret)

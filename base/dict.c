@@ -305,13 +305,14 @@ heim_dict_iterate_nf(heim_dict_t dict, void **statep, heim_object_t *key,
 	if (state == NULL)
 	    return ENOMEM;
 	state->h = dict->tab;
-	state->g = *dict->tab;
+	state->g = state->h ? *state->h : NULL;
 	*statep = state;
     } else {
 	state = *statep;
     }
 
-    while (!state->g && state->h >= &dict->tab[dict->size])
+    /* Find next */
+    while (!state->g && state->h < &dict->tab[dict->size])
 	state->g = *(++(state->h));
 
     if (state->h >= &dict->tab[dict->size]) {
@@ -319,11 +320,13 @@ heim_dict_iterate_nf(heim_dict_t dict, void **statep, heim_object_t *key,
 	return -1;
     }
 
+    heim_assert(state->g, "wtf");
+
     if (key)
 	*key = state->g->key;
     if (value)
 	*value = state->g->value;
-    state->g = state->g->value;
+    state->g = state->g->next;
     return 0;
 }
 
