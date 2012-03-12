@@ -1,4 +1,7 @@
 
+#include "baselocl.h"
+#include <limits.h>
+
 /**
  * Compute  Dijstra's algorithm
  *
@@ -48,7 +51,7 @@ heim_shortest_path_first(heim_dict_t g, heim_object_t source,
     previous = heim_dict_create(21);
     visited = heim_dict_create(21);
     if (!distance || !previous || !visited)
-	return heim_error_enomem();
+	return ENOMEM;
 
     /*
      * distance[source node] = 0
@@ -90,7 +93,7 @@ heim_shortest_path_first(heim_dict_t g, heim_object_t source,
 
 	/* For each neighbor of u and its distance to u */
 	iters = NULL;
-	ret = heim_dict_iter_nf(u, &iters, &neighbor, &nobj);
+	ret = heim_dict_iterate_nf(u, &iters, &neighbor, &nobj);
 	while (ret == 0) {
 	    heim_number_t num;
 	    int alt, btween;
@@ -131,14 +134,14 @@ heim_shortest_path_first(heim_dict_t g, heim_object_t source,
 	    }
 
 	    /* Inner loop bottom: get next neighbor of node u */
-	    ret = heim_dict_iter_nf(dict, &iters, &neighbor, &nobj);
+	    ret = heim_dict_iterate_nf(u, &iters, &neighbor, &nobj);
 	    if (ret > 0) goto out;
 	}
 
 	/* Outer loop bottom: pick next u from priority queue */
-	dist = MAXINT;
+	dist = INT_MAX;
 	iters2 = NULL;
-	ret = heim_dict_iter_nf(g, &iters2, &k, NULL);
+	ret = heim_dict_iterate_nf(g, &iters2, &k, NULL);
 	while (ret == 0) {
 	    heim_object_t d;
 	    heim_object_t o;
@@ -148,11 +151,11 @@ heim_shortest_path_first(heim_dict_t g, heim_object_t source,
 
 	    /* if !visited[k] && dist > distance[k] */
 	    if (!o && (!d || dist > heim_number_get_int(d))) {
-		dist = d;
+		dist = heim_number_get_int(d);
 		u = k;
 	    }
 
-	    ret = heim_dict_iter_nf(g, &iters2, &k, NULL);
+	    ret = heim_dict_iterate_nf(g, &iters2, &k, NULL);
 	}
     }
 

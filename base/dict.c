@@ -301,9 +301,9 @@ heim_dict_iterate_nf(heim_dict_t dict, void **statep, heim_object_t *key,
     } *state;
 
     if (*statep == NULL) {
-	state = calloc(1, *state);
+	state = calloc(1, sizeof (*state));
 	if (state == NULL)
-	    return heim_error_enomem();
+	    return ENOMEM;
 	state->h = dict->tab;
 	state->g = *dict->tab;
 	*statep = state;
@@ -312,7 +312,7 @@ heim_dict_iterate_nf(heim_dict_t dict, void **statep, heim_object_t *key,
     }
 
     while (!state->g && state->h >= &dict->tab[dict->size])
-	state->g = *++h;
+	state->g = *(++(state->h));
 
     if (state->h >= &dict->tab[dict->size]) {
 	free(state);

@@ -155,6 +155,9 @@ typedef void (*heim_dict_iterator_f_t)(heim_object_t, heim_object_t, void *);
 
 int	heim_dict_set_value(heim_dict_t, heim_object_t, heim_object_t);
 void	heim_dict_iterate_f(heim_dict_t, void *, heim_dict_iterator_f_t);
+int     heim_dict_iterate_nf(heim_dict_t dict, void **statep,
+			     heim_object_t *key, heim_object_t *value);
+
 #ifdef __BLOCKS__
 void	heim_dict_iterate(heim_dict_t, void (^)(heim_object_t, heim_object_t));
 #endif
@@ -365,8 +368,7 @@ heim_string_t heim_serialize(heim_object_t, heim_json_flags_t flags,
 /* Shortest path first utility */
 
 typedef int (*heim_spf_filterf_t)(void *, heim_dict_t, heim_object_t,
-				  heim_object_t, heim_object_t, heim_object_t,
-				  int *);
+				  heim_object_t, heim_object_t, int *);
 
 int
 heim_shortest_path_first(heim_dict_t g, heim_object_t source,
