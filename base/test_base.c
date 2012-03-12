@@ -888,11 +888,48 @@ test_array()
     return 0;
 }
 
+static
+int
+test_spf(void)
+{
+    heim_dict_t g;
+    heim_dict_t paths;
+    int ret;
+
+    g = heim_json_create(" { "
+  "\"a\" : { \"b\" : { \"distance\" : 1 },"
+  "          \"c\" : { \"distance\" : 1 },"
+  "          \"d\" : { \"distance\" : 1 } },"
+  "\"b\" : { \"b1\" : { \"distance\" : 10 },"
+  "          \"b2\" : { \"distance\" : 1 } },"
+  "\"c\" : { \"c1\" : { \"distance\" : 1 },"
+  "          \"c2\" : { \"distance\" : 1 } },"
+  "\"d\" : { \"d1\" : { \"distance\" : 1 } },"
+  "          \"d2\" : { \"distance\" : 1 },"
+  "\"b2\" : { \"e1\" : { \"distance\" : 1 } },"
+  "\"c1\" : { \"e1\" : { \"distance\" : 1 } },"
+  "\"c2\" : { \"e1\" : { \"distance\" : 2 },"
+  "           \"e2\" : { \"distance\" : 2 },"
+  "           \"b2\" : { \"distance\" : 1 } },"
+  "\"d1\" : { \"e1\" : { \"distance\" : 1 },"
+  "           \"e2\" : { \"distance\" : 1 },"
+  "           \"b2\" : { \"distance\" : 5 } },"
+"} ", 10, 0, NULL);
+    if (!g) fprintf(stderr, "Failed to parse graph!\n");
+    if (!g) return ENOMEM;
+
+    ret = heim_shortest_path_first(g, HSTR("a"), NULL, &paths, NULL, NULL);
+    if (ret) return ret;
+    (void) heim_show(g);
+    return 0;
+}
+
 int
 main(int argc, char **argv)
 {
     int res = 0;
 
+    res |= test_spf();
     res |= test_memory();
     res |= test_dict();
     res |= test_auto_release();
