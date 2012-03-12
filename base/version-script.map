@@ -52,6 +52,7 @@ HEIMDAL_BASE_1.0 {
 		heim_dict_get_type_id;
 		heim_dict_get_value;
 		heim_dict_iterate_f;
+		heim_dict_iterate_nf;
 		heim_dict_set_value;
 		heim_error_append;
 		heim_error_copy_string;
@@ -78,6 +79,7 @@ HEIMDAL_BASE_1.0 {
 		heim_release;
 		heim_retain;
 		heim_serialize;
+		heim_shortest_path_first;
 		heim_show;
 		heim_sorted_text_file_dbtype;
 		heim_string_create;
