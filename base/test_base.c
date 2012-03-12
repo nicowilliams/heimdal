@@ -905,8 +905,8 @@ test_spf(void)
 			 "            \"b2\" : { \"distance\" : 10 } },"
 			 "  \"c\" : { \"c1\" : { \"distance\" : 1 },"
 			 "            \"c2\" : { \"distance\" : 1 } },"
-			 "  \"d\" : { \"d1\" : { \"distance\" : 1 } },"
-			 "            \"d2\" : { \"distance\" : 1 },"
+			 "  \"d\" : { \"d1\" : { \"distance\" : 1 },"
+			 "            \"d2\" : { \"distance\" : 1 } },"
 			 "  \"b2\" : { \"e1\" : { \"distance\" : 1 } },"
 			 "  \"c1\" : { \"e1\" : { \"distance\" : 1 } },"
 			 "  \"c2\" : { \"e1\" : { \"distance\" : 2 },"
@@ -916,13 +916,92 @@ test_spf(void)
 			 "             \"e2\" : { \"distance\" : 1 },"
 			 "             \"b2\" : { \"distance\" : 5 } },"
 			 "} ", 10, 0, NULL);
-    if (!g) fprintf(stderr, "Failed to parse graph!\n");
     if (!g) return ENOMEM;
 
     ret = heim_shortest_path_first(g, HSTR("a"), NULL, &paths, NULL, NULL);
     if (ret) return ret;
     str = heim_serialize(paths, 0, NULL);
-    fprintf(stderr, "%s", heim_string_get_utf8(str));
+    ret = strcmp(heim_string_get_utf8(str),
+"{\n"
+"	\"b\" : \n"
+"		\"a\",\n"
+"	\"c\" : \n"
+"		\"a\",\n"
+"	\"d\" : \n"
+"		\"a\",\n"
+"	\"b1\" : \n"
+"		\"b\",\n"
+"	\"b2\" : \n"
+"		\"c2\",\n"
+"	\"c1\" : \n"
+"		\"c\",\n"
+"	\"d1\" : \n"
+"		\"d\",\n"
+"	\"c2\" : \n"
+"		\"c\",\n"
+"	\"e1\" : \n"
+"		\"c1\",\n"
+"	\"d2\" : \n"
+"		\"d\",\n"
+"	\"e2\" : \n"
+"		\"d1\"\n"
+"}\n"
+);
+    if (ret)
+	return 1;
+
+    g = heim_json_create(" { "
+			 "  \"a\" : { \"b\" : { \"distance\" : 1 },"
+			 "            \"c\" : { \"distance\" : 1 },"
+			 "            \"d\" : { \"distance\" : 1 } },"
+			 "  \"b\" : { \"b1\" : { \"distance\" : 10 },"
+			 "            \"b2\" : { \"distance\" : 1 } },"
+			 "  \"c\" : { \"c1\" : { \"distance\" : 1 },"
+			 "            \"c2\" : { \"distance\" : 1 } },"
+			 "  \"d\" : { \"d1\" : { \"distance\" : 1 },"
+			 "            \"d2\" : { \"distance\" : 1 } },"
+			 "  \"b2\" : { \"e1\" : { \"distance\" : 1 } },"
+			 "  \"c1\" : { \"e1\" : { \"distance\" : 1 } },"
+			 "  \"c2\" : { \"e1\" : { \"distance\" : 2 },"
+			 "             \"e2\" : { \"distance\" : 2 },"
+			 "             \"b2\" : { \"distance\" : 1 } },"
+			 "  \"d1\" : { \"e1\" : { \"distance\" : 1 },"
+			 "             \"e2\" : { \"distance\" : 1 },"
+			 "             \"b2\" : { \"distance\" : 5 } },"
+			 "} ", 10, 0, NULL);
+    if (!g) return ENOMEM;
+
+    ret = heim_shortest_path_first(g, HSTR("a"), NULL, &paths, NULL, NULL);
+    if (ret) return ret;
+    str = heim_serialize(paths, 0, NULL);
+    ret = strcmp(heim_string_get_utf8(str),
+"{\n"
+"	\"b\" : \n"
+"		\"a\",\n"
+"	\"c\" : \n"
+"		\"a\",\n"
+"	\"d\" : \n"
+"		\"a\",\n"
+"	\"b1\" : \n"
+"		\"b\",\n"
+"	\"b2\" : \n"
+"		\"b\",\n"
+"	\"c1\" : \n"
+"		\"c\",\n"
+"	\"d1\" : \n"
+"		\"d\",\n"
+"	\"c2\" : \n"
+"		\"c\",\n"
+"	\"e1\" : \n"
+"		\"c1\",\n"
+"	\"d2\" : \n"
+"		\"d\",\n"
+"	\"e2\" : \n"
+"		\"d1\"\n"
+"}\n"
+);
+    if (ret)
+	return 1;
     return 0;
 }
 
