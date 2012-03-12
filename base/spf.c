@@ -142,7 +142,7 @@ heim_shortest_path_first(heim_dict_t g, heim_object_t source,
 	}
 
 	/* Outer loop bottom: pick next u from priority queue */
-	dist = INT_MAX;
+	dist = INT_MAX >> 8; /* largest num we can represent without boxing */
 	iters2 = NULL;
 	ret = heim_dict_iterate_nf(g, &iters2, &k, NULL);
 	while (ret == 0) {
@@ -151,6 +151,7 @@ heim_shortest_path_first(heim_dict_t g, heim_object_t source,
 
 	    o = heim_dict_get_value(visited, k);
 	    d = heim_dict_get_value(distance, k);
+	    d = d ? d : heim_number_create(INT_MAX >> 8);
 
 	    /* if !visited[k] && dist > distance[k] */
 	    if (!o && (!d || dist > heim_number_get_int(d))) {
@@ -158,8 +159,10 @@ heim_shortest_path_first(heim_dict_t g, heim_object_t source,
 		u = k;
 	    }
 
-	    ret = heim_dict_iterate_nf(g, &iters2, &u, NULL);
+	    ret = heim_dict_iterate_nf(g, &iters2, &k, NULL);
 	}
+	if (ret == -1)
+	    ret = 0;
     }
     if (ret == -1)
 	ret = 0;
