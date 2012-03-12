@@ -77,7 +77,7 @@ heim_shortest_path_first(heim_dict_t g, heim_object_t source,
      * effect; see below.
      */
     u = source;
-    while (ret == 0) {
+    while (ret == 0 && heim_dict_get_value(visited, u) == NULL) {
 	heim_object_t nobj; /* = g[u][neighbor] */
 	heim_object_t ndist;/* = g[u][neighbor] or g[u][neighbor]["distance"] */
 	heim_number_t disto;/* a distance object */
@@ -124,9 +124,10 @@ heim_shortest_path_first(heim_dict_t g, heim_object_t source,
 
 	    /* if alt < distance[neighbor] then "relax" */
 	    num = heim_dict_get_value(distance, neighbor);
-	    if (!num || alt < heim_number_get_int(num)) {
+	    num = num ? num : heim_number_create(INT_MAX >> 8);
+	    if (alt < heim_number_get_int(num)) {
 
-		/* distance[neighbor] = alt; */
+		/* distance[neighbor] = distance[u] + g[u][neighbor]; (alt) */
 		ret = heim_dict_set_value(distance, neighbor,
 					  heim_number_create(alt));
 		if (ret) goto out;
@@ -163,6 +164,7 @@ heim_shortest_path_first(heim_dict_t g, heim_object_t source,
 	}
 	if (ret == -1)
 	    ret = 0;
+	if (ret) break;
     }
     if (ret == -1)
 	ret = 0;

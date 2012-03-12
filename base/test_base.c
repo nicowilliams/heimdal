@@ -894,39 +894,35 @@ test_spf(void)
 {
     heim_dict_t g;
     heim_dict_t paths;
+    heim_string_t str;
     int ret;
 
     g = heim_json_create(" { "
-  "\"a\" : { \"b\" : { \"distance\" : 1 },"
-  "          \"c\" : { \"distance\" : 1 },"
-  "          \"d\" : { \"distance\" : 1 } },"
-  "\"b\" : { \"b1\" : { \"distance\" : 10 },"
-  "          \"b2\" : { \"distance\" : 1 } },"
-  "\"c\" : { \"c1\" : { \"distance\" : 1 },"
-  "          \"c2\" : { \"distance\" : 1 } },"
-  "\"d\" : { \"d1\" : { \"distance\" : 1 } },"
-  "          \"d2\" : { \"distance\" : 1 },"
-  "\"b2\" : { \"e1\" : { \"distance\" : 1 } },"
-  "\"c1\" : { \"e1\" : { \"distance\" : 1 } },"
-  "\"c2\" : { \"e1\" : { \"distance\" : 2 },"
-  "           \"e2\" : { \"distance\" : 2 },"
-  "           \"b2\" : { \"distance\" : 1 } },"
-  "\"d1\" : { \"e1\" : { \"distance\" : 1 },"
-  "           \"e2\" : { \"distance\" : 1 },"
-  "           \"b2\" : { \"distance\" : 5 } },"
-"} ", 10, 0, NULL);
-#if 0
-    g = heim_json_create(" { "
-  "\"a\" : { \"b\" : { \"distance\" : 1 } }"
-"} ", 10, 0, NULL);
-#endif
+			 "  \"a\" : { \"b\" : { \"distance\" : 1 },"
+			 "            \"c\" : { \"distance\" : 1 },"
+			 "            \"d\" : { \"distance\" : 1 } },"
+			 "  \"b\" : { \"b1\" : { \"distance\" : 10 },"
+			 "            \"b2\" : { \"distance\" : 10 } },"
+			 "  \"c\" : { \"c1\" : { \"distance\" : 1 },"
+			 "            \"c2\" : { \"distance\" : 1 } },"
+			 "  \"d\" : { \"d1\" : { \"distance\" : 1 } },"
+			 "            \"d2\" : { \"distance\" : 1 },"
+			 "  \"b2\" : { \"e1\" : { \"distance\" : 1 } },"
+			 "  \"c1\" : { \"e1\" : { \"distance\" : 1 } },"
+			 "  \"c2\" : { \"e1\" : { \"distance\" : 2 },"
+			 "             \"e2\" : { \"distance\" : 2 },"
+			 "             \"b2\" : { \"distance\" : 1 } },"
+			 "  \"d1\" : { \"e1\" : { \"distance\" : 1 },"
+			 "             \"e2\" : { \"distance\" : 1 },"
+			 "             \"b2\" : { \"distance\" : 5 } },"
+			 "} ", 10, 0, NULL);
     if (!g) fprintf(stderr, "Failed to parse graph!\n");
     if (!g) return ENOMEM;
 
     ret = heim_shortest_path_first(g, HSTR("a"), NULL, &paths, NULL, NULL);
     if (ret) return ret;
-    (void) heim_show(g);
-    (void) heim_show(paths);
+    str = heim_serialize(paths, 0, NULL);
+    fprintf(stderr, "%s", heim_string_get_utf8(str));
     return 0;
 }
 
