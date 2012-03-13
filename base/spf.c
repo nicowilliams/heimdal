@@ -2,6 +2,71 @@
 #include "baselocl.h"
 #include <limits.h>
 
+/*
+ * Convert results of SPF into something nice and usable:
+ * { <target> : { next_hop : <hop>,
+ *                transit_path : [ <first_hop> .. <last_hop> ]
+ *                distance : <distance> }
+ *   ...
+ * }
+ */
+static
+int
+spf_result(heim_dict_t g, heim_object_t source, heim_dict_t previous,
+	   heim_dict_t distance, heim_dict_t *result)
+{
+    heim_dict_t dict;
+    heim_object_t dist;
+    heim_array_t path;
+    heim_object_t node, hop;
+    void *iters = NULL;
+    int ret;
+
+    dict = heim_dict_create(29);
+    if (!dict)
+	return ENOMEM;
+
+    ret = heim_dict_iterate_nf(g, &iters, &node, NULL);
+    while (ret == 0) {
+	if (node == source)
+	    continue;
+	hop = node;
+	dist = heim_dict_get_value(distance, node);
+	ret = heim_path_create(dict, 7, dist, NULL, node,
+			       HSTR("distance"), NULL);
+	if (ret) goto out;
+	ret = heim_path_create(dict, 7, node, NULL, node,
+			       HSTR("next_hop"), NULL);
+	if (ret) goto out;
+	path = heim_array_create();
+	do {
+	    hop = heim_dict_get_value(previous, hop);
+	    if (!hop || hop == source)
+		break;
+	    ret = heim_array_insert_value(path, 0, hop);
+	    if (ret) goto out;
+	    ret = heim_path_create(dict, 7, hop, NULL, node,
+				   HSTR("next_hop"), NULL);
+	    if (ret) goto out;
+	} while (hop);
+	ret = heim_path_create(dict, 7, path, NULL, node, HSTR("transit_path"), NULL);
+	heim_release(path);
+	path = NULL;
+	if (ret) goto out;
+	ret = heim_dict_iterate_nf(g, &iters, &node, NULL);
+    }
+
+    if (ret == -1)
+	ret = 0;
+
+out:
+    if (ret)
+	heim_release(dict);
+    else
+	*result = dict;
+    return 0;
+}
+
 /**
  * Compute  Dijstra's algorithm
  *
@@ -170,8 +235,20 @@ heim_shortest_path_first(heim_dict_t g, heim_object_t source,
 	ret = 0;
 
 out:
+#if 0
+    {
+	if (!ret) {
+	    heim_dict_t res = NULL;
+
+	    spf_result(g, source, previous, distance, &res);
+	    if (res)
+		heim_show(res);
+	    heim_release(res);
+	}
+    }
+#endif
     if (!ret)
-	*paths = heim_retain(previous);
+	ret = spf_result(g, source, previous, distance, paths);
     /*
      * distance[] could be useful to output, but can trivially be
      * recomputed from previous[], which we do output, and g
