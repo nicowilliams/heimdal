@@ -367,8 +367,9 @@ heim_string_t heim_serialize(heim_object_t, heim_json_flags_t flags,
 
 /* Shortest path first utility */
 
-typedef int (*heim_spf_filterf_t)(void *, heim_dict_t, heim_object_t,
-				  heim_object_t, heim_object_t, int *);
+typedef int (*heim_spf_filterf_t)(void *, heim_dict_t, heim_dict_t,
+				  heim_object_t, heim_object_t, heim_object_t,
+				  heim_object_t, int *);
 
 int
 heim_shortest_path_first(heim_dict_t g, heim_object_t source,

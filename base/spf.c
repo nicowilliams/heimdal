@@ -26,14 +26,21 @@ spf_result(heim_dict_t g, heim_object_t source, heim_dict_t previous,
     if (!dict)
 	return ENOMEM;
 
+    /* For every node in g */
     ret = heim_dict_iterate_nf(g, &iters, &node, NULL);
     while (ret == 0) {
 	if (node == source)
-	    continue;
+	    continue; /* not including the source */
 	hop = node;
 	dist = heim_dict_get_value(distance, node);
 	ret = heim_path_create(dict, 7, dist, NULL, node,
 			       HSTR("distance"), NULL);
+
+	/*
+	 * We're going to traverse previous[] until we find the first
+	 * next hop on the way to node, and we'll record the hops in
+	 * path.
+	 */
 	if (ret) goto out;
 	ret = heim_path_create(dict, 7, node, NULL, node,
 			       HSTR("next_hop"), NULL);
@@ -45,6 +52,7 @@ spf_result(heim_dict_t g, heim_object_t source, heim_dict_t previous,
 		break;
 	    ret = heim_array_insert_value(path, 0, hop);
 	    if (ret) goto out;
+	    /* FIXME: Repeating this over and over is probably expensive */
 	    ret = heim_path_create(dict, 7, hop, NULL, node,
 				   HSTR("next_hop"), NULL);
 	    if (ret) goto out;
@@ -53,6 +61,7 @@ spf_result(heim_dict_t g, heim_object_t source, heim_dict_t previous,
 	heim_release(path);
 	path = NULL;
 	if (ret) goto out;
+
 	ret = heim_dict_iterate_nf(g, &iters, &node, NULL);
     }
 
@@ -73,7 +82,18 @@ out:
  * @param [in] g Graph; g[node][neighbor] = distance or {"distance": distance}
  * @param [in] source Starting point in g
  * @param [in] target where you want to go (optional; NULL if not specified)
- * @param [out] paths A dict keyed by nodes in g, where the value is the next node in g towards the source node
+ * @param [out] paths A dict keyed by nodes in g and whose values are dicts that contain next hop, distance, and transit path
+ * @param [int] filter A function to recompute the distance to a node and/or forbid a given path to a node
+ * @param [int] filter_arg An opaque argument to the filter function
+ *
+ * The filter function receives all of the following arguments: the
+ * graph, a dict keyed by nodes in the graph with values that are the
+ * next hop towards the source, the source, a node in g that is being
+ * considered for last hop towards the next argument (also a node in the
+ * graph), and, finally, an input/output parameter for the current and
+ * new distance to be considered for this hop.  The filter function
+ * returns 0 on success, -1 to forbid a path, and a system error number
+ * in case of error.
  *
  * @returns 0 on success, or a system error number.
  */
@@ -147,6 +167,11 @@ heim_shortest_path_first(heim_dict_t g, heim_object_t source,
 	heim_object_t ndist;/* = g[u][neighbor] or g[u][neighbor]["distance"] */
 	heim_number_t disto;/* a distance object */
 
+	/*
+	 * These two breaks are the normal terminating conditions for
+	 * this loop.  All other breaks are either error conditions or
+	 * should not happen.
+	 */
 	if (u == target) break;
 
 	/* if distance[u] == infinity break; */
@@ -168,8 +193,10 @@ heim_shortest_path_first(heim_dict_t g, heim_object_t source,
 
 	    if (heim_get_tid(nobj) == dict_type)
 		ndist = heim_dict_get_value(nobj, HSTR("distance"));
-	    else
+	    else if (heim_get_tid(nobj) == num_type)
 		ndist = nobj;
+	    else
+		ndist = heim_number_create(5); /* pick a default */
 
 	    /* ndist = g[u][neighbor]; must be a positive number */
 	    heim_assert(heim_get_tid(ndist) == num_type,
@@ -178,8 +205,10 @@ heim_shortest_path_first(heim_dict_t g, heim_object_t source,
 	    heim_assert(btween > 0, "Distance values must be positive");
 
 	    if (filter) {
-		ret = filter(filter_arg, g, u, neighbor, nobj, &btween);
-		if (ret) goto out;
+		ret = filter(filter_arg, g, previous, source, u, neighbor,
+			     nobj, &btween);
+		if (ret > 0) goto out;
+		if (ret < 0) continue; /* Not reachable this way */
 	    }
 
 	    /* alt = distance[u] + g[u][neighbor]; */
