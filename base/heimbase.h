@@ -209,11 +209,19 @@ heim_error_t heim_error_append(heim_error_t, heim_error_t);
  */
 
 heim_object_t heim_path_get(heim_object_t ptr, heim_error_t *error, ...);
+heim_object_t heim_path_get_by_string(heim_object_t ptr, heim_error_t *error,
+				      ...);
 heim_object_t heim_path_copy(heim_object_t ptr, heim_error_t *error, ...);
+heim_object_t heim_path_copy_by_string(heim_object_t ptr, heim_error_t *error,
+				       ...);
 heim_object_t heim_path_vget(heim_object_t ptr, heim_error_t *error,
 			     va_list ap);
+heim_object_t heim_path_vget_by_string(heim_object_t ptr, heim_error_t *error,
+				       va_list ap);
 heim_object_t heim_path_vcopy(heim_object_t ptr, heim_error_t *error,
-				  va_list ap);
+			      va_list ap);
+heim_object_t heim_path_vcopy_by_string(heim_object_t ptr, heim_error_t *error,
+				        va_list ap);
 
 int heim_path_vcreate(heim_object_t ptr, size_t size, heim_object_t leaf,
 		      heim_error_t *error, va_list ap);

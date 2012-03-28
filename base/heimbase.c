@@ -604,22 +604,45 @@ heim_auto_release_drain(heim_auto_release_t autorel)
 
 static heim_object_t
 heim_path_vget2(heim_object_t ptr, heim_object_t *parent, heim_object_t *key,
-		heim_error_t *error, va_list ap)
+		heim_error_t *error, int args_are_objs, va_list ap)
 {
-    heim_object_t path_element;
+    heim_object_t path_element = NULL;
+    heim_object_t prev_path_element;
     heim_object_t node, next_node;
     heim_tid_t node_type;
+    const char *str;
 
+    if (error)
+	*error = NULL;
     *parent = NULL;
     *key = NULL;
     if (ptr == NULL)
 	return NULL;
 
     for (node = ptr; node != NULL; ) {
-	path_element = va_arg(ap, heim_object_t);
+	heim_release(prev_path_element);
+	prev_path_element = path_element;
+
+	/* Get next argument */
+	if (args_are_objs) {
+	    path_element = va_arg(ap, heim_object_t);
+	} else {
+	    path_element = NULL;
+	    str = va_arg(ap, const char *);
+	    if (str != NULL) {
+		path_element = heim_string_create(str);
+		if (path_element == NULL) {
+		    if (error)
+			*error = heim_error_enomem();
+		    heim_release(prev_path_element);
+		    return NULL;
+		}
+	    }
+	}
+
 	if (path_element == NULL) {
 	    *parent = node;
-	    *key = path_element;
+	    *key = prev_path_element;
 	    return node;
 	}
 
@@ -640,17 +663,22 @@ heim_path_vget2(heim_object_t ptr, heim_object_t *parent, heim_object_t *key,
 	} else if (node_type == HEIM_TID_DB) {
 	    next_node = _heim_db_get_value(node, NULL, path_element, NULL);
 	} else if (node_type == HEIM_TID_ARRAY) {
-	    int idx = -1;
+	    size_t idx;
 
-	    if (heim_get_tid(path_element) == HEIM_TID_NUMBER)
+	    if (heim_get_tid(path_element) == HEIM_TID_NUMBER) {
 		idx = heim_number_get_int(path_element);
-	    if (idx < 0) {
-		if (error)
-		    *error = heim_error_create(EINVAL,
-					       "heim_path_get() path elements "
-					       "for array nodes must be "
-					       "numeric and positive");
-		return NULL;
+	    } else if (heim_get_tid(path_element) == HEIM_TID_STRING) {
+		char *endstr = NULL;
+
+		errno = 0;
+		idx = strtoull(heim_string_get_utf8(path_element), &endstr, 10);
+		if (errno) {
+		    heim_release(prev_path_element);
+		    goto must_be_numeric;
+		}
+	    } else {
+		heim_release(prev_path_element);
+		goto must_be_numeric;
 	    }
 	    next_node = heim_array_get_value(node, idx);
 	} else {
@@ -658,10 +686,21 @@ heim_path_vget2(heim_object_t ptr, heim_object_t *parent, heim_object_t *key,
 		*error = heim_error_create(EINVAL,
 					   "heim_path_get() node in path "
 					   "not a container type");
+	    heim_release(prev_path_element);
 	    return NULL;
 	}
 	node = next_node;
     }
+    heim_release(prev_path_element);
+    return NULL;
+
+must_be_numeric:
+    if (error)
+	*error = heim_error_create(EINVAL,
+				   "heim_path_get() path elements "
+				   "for array nodes must be "
+				   "numeric and positive");
+
     return NULL;
 }
 
@@ -682,7 +721,27 @@ heim_path_vget(heim_object_t ptr, heim_error_t *error, va_list ap)
 {
     heim_object_t p, k;
 
-    return heim_path_vget2(ptr, &p, &k, error, ap);
+    return heim_path_vget2(ptr, &p, &k, error, 1, ap);
+}
+
+/**
+ * Get a node in a heim_object tree by path
+ *
+ * @param ptr tree
+ * @param error error (output)
+ * @param ap NULL-terminated va_list of C strings that form a path
+ *
+ * @return object (not retained) if found
+ *
+ * @addtogroup heimbase
+ */
+
+heim_object_t
+heim_path_vget_by_string(heim_object_t ptr, heim_error_t *error, va_list ap)
+{
+    heim_object_t p, k;
+
+    return heim_path_vget2(ptr, &p, &k, error, 0, ap);
 }
 
 /**
@@ -702,7 +761,27 @@ heim_path_vcopy(heim_object_t ptr, heim_error_t *error, va_list ap)
 {
     heim_object_t p, k;
 
-    return heim_retain(heim_path_vget2(ptr, &p, &k, error, ap));
+    return heim_retain(heim_path_vget2(ptr, &p, &k, error, 1, ap));
+}
+
+/**
+ * Get a node in a tree by path, with retained reference
+ *
+ * @param ptr tree
+ * @param error error (output)
+ * @param ap NULL-terminated va_list of C strings that form a path
+ *
+ * @return retained object if found
+ *
+ * @addtogroup heimbase
+ */
+
+heim_object_t
+heim_path_vcopy_by_string(heim_object_t ptr, heim_error_t *error, va_list ap)
+{
+    heim_object_t p, k;
+
+    return heim_retain(heim_path_vget2(ptr, &p, &k, error, 0, ap));
 }
 
 /**
@@ -728,7 +807,35 @@ heim_path_get(heim_object_t ptr, heim_error_t *error, ...)
 	return NULL;
 
     va_start(ap, error);
-    o = heim_path_vget2(ptr, &p, &k, error, ap);
+    o = heim_path_vget2(ptr, &p, &k, error, 1, ap);
+    va_end(ap);
+    return o;
+}
+
+/**
+ * Get a node in a tree by path
+ *
+ * @param ptr tree
+ * @param error error (output)
+ * @param ... NULL-terminated va_list of C strings that form a path
+ *
+ * @return object (not retained) if found
+ *
+ * @addtogroup heimbase
+ */
+
+heim_object_t
+heim_path_get_by_string(heim_object_t ptr, heim_error_t *error, ...)
+{
+    heim_object_t o;
+    heim_object_t p, k;
+    va_list ap;
+
+    if (ptr == NULL)
+	return NULL;
+
+    va_start(ap, error);
+    o = heim_path_vget2(ptr, &p, &k, error, 0, ap);
     va_end(ap);
     return o;
 }
@@ -756,7 +863,35 @@ heim_path_copy(heim_object_t ptr, heim_error_t *error, ...)
 	return NULL;
 
     va_start(ap, error);
-    o = heim_retain(heim_path_vget2(ptr, &p, &k, error, ap));
+    o = heim_retain(heim_path_vget2(ptr, &p, &k, error, 1, ap));
+    va_end(ap);
+    return o;
+}
+
+/**
+ * Get a node in a tree by path, with retained reference
+ *
+ * @param ptr tree
+ * @param error error (output)
+ * @param ... NULL-terminated va_list of C strings that form a path
+ *
+ * @return retained object if found
+ *
+ * @addtogroup heimbase
+ */
+
+heim_object_t
+heim_path_copy_by_string(heim_object_t ptr, heim_error_t *error, ...)
+{
+    heim_object_t o;
+    heim_object_t p, k;
+    va_list ap;
+
+    if (ptr == NULL)
+	return NULL;
+
+    va_start(ap, error);
+    o = heim_retain(heim_path_vget2(ptr, &p, &k, error, 0, ap));
     va_end(ap);
     return o;
 }
@@ -928,7 +1063,7 @@ heim_path_vdelete(heim_object_t ptr, heim_error_t *error, va_list ap)
 {
     heim_object_t parent, key, child;
 
-    child = heim_path_vget2(ptr, &parent, &key, error, ap);
+    child = heim_path_vget2(ptr, &parent, &key, error, 0, ap);
     if (child != NULL) {
 	if (heim_get_tid(parent) == HEIM_TID_DICT)
 	    heim_dict_delete_key(parent, key);
