@@ -369,10 +369,10 @@ parse_plist_config(krb5_context context, const char *path, krb5_config_section *
  */
 
 static krb5_error_code
-krb5_config_parse_debug (struct fileptr *f,
-			 heim_object_t *res,
-			 unsigned *lineno,
-			 const char **err_message)
+krb5_config_parse_debug(struct fileptr *f,
+			heim_object_t *res,
+			unsigned *lineno,
+			const char **err_message)
 {
     heim_object_t s = NULL;
     heim_object_t b = NULL;
@@ -528,18 +528,18 @@ krb5_config_parse_file_multi (krb5_context context,
 	f.s = NULL;
 	if(f.f == NULL) {
 	    ret = errno;
-	    krb5_set_error_message (context, ret, "open %s: %s",
-				    fname, strerror(ret));
+	    krb5_set_error_message(context, ret, "open %s: %s",
+				   fname, strerror(ret));
 	    if (newfname)
 		free(newfname);
 	    return ret;
 	}
 
-	ret = krb5_config_parse_debug (&f, resobj, &lineno, &str);
+	ret = krb5_config_parse_debug(&f, resobj, &lineno, &str);
 	fclose(f.f);
 	if (ret) {
-	    krb5_set_error_message (context, ret, "%s:%u: %s",
-				    fname, lineno, str);
+	    krb5_set_error_message(context, ret, "%s:%u: %s",
+				   fname, lineno, str);
 	    if (newfname)
 		free(newfname);
 	    return ret;
@@ -596,14 +596,14 @@ _krb5_config_get_next (krb5_context context,
 		       const krb5_config_section *c,
 		       const krb5_config_binding **pointer,
 		       int type,
-		       ...)
+		       ...);
 
 KRB5_LIB_FUNCTION const void * KRB5_LIB_CALL
 _krb5_config_vget_next (krb5_context context,
 			const krb5_config_section *c,
 			const krb5_config_binding **pointer,
 			int type,
-			va_list args)
+			va_list args);
 
 KRB5_LIB_FUNCTION const void * KRB5_LIB_CALL
 _krb5_config_get (krb5_context context,
@@ -644,17 +644,23 @@ _krb5_config_vget (krb5_context context,
  * @ingroup krb5_support
  */
 
-KRB5_LIB_FUNCTION const heim_array_t KRB5_LIB_CALL
+KRB5_LIB_FUNCTION heim_const_array_t KRB5_LIB_CALL
 krb5_config_get_list (krb5_context context,
 		      const krb5_config_section *c,
 		      ...)
 {
-    const krb5_config_binding *o;
+    heim_const_object_t o;
+    heim_object_t o2; /* XXX remove after we change heimbase.h to use heim_const_* more */
     va_list args;
 
     va_start(args, c);
     o = krb5_config_vget_list(context, c, args);
     va_end(args);
+
+    o2 = (heim_object_t)o;
+
+    if (heim_get_tid(o2) != heim_array_get_type_id())
+	return NULL;
 
     return o;
 }
@@ -671,17 +677,19 @@ krb5_config_get_list (krb5_context context,
  * @ingroup krb5_support
  */
 
-KRB5_LIB_FUNCTION const krb5_config_binding * KRB5_LIB_CALL
+KRB5_LIB_FUNCTION heim_const_array_t KRB5_LIB_CALL
 krb5_config_vget_list (krb5_context context,
 		       const krb5_config_section *c,
 		       va_list args)
 {
-    const krb5_config_binding *o;
+    krb5_config_binding *o;
+    krb5_config_section *c2; /* XXX remove after we change heimbase.h to use heim_const_* more */
     heim_error_t herr;
     heim_array_t a;
     int ret;
 
-    o = heim_path_vget_by_string(c, &herr, args);
+    c2 = (krb5_config_section *)c;
+    o = heim_path_vget_by_string(c2, &herr, args);
 
     if (!o && herr) {
 	heim_string_t s = heim_error_copy_string(herr);
@@ -694,7 +702,7 @@ krb5_config_vget_list (krb5_context context,
 	heim_release(s);
     }
 
-    if (heim_get_tid(o) == HEIM_TID_ARRAY)
+    if (heim_get_tid(o) == heim_array_get_type_id())
 	return heim_retain(o);
 
     a = heim_array_create();
@@ -754,11 +762,14 @@ krb5_config_vget_string (krb5_context context,
 			 const krb5_config_section *c,
 			 va_list args)
 {
-    const krb5_config_binding *o;
+    heim_object_t o;
+    krb5_config_section *c2; /* XXX remove after ... */
     heim_error_t herr;
-    int ret;
 
-    o = heim_path_vget_by_string(c, &herr, args);
+    c2 = (krb5_config_section *)c;
+    o = heim_path_vget_by_string(c2, &herr, args);
+    if (heim_get_tid(o) != heim_string_get_type_id())
+	return NULL; /* We could serialize o as JSON... */
 
     if (!o && herr) {
 	heim_string_t s = heim_error_copy_string(herr);
@@ -771,9 +782,7 @@ krb5_config_vget_string (krb5_context context,
 	heim_release(s);
     }
 
-    if (heim_get_tid(o) == HEIM_TID_STRING)
-	return heim_retain(o);
-    return NULL;
+    return heim_string_get_utf8(o);
 }
 
 /**
@@ -1279,6 +1288,7 @@ krb5_config_parse_string_multi(krb5_context context,
 			       krb5_config_section **res)
     KRB5_DEPRECATED_FUNCTION("Use X instead")
 {
+    heim_object_t *resobj = (heim_object_t *)res;
     const char *str;
     unsigned lineno = 0;
     krb5_error_code ret;
@@ -1286,10 +1296,10 @@ krb5_config_parse_string_multi(krb5_context context,
     f.f = NULL;
     f.s = string;
 
-    ret = krb5_config_parse_debug (&f, res, &lineno, &str);
+    ret = krb5_config_parse_debug(&f, resobj, &lineno, &str);
     if (ret) {
-	krb5_set_error_message (context, ret, "%s:%u: %s",
-				"<constant>", lineno, str);
+	krb5_set_error_message(context, ret, "%s:%u: %s",
+			       "<constant>", lineno, str);
 	return ret;
     }
     return 0;
