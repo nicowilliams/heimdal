@@ -251,7 +251,7 @@ heim_array_insert_value(heim_array_t array, size_t idx, heim_object_t object)
  */
 
 void
-heim_array_iterate_f(heim_array_t array, void *ctx, heim_array_iterator_f_t fn)
+heim_array_iterate_f(heim_const_array_t array, void *ctx, heim_array_iterator_f_t fn)
 {
     size_t n;
     for (n = 0; n < array->len; n++)
@@ -267,7 +267,7 @@ heim_array_iterate_f(heim_array_t array, void *ctx, heim_array_iterator_f_t fn)
  */
 
 void
-heim_array_iterate(heim_array_t array, void (^fn)(heim_object_t))
+heim_array_iterate(heim_const_array_t array, void (^fn)(heim_object_t))
 {
     size_t n;
     for (n = 0; n < array->len; n++)
@@ -284,7 +284,7 @@ heim_array_iterate(heim_array_t array, void (^fn)(heim_object_t))
  */
 
 void
-heim_array_iterate_reverse_f(heim_array_t array, void *ctx, heim_array_iterator_f_t fn)
+heim_array_iterate_reverse_f(heim_const_array_t array, void *ctx, heim_array_iterator_f_t fn)
 {
     size_t n;
     for (n = array->len; n > 0; n--)
@@ -300,7 +300,7 @@ heim_array_iterate_reverse_f(heim_array_t array, void *ctx, heim_array_iterator_
  */
 
 void
-heim_array_iterate_reverse(heim_array_t array, void (^fn)(heim_object_t))
+heim_array_iterate_reverse(heim_const_array_t array, void (^fn)(heim_object_t))
 {
     size_t n;
     for (n = array->len; n > 0; n--)
@@ -317,7 +317,7 @@ heim_array_iterate_reverse(heim_array_t array, void (^fn)(heim_object_t))
  */
 
 size_t
-heim_array_get_length(heim_array_t array)
+heim_array_get_length(heim_const_array_t array)
 {
     return array->len;
 }
@@ -333,7 +333,7 @@ heim_array_get_length(heim_array_t array)
  */
 
 heim_object_t
-heim_array_get_value(heim_array_t array, size_t idx)
+heim_array_get_value(heim_const_array_t array, size_t idx)
 {
     if (idx >= array->len)
 	heim_abort("index too large");
@@ -351,7 +351,7 @@ heim_array_get_value(heim_array_t array, size_t idx)
  */
 
 heim_object_t
-heim_array_copy_value(heim_array_t array, size_t idx)
+heim_array_copy_value(heim_const_array_t array, size_t idx)
 {
     if (idx >= array->len)
 	heim_abort("index too large");

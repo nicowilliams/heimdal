@@ -146,7 +146,7 @@ heim_dict_get_type_id(void)
 /* Intern search function */
 
 static struct hashentry *
-_search(heim_dict_t dict, heim_object_t ptr)
+_search(heim_const_dict_t dict, heim_const_object_t ptr)
 {
     unsigned long v = heim_get_hash(ptr);
     struct hashentry *p;
@@ -168,7 +168,7 @@ _search(heim_dict_t dict, heim_object_t ptr)
  */
 
 heim_object_t
-heim_dict_get_value(heim_dict_t dict, heim_object_t key)
+heim_dict_get_value(heim_const_dict_t dict, heim_object_t key)
 {
     struct hashentry *p;
     p = _search(dict, key);
@@ -188,7 +188,7 @@ heim_dict_get_value(heim_dict_t dict, heim_object_t key)
  */
 
 heim_object_t
-heim_dict_copy_value(heim_dict_t dict, heim_object_t key)
+heim_dict_copy_value(heim_const_dict_t dict, heim_object_t key)
 {
     struct hashentry *p;
     p = _search(dict, key);
@@ -273,7 +273,8 @@ heim_dict_delete_key(heim_dict_t dict, heim_object_t key)
  */
 
 void
-heim_dict_iterate_f(heim_dict_t dict, void *arg, heim_dict_iterator_f_t func)
+heim_dict_iterate_f(heim_const_dict_t dict, void *arg,
+                    heim_dict_iterator_f_t func)
 {
     struct hashentry **h, *g;
 
@@ -292,7 +293,7 @@ heim_dict_iterate_f(heim_dict_t dict, void *arg, heim_dict_iterator_f_t func)
  */
 
 int
-heim_dict_iterate_nf(heim_dict_t dict, void **statep, heim_object_t *key,
+heim_dict_iterate_nf(heim_const_dict_t dict, void **statep, heim_object_t *key,
 		     heim_object_t *value)
 {
     struct dict_iter_state {
@@ -339,7 +340,8 @@ heim_dict_iterate_nf(heim_dict_t dict, void **statep, heim_object_t *key,
  */
 
 void
-heim_dict_iterate(heim_dict_t dict, void (^func)(heim_object_t, heim_object_t))
+heim_dict_iterate(heim_const_dict_t dict,
+                  void (^func)(heim_object_t, heim_object_t))
 {
     struct hashentry **h, *g;
 

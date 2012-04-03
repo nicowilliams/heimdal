@@ -41,7 +41,7 @@ number_dealloc(void *ptr)
 }
 
 static int
-number_cmp(void *a, void *b)
+number_cmp(const void *a, const void *b)
 {
     int na, nb;
 
@@ -59,7 +59,7 @@ number_cmp(void *a, void *b)
 }
 
 static unsigned long
-number_hash(void *ptr)
+number_hash(const void *ptr)
 {
     if (heim_base_is_tagged_object(ptr))
 	return heim_base_tagged_object_value(ptr);
@@ -119,7 +119,7 @@ heim_number_get_type_id(void)
  */
 
 int
-heim_number_get_int(heim_number_t number)
+heim_number_get_int(heim_const_number_t number)
 {
     if (heim_base_is_tagged_object(number))
 	return heim_base_tagged_object_value(number);

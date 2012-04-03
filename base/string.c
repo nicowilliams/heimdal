@@ -56,15 +56,15 @@ string_dealloc(void *ptr)
 }
 
 static int
-string_cmp(void *a, void *b)
+string_cmp(const void *a, const void *b)
 {
-    if (*(char *)a == '\0') {
+    if (*(const char *)a == '\0') {
 	char **strp = _heim_get_isaextra(a, 1);
 
 	if (*strp != NULL)
 	    a = *strp; /* a is a string ref */
     }
-    if (*(char *)b == '\0') {
+    if (*(const char *)b == '\0') {
 	char **strp = _heim_get_isaextra(b, 1);
 
 	if (*strp != NULL)
@@ -74,7 +74,7 @@ string_cmp(void *a, void *b)
 }
 
 static unsigned long
-string_hash(void *ptr)
+string_hash(const void *ptr)
 {
     const char *s = ptr;
     unsigned long n;

@@ -53,18 +53,18 @@ data_dealloc(void *ptr)
 }
 
 static int
-data_cmp(void *a, void *b)
+data_cmp(const void *a, const void *b)
 {
-    heim_octet_string *osa = a, *osb = b;
+    heim_const_octet_string *osa = a, *osb = b;
     if (osa->length != osb->length)
 	return osa->length - osb->length;
     return memcmp(osa->data, osb->data, osa->length);
 }
 
 static unsigned long
-data_hash(void *ptr)
+data_hash(const void *ptr)
 {
-    heim_octet_string *os = ptr;
+    heim_const_octet_string *os = ptr;
     const unsigned char *s = os->data;
 
     if (os->length < 4)
@@ -144,20 +144,20 @@ heim_data_get_type_id(void)
  */
 
 const heim_octet_string *
-heim_data_get_data(heim_data_t data)
+heim_data_get_data(heim_const_data_t data)
 {
     /* Note that this works for data and data_ref objects */
     return (const heim_octet_string *)data;
 }
 
 const void *
-heim_data_get_ptr(heim_data_t data)
+heim_data_get_ptr(heim_const_data_t data)
 {
     /* Note that this works for data and data_ref objects */
     return ((const heim_octet_string *)data)->data;
 }
 
-size_t	heim_data_get_length(heim_data_t data)
+size_t	heim_data_get_length(heim_const_data_t data)
 {
     /* Note that this works for data and data_ref objects */
     return ((const heim_octet_string *)data)->length;

@@ -50,18 +50,18 @@ error_dealloc(void *ptr)
 }
 
 static int
-error_cmp(void *a, void *b)
+error_cmp(const void *a, const void *b)
 {
-    struct heim_error *ap = a, *bp = b;
+    heim_const_error_t ap = a, bp = b;
     if (ap->error_code == ap->error_code)
 	return ap->error_code - ap->error_code;
     return heim_cmp(ap->msg, bp->msg);
 }
 
 static unsigned long
-error_hash(void *ptr)
+error_hash(const void *ptr)
 {
-    struct heim_error *p = ptr;
+    heim_const_error_t p = ptr;
     return p->error_code;
 }
 
@@ -126,7 +126,7 @@ heim_error_createv(int error_code, const char *fmt, va_list ap)
 }
 
 heim_string_t
-heim_error_copy_string(heim_error_t error)
+heim_error_copy_string(heim_const_error_t error)
 {
     if (heim_get_tid(error) != HEIM_TID_ERROR) {
 	if (heim_get_tid(error) == heim_number_get_type_id())
@@ -138,7 +138,7 @@ heim_error_copy_string(heim_error_t error)
 }
 
 int
-heim_error_get_code(heim_error_t error)
+heim_error_get_code(heim_const_error_t error)
 {
     if (heim_get_tid(error) != HEIM_TID_ERROR) {
 	if (heim_get_tid(error) == heim_number_get_type_id())

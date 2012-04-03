@@ -161,7 +161,7 @@ static heim_type_t tagged_isa[9] = {
 };
 
 heim_type_t
-_heim_get_isa(heim_object_t ptr)
+_heim_get_isa(heim_const_object_t ptr)
 {
     struct heim_base *p;
     if (heim_base_is_tagged(ptr)) {
@@ -182,7 +182,7 @@ _heim_get_isa(heim_object_t ptr)
  */
 
 heim_tid_t
-heim_get_tid(heim_object_t ptr)
+heim_get_tid(heim_const_object_t ptr)
 {
     heim_type_t isa = _heim_get_isa(ptr);
     return isa->tid;
@@ -197,7 +197,7 @@ heim_get_tid(heim_object_t ptr)
  */
 
 unsigned long
-heim_get_hash(heim_object_t ptr)
+heim_get_hash(heim_const_object_t ptr)
 {
     heim_type_t isa = _heim_get_isa(ptr);
     if (isa->hash)
@@ -216,7 +216,7 @@ heim_get_hash(heim_object_t ptr)
  */
 
 int
-heim_cmp(heim_object_t a, heim_object_t b)
+heim_cmp(heim_const_object_t a, heim_const_object_t b)
 {
     heim_tid_t ta, tb;
     heim_type_t isa;
@@ -323,7 +323,7 @@ _heim_alloc_object(heim_type_t type, size_t size)
 }
 
 void *
-_heim_get_isaextra(heim_object_t ptr, size_t idx)
+_heim_get_isaextra(heim_const_object_t ptr, size_t idx)
 {
     struct heim_base *p = (struct heim_base *)PTR2BASE(ptr);
 
@@ -490,13 +490,13 @@ autorel_dealloc(void *ptr)
 }
 
 static int
-autorel_cmp(void *a, void *b)
+autorel_cmp(const void *a, const void *b)
 {
     return (a == b);
 }
 
 static unsigned long
-autorel_hash(void *ptr)
+autorel_hash(const void *ptr)
 {
     return (unsigned long)ptr;
 }
@@ -603,12 +603,12 @@ heim_auto_release_drain(heim_auto_release_t autorel)
  */
 
 static heim_object_t
-heim_path_vget2(heim_object_t ptr, heim_object_t *parent, heim_object_t *key,
+heim_path_vget2(heim_const_object_t ptr, heim_object_t *parent, heim_object_t *key,
 		heim_error_t *error, int args_are_objs, va_list ap)
 {
     heim_object_t path_element = NULL;
     heim_object_t prev_path_element;
-    heim_object_t node, next_node;
+    heim_const_object_t node, next_node;
     heim_tid_t node_type;
     const char *str;
 
@@ -619,8 +619,10 @@ heim_path_vget2(heim_object_t ptr, heim_object_t *parent, heim_object_t *key,
     if (ptr == NULL)
 	return NULL;
 
+    /* XXX There should be no need to heim_release(prev_path_element)! */
+    *parent = (heim_object_t)ptr;
     for (node = ptr; node != NULL; ) {
-	heim_release(prev_path_element);
+	/*heim_release(prev_path_element);*/
 	prev_path_element = path_element;
 
 	/* Get next argument */
@@ -634,16 +636,16 @@ heim_path_vget2(heim_object_t ptr, heim_object_t *parent, heim_object_t *key,
 		if (path_element == NULL) {
 		    if (error)
 			*error = heim_error_enomem();
-		    heim_release(prev_path_element);
+		    /*heim_release(prev_path_element);*/
+                    *parent = NULL;
 		    return NULL;
 		}
 	    }
 	}
 
 	if (path_element == NULL) {
-	    *parent = node;
 	    *key = prev_path_element;
-	    return node;
+	    return (heim_object_t)node;
 	}
 
 	node_type = heim_get_tid(node);
@@ -655,13 +657,14 @@ heim_path_vget2(heim_object_t ptr, heim_object_t *parent, heim_object_t *key,
 	default:
 	    if (node == ptr)
 		heim_abort("heim_path_get() only operates on container types");
+            *parent = NULL;
 	    return NULL;
 	}
 
 	if (node_type == HEIM_TID_DICT) {
 	    next_node = heim_dict_get_value(node, path_element);
 	} else if (node_type == HEIM_TID_DB) {
-	    next_node = _heim_db_get_value(node, NULL, path_element, NULL);
+	    next_node = _heim_db_get_value((heim_object_t)node, NULL, path_element, NULL);
 	} else if (node_type == HEIM_TID_ARRAY) {
 	    size_t idx;
 
@@ -673,11 +676,11 @@ heim_path_vget2(heim_object_t ptr, heim_object_t *parent, heim_object_t *key,
 		errno = 0;
 		idx = strtoull(heim_string_get_utf8(path_element), &endstr, 10);
 		if (errno) {
-		    heim_release(prev_path_element);
+		    /*heim_release(prev_path_element);*/
 		    goto must_be_numeric;
 		}
 	    } else {
-		heim_release(prev_path_element);
+		/*heim_release(prev_path_element);*/
 		goto must_be_numeric;
 	    }
 	    next_node = heim_array_get_value(node, idx);
@@ -686,12 +689,14 @@ heim_path_vget2(heim_object_t ptr, heim_object_t *parent, heim_object_t *key,
 		*error = heim_error_create(EINVAL,
 					   "heim_path_get() node in path "
 					   "not a container type");
-	    heim_release(prev_path_element);
+	    /*heim_release(prev_path_element);*/
+            *parent = NULL;
 	    return NULL;
 	}
+        *parent = (heim_object_t)node;
 	node = next_node;
     }
-    heim_release(prev_path_element);
+    /*heim_release(prev_path_element);*/
     return NULL;
 
 must_be_numeric:
@@ -717,7 +722,7 @@ must_be_numeric:
  */
 
 heim_object_t
-heim_path_vget(heim_object_t ptr, heim_error_t *error, va_list ap)
+heim_path_vget(heim_const_object_t ptr, heim_error_t *error, va_list ap)
 {
     heim_object_t p, k;
 
@@ -737,7 +742,7 @@ heim_path_vget(heim_object_t ptr, heim_error_t *error, va_list ap)
  */
 
 heim_object_t
-heim_path_vget_by_string(heim_object_t ptr, heim_error_t *error, va_list ap)
+heim_path_vget_by_string(heim_const_object_t ptr, heim_error_t *error, va_list ap)
 {
     heim_object_t p, k;
 
@@ -757,7 +762,7 @@ heim_path_vget_by_string(heim_object_t ptr, heim_error_t *error, va_list ap)
  */
 
 heim_object_t
-heim_path_vcopy(heim_object_t ptr, heim_error_t *error, va_list ap)
+heim_path_vcopy(heim_const_object_t ptr, heim_error_t *error, va_list ap)
 {
     heim_object_t p, k;
 
@@ -777,7 +782,8 @@ heim_path_vcopy(heim_object_t ptr, heim_error_t *error, va_list ap)
  */
 
 heim_object_t
-heim_path_vcopy_by_string(heim_object_t ptr, heim_error_t *error, va_list ap)
+heim_path_vcopy_by_string(heim_const_object_t ptr, heim_error_t *error,
+                          va_list ap)
 {
     heim_object_t p, k;
 
@@ -797,7 +803,7 @@ heim_path_vcopy_by_string(heim_object_t ptr, heim_error_t *error, va_list ap)
  */
 
 heim_object_t
-heim_path_get(heim_object_t ptr, heim_error_t *error, ...)
+heim_path_get(heim_const_object_t ptr, heim_error_t *error, ...)
 {
     heim_object_t o;
     heim_object_t p, k;
@@ -825,7 +831,7 @@ heim_path_get(heim_object_t ptr, heim_error_t *error, ...)
  */
 
 heim_object_t
-heim_path_get_by_string(heim_object_t ptr, heim_error_t *error, ...)
+heim_path_get_by_string(heim_const_object_t ptr, heim_error_t *error, ...)
 {
     heim_object_t o;
     heim_object_t p, k;
@@ -853,7 +859,7 @@ heim_path_get_by_string(heim_object_t ptr, heim_error_t *error, ...)
  */
 
 heim_object_t
-heim_path_copy(heim_object_t ptr, heim_error_t *error, ...)
+heim_path_copy(heim_const_object_t ptr, heim_error_t *error, ...)
 {
     heim_object_t o;
     heim_object_t p, k;
@@ -881,7 +887,7 @@ heim_path_copy(heim_object_t ptr, heim_error_t *error, ...)
  */
 
 heim_object_t
-heim_path_copy_by_string(heim_object_t ptr, heim_error_t *error, ...)
+heim_path_copy_by_string(heim_const_object_t ptr, heim_error_t *error, ...)
 {
     heim_object_t o;
     heim_object_t p, k;

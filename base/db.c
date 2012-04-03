@@ -437,7 +437,7 @@ heim_db_create(const char *dbtype, const char *dbname,
  * @addtogroup heimbase
  */
 heim_db_t
-heim_db_clone(heim_db_t db, heim_error_t *error)
+heim_db_clone(heim_const_db_t db, heim_error_t *error)
 {
     heim_db_t result;
     int ret;
@@ -470,7 +470,7 @@ heim_db_clone(heim_db_t db, heim_error_t *error)
 				       N_("Could not re-open DB while cloning", ""));
 	return NULL;
     }
-    db->db_data = NULL;
+    ((heim_db_t)db)->db_data = NULL;
     return result;
 }
 
@@ -742,7 +742,7 @@ _heim_db_get_value(heim_db_t db, heim_string_t table, heim_data_t key,
  * @addtogroup heimbase
  */
 heim_data_t
-heim_db_copy_value(heim_db_t db, heim_string_t table, heim_data_t key,
+heim_db_copy_value(heim_const_db_t db, heim_string_t table, heim_data_t key,
 		   heim_error_t *error)
 {
     heim_object_t v;
@@ -941,7 +941,7 @@ err:
  * @addtogroup heimbase
  */
 void
-heim_db_iterate_f(heim_db_t db, heim_string_t table, void *iter_data,
+heim_db_iterate_f(heim_const_db_t db, heim_string_t table, void *iter_data,
 		  heim_db_iterator_f_t iter_f, heim_error_t *error)
 {
     if (error != NULL)
