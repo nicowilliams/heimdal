@@ -1102,3 +1102,72 @@ heim_path_delete(heim_object_t ptr, heim_error_t *error, ...)
     return;
 }
 
+/**
+ * Iterate paths
+ *
+ * @param [in] ptr Tree to iterate
+ * @param [in] order Order in which to iterate nodes (pre-, in-, post-order)
+ * @param [in] min_depth Mininum depth from which to iterate nodes
+ * @param [in] max_depth Maximum depth to which to iterate nodes
+ * @param [inout] state Pointer to pointer to void, must point to a NULL pointer initially
+ * @param [out] error Error object output
+ * @param [out] depth Depth where key is found
+ * @param [out] key Key whose value is node
+ * @param [out] path Array of keys making up path to node
+ * @param [out] node Node found at the given path
+ *
+ * @return 1 when there are more paths, 0 when there are no more paths, or a system error
+ */
+int
+heim_path_iter(heim_object_t ptr, heim_path_iter_order_t order,
+               size_t min_depth, size_t max_depth,
+               void **arg, heim_error_t *error,
+               size_t *depth, heim_object_t *key, heim_array_t *path,
+               heim_object_t *node)
+{
+    int ret;
+    struct hp_state **state = arg;
+
+    if (*state == NULL) {
+        *state = calloc(1, sizeof (**state));
+        if (*state == NULL)
+            goto enomem;
+        (*state)->root = ptr;
+        (*state)->current = calloc(1, sizeof (*(*state)->current));
+        if ((*state)->current = NULL)
+            goto enomem;
+        (*state)->current->node = ptr;
+    }
+}
+
+/**
+ * Iterate paths
+ *
+ * @param [in] ptr Tree to iterate
+ * @param [in] order Order in which to iterate nodes (pre-, in-, post-order)
+ * @param [inout] state Pointer to pointer to void, must point to a NULL pointer initially
+ * @param [out] error Error object output
+ * @param [in] f A pointer to a callback function
+ * @param [in] arg An argument to the callback function
+ */
+void
+heim_path_iter_f(heim_object_t ptr, heim_path_iter_order_t order,
+                 size_t min_depth, size_t max_depth, heim_error_t *error,
+                 heim_path_iter_f_t f, void *arg)
+{
+    void *state = NULL;
+    size_t depth;
+    heim_object_t key;
+    heim_array_t path;
+    heim_object_t node;
+
+    do {
+        ret = heim_path_iter(ptr, order, &state, error, &depth, &key, &path,
+                             &node);
+        if (ret > 1)
+            return;
+
+        f(arg, ptr, depth, key, path, node);
+    } while (ret == 1);
+}
+

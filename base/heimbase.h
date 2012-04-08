@@ -213,6 +213,16 @@ heim_error_t heim_error_append(heim_error_t, heim_error_t);
  * Path
  */
 
+typedef enum heim_path_iter_order {
+    HEIM_PATH_PREORDER = 0;
+    HEIM_PATH_INORDER = 1;
+    HEIM_PATH_POSTORDER = 2;
+} heim_path_iter_order_t;
+
+typedef void (*heim_path_iter_f_t)(void *, heim_const_object_t, size_t,
+                                   heim_object_t, heim_array_t,
+                                   heim_object_t);
+
 heim_object_t heim_path_get(heim_const_object_t ptr, heim_error_t *error, ...);
 heim_object_t heim_path_get_by_string(heim_const_object_t ptr,
                                       heim_error_t *error, ...);
@@ -235,6 +245,14 @@ int heim_path_create(heim_object_t ptr, size_t size, heim_object_t leaf,
 
 void heim_path_vdelete(heim_object_t ptr, heim_error_t *error, va_list ap);
 void heim_path_delete(heim_object_t ptr, heim_error_t *error, ...);
+
+int heim_path_iter(heim_object_t ptr, heim_path_iter_order_t order,
+                   size_t min_depth, size_t max_depth, void **state,
+                   heim_error_t *error, size_t *depth, heim_object_t *key,
+                   heim_array_t *path, heim_object_t *node);
+void heim_path_iter_f(heim_object_t ptr, heim_path_iter_order_t order,
+                      size_t min_depth, size_t max_depth, heim_error_t *error,
+                      heim_path_iter_f_t f, void *arg)
 
 /*
  * Data (octet strings)
