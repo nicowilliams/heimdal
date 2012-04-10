@@ -397,7 +397,7 @@ static gssapi_mech_interface_desc krb5_mech = {
     NULL,
     NULL,
     NULL,
-    NULL,
+    _gsskrb5_acquire_cred_from,
     NULL,
     NULL,
 };
