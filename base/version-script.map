@@ -71,11 +71,17 @@ HEIMDAL_BASE_1.0 {
 		heim_path_create;
 		heim_path_delete;
 		heim_path_get;
+                heim_path_get_by_cstring;
+                heim_path_get_by_cstrings;
 		heim_path_copy;
+                heim_path_copy_by_cstring;
+                heim_path_copy_by_cstrings;
 		heim_path_vcreate;
 		heim_path_vdelete;
 		heim_path_vget;
+                heim_path_vget_by_cstring;
 		heim_path_vcopy;
+                heim_path_vcopy_by_cstring;
 		heim_release;
 		heim_retain;
 		heim_serialize;

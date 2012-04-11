@@ -602,14 +602,23 @@ heim_auto_release_drain(heim_auto_release_t autorel)
  * (useful for heim_path_delete()).
  */
 
+enum heim_path_type {
+    HEIM_P_OBJ_STDARGS = 0,
+    HEIM_P_STR_STDARGS = 1,
+    HEIM_P_STR_ARRAY = 2
+};
+
 static heim_object_t
-heim_path_vget2(heim_const_object_t ptr, heim_object_t *parent, heim_object_t *key,
-		heim_error_t *error, int args_are_objs, va_list ap)
+heim_path_vget2(heim_const_object_t ptr, heim_object_t *parent,
+                heim_object_t *key, heim_error_t *error,
+                enum heim_path_type args_type, 
+                const char * const *strs, va_list ap)
 {
     heim_object_t path_element = NULL;
     heim_object_t prev_path_element;
     heim_const_object_t node, next_node;
     heim_tid_t node_type;
+    size_t stri = 0;
     const char *str;
 
     if (error)
@@ -626,9 +635,9 @@ heim_path_vget2(heim_const_object_t ptr, heim_object_t *parent, heim_object_t *k
 	prev_path_element = path_element;
 
 	/* Get next argument */
-	if (args_are_objs) {
+	if (args_type == HEIM_P_OBJ_STDARGS) {
 	    path_element = va_arg(ap, heim_object_t);
-	} else {
+	} else if (args_type == HEIM_P_STR_STDARGS) {
 	    path_element = NULL;
 	    str = va_arg(ap, const char *);
 	    if (str != NULL) {
@@ -641,7 +650,21 @@ heim_path_vget2(heim_const_object_t ptr, heim_object_t *parent, heim_object_t *k
 		    return NULL;
 		}
 	    }
-	}
+	} else {
+            /* args_type == HEIM_P_STR_ARRAY */
+	    path_element = NULL;
+            str = strs[stri++];
+	    if (str != NULL) {
+		path_element = heim_string_create(str);
+		if (path_element == NULL) {
+		    if (error)
+			*error = heim_error_enomem();
+		    /*heim_release(prev_path_element);*/
+                    *parent = NULL;
+		    return NULL;
+		}
+	    }
+        }
 
 	if (path_element == NULL) {
 	    *key = prev_path_element;
@@ -726,7 +749,7 @@ heim_path_vget(heim_const_object_t ptr, heim_error_t *error, va_list ap)
 {
     heim_object_t p, k;
 
-    return heim_path_vget2(ptr, &p, &k, error, 1, ap);
+    return heim_path_vget2(ptr, &p, &k, error, HEIM_P_OBJ_STDARGS, NULL, ap);
 }
 
 /**
@@ -742,11 +765,21 @@ heim_path_vget(heim_const_object_t ptr, heim_error_t *error, va_list ap)
  */
 
 heim_object_t
-heim_path_vget_by_string(heim_const_object_t ptr, heim_error_t *error, va_list ap)
+heim_path_vget_by_cstring(heim_const_object_t ptr, heim_error_t *error,
+                          va_list ap)
 {
     heim_object_t p, k;
 
-    return heim_path_vget2(ptr, &p, &k, error, 0, ap);
+    return heim_path_vget2(ptr, &p, &k, error, HEIM_P_STR_STDARGS, NULL, ap);
+}
+
+heim_object_t
+heim_path_get_by_cstrings(heim_const_object_t ptr, heim_error_t *error,
+                          const char * const *strs)
+{
+    heim_object_t p, k;
+
+    return heim_path_vget2(ptr, &p, &k, error, HEIM_P_STR_ARRAY, strs, NULL);
 }
 
 /**
@@ -766,7 +799,7 @@ heim_path_vcopy(heim_const_object_t ptr, heim_error_t *error, va_list ap)
 {
     heim_object_t p, k;
 
-    return heim_retain(heim_path_vget2(ptr, &p, &k, error, 1, ap));
+    return heim_retain(heim_path_vget2(ptr, &p, &k, error, HEIM_P_OBJ_STDARGS, NULL, ap));
 }
 
 /**
@@ -782,12 +815,23 @@ heim_path_vcopy(heim_const_object_t ptr, heim_error_t *error, va_list ap)
  */
 
 heim_object_t
-heim_path_vcopy_by_string(heim_const_object_t ptr, heim_error_t *error,
+heim_path_vcopy_by_cstring(heim_const_object_t ptr, heim_error_t *error,
                           va_list ap)
 {
     heim_object_t p, k;
 
-    return heim_retain(heim_path_vget2(ptr, &p, &k, error, 0, ap));
+    return heim_retain(heim_path_vget2(ptr, &p, &k, error,
+                                       HEIM_P_STR_STDARGS, NULL, ap));
+}
+
+heim_object_t
+heim_path_copy_by_cstrings(heim_const_object_t ptr, heim_error_t *error,
+                           const char * const *strs)
+{
+    heim_object_t p, k;
+
+    return heim_retain(heim_path_vget2(ptr, &p, &k, error, HEIM_P_STR_ARRAY,
+                                       strs, NULL));
 }
 
 /**
@@ -813,7 +857,7 @@ heim_path_get(heim_const_object_t ptr, heim_error_t *error, ...)
 	return NULL;
 
     va_start(ap, error);
-    o = heim_path_vget2(ptr, &p, &k, error, 1, ap);
+    o = heim_path_vget2(ptr, &p, &k, error, HEIM_P_OBJ_STDARGS, NULL, ap);
     va_end(ap);
     return o;
 }
@@ -831,7 +875,7 @@ heim_path_get(heim_const_object_t ptr, heim_error_t *error, ...)
  */
 
 heim_object_t
-heim_path_get_by_string(heim_const_object_t ptr, heim_error_t *error, ...)
+heim_path_get_by_cstring(heim_const_object_t ptr, heim_error_t *error, ...)
 {
     heim_object_t o;
     heim_object_t p, k;
@@ -841,7 +885,7 @@ heim_path_get_by_string(heim_const_object_t ptr, heim_error_t *error, ...)
 	return NULL;
 
     va_start(ap, error);
-    o = heim_path_vget2(ptr, &p, &k, error, 0, ap);
+    o = heim_path_vget2(ptr, &p, &k, error, HEIM_P_STR_STDARGS, NULL, ap);
     va_end(ap);
     return o;
 }
@@ -869,7 +913,7 @@ heim_path_copy(heim_const_object_t ptr, heim_error_t *error, ...)
 	return NULL;
 
     va_start(ap, error);
-    o = heim_retain(heim_path_vget2(ptr, &p, &k, error, 1, ap));
+    o = heim_retain(heim_path_vget2(ptr, &p, &k, error, HEIM_P_OBJ_STDARGS, NULL, ap));
     va_end(ap);
     return o;
 }
@@ -887,7 +931,7 @@ heim_path_copy(heim_const_object_t ptr, heim_error_t *error, ...)
  */
 
 heim_object_t
-heim_path_copy_by_string(heim_const_object_t ptr, heim_error_t *error, ...)
+heim_path_copy_by_cstring(heim_const_object_t ptr, heim_error_t *error, ...)
 {
     heim_object_t o;
     heim_object_t p, k;
@@ -897,7 +941,7 @@ heim_path_copy_by_string(heim_const_object_t ptr, heim_error_t *error, ...)
 	return NULL;
 
     va_start(ap, error);
-    o = heim_retain(heim_path_vget2(ptr, &p, &k, error, 0, ap));
+    o = heim_retain(heim_path_vget2(ptr, &p, &k, error, HEIM_P_STR_STDARGS, NULL, ap));
     va_end(ap);
     return o;
 }
@@ -1069,7 +1113,7 @@ heim_path_vdelete(heim_object_t ptr, heim_error_t *error, va_list ap)
 {
     heim_object_t parent, key, child;
 
-    child = heim_path_vget2(ptr, &parent, &key, error, 0, ap);
+    child = heim_path_vget2(ptr, &parent, &key, error, HEIM_P_STR_STDARGS, NULL, ap);
     if (child != NULL) {
 	if (heim_get_tid(parent) == HEIM_TID_DICT)
 	    heim_dict_delete_key(parent, key);
@@ -1102,12 +1146,23 @@ heim_path_delete(heim_object_t ptr, heim_error_t *error, ...)
     return;
 }
 
+struct hp_state {
+    struct hp_state *parent;
+    heim_path_iter_order_t order;
+    heim_path_iter_flags_t flags;
+    heim_array_t path;
+    heim_object_t node;
+    heim_tid_t tid;
+    void *iter_state;
+    size_t alen;
+    size_t count;
+};
+
 /**
  * Iterate paths
  *
  * @param [in] ptr Tree to iterate
  * @param [in] order Order in which to iterate nodes (pre-, in-, post-order)
- * @param [in] min_depth Mininum depth from which to iterate nodes
  * @param [in] max_depth Maximum depth to which to iterate nodes
  * @param [inout] state Pointer to pointer to void, must point to a NULL pointer initially
  * @param [out] error Error object output
@@ -1116,28 +1171,187 @@ heim_path_delete(heim_object_t ptr, heim_error_t *error, ...)
  * @param [out] path Array of keys making up path to node
  * @param [out] node Node found at the given path
  *
- * @return 1 when there are more paths, 0 when there are no more paths, or a system error
+ * @return -11 when there are more paths, 0 when there are no more paths, or a system error
  */
 int
 heim_path_iter(heim_object_t ptr, heim_path_iter_order_t order,
-               size_t min_depth, size_t max_depth,
-               void **arg, heim_error_t *error,
-               size_t *depth, heim_object_t *key, heim_array_t *path,
+               heim_path_iter_flags_t flags,
+               size_t max_depth, void **arg, heim_error_t *error,
+               size_t *depth, heim_object_t *key,
+               heim_array_t *path,
                heim_object_t *node)
 {
     int ret;
-    struct hp_state **state = arg;
+    struct hp_state **state = (struct hp_state **)arg;
+    struct hp_state *s = *state;
+    struct hp_state *new_s = NULL;
+    heim_object_t k = NULL;
+    heim_object_t o = NULL;
+    int first = 0;
+    int is_leaf = 0;
 
-    if (*state == NULL) {
-        *state = calloc(1, sizeof (**state));
-        if (*state == NULL)
+    if (s == NULL) {
+        s->order = order;
+        s->flags = flags;
+        s = calloc(1, sizeof (**state));
+        if (s == NULL)
             goto enomem;
-        (*state)->root = ptr;
-        (*state)->current = calloc(1, sizeof (*(*state)->current));
-        if ((*state)->current = NULL)
+        s->path = heim_array_create();
+        if (s->path == NULL)
             goto enomem;
-        (*state)->current->node = ptr;
+        s->node = ptr;
+        s->tid = heim_get_tid(s->node);
+        *state = s;
     }
+
+    if (s->iter_state == NULL)
+        first = 1;
+
+    /* Get first/next key/value */
+    if (s->tid == HEIM_TID_ARRAY) {
+        if (first) {
+            s->iter_state = calloc(1, sizeof (size_t));
+            if (s->iter_state == NULL)
+                goto enomem;
+            s->alen = heim_array_get_length(s->node);
+        }
+        if (*((size_t *)s->iter_state) == s->alen) {
+            if (first)
+                is_leaf = 1;
+            goto pop;
+        }
+        k = heim_number_create(*(size_t *)s->iter_state);
+        o = heim_array_get_value(s->node, *(size_t *)s->iter_state);
+        (*(size_t *)s->iter_state)++;
+    } else if (s->tid == HEIM_TID_DICT) {
+        if (s->order == HEIM_PATH_INORDER)
+            /* In-order traversal is meaningless for dicts... */
+            s->order = HEIM_PATH_POSTORDER;
+        ret = heim_dict_iterate_nf(s->node, &s->iter_state, &k, &o);
+        if (ret > 0)
+            goto err;
+        if (ret == -1) {
+            if (first)
+                is_leaf = 1;
+            goto pop;
+        }
+    } else if (s->tid == HEIM_TID_DB) {
+        heim_abort("Can't iterate paths with DB type nodes yet");
+    } else {
+        heim_abort("Trying to iterate keys/values in scalar object!");
+    }
+
+    ret = heim_array_append_value(s->path, k);
+    if (ret)
+        goto err;
+
+    if (first && s->order == HEIM_PATH_PREORDER &&
+        (is_leaf || !(s->flags & HEIM_PATH_LEAF_ONLY))) {
+        if (path)
+            *path = s->path;
+        if (key)
+            *key = k;
+        if (node)
+            *node = o;
+        return 0;
+    }
+
+    s->count++;
+    switch (heim_get_tid(o)) {
+    case HEIM_TID_ARRAY:
+    case HEIM_TID_DB:
+    case HEIM_TID_DICT:
+        goto push;
+    default:
+        if (path)
+            *path = s->path;
+        if (key)
+            *key = k;
+        if (node)
+            *node = k;
+        return 0;
+    }
+    
+push:
+    if (s->tid == HEIM_TID_ARRAY && s->count == 1 &&
+        s->order == HEIM_PATH_INORDER &&
+        (is_leaf || !(s->flags & HEIM_PATH_LEAF_ONLY))) {
+        /* In-order traversal is meaningless for dict nodes... */
+        if (path)
+            *path = s->path;
+        if (key)
+            *key = k;
+        if (node)
+            *node = o;
+        /* We'll push later */
+        return 0;
+    }
+
+    /* Do push */
+    new_s = calloc(1, sizeof (*new_s));
+    if (new_s == NULL)
+        goto enomem;
+    new_s->parent = s;
+    new_s->order = s->order;
+    new_s->flags = s->flags;
+    new_s->path = s->path;
+    new_s->node = o;
+    new_s->tid = heim_get_tid(s->node);
+    *state = new_s;
+    /* This recursion will list the first element of o and no more */
+    ret = heim_path_iter(ptr, order, flags, max_depth, (void **)state, error,
+                         depth, key, path, node);
+    if (ret > 0)
+        goto err;
+    if (ret == -1) {
+        *state = s;
+        ret = heim_path_iter(ptr, order, flags, max_depth, (void **)state,
+                             error, depth, key, path, node);
+        if (ret > 0)
+            goto err;
+        if (ret == -1)
+            goto pop;
+        return 0;
+    }
+
+pop:
+    if (s->order == HEIM_PATH_POSTORDER &&
+        (is_leaf || !(s->flags & HEIM_PATH_LEAF_ONLY))) {
+        if (path)
+            *path = s->path;
+        if (key)
+            *key = k;
+        if (node)
+            *node = o;
+    }
+
+    if (s->tid == HEIM_TID_ARRAY)
+        free(s->iter_state);
+
+    if (s->parent == NULL)
+        heim_release(s->path);
+
+    new_s = s->parent;
+    free(s);
+    *state = new_s;
+    new_s = NULL;
+    return 0;
+
+enomem:
+    if (error)
+        *error = heim_error_enomem();
+    ret = ENOMEM;
+
+err:
+    free(new_s);
+    for (; s; s = s->parent) {
+        if (s->parent == NULL)
+            heim_release(s->path);
+        if (s->tid == HEIM_TID_ARRAY && s->iter_state)
+            free(s->iter_state);
+        free(s);
+    }
+    return ret;
 }
 
 /**
@@ -1152,18 +1366,19 @@ heim_path_iter(heim_object_t ptr, heim_path_iter_order_t order,
  */
 void
 heim_path_iter_f(heim_object_t ptr, heim_path_iter_order_t order,
-                 size_t min_depth, size_t max_depth, heim_error_t *error,
-                 heim_path_iter_f_t f, void *arg)
+                 heim_path_iter_flags_t flags, size_t max_depth,
+                 heim_error_t *error, heim_path_iter_f_t f, void *arg)
 {
     void *state = NULL;
     size_t depth;
     heim_object_t key;
     heim_array_t path;
     heim_object_t node;
+    int ret;
 
     do {
-        ret = heim_path_iter(ptr, order, &state, error, &depth, &key, &path,
-                             &node);
+        ret = heim_path_iter(ptr, order, flags, max_depth, &state, error,
+                             &depth, &key, &path, &node);
         if (ret > 1)
             return;
 
