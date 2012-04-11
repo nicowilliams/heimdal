@@ -290,6 +290,8 @@ heim_dict_iterate_f(heim_const_dict_t dict, void *arg,
  * @param [inout] statep iteration state variable; must point to a NULL void *
  * @param [out] key key
  * @param [out] value value
+ *
+ * @return 0 on success, -1 when there are no more entries, else a system error.
  */
 
 int
@@ -321,7 +323,7 @@ heim_dict_iterate_nf(heim_const_dict_t dict, void **statep, heim_object_t *key,
 	return -1;
     }
 
-    heim_assert(state->g, "wtf");
+    heim_assert(state->g, "Internal error: dict missing a bucket");
 
     if (key)
 	*key = state->g->key;
