@@ -82,6 +82,8 @@ static krb5_error_code parse_list(struct fileptr *f, unsigned *lineno,
 				  heim_object_t *parent,
 				  const char **err_message);
 
+static char **heim_array_to_cstring_array(heim_array_t a);
+
 /*
  * Gets a node from the tree, adding the node if it's missing.
  */
@@ -95,7 +97,7 @@ _krb5_config_get_entry(heim_object_t *parent, const char *name, int type)
 
     s = heim_string_create(name);
     if (!s)
-	return NULL; /* XXX ENOMEM */
+	return NULL;
 
     o = heim_dict_get_value(*parent, s);
     if (o)
@@ -105,7 +107,7 @@ _krb5_config_get_entry(heim_object_t *parent, const char *name, int type)
     else
 	c = heim_dict_create(11);
     if (!c)
-	return NULL; /* XXX ENOMEM */
+	return NULL;
 
     ret = heim_dict_set_value(*parent, s, c);
     if (ret) {
@@ -162,7 +164,7 @@ parse_section(char *p, heim_object_t *s, heim_object_t *parent,
     tmp = _krb5_config_get_entry(parent, p + 1, krb5_config_list);
     if(tmp == NULL) {
 	*err_message = "out of memory";
-	return KRB5_CONFIG_BADFORMAT;
+	return KRB5_CONFIG_BADFORMAT; /* XXX Should be ENOMEM, no? */
     }
     *s = tmp;
     return 0;
@@ -243,14 +245,14 @@ parse_binding(struct fileptr *f, unsigned *lineno, char *p,
 	tmp = _krb5_config_get_entry(parent, p1, krb5_config_list);
 	if (tmp == NULL) {
 	    *err_message = "out of memory";
-	    return KRB5_CONFIG_BADFORMAT;
+	    return KRB5_CONFIG_BADFORMAT; /* XXX Should be ENOMEM, no? */
 	}
 	ret = parse_list (f, lineno, tmp, err_message);
     } else {
 	tmp = _krb5_config_get_entry(parent, p1, krb5_config_string);
 	if (tmp == NULL) {
 	    *err_message = "out of memory";
-	    return KRB5_CONFIG_BADFORMAT;
+	    return KRB5_CONFIG_BADFORMAT; /* XXX Should be ENOMEM, no? */
 	}
 	p1 = p;
 	p = p1 + strlen(p1);
@@ -396,7 +398,7 @@ krb5_config_parse_debug(struct fileptr *f,
 	    b = NULL;
 	} else if (*p == '}') {
 	    *err_message = "unmatched }";
-	    return EINVAL;	/* XXX */
+	    return EINVAL;
 	} else if(*p != '\0') {
 	    if (s == NULL) {
 		*err_message = "binding before section";
@@ -591,47 +593,6 @@ _krb5_config_copy(krb5_context context,
 
 #endif /* HEIMDAL_SMALLER */
 
-KRB5_LIB_FUNCTION const void * KRB5_LIB_CALL
-_krb5_config_get_next (krb5_context context,
-		       const krb5_config_section *c,
-		       const krb5_config_binding **pointer,
-		       int type,
-		       ...);
-
-KRB5_LIB_FUNCTION const void * KRB5_LIB_CALL
-_krb5_config_vget_next (krb5_context context,
-			const krb5_config_section *c,
-			const krb5_config_binding **pointer,
-			int type,
-			va_list args);
-
-KRB5_LIB_FUNCTION const void * KRB5_LIB_CALL
-_krb5_config_get (krb5_context context,
-		  const krb5_config_section *c,
-		  int type,
-		  ...)
-{
-    const void *ret;
-    va_list args;
-
-    va_start(args, type);
-    ret = _krb5_config_vget (context, c, type, args);
-    va_end(args);
-    return ret;
-}
-
-
-const void *
-_krb5_config_vget (krb5_context context,
-		   const krb5_config_section *c,
-		   int type,
-		   va_list args)
-{
-    const krb5_config_binding *foo = NULL;
-
-    return _krb5_config_vget_next (context, c, &foo, type, args);
-}
-
 /**
  * Get a list of configuration binding list for more processing
  *
@@ -644,23 +605,17 @@ _krb5_config_vget (krb5_context context,
  * @ingroup krb5_support
  */
 
-KRB5_LIB_FUNCTION heim_const_array_t KRB5_LIB_CALL
+KRB5_LIB_FUNCTION const krb5_config_binding * KRB5_LIB_CALL
 krb5_config_get_list (krb5_context context,
 		      const krb5_config_section *c,
 		      ...)
 {
     heim_const_object_t o;
-    heim_object_t o2; /* XXX remove after we change heimbase.h to use heim_const_* more */
     va_list args;
 
     va_start(args, c);
     o = krb5_config_vget_list(context, c, args);
     va_end(args);
-
-    o2 = (heim_object_t)o;
-
-    if (heim_get_tid(o2) != heim_array_get_type_id())
-	return NULL;
 
     return o;
 }
@@ -677,19 +632,15 @@ krb5_config_get_list (krb5_context context,
  * @ingroup krb5_support
  */
 
-KRB5_LIB_FUNCTION heim_const_array_t KRB5_LIB_CALL
-krb5_config_vget_list (krb5_context context,
-		       const krb5_config_section *c,
-		       va_list args)
+KRB5_LIB_FUNCTION const krb5_config_binding * KRB5_LIB_CALL
+krb5_config_vget_list(krb5_context context,
+		      const krb5_config_section *c,
+		      va_list args)
 {
     krb5_config_binding *o;
-    krb5_config_section *c2; /* XXX remove after we change heimbase.h to use heim_const_* more */
     heim_error_t herr;
-    heim_array_t a;
-    int ret;
 
-    c2 = (krb5_config_section *)c;
-    o = heim_path_vget_by_string(c2, &herr, args);
+    o = heim_path_vget_by_cstring(c, &herr, args);
 
     if (!o && herr) {
 	heim_string_t s = heim_error_copy_string(herr);
@@ -702,18 +653,30 @@ krb5_config_vget_list (krb5_context context,
 	heim_release(s);
     }
 
-    if (heim_get_tid(o) == heim_array_get_type_id())
-	return heim_retain(o);
+    return o;
+}
 
-    a = heim_array_create();
-    if (!a)
-	return NULL;
-    ret = heim_array_append_value(a, o) != 0;
-    if (ret) {
-	heim_release(a);
-	return NULL;
-    }
-    return a;
+KRB5_LIB_FUNCTION krb5_error_code KRB5_LIB_CALL
+krb5_config_iter_keys(krb5_context context,
+                      const krb5_config_binding *c,
+                      void **statep, const char **keyp,
+                      const krb5_config_binding **valuep)
+{
+    heim_object_t k, v;
+    int ret;
+
+    do {
+        ret = heim_dict_iterate_nf(c, statep, &k, &v);
+        if (ret > 0)
+            return ret;
+    } while (ret == 0 && heim_get_tid(k) != heim_string_get_type_id());
+    if (ret)
+        return ret;
+
+    *keyp = heim_string_get_utf8(k);
+    *valuep = (heim_const_object_t)v;
+
+    return ret;
 }
 
 /**
@@ -763,11 +726,9 @@ krb5_config_vget_string (krb5_context context,
 			 va_list args)
 {
     heim_object_t o;
-    krb5_config_section *c2; /* XXX remove after ... */
     heim_error_t herr;
 
-    c2 = (krb5_config_section *)c;
-    o = heim_path_vget_by_string(c2, &herr, args);
+    o = heim_path_vget_by_cstring(c, &herr, args);
     if (heim_get_tid(o) != heim_string_get_type_id())
 	return NULL; /* We could serialize o as JSON... */
 
@@ -906,46 +867,68 @@ krb5_config_vget_strings(krb5_context context,
 			 const krb5_config_section *c,
 			 va_list args)
 {
-    char **strings = NULL;
-    int nstr = 0;
-    const krb5_config_binding *b = NULL;
+    heim_array_t a = NULL;
+    heim_error_t herr;
+    char **strs = NULL;
+    char **res = NULL;
+    char **tmp_res = NULL;
     const char *p;
+    char *pos;
+    size_t i, alen, reslen;
 
-    while((p = _krb5_config_vget_next(context, c, &b,
-				      krb5_config_string, args))) {
-	char *tmp = strdup(p);
-	char *pos = NULL;
-	char *s;
-	if(tmp == NULL)
-	    goto cleanup;
-	s = next_component_string(tmp, " \t", &pos);
-	while(s){
-	    char **tmp2 = realloc(strings, (nstr + 1) * sizeof(*strings));
-	    if(tmp2 == NULL)
-		goto cleanup;
-	    strings = tmp2;
-	    strings[nstr] = strdup(s);
-	    nstr++;
-	    if(strings[nstr-1] == NULL)
-		goto cleanup;
-	    s = next_component_string(NULL, " \t", &pos);
-	}
-	free(tmp);
+    a = heim_path_vget_by_cstring(c, &herr, args);
+    if (!a && herr) {
+	heim_string_t s = heim_error_copy_string(herr);
+
+	if (s)
+	    p = heim_string_get_utf8(s);
+	if (p)
+	    krb5_set_error_message(context, heim_error_get_code(herr), "%s", p);
+	heim_release(s);
     }
-    if(nstr){
-	char **tmp = realloc(strings, (nstr + 1) * sizeof(*strings));
-	if(tmp == NULL)
-	    goto cleanup;
-	strings = tmp;
-	strings[nstr] = NULL;
+
+    alen = heim_array_get_length(a);
+    if (alen == 0) {
+        heim_release(a);
+        return NULL;
     }
-    return strings;
-cleanup:
-    while(nstr--)
-	free(strings[nstr]);
-    free(strings);
+    strs = heim_array_to_cstring_array(a);
+    if (!strs)
+        goto enomem;
+    reslen = 0;
+    res = calloc(reslen + 1, sizeof (*res));
+    if (!res)
+        goto enomem;
+
+    /*
+     * For backwards compatibility we have to do this here, not when
+     * parsing the config file.  So gross.  So, so, so, so gross.
+     */
+    for (i = 0; i < alen; i++) {
+        pos = NULL;
+        p = next_component_string(strs[i], " \t", &pos);
+        while (p) {
+            tmp_res = realloc(res, (reslen + 1) * sizeof (*res));
+            tmp_res[reslen] = strdup(p);
+            if (!tmp_res[reslen])
+                goto enomem;
+            reslen++;
+            tmp_res[reslen] = NULL;
+            res = tmp_res;
+        }
+    }
+    heim_release(a);
+    krb5_config_free_strings(strs);
+
+    return res;
+
+enomem:
+    heim_release(a);
+    krb5_config_free_strings(strs);
+    krb5_config_free_strings(res);
+    krb5_enomem(context);
+
     return NULL;
-
 }
 
 /**
@@ -1271,6 +1254,40 @@ krb5_config_get_int (krb5_context context,
     ret = krb5_config_vget_int (context, c, ap);
     va_end(ap);
     return ret;
+}
+
+static char **
+heim_array_to_cstring_array(heim_array_t a)
+{
+    heim_string_t str;
+    size_t i, alen;
+    char **p;
+    const char *s;
+
+    alen = heim_array_get_length(a);
+    p = calloc(alen + 1, sizeof (*p));
+    if (!p)
+        return NULL;
+
+    for (i = 0; i < alen; i++) {
+        str = heim_array_get_value(a, i);
+        /* str can't be NULL; assert? */
+        s = heim_string_get_utf8(str);
+        /* s can't be NULL; assert? */
+        p[i] = strdup(s);
+        if (!p[i])
+            goto err;
+    }
+    p[alen] = NULL;
+    return p;
+
+err:
+    for (i = 0; i < alen; i++) {
+        if (p[i])
+            free(p[i]);
+    }
+    free(p);
+    return NULL;
 }
 
 

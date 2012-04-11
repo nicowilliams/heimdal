@@ -39,6 +39,7 @@
 #define __KRB5_H__
 
 #include <time.h>
+#include <heimbase.h>
 #include <krb5-types.h>
 
 #include <asn1_err.h>
