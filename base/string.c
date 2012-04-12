@@ -179,7 +179,7 @@ heim_string_get_type_id(void)
  */
 
 const char *
-heim_string_get_utf8(heim_string_t string)
+heim_string_get_utf8(heim_const_string_t string)
 {
     if (*(const char *)string == '\0') {
 	const char **strp;

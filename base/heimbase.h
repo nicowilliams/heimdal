@@ -45,6 +45,7 @@ typedef void * heim_object_t;
 typedef const void * heim_const_object_t;
 typedef unsigned int heim_tid_t;
 typedef heim_object_t heim_bool_t;
+typedef heim_const_object_t heim_const_bool_t;
 typedef heim_object_t heim_null_t;
 #define HEIM_BASE_ONCE_INIT 0
 typedef long heim_base_once_t; /* XXX arch dependant */
@@ -111,7 +112,7 @@ heim_bool_t
 heim_bool_create(int);
 
 int
-heim_bool_val(heim_bool_t);
+heim_bool_val(heim_const_bool_t);
 
 /*
  * Array
@@ -185,7 +186,7 @@ heim_string_t heim_string_create_with_bytes(const void *, size_t);
 heim_string_t heim_string_ref_create_with_bytes(const void *, size_t,
 						heim_string_free_f_t);
 heim_tid_t heim_string_get_type_id(void);
-const char * heim_string_get_utf8(heim_string_t);
+const char * heim_string_get_utf8(heim_const_string_t);
 
 #define HSTR(_str) (__heim_string_constant("" _str ""))
 heim_string_t __heim_string_constant(const char *);
