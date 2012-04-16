@@ -257,7 +257,7 @@ int heim_path_create(heim_object_t ptr, size_t size, heim_object_t leaf,
 void heim_path_vdelete(heim_object_t ptr, heim_error_t *error, va_list ap);
 void heim_path_delete(heim_object_t ptr, heim_error_t *error, ...);
 
-int heim_path_iter(heim_object_t ptr, heim_path_iter_order_t order,
+int heim_path_iter(heim_const_object_t ptr, heim_path_iter_order_t order,
                    heim_path_iter_flags_t flags,
                    size_t max_depth, void **state,
                    heim_error_t *error, size_t *depth, heim_object_t *key,
@@ -265,6 +265,22 @@ int heim_path_iter(heim_object_t ptr, heim_path_iter_order_t order,
 void heim_path_iter_f(heim_object_t ptr, heim_path_iter_order_t order,
                       heim_path_iter_flags_t flags, size_t max_depth,
                       heim_error_t *error, heim_path_iter_f_t f, void *arg);
+
+/*
+ * [JSON] Schema
+ */
+
+typedef int (*heim_schema_validator_f_t)(void *arg, heim_const_dict_t schema,
+                                         heim_const_dict_t schema_node,
+                                         heim_const_object_t object,
+                                         heim_array_t node_path,
+                                         heim_const_object_t object_node,
+                                         heim_error_t *error);
+
+int heim_schema_validate(heim_const_dict_t schema, heim_const_object_t object,
+                         heim_error_t *error,
+                         heim_schema_validator_f_t extra_validator,
+                         void *validator_arg);
 
 /*
  * Data (octet strings)

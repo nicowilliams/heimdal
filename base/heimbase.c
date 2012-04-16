@@ -603,23 +603,70 @@ heim_auto_release_drain(heim_auto_release_t autorel)
  */
 
 enum heim_path_type {
-    HEIM_P_OBJ_STDARGS = 0,
-    HEIM_P_STR_STDARGS = 1,
-    HEIM_P_STR_ARRAY = 2
+    HEIM_P_OBJ_STDARGS = 0, /* variable heim_object_t arguments */
+    HEIM_P_STR_STDARGS = 1, /* variable char * arguments */
+    HEIM_P_STR_ARRAY = 2    /* pointer to array of char * */
 };
 
+static heim_array_t
+vpath2array(enum heim_path_type path_type, heim_error_t *error,
+            const char * const *strs, va_list ap)
+{
+    const char *s;
+    heim_object_t o = NULL;
+    heim_array_t a;
+    int ret;
+
+    a = heim_array_create();
+
+    switch (path_type) {
+    case HEIM_P_OBJ_STDARGS:
+        for (o = va_arg(ap, heim_object_t); o; o = va_arg(ap, heim_object_t)) {
+            ret = heim_array_append_value(a, o);
+            if (ret) goto enomem;
+        }
+        return o;
+    case HEIM_P_STR_STDARGS:
+        for (s = va_arg(ap, const char *); s; s = va_arg(ap, const char *)) {
+            o = heim_string_create(s);
+            if (!o) goto enomem;
+            ret = heim_array_append_value(a, o);
+            heim_release(o);
+            if (ret) goto enomem;
+        }
+        return a;
+    case HEIM_P_STR_ARRAY:
+        for (; strs[0]; strs++) {
+            o = heim_string_create(strs[0]);
+            if (!o) goto enomem;
+            ret = heim_array_append_value(a, o);
+            heim_release(o);
+            if (ret) goto enomem;
+        }
+        return a;
+    }
+
+enomem:
+    heim_release(a);
+    if (error)
+        *error = heim_error_enomem();
+    return NULL;
+}
+
+/*
+ * This is the workhorse of the heim path get/copy functions.
+ */
 static heim_object_t
 heim_path_vget2(heim_const_object_t ptr, heim_object_t *parent,
                 heim_object_t *key, heim_error_t *error,
-                enum heim_path_type args_type, 
-                const char * const *strs, va_list ap)
+                heim_array_t path)
 {
     heim_object_t path_element = NULL;
     heim_object_t prev_path_element;
     heim_const_object_t node, next_node;
     heim_tid_t node_type;
-    size_t stri = 0;
-    const char *str;
+    size_t i = 0;
+    size_t plen = heim_array_get_length(path);
 
     if (error)
 	*error = NULL;
@@ -630,43 +677,21 @@ heim_path_vget2(heim_const_object_t ptr, heim_object_t *parent,
 
     /* XXX There should be no need to heim_release(prev_path_element)! */
     *parent = (heim_object_t)ptr;
-    for (node = ptr; node != NULL; ) {
-	/*heim_release(prev_path_element);*/
+    for (i = 0, node = ptr; i < plen && node != NULL; i++) {
 	prev_path_element = path_element;
 
-	/* Get next argument */
-	if (args_type == HEIM_P_OBJ_STDARGS) {
-	    path_element = va_arg(ap, heim_object_t);
-	} else if (args_type == HEIM_P_STR_STDARGS) {
-	    path_element = NULL;
-	    str = va_arg(ap, const char *);
-	    if (str != NULL) {
-		path_element = heim_string_create(str);
-		if (path_element == NULL) {
-		    if (error)
-			*error = heim_error_enomem();
-		    /*heim_release(prev_path_element);*/
-                    *parent = NULL;
-		    return NULL;
-		}
-	    }
-	} else {
-            /* args_type == HEIM_P_STR_ARRAY */
-	    path_element = NULL;
-            str = strs[stri++];
-	    if (str != NULL) {
-		path_element = heim_string_create(str);
-		if (path_element == NULL) {
-		    if (error)
-			*error = heim_error_enomem();
-		    /*heim_release(prev_path_element);*/
-                    *parent = NULL;
-		    return NULL;
-		}
-	    }
-        }
+	/*
+         * Get next argument.  If we could pass &ap to a utility
+         * function then the following code could be put in a separate
+         * function.  It's not clear that it's legal to pass the address
+         * of va_lists.  An alternative would be to have a function
+         * gather all the varargs into a malloc()ed and realloc()ed
+         * array.
+         */
+        path_element = heim_array_get_value(path, i);
 
 	if (path_element == NULL) {
+            /* End of the path arguments */
 	    *key = prev_path_element;
 	    return (heim_object_t)node;
 	}
@@ -712,14 +737,13 @@ heim_path_vget2(heim_const_object_t ptr, heim_object_t *parent,
 		*error = heim_error_create(EINVAL,
 					   "heim_path_get() node in path "
 					   "not a container type");
-	    /*heim_release(prev_path_element);*/
             *parent = NULL;
 	    return NULL;
 	}
+        /* Here we could auto-create next_node if it did not exist */
         *parent = (heim_object_t)node;
 	node = next_node;
     }
-    /*heim_release(prev_path_element);*/
     return NULL;
 
 must_be_numeric:
@@ -747,9 +771,15 @@ must_be_numeric:
 heim_object_t
 heim_path_vget(heim_const_object_t ptr, heim_error_t *error, va_list ap)
 {
-    heim_object_t p, k;
+    heim_object_t p, k, o;
+    heim_array_t path;
 
-    return heim_path_vget2(ptr, &p, &k, error, HEIM_P_OBJ_STDARGS, NULL, ap);
+    path = vpath2array(HEIM_P_OBJ_STDARGS, error, NULL, ap);
+    if (!path)
+        return NULL;
+    o = heim_path_vget2(ptr, &p, &k, error, path);
+    heim_release(path);
+    return o;
 }
 
 /**
@@ -768,18 +798,30 @@ heim_object_t
 heim_path_vget_by_cstring(heim_const_object_t ptr, heim_error_t *error,
                           va_list ap)
 {
-    heim_object_t p, k;
+    heim_object_t p, k, o;
+    heim_array_t path;
 
-    return heim_path_vget2(ptr, &p, &k, error, HEIM_P_STR_STDARGS, NULL, ap);
+    path = vpath2array(HEIM_P_STR_STDARGS, error, NULL, ap);
+    if (!path)
+        return NULL;
+    o =  heim_path_vget2(ptr, &p, &k, error, path);
+    heim_release(path);
+    return o;
 }
 
 heim_object_t
 heim_path_get_by_cstrings(heim_const_object_t ptr, heim_error_t *error,
                           const char * const *strs)
 {
-    heim_object_t p, k;
+    heim_object_t p, k, o;
+    heim_array_t path;
 
-    return heim_path_vget2(ptr, &p, &k, error, HEIM_P_STR_ARRAY, strs, NULL);
+    path = vpath2array(HEIM_P_STR_ARRAY, error, strs, NULL);
+    if (!path)
+        return NULL;
+    o =  heim_path_vget2(ptr, &p, &k, error, path);
+    heim_release(path);
+    return o;
 }
 
 /**
@@ -797,9 +839,7 @@ heim_path_get_by_cstrings(heim_const_object_t ptr, heim_error_t *error,
 heim_object_t
 heim_path_vcopy(heim_const_object_t ptr, heim_error_t *error, va_list ap)
 {
-    heim_object_t p, k;
-
-    return heim_retain(heim_path_vget2(ptr, &p, &k, error, HEIM_P_OBJ_STDARGS, NULL, ap));
+    return heim_retain(heim_path_vget(ptr, error, ap));
 }
 
 /**
@@ -818,20 +858,14 @@ heim_object_t
 heim_path_vcopy_by_cstring(heim_const_object_t ptr, heim_error_t *error,
                           va_list ap)
 {
-    heim_object_t p, k;
-
-    return heim_retain(heim_path_vget2(ptr, &p, &k, error,
-                                       HEIM_P_STR_STDARGS, NULL, ap));
+    return heim_retain(heim_path_vget_by_cstring(ptr, error, ap));
 }
 
 heim_object_t
 heim_path_copy_by_cstrings(heim_const_object_t ptr, heim_error_t *error,
                            const char * const *strs)
 {
-    heim_object_t p, k;
-
-    return heim_retain(heim_path_vget2(ptr, &p, &k, error, HEIM_P_STR_ARRAY,
-                                       strs, NULL));
+    return heim_retain(heim_path_get_by_cstrings(ptr, error, strs));
 }
 
 /**
@@ -849,16 +883,17 @@ heim_path_copy_by_cstrings(heim_const_object_t ptr, heim_error_t *error,
 heim_object_t
 heim_path_get(heim_const_object_t ptr, heim_error_t *error, ...)
 {
-    heim_object_t o;
-    heim_object_t p, k;
+    heim_object_t p, k, o;
+    heim_array_t path;
     va_list ap;
 
-    if (ptr == NULL)
-	return NULL;
-
     va_start(ap, error);
-    o = heim_path_vget2(ptr, &p, &k, error, HEIM_P_OBJ_STDARGS, NULL, ap);
+    path = vpath2array(HEIM_P_OBJ_STDARGS, error, NULL, ap);
     va_end(ap);
+    if (!path)
+        return NULL;
+    o =  heim_path_vget2(ptr, &p, &k, error, path);
+    heim_release(path);
     return o;
 }
 
@@ -877,16 +912,17 @@ heim_path_get(heim_const_object_t ptr, heim_error_t *error, ...)
 heim_object_t
 heim_path_get_by_cstring(heim_const_object_t ptr, heim_error_t *error, ...)
 {
-    heim_object_t o;
-    heim_object_t p, k;
+    heim_object_t p, k, o;
+    heim_array_t path;
     va_list ap;
 
-    if (ptr == NULL)
-	return NULL;
-
     va_start(ap, error);
-    o = heim_path_vget2(ptr, &p, &k, error, HEIM_P_STR_STDARGS, NULL, ap);
+    path = vpath2array(HEIM_P_STR_STDARGS, error, NULL, ap);
     va_end(ap);
+    if (!path)
+        return NULL;
+    o =  heim_path_vget2(ptr, &p, &k, error, path);
+    heim_release(path);
     return o;
 }
 
@@ -906,16 +942,12 @@ heim_object_t
 heim_path_copy(heim_const_object_t ptr, heim_error_t *error, ...)
 {
     heim_object_t o;
-    heim_object_t p, k;
     va_list ap;
 
-    if (ptr == NULL)
-	return NULL;
-
     va_start(ap, error);
-    o = heim_retain(heim_path_vget2(ptr, &p, &k, error, HEIM_P_OBJ_STDARGS, NULL, ap));
+    o = heim_path_vget(ptr, error, ap);
     va_end(ap);
-    return o;
+    return heim_retain(o);
 }
 
 /**
@@ -934,16 +966,12 @@ heim_object_t
 heim_path_copy_by_cstring(heim_const_object_t ptr, heim_error_t *error, ...)
 {
     heim_object_t o;
-    heim_object_t p, k;
     va_list ap;
 
-    if (ptr == NULL)
-	return NULL;
-
     va_start(ap, error);
-    o = heim_retain(heim_path_vget2(ptr, &p, &k, error, HEIM_P_STR_STDARGS, NULL, ap));
+    o = heim_path_vget_by_cstring(ptr, error, ap);
     va_end(ap);
-    return o;
+    return heim_retain(o);
 }
 
 /**
@@ -1112,8 +1140,13 @@ void
 heim_path_vdelete(heim_object_t ptr, heim_error_t *error, va_list ap)
 {
     heim_object_t parent, key, child;
+    heim_array_t path;
 
-    child = heim_path_vget2(ptr, &parent, &key, error, HEIM_P_STR_STDARGS, NULL, ap);
+    path = vpath2array(HEIM_P_OBJ_STDARGS, error, NULL, ap);
+    if (!path)
+        return;
+    child =  heim_path_vget2(ptr, &parent, &key, error, path);
+    heim_release(path);
     if (child != NULL) {
 	if (heim_get_tid(parent) == HEIM_TID_DICT)
 	    heim_dict_delete_key(parent, key);
@@ -1151,7 +1184,7 @@ struct hp_state {
     heim_path_iter_order_t order;
     heim_path_iter_flags_t flags;
     heim_array_t path;
-    heim_object_t node;
+    heim_const_object_t node;
     heim_tid_t tid;
     void *iter_state;
     size_t alen;
@@ -1171,15 +1204,14 @@ struct hp_state {
  * @param [out] path Array of keys making up path to node
  * @param [out] node Node found at the given path
  *
- * @return -11 when there are more paths, 0 when there are no more paths, or a system error
+ * @return -1 when there are more paths, 0 when there are no more paths, or a system error
  */
 int
-heim_path_iter(heim_object_t ptr, heim_path_iter_order_t order,
+heim_path_iter(heim_const_object_t ptr, heim_path_iter_order_t order,
                heim_path_iter_flags_t flags,
                size_t max_depth, void **arg, heim_error_t *error,
                size_t *depth, heim_object_t *key,
-               heim_array_t *path,
-               heim_object_t *node)
+               heim_array_t *path, heim_object_t *node)
 {
     int ret;
     struct hp_state **state = (struct hp_state **)arg;
@@ -1379,10 +1411,45 @@ heim_path_iter_f(heim_object_t ptr, heim_path_iter_order_t order,
     do {
         ret = heim_path_iter(ptr, order, flags, max_depth, &state, error,
                              &depth, &key, &path, &node);
-        if (ret > 1)
+        if (ret > 0)
             return;
-
         f(arg, ptr, depth, key, path, node);
-    } while (ret == 1);
+    } while (ret == -1);
+}
+
+int
+heim_schema_validate(heim_const_dict_t schema, heim_const_object_t object,
+                     heim_error_t *error,
+                     heim_schema_validator_f_t extra_validator,
+                     void *validator_arg)
+{
+    void *state = NULL;
+    size_t depth;
+    heim_object_t key;
+    heim_array_t schema_path = NULL;
+    heim_array_t object_path = NULL;
+    heim_object_t object_node;
+    int ret;
+
+    do {
+        ret = heim_path_iter(object, HEIM_PATH_INORDER, HEIM_PATH_LEAF_ONLY,
+                             0, &state, error, NULL, NULL, &object_path,
+                             &object_node);
+        if (ret != 0)
+            break;
+        /*
+         * build a path into the schema then get the node there. this
+         * means we need heim_path_get_by_array()...  *sigh*, more work.
+         */
+        ret = extra_validator(validator_arg, schema, NULL/*XXX*/, object,
+                              object_path, object_node, error);
+    } while (ret == 0);
+
+    heim_release(schema_path);
+    heim_release(object_path);
+
+    if (ret == -1)
+        return 0;
+    return ret;
 }
 
