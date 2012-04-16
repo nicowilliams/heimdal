@@ -625,7 +625,7 @@ vpath2array(enum heim_path_type path_type, heim_error_t *error,
             ret = heim_array_append_value(a, o);
             if (ret) goto enomem;
         }
-        return o;
+        return a;
     case HEIM_P_STR_STDARGS:
         for (s = va_arg(ap, const char *); s; s = va_arg(ap, const char *)) {
             o = heim_string_create(s);
@@ -677,7 +677,7 @@ heim_path_vget2(heim_const_object_t ptr, heim_object_t *parent,
 
     /* XXX There should be no need to heim_release(prev_path_element)! */
     *parent = (heim_object_t)ptr;
-    for (i = 0, node = ptr; i < plen && node != NULL; i++) {
+    for (i = 0, node = ptr; node != NULL; i++) {
 	prev_path_element = path_element;
 
 	/*
@@ -688,7 +688,7 @@ heim_path_vget2(heim_const_object_t ptr, heim_object_t *parent,
          * gather all the varargs into a malloc()ed and realloc()ed
          * array.
          */
-        path_element = heim_array_get_value(path, i);
+        path_element = i < plen ? heim_array_get_value(path, i) : NULL;
 
 	if (path_element == NULL) {
             /* End of the path arguments */
