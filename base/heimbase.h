@@ -267,22 +267,6 @@ void heim_path_iter_f(heim_object_t ptr, heim_path_iter_order_t order,
                       heim_error_t *error, heim_path_iter_f_t f, void *arg);
 
 /*
- * [JSON] Schema
- */
-
-typedef int (*heim_schema_validator_f_t)(void *arg, heim_const_dict_t schema,
-                                         heim_const_dict_t schema_node,
-                                         heim_const_object_t object,
-                                         heim_array_t node_path,
-                                         heim_const_object_t object_node,
-                                         heim_error_t *error);
-
-int heim_schema_validate(heim_const_dict_t schema, heim_const_object_t object,
-                         heim_error_t *error,
-                         heim_schema_validator_f_t extra_validator,
-                         void *validator_arg);
-
-/*
  * Data (octet strings)
  */
 

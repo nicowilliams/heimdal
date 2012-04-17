@@ -1417,39 +1417,3 @@ heim_path_iter_f(heim_object_t ptr, heim_path_iter_order_t order,
     } while (ret == -1);
 }
 
-int
-heim_schema_validate(heim_const_dict_t schema, heim_const_object_t object,
-                     heim_error_t *error,
-                     heim_schema_validator_f_t extra_validator,
-                     void *validator_arg)
-{
-    void *state = NULL;
-    size_t depth;
-    heim_object_t key;
-    heim_array_t schema_path = NULL;
-    heim_array_t object_path = NULL;
-    heim_object_t object_node;
-    int ret;
-
-    do {
-        ret = heim_path_iter(object, HEIM_PATH_INORDER, HEIM_PATH_LEAF_ONLY,
-                             0, &state, error, NULL, NULL, &object_path,
-                             &object_node);
-        if (ret != 0)
-            break;
-        /*
-         * build a path into the schema then get the node there. this
-         * means we need heim_path_get_by_array()...  *sigh*, more work.
-         */
-        ret = extra_validator(validator_arg, schema, NULL/*XXX*/, object,
-                              object_path, object_node, error);
-    } while (ret == 0);
-
-    heim_release(schema_path);
-    heim_release(object_path);
-
-    if (ret == -1)
-        return 0;
-    return ret;
-}
-
