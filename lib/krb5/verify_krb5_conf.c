@@ -582,33 +582,62 @@ check_section(krb5_context context, const char *path, krb5_config_section *cf,
 	      struct entry *entries)
 {
     int error = 0;
-    krb5_config_section *p;
     struct entry *e;
-
+    heim_string_t str;
+    heim_tid_t dicttid = heim_dict_get_type_id();
+    heim_tid_t strtid = heim_string_get_type_id();
+    heim_tid_t vtid;
+    heim_object_t k, v;
+    const char *s;
+    void *state = NULL;
     char *local;
+    int ret;
 
-    for(p = cf; p != NULL; p = p->next) {
+    for (;;) {
+        ret = heim_dict_iterate_nf(cf, &state, &k, &v);
+        if (ret) {
+            if (ret > 0)
+                error = ret;
+            break;
+        }
+        if (heim_get_tid(k) == strtid) {
+            str = k;
+            s = heim_string_get_utf8(str);
+        } else {
+            str = heim_serialize(k, 0, NULL);
+            if (!str)
+                errx(1, "out of memory");
+            s = heim_string_get_utf8(str);
+            krb5_warnx(context, "%s: unknown or wrong type", s);
+            heim_release(str);
+            continue;
+        }
 	local = NULL;
-	if (asprintf(&local, "%s/%s", path, p->name) < 0 || local == NULL)
+	if (asprintf(&local, "%s/%s", path, s) < 0 || local == NULL)
 	    errx(1, "out of memory");
 	for(e = entries; e->name != NULL; e++) {
-	    if(*e->name == '\0' || strcmp(e->name, p->name) == 0) {
-		if(e->type != p->type) {
-		    krb5_warnx(context, "%s: unknown or wrong type", local);
-		    error |= 1;
-		} else if(p->type == krb5_config_string && e->check_data != NULL) {
-		    error |= (*(check_func_t)e->check_data)(context, local, p->u.string);
-		} else if(p->type == krb5_config_list && e->check_data != NULL) {
-		    error |= check_section(context, local, p->u.list, e->check_data);
+	    if (*e->name == '\0' || strcmp(e->name, s) == 0) {
+                vtid = heim_get_tid(v);
+
+                if ((e->type == krb5_config_list && vtid != dicttid) ||
+                    (e->type == krb5_config_string && vtid != strtid)) {
+                    if (vtid != dicttid)
+                        krb5_warnx(context, "%s: unknown or wrong type", local);
+                    error |= 1;
+		} else if (vtid == strtid && e->check_data != NULL) {
+                    s = heim_string_get_utf8(v);
+		    error |= (*(check_func_t)e->check_data)(context, local, v);
+		} else if (vtid == dicttid && e->check_data != NULL) {
+		    error |= check_section(context, local, v, e->check_data);
 		}
-		if(e->deprecated) {
+		if (e->deprecated) {
 		    krb5_warnx(context, "%s: is a deprecated entry", local);
 		    error |= 1;
 		}
 		break;
 	    }
 	}
-	if(e->name == NULL) {
+	if (e->name == NULL) {
 	    krb5_warnx(context, "%s: unknown entry", local);
 	    error |= 1;
 	}
@@ -621,23 +650,52 @@ check_section(krb5_context context, const char *path, krb5_config_section *cf,
 static void
 dumpconfig(int level, krb5_config_section *top)
 {
-    krb5_config_section *x;
-    for(x = top; x; x = x->next) {
-	switch(x->type) {
-	case krb5_config_list:
-	    if(level == 0) {
-		printf("[%s]\n", x->name);
-	    } else {
-		printf("%*s%s = {\n", 4 * level, " ", x->name);
-	    }
-	    dumpconfig(level + 1, x->u.list);
-	    if(level > 0)
+    heim_tid_t dicttid = heim_dict_get_type_id();
+    heim_tid_t strtid = heim_string_get_type_id();
+    heim_tid_t ktid, vtid;
+    heim_string_t str;
+    heim_object_t k, v;
+    const char *ks, *s;
+    void *state = NULL;
+    int ret;
+
+    for (;;) {
+        ret = heim_dict_iterate_nf(top, &state, &k, &v);
+        if (ret)
+            break;
+        ktid = heim_get_tid(k);
+        if (ktid != strtid) {
+            str = heim_serialize(k, 0, NULL);
+            if (!str)
+                errx(1, "out of memory");
+            s = heim_string_get_utf8(str);
+            warnx("%s: not a list and not a string", s);
+            heim_release(str);
+            continue;
+        }
+        ks = heim_string_get_utf8(k);
+        vtid = heim_get_tid(v);
+        if (vtid == dicttid) {
+            if (level == 0)
+                printf("[%s]\n", ks);
+            else
+                printf("%*s%s = {\n", 4 * level, " ", ks);
+	    dumpconfig(level + 1, v);
+	    if (level > 0)
 		printf("%*s}\n", 4 * level, " ");
-	    break;
-	case krb5_config_string:
-	    printf("%*s%s = %s\n", 4 * level, " ", x->name, x->u.string);
-	    break;
-	}
+        } else if (vtid == strtid) {
+            const char *vs = heim_string_get_utf8(v);
+
+	    printf("%*s%s = %s\n", 4 * level, " ", ks, vs);
+        } else {
+            str = heim_serialize(k, 0, NULL);
+            if (!str)
+                errx(1, "out of memory");
+            s = heim_string_get_utf8(str);
+	    warnx("%s: not a list and not a string", s);
+            heim_release(str);
+            continue;
+        }
     }
 }
 
