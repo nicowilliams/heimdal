@@ -172,7 +172,7 @@ heim_shortest_path_first(heim_dict_t g, heim_object_t source,
 	 * this loop.  All other breaks are either error conditions or
 	 * should not happen.
 	 */
-	if (u == target) break;
+	if (u == target || (target && heim_cmp(u, target) == 0)) break;
 
 	/* if distance[u] == infinity break; */
 	disto = heim_dict_get_value(distance, u);
