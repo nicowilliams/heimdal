@@ -65,7 +65,7 @@ usage (int ret)
 }
 
 static int
-check_bytes(krb5_context context, const char *path, char *data)
+check_bytes(krb5_context context, const char *path, const char *data)
 {
     if(parse_bytes(data, NULL) == -1) {
 	krb5_warnx(context, "%s: failed to parse \"%s\" as size", path, data);
@@ -75,7 +75,7 @@ check_bytes(krb5_context context, const char *path, char *data)
 }
 
 static int
-check_time(krb5_context context, const char *path, char *data)
+check_time(krb5_context context, const char *path, const char *data)
 {
     if(parse_time(data, NULL) == -1) {
 	krb5_warnx(context, "%s: failed to parse \"%s\" as time", path, data);
@@ -85,7 +85,7 @@ check_time(krb5_context context, const char *path, char *data)
 }
 
 static int
-check_numeric(krb5_context context, const char *path, char *data)
+check_numeric(krb5_context context, const char *path, const char *data)
 {
     long v;
     char *end;
@@ -105,7 +105,7 @@ check_numeric(krb5_context context, const char *path, char *data)
 }
 
 static int
-check_boolean(krb5_context context, const char *path, char *data)
+check_boolean(krb5_context context, const char *path, const char *data)
 {
     long int v;
     char *end;
@@ -127,7 +127,7 @@ check_boolean(krb5_context context, const char *path, char *data)
 }
 
 static int
-check_524(krb5_context context, const char *path, char *data)
+check_524(krb5_context context, const char *path, const char *data)
 {
     if(strcasecmp(data, "yes") == 0 ||
        strcasecmp(data, "no") == 0 ||
@@ -141,7 +141,7 @@ check_524(krb5_context context, const char *path, char *data)
 }
 
 static int
-check_host(krb5_context context, const char *path, char *data)
+check_host(krb5_context context, const char *path, const char *data)
 {
     int ret;
     char hostname[128];
@@ -216,7 +216,7 @@ check_host(krb5_context context, const char *path, char *data)
 }
 
 static int
-mit_entry(krb5_context context, const char *path, char *data)
+mit_entry(krb5_context context, const char *path, const char *data)
 {
     if (warn_mit_syntax_flag)
 	krb5_warnx(context, "%s is only used by MIT Kerberos", path);
@@ -283,7 +283,7 @@ find_value(const char *s, struct s2i *table)
 }
 
 static int
-check_log(krb5_context context, const char *path, char *data)
+check_log(krb5_context context, const char *path, const char *data)
 {
     /* XXX sync with log.c */
     int min = 0, max = -1, n;
@@ -344,7 +344,7 @@ check_log(krb5_context context, const char *path, char *data)
     }
 }
 
-typedef int (*check_func_t)(krb5_context, const char*, char*);
+typedef int (*check_func_t)(krb5_context, const char *, const char *);
 struct entry {
     const char *name;
     int type;
@@ -585,6 +585,7 @@ check_section(krb5_context context, const char *path, krb5_config_section *cf,
     struct entry *e;
     heim_string_t str;
     heim_tid_t dicttid = heim_dict_get_type_id();
+    heim_tid_t arraytid = heim_array_get_type_id();
     heim_tid_t strtid = heim_string_get_type_id();
     heim_tid_t vtid;
     heim_object_t k, v;
@@ -620,13 +621,35 @@ check_section(krb5_context context, const char *path, krb5_config_section *cf,
                 vtid = heim_get_tid(v);
 
                 if ((e->type == krb5_config_list && vtid != dicttid) ||
-                    (e->type == krb5_config_string && vtid != strtid)) {
-                    if (vtid != dicttid)
-                        krb5_warnx(context, "%s: unknown or wrong type", local);
+                    (e->type == krb5_config_string && vtid != arraytid)) {
+                    /* value type is not as expected */
+                    krb5_warnx(context, "%s: unknown or wrong type", local);
                     error |= 1;
-		} else if (vtid == strtid && e->check_data != NULL) {
-                    s = heim_string_get_utf8(v);
-		    error |= (*(check_func_t)e->check_data)(context, local, v);
+		} else if (vtid == arraytid && e->check_data != NULL) {
+                    size_t alen = heim_array_get_length(v);
+                    heim_object_t item;
+                    size_t idx;
+
+                    /*
+                     * Validate all the values, but note that we don't
+                     * split them on whitespace the way that
+                     * krb5_config_vget_strings() does.  We don't
+                     * (though we could) know here whether a parameter
+                     * is intended to be multi-valued.
+                     */
+                    for (idx = 0; idx < alen; idx++) {
+                        item = heim_array_get_value(v, idx);
+                        if (heim_get_tid(item) != strtid) {
+                            str = heim_serialize(item, 0, NULL);
+                            if (!str)
+                                errx(1, "out of memory");
+                            krb5_warnx(context, "%s: wrong value type (%s)",
+                                       local, heim_string_get_utf8(str));
+                            continue;
+                        }
+                        s = heim_string_get_utf8(item);
+                        error |= (*(check_func_t)e->check_data)(context, local, s);
+                    }
 		} else if (vtid == dicttid && e->check_data != NULL) {
 		    error |= check_section(context, local, v, e->check_data);
 		}
@@ -651,6 +674,7 @@ static void
 dumpconfig(int level, krb5_config_section *top)
 {
     heim_tid_t dicttid = heim_dict_get_type_id();
+    heim_tid_t arraytid = heim_array_get_type_id();
     heim_tid_t strtid = heim_string_get_type_id();
     heim_tid_t ktid, vtid;
     heim_string_t str;
@@ -669,7 +693,7 @@ dumpconfig(int level, krb5_config_section *top)
             if (!str)
                 errx(1, "out of memory");
             s = heim_string_get_utf8(str);
-            warnx("%s: not a list and not a string", s);
+            warnx("%s: parameter name not a string", s);
             heim_release(str);
             continue;
         }
@@ -683,10 +707,26 @@ dumpconfig(int level, krb5_config_section *top)
 	    dumpconfig(level + 1, v);
 	    if (level > 0)
 		printf("%*s}\n", 4 * level, " ");
-        } else if (vtid == strtid) {
-            const char *vs = heim_string_get_utf8(v);
+        } else if (vtid == arraytid) {
+            heim_object_t item;
+            size_t alen = heim_array_get_length(v);
+            size_t idx;
 
-	    printf("%*s%s = %s\n", 4 * level, " ", ks, vs);
+            for (idx = 0; idx < alen; idx++) {
+                item = heim_array_get_value(v, idx);
+                if (heim_get_tid(item) != strtid) {
+                    str = heim_serialize(item, 0, NULL);
+                    if (!str)
+                        errx(1, "out of memory");
+                    s = heim_string_get_utf8(str);
+                    warnx("%s: not a string: %s", ks, s);
+                    heim_release(str);
+                    continue;
+                }
+                printf("%*s%s = %s\n", 4 * level, " ", ks,
+                       heim_string_get_utf8(item));
+            }
+
         } else {
             str = heim_serialize(k, 0, NULL);
             if (!str)
