@@ -99,6 +99,11 @@ _krb5_config_get_entry(heim_object_t *parent, const char *name, int type)
     if (!s)
 	return NULL;
 
+    if (*parent == NULL)
+        *parent = heim_dict_create(11);
+    if (*parent == NULL)
+        return NULL; /* XXX ENOMEM */
+
     o = heim_dict_get_value(*parent, s);
     if (o)
 	return (o);
@@ -182,7 +187,7 @@ parse_list(struct fileptr *f, unsigned *lineno, heim_object_t *parent,
 {
     char buf[KRB5_BUFSIZ];
     krb5_error_code ret;
-    heim_object_t *b = NULL;
+    heim_object_t b = NULL;
     unsigned beg_lineno = *lineno;
 
     while(config_fgets(buf, sizeof(buf), f) != NULL) {
@@ -201,7 +206,7 @@ parse_list(struct fileptr *f, unsigned *lineno, heim_object_t *parent,
 	    return 0;
 	if (*p == '\0')
 	    continue;
-	ret = parse_binding (f, lineno, p, b, parent, err_message);
+	ret = parse_binding (f, lineno, p, &b, parent, err_message);
 	if (ret)
 	    return ret;
     }
@@ -247,7 +252,7 @@ parse_binding(struct fileptr *f, unsigned *lineno, char *p,
 	    *err_message = "out of memory";
 	    return KRB5_CONFIG_BADFORMAT; /* XXX Should be ENOMEM, no? */
 	}
-	ret = parse_list (f, lineno, tmp, err_message);
+	ret = parse_list (f, lineno, &tmp, err_message);
     } else {
 	tmp = _krb5_config_get_entry(parent, p1, krb5_config_string);
 	if (tmp == NULL) {
@@ -424,6 +429,18 @@ is_plist_file(const char *fname)
     return 1;
 }
 
+static int
+is_json_file(const char *fname)
+{
+    size_t len = strlen(fname);
+    char suffix[] = ".json";
+    if (len < sizeof(suffix))
+	return 0;
+    if (strcasecmp(&fname[len - (sizeof(suffix) - 1)], suffix) != 0)
+	return 0;
+    return 1;
+}
+
 /**
  * Parse a configuration file and add the result into res. This
  * interface can be used to parse several configuration files into one
@@ -442,10 +459,12 @@ krb5_config_parse_file_multi (krb5_context context,
 			      const char *fname,
 			      krb5_config_section **res)
 {
-    const char *str;
+    const char *str = "Unknown syntax error";
     char *newfname = NULL;
     unsigned lineno = 0;
     krb5_error_code ret;
+    heim_error_t e = NULL;
+    heim_string_t err_str = NULL;
     heim_object_t *resobj = (heim_object_t *)res;
     struct fileptr f;
 
@@ -537,11 +556,57 @@ krb5_config_parse_file_multi (krb5_context context,
 	    return ret;
 	}
 
-	ret = krb5_config_parse_debug(&f, resobj, &lineno, &str);
+        if (is_json_file(fname)) {
+            char *fdata;
+            size_t len;
+
+            fseek(f.f, 0, SEEK_END);
+            len = ftell(f.f);
+            fseek(f.f, 0, SEEK_SET);
+
+            if (len < 1){
+                ret = ENOENT;
+                str = "JSON file was empty";
+                goto err;
+            }
+
+            fdata = malloc(len + 1);
+            if (!fdata) {
+                ret = ENOMEM;
+                str = "Out of memory";
+                goto err;
+            }
+            fdata[len] = '\0';
+
+            if (fread(fdata, 1, len, f.f) != len) {
+                ret = EIO;
+                str = "Could not read JSON file";
+                goto err;
+            }
+
+            ret = EINVAL;
+            *resobj = heim_json_create(fdata, 8, 0, &e);
+            if (*resobj)
+                ret = 0;
+        } else {
+            ret = krb5_config_parse_debug(&f, resobj, &lineno, &str);
+        }
+err:
+        if (e) {
+            ret = heim_error_get_code(e);
+            err_str = heim_error_copy_string(e);
+            if (err_str)
+                str = heim_string_get_utf8(err_str);
+            krb5_set_error_message(context, ret, "%s: %s",
+                                   fname, str);
+            heim_release(err_str);
+            heim_release(e);
+        } else if (ret) {
+            krb5_set_error_message(context, ret, "%s:%u: %s",
+                                   fname, lineno, str);
+        }
 	fclose(f.f);
 	if (ret) {
-	    krb5_set_error_message(context, ret, "%s:%u: %s",
-				   fname, lineno, str);
 	    if (newfname)
 		free(newfname);
 	    return ret;
@@ -640,8 +705,9 @@ krb5_config_vget_list(krb5_context context,
     krb5_config_binding *o;
     heim_error_t herr;
 
+    if (!c)
+        c = context->cf;
     o = heim_path_vget_by_cstring(c, &herr, args);
-
     if (!o && herr) {
 	heim_string_t s = heim_error_copy_string(herr);
 	const char *p = NULL;
@@ -657,11 +723,13 @@ krb5_config_vget_list(krb5_context context,
 }
 
 KRB5_LIB_FUNCTION krb5_error_code KRB5_LIB_CALL
-krb5_config_iter_keys(krb5_context context,
-                      const krb5_config_binding *c,
-                      void **statep, const char **keyp,
-                      const krb5_config_binding **valuep)
+krb5_config_iter_bindings(krb5_context context,
+                          const krb5_config_binding *c,
+                          void **statep,
+                          const char **keyp,
+                          const krb5_config_binding **valuep)
 {
+    heim_tid_t dicttid = heim_dict_get_type_id();
     heim_object_t k, v;
     int ret;
 
@@ -669,7 +737,7 @@ krb5_config_iter_keys(krb5_context context,
         ret = heim_dict_iterate_nf(c, statep, &k, &v);
         if (ret > 0)
             return ret;
-    } while (ret == 0 && heim_get_tid(k) != heim_string_get_type_id());
+    } while (ret == 0 && heim_get_tid(k) != dicttid);
     if (ret)
         return ret;
 
@@ -703,6 +771,8 @@ krb5_config_get_string (krb5_context context,
     va_list args;
 
     va_start(args, c);
+    if (!c)
+        c = context->cf;
     ret = krb5_config_vget_string (context, c, args);
     va_end(args);
     return ret;
@@ -728,7 +798,15 @@ krb5_config_vget_string (krb5_context context,
     heim_object_t o;
     heim_error_t herr;
 
+    if (!c)
+        c = context->cf;
     o = heim_path_vget_by_cstring(c, &herr, args);
+    if (!o)
+        return NULL;
+    if (heim_get_tid(o) == heim_array_get_type_id())
+        o = heim_array_get_value(o, 0);
+    if (!o)
+        return NULL;
     if (heim_get_tid(o) != heim_string_get_type_id())
 	return NULL; /* We could serialize o as JSON... */
 
@@ -810,7 +888,7 @@ next_component_string(char * begin, const char * delims, char **state)
 {
     char * end;
 
-    if (begin == NULL)
+    if (*state)
         begin = *state;
 
     if (*begin == '\0')
@@ -876,15 +954,20 @@ krb5_config_vget_strings(krb5_context context,
     char *pos;
     size_t i, alen, reslen;
 
+    if (!c)
+        c = context->cf;
     a = heim_path_vget_by_cstring(c, &herr, args);
-    if (!a && herr) {
-	heim_string_t s = heim_error_copy_string(herr);
+    if (!a) {
+        if (herr) {
+            heim_string_t s = heim_error_copy_string(herr);
 
-	if (s)
-	    p = heim_string_get_utf8(s);
-	if (p)
-	    krb5_set_error_message(context, heim_error_get_code(herr), "%s", p);
-	heim_release(s);
+            if (s)
+                p = heim_string_get_utf8(s);
+            if (p)
+                krb5_set_error_message(context, heim_error_get_code(herr), "%s", p);
+            heim_release(s);
+        }
+        return NULL;
     }
 
     alen = heim_array_get_length(a);
@@ -906,9 +989,8 @@ krb5_config_vget_strings(krb5_context context,
      */
     for (i = 0; i < alen; i++) {
         pos = NULL;
-        p = next_component_string(strs[i], " \t", &pos);
-        while (p) {
-            tmp_res = realloc(res, (reslen + 1) * sizeof (*res));
+        while ((p = next_component_string(strs[i], " \t", &pos))) {
+            tmp_res = realloc(res, (reslen + 2) * sizeof (*res));
             tmp_res[reslen] = strdup(p);
             if (!tmp_res[reslen])
                 goto enomem;
@@ -951,7 +1033,10 @@ krb5_config_get_strings(krb5_context context,
 {
     va_list ap;
     char **ret;
+
     va_start(ap, c);
+    if (!c)
+        c = context->cf;
     ret = krb5_config_vget_strings(context, c, ap);
     va_end(ap);
     return ret;
@@ -1118,6 +1203,8 @@ krb5_config_vget_time_default (krb5_context context,
     const char *str;
     krb5_deltat t;
 
+    if (!c)
+        c = context->cf;
     str = krb5_config_vget_string (context, c, args);
     if(str == NULL)
 	return def_value;
@@ -1207,6 +1294,9 @@ krb5_config_vget_int_default (krb5_context context,
 			      va_list args)
 {
     const char *str;
+
+    if (!c)
+        c = context->cf;
     str = krb5_config_vget_string (context, c, args);
     if(str == NULL)
 	return def_value;

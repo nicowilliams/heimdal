@@ -118,8 +118,8 @@ hdb_get_dbinfo(krb5_context context, struct hdb_dbinfo **dbp)
 	}
 
         do {
-            heim_ret = krb5_config_iter_keys(context, db_binding, &state,
-                                             &label, &sub_db_binding);
+            heim_ret = krb5_config_iter_bindings(context, db_binding, &state,
+                                                 &label, &sub_db_binding);
             if (heim_ret) {
                 if (heim_ret > 0)
                     krb5_err(context, 1, ret,
