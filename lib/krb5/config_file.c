@@ -746,10 +746,12 @@ krb5_config_iter_bindings(krb5_context context,
         ret = heim_dict_iterate_nf(c, statep, &k, &v);
         if (ret > 0)
             return ret;
-    } while (ret == 0 && heim_get_tid(k) != dicttid);
+    } while (ret == 0 && heim_get_tid(v) != dicttid);
     if (ret)
         return ret;
 
+    heim_assert(heim_get_tid(k) == heim_string_get_type_id(),
+                "Non-string keys in krb5 configuration not allowed");
     *keyp = heim_string_get_utf8(k);
     *valuep = (heim_const_object_t)v;
 
