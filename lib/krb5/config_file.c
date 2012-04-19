@@ -971,10 +971,8 @@ krb5_config_vget_strings(krb5_context context,
     }
 
     alen = heim_array_get_length(a);
-    if (alen == 0) {
-        heim_release(a);
+    if (alen == 0)
         return NULL;
-    }
     strs = heim_array_to_cstring_array(a);
     if (!strs)
         goto enomem;
@@ -999,13 +997,11 @@ krb5_config_vget_strings(krb5_context context,
             res = tmp_res;
         }
     }
-    heim_release(a);
     krb5_config_free_strings(strs);
 
     return res;
 
 enomem:
-    heim_release(a);
     krb5_config_free_strings(strs);
     krb5_config_free_strings(res);
     krb5_enomem(context);
