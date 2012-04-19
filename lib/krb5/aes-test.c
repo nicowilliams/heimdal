@@ -488,6 +488,7 @@ krb_checksum_iov(krb5_context context,
     p = plain->data;
     len = plain->length;
 
+    memset(iov, 0, sizeof (iov));
     iov[0].flags = KRB5_CRYPTO_TYPE_CHECKSUM;
     krb5_crypto_length(context, crypto, iov[0].flags, &iov[0].data.length);
     iov[0].data.data = emalloc(iov[0].data.length);
