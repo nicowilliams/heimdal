@@ -299,38 +299,43 @@ heim_dict_iterate_nf(heim_const_dict_t dict, void **statep, heim_object_t *key,
 		     heim_object_t *value)
 {
     struct dict_iter_state {
-	struct hashentry **h;
-	struct hashentry *g;
-    } *state;
+	struct hashentry **h; /* current hash bucket */
+	struct hashentry *g;  /* current hashentry */
+    } *state = *statep;
 
-    if (*statep == NULL) {
+    /* Init or get state */
+    if (state == NULL) {
 	state = calloc(1, sizeof (*state));
 	if (state == NULL)
 	    return ENOMEM;
 	state->h = dict->tab;
 	state->g = state->h ? *state->h : NULL;
 	*statep = state;
-    } else {
-	state = *statep;
     }
 
-    /* Find next */
-    while (!state->g && state->h < &dict->tab[dict->size])
+    /*
+     * Get next bucket if we're not staring at one.  state->g will be
+     * NULL if the last time we output a key/value pair we were at the
+     * end of the hash bucket.
+     */
+    while (!state->g && state->h < &dict->tab[dict->size - 1])
+        /* Advance to first hashentry in next bucket */
 	state->g = *(++(state->h));
 
-    if (state->h >= &dict->tab[dict->size]) {
-	free(state);
-	return -1;
+    if (state->g) {
+        /* Got a hash entry; output key/value pair */
+        if (key)
+            *key = state->g->key;
+        if (value)
+            *value = state->g->value;
+        /* Advance to next hashentry in bucket */
+        state->g = state->g->next;
+        return 0;
     }
 
-    heim_assert(state->g, "Internal error: dict missing a bucket");
-
-    if (key)
-	*key = state->g->key;
-    if (value)
-	*value = state->g->value;
-    state->g = state->g->next;
-    return 0;
+    *statep = NULL;
+    free(state);
+    return -1;
 }
 
 #ifdef __BLOCKS__
