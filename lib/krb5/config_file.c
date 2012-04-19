@@ -101,24 +101,30 @@ _krb5_config_get_entry(heim_object_t *parent, const char *name, int type)
 
     if (*parent == NULL)
         *parent = heim_dict_create(11);
-    if (*parent == NULL)
+    if (*parent == NULL) {
+        heim_release(s);
         return NULL; /* XXX ENOMEM */
+    }
 
     o = heim_dict_get_value(*parent, s);
-    if (o)
+    if (o) {
+        heim_release(s);
 	return (o);
+    }
     if (type == krb5_config_string)
 	c = heim_array_create();
     else
 	c = heim_dict_create(11);
-    if (!c)
-	return NULL;
-
-    ret = heim_dict_set_value(*parent, s, c);
-    if (ret) {
-	heim_release(c);
+    if (!c) {
+        heim_release(s);
 	return NULL;
     }
+
+    ret = heim_dict_set_value(*parent, s, c);
+    heim_release(s);
+    heim_release(c);
+    if (ret)
+	return NULL;
     return c;
 }
 
@@ -126,6 +132,7 @@ int
 _krb5_config_add_string(heim_object_t parent, const char *str)
 {
     heim_string_t s;
+    int ret;
 
     heim_assert(heim_get_tid(parent) == heim_array_get_type_id(),
 		"Internal error in configuration parsing");
@@ -134,7 +141,9 @@ _krb5_config_add_string(heim_object_t parent, const char *str)
     if (!s)
 	return ENOMEM;
 
-    return heim_array_append_value(parent, s);
+    ret = heim_array_append_value(parent, s);
+    heim_release(s);
+    return ret;
 }
 
 

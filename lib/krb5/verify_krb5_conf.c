@@ -783,5 +783,7 @@ main(int argc, char **argv)
     if(dumpconfig_flag)
 	dumpconfig(0, tmp_cf);
 
-    return check_section(context, "", tmp_cf, toplevel_sections);
+    ret = check_section(context, "", tmp_cf, toplevel_sections);
+    krb5_config_file_free(context, tmp_cf);
+    return ret;
 }
