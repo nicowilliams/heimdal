@@ -39,6 +39,7 @@
 /* verify krb5.conf */
 
 static int dumpconfig_flag = 0;
+static int json_flag = 0;
 static int version_flag = 0;
 static int help_flag	= 0;
 static int warn_mit_syntax_flag = 0;
@@ -46,11 +47,13 @@ static int warn_mit_syntax_flag = 0;
 static struct getargs args[] = {
     {"dumpconfig", 0,      arg_flag,       &dumpconfig_flag,
      "show the parsed config files", NULL },
+    {"json", 0,            arg_flag,       &json_flag,
+     "dump in JSON format", NULL },
     {"warn-mit-syntax", 0, arg_flag,       &warn_mit_syntax_flag,
      "show the parsed config files", NULL },
-    {"version",	0,	arg_flag,	&version_flag,
+    {"version",	0,	   arg_flag,	&version_flag,
      "print version", NULL },
-    {"help",	0,	arg_flag,	&help_flag,
+    {"help",	0,	   arg_flag,	&help_flag,
      NULL, NULL }
 };
 
@@ -683,6 +686,26 @@ dumpconfig(int level, krb5_config_section *top)
     void *state = NULL;
     int ret;
 
+    if (json_flag) {
+        heim_error_t e = NULL;
+
+        /* heim_show() printf()s on stderr; we want stdout */
+        str = heim_serialize(top, 0, &e);
+        if (!str) {
+            if (e) {
+                str = heim_error_copy_string(e);
+                errx(1, "Error dumping config in JSON format: %s",
+                     heim_string_get_utf8(str));
+                /* NOTREACHED */
+            }
+            errx(1, "out of memory");
+            /* NOTREACHED */
+        }
+        printf("%s\n", heim_string_get_utf8(str));
+        heim_release(str);
+        return;
+    }
+
     for (;;) {
         ret = heim_dict_iterate_nf(top, &state, &k, &v);
         if (ret)
@@ -747,7 +770,7 @@ main(int argc, char **argv)
     krb5_config_section *tmp_cf;
     int optidx = 0;
 
-    setprogname (argv[0]);
+    setprogname(argv[0]);
 
     ret = krb5_init_context(&context);
     if (ret == KRB5_CONFIG_BADFORMAT)
@@ -755,16 +778,19 @@ main(int argc, char **argv)
     else if (ret)
 	errx (1, "krb5_init_context failed with %d", ret);
 
-    if(getarg(args, sizeof(args) / sizeof(args[0]), argc, argv, &optidx))
+    if (getarg(args, sizeof(args) / sizeof(args[0]), argc, argv, &optidx))
 	usage(1);
 
     if (help_flag)
 	usage (0);
 
-    if(version_flag){
+    if (version_flag) {
 	print_version(NULL);
 	exit(0);
     }
+
+    if (json_flag)
+        dumpconfig_flag = 1;
 
     argc -= optidx;
     argv += optidx;
@@ -773,14 +799,14 @@ main(int argc, char **argv)
     if(argc == 0)
 	krb5_get_default_config_files(&argv);
 
-    while(*argv) {
+    while (*argv) {
 	ret = krb5_config_parse_file_multi(context, *argv, &tmp_cf);
 	if (ret != 0)
-	    krb5_warn (context, ret, "krb5_config_parse_file");
+	    krb5_warn(context, ret, "krb5_config_parse_file");
 	argv++;
     }
 
-    if(dumpconfig_flag)
+    if (dumpconfig_flag)
 	dumpconfig(0, tmp_cf);
 
     ret = check_section(context, "", tmp_cf, toplevel_sections);
