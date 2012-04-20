@@ -3,6 +3,33 @@
 #include <limits.h>
 
 /*
+ * Notes to self regarding [capaths] section.
+ *
+ * We should process [capaths] as follows:
+ *
+ *  - look for all entries not named for the client's realm
+ *  - take all the "." entries and add them to the graph to be used for
+ *    SPF
+ *  - take all the !"." entries and add them to a dict
+ *  - loop over a loop over those entries inserting into the graph nodes
+ *    for any entries for whose next hop we have an entry in the graph
+ *
+ * We should do something similar for transited path validation, only
+ * here we only care about the [capaths] binding for the client's realm
+ * and no others.  This documents inbound trusts.
+ *
+ * Once we have a graph we can apply SPF.  It's a bit wasteful to do so,
+ * but it's a sane way to understand [capaths].  To be less wasteful we
+ * should introduce a new section to list known direct trusts.
+ *
+ * Finally, we need a place to cache the results.  That could be the
+ * krb5_context, in a dict keyed by client realm name.  We probably need
+ * to lock around checking/updating this cache because there are threads
+ * that will be sharing a single krb5_context.  Finishing the lazy
+ * user-land RCU concept would help.
+ */
+
+/*
  * Convert results of SPF into something nice and usable:
  * { <target> : { next_hop : <hop>,
  *                transit_path : [ <first_hop> .. <last_hop> ]
@@ -12,8 +39,9 @@
  */
 static
 int
-spf_result(heim_dict_t g, heim_object_t source, heim_dict_t previous,
-	   heim_dict_t distance, heim_dict_t *result)
+spf_result(heim_dict_t g, heim_object_t source, heim_object_t target,
+           heim_dict_t previous, heim_dict_t distance,
+           heim_dict_t *result)
 {
     heim_dict_t dict;
     heim_object_t dist;
@@ -27,7 +55,10 @@ spf_result(heim_dict_t g, heim_object_t source, heim_dict_t previous,
 	return ENOMEM;
 
     /* For every node in g */
-    ret = heim_dict_iterate_nf(g, &iters, &node, NULL);
+    if (target)
+        node = target;
+    else
+        ret = heim_dict_iterate_nf(g, &iters, &node, NULL);
     while (ret == 0) {
 	if (node == source)
 	    continue; /* not including the source */
@@ -62,6 +93,8 @@ spf_result(heim_dict_t g, heim_object_t source, heim_dict_t previous,
 	path = NULL;
 	if (ret) goto out;
 
+        if (target)
+            break;
 	ret = heim_dict_iterate_nf(g, &iters, &node, NULL);
     }
 
@@ -166,6 +199,7 @@ heim_shortest_path_first(heim_dict_t g, heim_object_t source,
 	heim_object_t nobj; /* = g[u][neighbor] */
 	heim_object_t ndist;/* = g[u][neighbor] or g[u][neighbor]["distance"] */
 	heim_number_t disto;/* a distance object */
+        heim_tid_t    nobj_tid;/* type ID for nobj */
 
 	/*
 	 * These two breaks are the normal terminating conditions for
@@ -191,12 +225,14 @@ heim_shortest_path_first(heim_dict_t g, heim_object_t source,
 	    heim_number_t num;
 	    int alt, btween;
 
-	    if (heim_get_tid(nobj) == dict_type)
+            nobj_tid = heim_get_tid(nobj);
+
+	    if (nobj_tid == dict_type)
 		ndist = heim_dict_get_value(nobj, HSTR("distance"));
-	    else if (heim_get_tid(nobj) == num_type)
+            else if (nobj_tid == num_type)
 		ndist = nobj;
-	    else
-		ndist = heim_number_create(5); /* pick a default */
+            else
+                ndist = heim_number_create(5); /* default distance */
 
 	    /* ndist = g[u][neighbor]; must be a positive number */
 	    heim_assert(heim_get_tid(ndist) == num_type,
@@ -277,7 +313,7 @@ out:
     }
 #endif
     if (!ret)
-	ret = spf_result(g, source, previous, distance, paths);
+	ret = spf_result(g, source, target, previous, distance, paths);
     /*
      * distance[] could be useful to output, but can trivially be
      * recomputed from previous[], which we do output, and g
