@@ -396,7 +396,7 @@ all-tools:: $(BINDIR)\verify_krb5_conf.exe
 clean::
 	-$(RM) $(BINDIR)\verify_krb5_conf.*
 
-$(BINDIR)\verify_krb5_conf.exe: $(OBJ)\verify_krb5_conf.obj $(LIBHEIMDAL) $(LIBROKEN) $(LIBVERS) $(OBJ)\verify_krb5_conf-version.res
+$(BINDIR)\verify_krb5_conf.exe: $(OBJ)\verify_krb5_conf.obj $(LIBHEIMBASE) $(LIBHEIMDAL) $(LIBROKEN) $(LIBVERS) $(OBJ)\verify_krb5_conf-version.res
 	$(EXECONLINK)
 	$(EXEPREP)
 
