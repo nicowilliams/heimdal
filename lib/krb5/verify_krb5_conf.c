@@ -796,20 +796,31 @@ main(int argc, char **argv)
     argv += optidx;
 
     tmp_cf = NULL;
-    if(argc == 0)
+    if (argc == 0)
 	krb5_get_default_config_files(&argv);
 
     while (*argv) {
+#ifdef _WIN32
+	if (strcmp(*argv, "REG") == 0)
+	    ret = _krb5_load_config_from_registry(context, &tmp_cf);
+	else
+#endif
 	ret = krb5_config_parse_file_multi(context, *argv, &tmp_cf);
 	if (ret != 0)
 	    krb5_warn(context, ret, "krb5_config_parse_file");
 	argv++;
     }
 
+#ifdef _WIN32
+    if (argc == 0)
+	_krb5_load_config_from_registry(context, &tmp_cf);
+#endif
+
+    ret = check_section(context, "", tmp_cf, toplevel_sections);
+
     if (dumpconfig_flag)
 	dumpconfig(0, tmp_cf);
 
-    ret = check_section(context, "", tmp_cf, toplevel_sections);
     krb5_config_file_free(context, tmp_cf);
     return ret;
 }

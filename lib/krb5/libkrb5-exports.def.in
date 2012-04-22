@@ -433,6 +433,7 @@ EXPORTS
 	krb5_kt_resolve
 	krb5_kt_start_seq_get
 	krb5_kuserok
+	_krb5_load_config_from_registry
 	krb5_log
 	krb5_log_msg
 	krb5_make_addrport
