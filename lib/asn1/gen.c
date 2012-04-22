@@ -159,6 +159,9 @@ init_generate (const char *filename, const char *base)
 	     "#define __%s_h__\n\n", headerbase, headerbase);
     fprintf (headerfile,
 	     "#include <stddef.h>\n"
+             "#ifdef HAVE_STDINT_H\n"
+	     "#include <stdint.h>\n"
+             "#endif\n"
 	     "#include <time.h>\n\n");
     fprintf (headerfile,
 	     "#ifndef __asn1_common_definitions__\n"
