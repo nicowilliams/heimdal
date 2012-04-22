@@ -156,7 +156,6 @@ _krb5_store_string_to_reg_value(krb5_context context,
     case REG_MULTI_SZ:
         if (separator && *separator)
         {
-            int i;
             char *cp;
 
             if (data != static_buffer)
@@ -465,7 +464,7 @@ parse_reg_value(krb5_context context,
                 DWORD type, DWORD cbdata, krb5_config_section ** parent)
 {
     char                *reg_string = NULL;
-    krb5_config_section *value;
+    heim_array_t        value;
     krb5_error_code     code = 0;
 
     reg_string = _krb5_parse_reg_value_as_string(context, key, valuename, type, cbdata);
@@ -479,16 +478,10 @@ parse_reg_value(krb5_context context,
         goto done;
     }
 
-    if (value->u.string != NULL)
-        free(value->u.string);
-
-    value->u.string = reg_string;
-    reg_string = NULL;
+    code = _krb5_config_add_string(value, reg_string);
 
 done:
-    if (reg_string != NULL)
-        free(reg_string);
-
+    free(reg_string);
     return code;
 }
 
@@ -552,13 +545,13 @@ parse_reg_subkeys(krb5_context context,
             return ENOMEM;
         }
 
-        code = parse_reg_values(context, subkey, &section->u.list);
+        code = parse_reg_values(context, subkey, &section);
         if (code) {
             RegCloseKey(subkey);
             return code;
         }
 
-        code = parse_reg_subkeys(context, subkey, &section->u.list);
+        code = parse_reg_subkeys(context, subkey, &section);
         if (code) {
             RegCloseKey(subkey);
             return code;
@@ -584,7 +577,7 @@ parse_reg_root(krb5_context context,
         return ENOMEM;
     }
 
-    code = parse_reg_values(context, key, &libdefaults->u.list);
+    code = parse_reg_values(context, key, &libdefaults);
     if (code)
         return code;
 

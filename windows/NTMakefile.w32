@@ -47,6 +47,8 @@ BUILD=rel
 BUILD=dbg
 !endif
 
+BUILD=dbg
+
 !if exist($(MAKEDIR)\windows\NTMakefile.w32)
 SRC=$(MAKEDIR)
 !elseif exist($(MAKEDIR)\..\windows\NTMakefile.w32)
