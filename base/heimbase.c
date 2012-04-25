@@ -659,14 +659,14 @@ enomem:
 static heim_object_t
 heim_path_vget2(heim_const_object_t ptr, heim_object_t *parent,
                 heim_object_t *key, heim_error_t *error,
-                heim_array_t path)
+                heim_array_t path, va_list ap)
 {
     heim_object_t path_element = NULL;
     heim_object_t prev_path_element;
     heim_const_object_t node, next_node;
     heim_tid_t node_type;
     size_t i = 0;
-    size_t plen = heim_array_get_length(path);
+    size_t plen = path ? heim_array_get_length(path) : 0;
 
     if (error)
 	*error = NULL;
@@ -688,7 +688,8 @@ heim_path_vget2(heim_const_object_t ptr, heim_object_t *parent,
          * gather all the varargs into a malloc()ed and realloc()ed
          * array.
          */
-        path_element = i < plen ? heim_array_get_value(path, i) : NULL;
+        path_element = path ? (i < plen ? heim_array_get_value(path, i) : NULL)
+                                        : va_arg(ap, heim_object_t);
 
 	if (path_element == NULL) {
             /* End of the path arguments */
@@ -772,13 +773,8 @@ heim_object_t
 heim_path_vget(heim_const_object_t ptr, heim_error_t *error, va_list ap)
 {
     heim_object_t p, k, o;
-    heim_array_t path;
 
-    path = vpath2array(HEIM_P_OBJ_STDARGS, error, NULL, ap);
-    if (!path)
-        return NULL;
-    o = heim_path_vget2(ptr, &p, &k, error, path);
-    heim_release(path);
+    o = heim_path_vget2(ptr, &p, &k, error, NULL, ap);
     return o;
 }
 
@@ -804,7 +800,7 @@ heim_path_vget_by_cstring(heim_const_object_t ptr, heim_error_t *error,
     path = vpath2array(HEIM_P_STR_STDARGS, error, NULL, ap);
     if (!path)
         return NULL;
-    o =  heim_path_vget2(ptr, &p, &k, error, path);
+    o =  heim_path_vget2(ptr, &p, &k, error, path, NULL);
     heim_release(path);
     return o;
 }
@@ -819,7 +815,7 @@ heim_path_get_by_cstrings(heim_const_object_t ptr, heim_error_t *error,
     path = vpath2array(HEIM_P_STR_ARRAY, error, strs, NULL);
     if (!path)
         return NULL;
-    o =  heim_path_vget2(ptr, &p, &k, error, path);
+    o =  heim_path_vget2(ptr, &p, &k, error, path, NULL);
     heim_release(path);
     return o;
 }
@@ -884,16 +880,11 @@ heim_object_t
 heim_path_get(heim_const_object_t ptr, heim_error_t *error, ...)
 {
     heim_object_t p, k, o;
-    heim_array_t path;
     va_list ap;
 
     va_start(ap, error);
-    path = vpath2array(HEIM_P_OBJ_STDARGS, error, NULL, ap);
+    o =  heim_path_vget2(ptr, &p, &k, error, NULL, ap);
     va_end(ap);
-    if (!path)
-        return NULL;
-    o =  heim_path_vget2(ptr, &p, &k, error, path);
-    heim_release(path);
     return o;
 }
 
@@ -921,7 +912,7 @@ heim_path_get_by_cstring(heim_const_object_t ptr, heim_error_t *error, ...)
     va_end(ap);
     if (!path)
         return NULL;
-    o =  heim_path_vget2(ptr, &p, &k, error, path);
+    o =  heim_path_vget2(ptr, &p, &k, error, path, NULL);
     heim_release(path);
     return o;
 }
@@ -1140,13 +1131,8 @@ void
 heim_path_vdelete(heim_object_t ptr, heim_error_t *error, va_list ap)
 {
     heim_object_t parent, key, child;
-    heim_array_t path;
 
-    path = vpath2array(HEIM_P_OBJ_STDARGS, error, NULL, ap);
-    if (!path)
-        return;
-    child =  heim_path_vget2(ptr, &parent, &key, error, path);
-    heim_release(path);
+    child =  heim_path_vget2(ptr, &parent, &key, error, NULL, ap);
     if (child != NULL) {
 	if (heim_get_tid(parent) == HEIM_TID_DICT)
 	    heim_dict_delete_key(parent, key);
