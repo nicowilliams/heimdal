@@ -120,6 +120,10 @@ _krb5_config_get_entry(heim_object_t *parent, const char *name, int type)
 	return NULL;
     }
 
+    /*
+     * References to s and c are retained by *parent.  We release c in
+     * particular so that the caller need not release it.
+     */
     ret = heim_dict_set_value(*parent, s, c);
     heim_release(s);
     heim_release(c);
@@ -301,8 +305,8 @@ cfstring2cstring(CFStringRef string)
     if (str == NULL)
 	return NULL;
 
-    if (!CFStringGetCString (string, str, len, kCFStringEncodingUTF8)) {
-	free (str);
+    if (!CFStringGetCString(string, str, len, kCFStringEncodingUTF8)) {
+	free(str);
 	return NULL;
     }
     return str;
@@ -312,25 +316,37 @@ static void
 convert_content(const void *key, const void *value, void *context)
 {
     krb5_config_section *tmp, **parent = context;
-    char *k;
+    char *k = NULL;
+    char *v = NULL;
 
     if (CFGetTypeID(key) != CFStringGetTypeID())
 	return;
 
     k = cfstring2cstring(key);
     if (k == NULL)
-	return;
+	return; /* XXX silent ENOMEM! */
 
     if (CFGetTypeID(value) == CFStringGetTypeID()) {
 	tmp = _krb5_config_get_entry(parent, k, krb5_config_string);
-	tmp->u.string = cfstring2cstring(value);
+        if (tmp == NULL)
+            goto out;
+        v = cfstring2cstring(value);
+        if (v == NULL)
+            goto out;
+        _krb5_config_add_string(tmp, v);
     } else if (CFGetTypeID(value) == CFDictionaryGetTypeID()) {
 	tmp = _krb5_config_get_entry(parent, k, krb5_config_list);
-	CFDictionaryApplyFunction(value, convert_content, &tmp->u.list);
+        if (tmp == NULL)
+            goto out;
+	CFDictionaryApplyFunction(value, convert_content, &tmp);
     } else {
 	/* log */
     }
+
+out:
     free(k);
+    free(v);
+    return; /* XXX silent errors! */
 }
 
 static krb5_error_code
