@@ -93,6 +93,15 @@ static int
 test_dict(void)
 {
     heim_dict_t dict;
+    heim_object_t k, v;
+    void *state = NULL;
+    int ret;
+    int a1_ok = 0;
+    int a3_ok = 0;
+
+    heim_number_t n1, n2;
+    size_t i;
+
     heim_number_t a1 = heim_number_create(1);
     heim_string_t a2 = heim_string_create("hejsan");
     heim_number_t a3 = heim_number_create(3);
@@ -103,8 +112,50 @@ test_dict(void)
     heim_dict_set_value(dict, a1, a2);
     heim_dict_set_value(dict, a3, a4);
 
+    for (;;) {
+        ret = heim_dict_iterate_nf(dict, &state, &k, &v);
+        heim_assert(ret == 0 || ret == -1, "heim_dict_iterate_nf() failed");
+        if (ret == -1)
+            break;
+        if (k == a1 && v == a2)
+            a1_ok++;
+        if (k == a3 && v == a4)
+            a3_ok++;
+    }
+    heim_assert(a1_ok == 1 && a3_ok == 1, "heim_dict_iterate_nf() is loopy");
+
     heim_dict_delete_key(dict, a3);
     heim_dict_delete_key(dict, a1);
+
+    a1_ok = a3_ok = 0;
+    for (;;) {
+        ret = heim_dict_iterate_nf(dict, &state, &k, &v);
+        heim_assert(ret == 0 || ret == -1, "heim_dict_iterate_nf() failed");
+        if (ret == -1)
+            break;
+        if (k == a1 && v == a2)
+            a1_ok++;
+        if (k == a3 && v == a4)
+            a3_ok++;
+    }
+    heim_assert(a1_ok == 0 && a3_ok == 0, "heim_dict_iterate_nf() is loopy");
+
+    for (i = 1; i < 500; i++) {
+        n1 = heim_number_create(i++);
+        n2 = heim_number_create(i);
+        ret = heim_dict_set_value(dict, n1, n2);
+        heim_assert(ret == 0, "heim_dict_set_value() failed");
+    }
+
+    for (i = 0;;) {
+        ret = heim_dict_iterate_nf(dict, &state, &k, &v);
+        heim_assert(ret == 0 || ret == -1, "heim_dict_iterate_nf() failed");
+        if (ret == -1)
+            break;
+        i += heim_number_get_int(k);
+        i += heim_number_get_int(v);
+    }
+    heim_assert(i == 501 * 250, "heim_dict_iterate_nf() is loopy");
 
     heim_release(a1);
     heim_release(a2);

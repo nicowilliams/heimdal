@@ -53,7 +53,7 @@ heim_bool_create(int val)
 }
 
 int
-heim_bool_val(heim_bool_t ptr)
+heim_bool_val(heim_const_bool_t ptr)
 {
     return heim_base_tagged_object_value(ptr);
 }

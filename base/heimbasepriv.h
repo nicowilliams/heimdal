@@ -35,9 +35,9 @@
 
 typedef void (*heim_type_init)(void *);
 typedef heim_object_t (*heim_type_copy)(void *);
-typedef int (*heim_type_cmp)(void *, void *);
-typedef unsigned long (*heim_type_hash)(void *);
-typedef heim_string_t (*heim_type_description)(void *);
+typedef int (*heim_type_cmp)(const void *, const void *);
+typedef unsigned long (*heim_type_hash)(const void *);
+typedef heim_string_t (*heim_type_description)(const void *);
 
 typedef struct heim_type_data *heim_type_t;
 
@@ -73,7 +73,7 @@ struct heim_type_data {
     heim_type_description desc;
 };
 
-heim_type_t _heim_get_isa(heim_object_t);
+heim_type_t _heim_get_isa(heim_const_object_t);
 
 heim_type_t
 _heim_create_type(const char *name,
@@ -88,7 +88,7 @@ heim_object_t
 _heim_alloc_object(heim_type_t type, size_t size);
 
 void *
-_heim_get_isaextra(heim_object_t o, size_t idx);
+_heim_get_isaextra(heim_const_object_t o, size_t idx);
 
 heim_tid_t
 _heim_type_get_tid(heim_type_t type);
