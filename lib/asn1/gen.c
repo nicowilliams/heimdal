@@ -161,7 +161,9 @@ init_generate (const char *filename, const char *base)
              "#ifdef HAVE_CONFIG_H\n"
              "#include <config.h>\n"
              "#endif\n"
-	     "#include <stddef.h>\n"
+    fprintf (headerfile,
+	     "#include <krb5-types.h>\n");
+    fprintf (headerfile,
 	     "#include <time.h>\n\n");
     fprintf (headerfile,
 	     "#ifndef __asn1_common_definitions__\n"
