@@ -227,12 +227,21 @@ heim_shortest_path_first(heim_dict_t g, heim_object_t source,
 
             nobj_tid = heim_get_tid(nobj);
 
-	    if (nobj_tid == dict_type)
-		ndist = heim_dict_get_value(nobj, HSTR("distance"));
-            else if (nobj_tid == num_type)
+	    if (nobj_tid == dict_type) {
+                /*
+                 * If we're using a graph from a krb5 config file
+                 * then all scalar values are actually arrays of 1
+                 * or more scalar values.
+                 */
+                ndist = heim_path_get(nobj, NULL, HSTR("distance"),
+                                      heim_number_create(0), NULL);
+                if (!ndist)
+                    ndist = heim_dict_get_value(nobj, HSTR("distance"));
+            } else if (nobj_tid == num_type) {
 		ndist = nobj;
-            else
+            } else {
                 ndist = heim_number_create(5); /* default distance */
+            }
 
 	    /* ndist = g[u][neighbor]; must be a positive number */
 	    heim_assert(heim_get_tid(ndist) == num_type,

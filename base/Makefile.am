@@ -36,6 +36,7 @@ dist_libheimbase_la_SOURCES =	\
 	null.c			\
 	number.c		\
 	roken_rename.h		\
+	spf.c			\
 	string.c
 
 nodist_libheimbase_la_SOURCES = $(ES)
