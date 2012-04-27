@@ -96,7 +96,7 @@ hdb_get_dbinfo(krb5_context context, struct hdb_dbinfo **dbp)
     const char *default_mkey = HDB_DB_DIR "/m-key";
     const char *default_acl = HDB_DB_DIR "/kadmind.acl";
     const char *p;
-    int ret;
+    int ret, heim_ret;
 
     *dbp = NULL;
     dt = NULL;
@@ -107,6 +107,9 @@ hdb_get_dbinfo(krb5_context context, struct hdb_dbinfo **dbp)
 				      "database",
 				      NULL);
     if (db_binding) {
+        void *state = NULL;
+        const char *label;
+        const krb5_config_binding *sub_db_binding;
 
 	ret = get_dbinfo(context, db_binding, "default", &di);
 	if (ret == 0 && di) {
@@ -114,26 +117,26 @@ hdb_get_dbinfo(krb5_context context, struct hdb_dbinfo **dbp)
 	    dt = &di->next;
 	}
 
-	for ( ; db_binding != NULL; db_binding = db_binding->next) {
+        do {
+            heim_ret = krb5_config_iter_bindings(context, db_binding, &state,
+                                                 &label, &sub_db_binding);
+            if (heim_ret) {
+                if (heim_ret > 0)
+                    krb5_err(context, 1, ret,
+                             "trouble listing configuration options");/* XXX */
+                break;
+            }
 
-	    if (db_binding->type != krb5_config_list)
-		continue;
-
-	    ret = get_dbinfo(context, db_binding->u.list,
-			     db_binding->name, &di);
+	    ret = get_dbinfo(context, sub_db_binding, label, &di);
 	    if (ret)
 		krb5_err(context, 1, ret, "failed getting realm");
-
-	    if (di == NULL)
-		continue;
 
 	    if (dt)
 		*dt = di;
 	    else
 		databases = di;
 	    dt = &di->next;
-
-	}
+        } while (heim_ret == 0);
     }
 
     if(databases == NULL) {

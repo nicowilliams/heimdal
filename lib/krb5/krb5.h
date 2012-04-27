@@ -39,6 +39,7 @@
 #define __KRB5_H__
 
 #include <time.h>
+#include <heimbase.h>
 #include <krb5-types.h>
 
 #include <asn1_err.h>
@@ -518,18 +519,9 @@ typedef struct krb5_cc_ops {
 
 struct krb5_log_facility;
 
-struct krb5_config_binding {
-    enum { krb5_config_string, krb5_config_list } type;
-    char *name;
-    struct krb5_config_binding *next;
-    union {
-	char *string;
-	struct krb5_config_binding *list;
-	void *generic;
-    } u;
-};
+enum { krb5_config_string, krb5_config_list };
 
-typedef struct krb5_config_binding krb5_config_binding;
+typedef struct heim_dict_data krb5_config_binding;
 
 typedef krb5_config_binding krb5_config_section;
 

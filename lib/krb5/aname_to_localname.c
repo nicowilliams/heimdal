@@ -385,10 +385,11 @@ an2ln_def_plug_an2ln(void *plug_ctx, krb5_context context,
     const char *an2ln_db_fname;
     heim_db_t dbh = NULL;
     heim_dict_t db_options;
-    heim_data_t k, v;
+    heim_data_t k = NULL;
+    heim_data_t v = NULL;
+    heim_string_t result = NULL;
     heim_error_t error;
     char *unparsed = NULL;
-    char *value = NULL;
 
     _krb5_load_db_plugins(context);
     heim_base_once_f(&sorted_text_db_init_once, NULL, sorted_text_db_init_f);
@@ -421,7 +422,6 @@ an2ln_def_plug_an2ln(void *plug_ctx, krb5_context context,
     if (k == NULL)
 	return krb5_enomem(context);
     v = heim_db_copy_value(dbh, NULL, k, &error);
-    heim_release(k);
     if (v == NULL && error != NULL) {
 	krb5_set_error_message(context, heim_error_get_code(error),
 			       N_("Lookup in aname2lname-text-db failed", ""));
@@ -430,22 +430,23 @@ an2ln_def_plug_an2ln(void *plug_ctx, krb5_context context,
     } else if (v == NULL) {
 	ret = KRB5_PLUGIN_NO_HANDLE;
 	goto cleanup;
-    } else {
-	/* found */
-	if (heim_data_get_length(v) == 0) {
-	    krb5_set_error_message(context, ret,
-				   N_("Principal mapped to empty username", ""));
-	    ret = KRB5_NO_LOCALNAME;
-	    goto cleanup;
-	}
-	ret = set_res_f(set_res_ctx, heim_data_get_ptr(v));
-	heim_release(v);
+    } else if (heim_data_get_length(v) == 0) {
+        krb5_set_error_message(context, ret,
+                               N_("Principal mapped to empty username", ""));
+        ret = KRB5_NO_LOCALNAME;
+        goto cleanup;
     }
 
+    /* found */
+    result = heim_string_create_with_bytes(heim_data_get_ptr(v), heim_data_get_length(v));
+    ret = set_res_f(set_res_ctx, heim_string_get_utf8(result));
+
 cleanup:
+    heim_release(result);
+    heim_release(k);
+    heim_release(v);
     heim_release(dbh);
     free(unparsed);
-    free(value);
     return ret;
 }
 
