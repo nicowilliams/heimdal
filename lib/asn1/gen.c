@@ -157,13 +157,13 @@ init_generate (const char *filename, const char *base)
     fprintf (headerfile,
 	     "#ifndef __%s_h__\n"
 	     "#define __%s_h__\n\n", headerbase, headerbase);
+#ifdef HAVE_CONFIG_H
     fprintf (headerfile,
-             "#ifdef HAVE_CONFIG_H\n"
-             "#include <config.h>\n"
-             "#endif\n"
+             "#include <config.h>\n");
+#endif
     fprintf (headerfile,
-	     "#include <krb5-types.h>\n");
-    fprintf (headerfile,
+	     "#include <stddef.h>\n"
+	     "#include <krb5-types.h>\n"
 	     "#include <time.h>\n\n");
     fprintf (headerfile,
 	     "#ifndef __asn1_common_definitions__\n"
@@ -377,9 +377,6 @@ generate_header_of_codefile(const char *name)
              "#define  ASN1_LIB\n\n"
 	     "#include <stdio.h>\n"
 	     "#include <stdlib.h>\n"
-             "#ifdef HAVE_STDINT_H\n"
-             "#include <stdint.h>\n"
-             "#endif\n"
 	     "#include <time.h>\n"
 	     "#include <string.h>\n"
 	     "#include <errno.h>\n"

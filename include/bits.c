@@ -150,6 +150,9 @@ int main(int argc, char **argv)
 #ifdef HAVE_INTTYPES_H
     fprintf(f, "#include <inttypes.h>\n");
 #endif
+#ifdef HAVE_STDINT_H
+    fprintf(f, "#include <stdint.h>\n");
+#endif
 #ifdef HAVE_SYS_TYPES_H
     fprintf(f, "#include <sys/types.h>\n");
 #endif
