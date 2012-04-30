@@ -230,7 +230,7 @@ mit_prop_dump(void *arg, const char *file)
     while(fgets(line, sizeof(line), f)) {
 	char *p = line, *q;
 
-	int i;
+	size_t i;
 
 	int num_tl_data;
 	int num_key_data;
@@ -415,3 +415,4 @@ mit_prop_dump(void *arg, const char *file)
     fclose(f);
     return 0;
 }
+
