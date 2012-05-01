@@ -904,14 +904,16 @@ mdb_store(krb5_context context, HDB *db, unsigned flags, hdb_entry_ex *entry)
     krb5_data line = { 0, 0 };
     krb5_data kdb_ent = { 0, 0 };
     krb5_data key = { 0, 0 };
+    ssize_t sz;
 
     sp = krb5_storage_emem();
     if (!sp)
         return ENOMEM;
     ret = entry2mit_string_int(context, sp, &entry->entry);
     if (ret) goto out;
-    ret = krb5_storage_write(sp, "\n", 2); /* NUL-terminate */
-    if (ret) goto out;
+    sz = krb5_storage_write(sp, "\n", 2); /* NUL-terminate */
+    ret = ENOMEM;
+    if (sz == -1) goto out;
     ret = krb5_storage_to_data(sp, &line);
     if (ret) goto out;
 
@@ -1156,6 +1158,7 @@ _hdb_mit_dump2mitdb_entry(krb5_context context, char *line, krb5_storage *sp)
     krb5_error_code ret = EINVAL;
     char *p = line, *q;
     char *princ;
+    ssize_t sz;
     size_t i;
     size_t princ_len;
     unsigned int num_tl_data;
@@ -1237,8 +1240,8 @@ _hdb_mit_dump2mitdb_entry(krb5_context context, char *line, krb5_storage *sp)
     princ_len++; /* must count and write the NUL in the on-disk encoding */
     ret = krb5_store_uint16(sp, princ_len);
     if (ret) return ret;
-    ret = krb5_storage_write(sp, princ, princ_len);
-    if (ret) return ret;
+    sz = krb5_storage_write(sp, princ, princ_len);
+    if (sz == -1) return ENOMEM;
 
     /* scan and write TL data */
     for (i = 0; i < num_tl_data; i++) {
@@ -1259,9 +1262,9 @@ _hdb_mit_dump2mitdb_entry(krb5_context context, char *line, krb5_storage *sp)
             buf = malloc(tl_length);
             if (!buf) return ENOMEM;
             if (getdata(&p, buf, tl_length) != tl_length) return EINVAL;
-            ret = krb5_storage_write(sp, buf, tl_length);
+            sz = krb5_storage_write(sp, buf, tl_length);
             free(buf);
-            if (ret) return ret;
+            if (sz == -1) return ENOMEM;
         } else {
             if (strcmp(nexttoken(&p), "-1") != 0) return EINVAL;
         }
@@ -1300,8 +1303,9 @@ _hdb_mit_dump2mitdb_entry(krb5_context context, char *line, krb5_storage *sp)
                 buf = malloc(keylen);
                 if (!buf) return ENOMEM;
                 if (getdata(&p, buf, keylen) != keylen) return EINVAL;
-                ret = krb5_storage_write(sp, buf, keylen);
+                sz = krb5_storage_write(sp, buf, keylen);
                 free(buf);
+                if (sz == -1) return ENOMEM;
             } else {
                 if (strcmp(nexttoken(&p), "-1") != 0) return EINVAL;
             }
