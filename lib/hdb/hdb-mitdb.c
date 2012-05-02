@@ -872,24 +872,26 @@ mdb_fetch_kvno(krb5_context context, HDB *db, krb5_const_principal principal,
 	       unsigned flags, krb5_kvno kvno, hdb_entry_ex *entry)
 {
     krb5_data key, value;
-    krb5_error_code code;
+    krb5_error_code ret;
 
-    code = mdb_principal2key(context, principal, &key);
-    if (code)
-	return code;
-    code = db->hdb__get(context, db, key, &value);
+    ret = mdb_principal2key(context, principal, &key);
+    if (ret)
+	return ret;
+    ret = db->hdb__get(context, db, key, &value);
     krb5_data_free(&key);
-    if(code)
-	return code;
-    code = _hdb_mdb_value2entry(context, &value, kvno, &entry->entry);
+    if(ret)
+	return ret;
+    ret = _hdb_mdb_value2entry(context, &value, kvno, &entry->entry);
     krb5_data_free(&value);
-    if (code)
-	return code;
+    if (ret)
+	return ret;
 
     if (db->hdb_master_key_set && (flags & HDB_F_DECRYPT)) {
-	code = hdb_unseal_keys (context, db, &entry->entry);
-	if (code)
+	ret = hdb_unseal_keys (context, db, &entry->entry);
+	if (ret) {
 	    hdb_free_entry(context, entry);
+            return ret;
+        }
     }
 
     return 0;
@@ -907,8 +909,10 @@ mdb_store(krb5_context context, HDB *db, unsigned flags, hdb_entry_ex *entry)
     ssize_t sz;
 
     sp = krb5_storage_emem();
-    if (!sp)
-        return ENOMEM;
+    if (!sp) return ENOMEM;
+    ret = _hdb_set_master_key_usage(context, db, 0); /* MIT KDB uses KU 0 */
+    ret = hdb_seal_keys(context, db, &entry->entry);
+    if (ret) return ret;
     ret = entry2mit_string_int(context, sp, &entry->entry);
     if (ret) goto out;
     sz = krb5_storage_write(sp, "\n", 2); /* NUL-terminate */
@@ -919,8 +923,7 @@ mdb_store(krb5_context context, HDB *db, unsigned flags, hdb_entry_ex *entry)
 
     ret = ENOMEM;
     spent = krb5_storage_emem();
-    if (!spent)
-        goto out;
+    if (!spent) goto out;
     ret = _hdb_mit_dump2mitdb_entry(context, line.data, spent);
     if (ret) goto out;
     ret = krb5_storage_to_data(spent, &kdb_ent);
@@ -957,39 +960,47 @@ static krb5_error_code
 mdb_open(krb5_context context, HDB *db, int flags, mode_t mode)
 {
     char *fn;
+    char *actual_fn;
     krb5_error_code ret;
+    struct stat st;
 
     if (asprintf(&fn, "%s.db", db->hdb_name) < 0) {
 	krb5_set_error_message(context, ENOMEM, "malloc: out of memory");
 	return ENOMEM;
     }
-    db->hdb_db = dbopen(fn, flags, mode, DB_BTREE, NULL);
-    free(fn);
 
+    if (stat(fn, &st) == 0)
+        actual_fn = fn;
+    else
+        actual_fn = db->hdb_name;
+    db->hdb_db = dbopen(actual_fn, flags, mode, DB_BTREE, NULL);
     if (db->hdb_db == NULL) {
 	switch (errno) {
 #ifdef EFTYPE
 	case EFTYPE:
 #endif
 	case EINVAL:
-	    db->hdb_db = dbopen(fn, flags, mode, DB_BTREE, NULL);
+	    db->hdb_db = dbopen(actual_fn, flags, mode, DB_HASH, NULL);
 	}
     }
+    free(fn);
 
-    /* try to open without .db extension */
-    if(db->hdb_db == NULL && errno == ENOENT)
-	db->hdb_db = dbopen(db->hdb_name, flags, mode, DB_BTREE, NULL);
-    if(db->hdb_db == NULL) {
+    if (db->hdb_db == NULL) {
 	ret = errno;
 	krb5_set_error_message(context, ret, "dbopen (%s): %s",
 			      db->hdb_name, strerror(ret));
 	return ret;
     }
-    if((flags & O_ACCMODE) == O_RDONLY)
-	ret = hdb_check_db_format(context, db);
-    else
+#if 0
+    /*
+     * Don't do this -- MIT won't be able to handle the
+     * HDB_DB_FORMAT_ENTRY key.
+     */
+    if ((flags & O_ACCMODE) != O_RDONLY)
 	ret = hdb_init_db(context, db);
-    if(ret == HDB_ERR_NOENTRY) {
+#endif
+    ret = hdb_check_db_format(context, db);
+    if (ret == HDB_ERR_NOENTRY) {
 	krb5_clear_error_message(context);
 	return 0;
     }

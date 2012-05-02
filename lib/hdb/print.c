@@ -82,7 +82,7 @@ append_string(krb5_context context, krb5_storage *sp, const char *fmt, ...)
 
 static krb5_error_code
 append_hex(krb5_context context, krb5_storage *sp,
-           int always_encode, krb5_data *data)
+           int always_encode, int upper, krb5_data *data)
 {
     ssize_t sz;
     int printable = 1;
@@ -103,6 +103,8 @@ append_hex(krb5_context context, krb5_storage *sp,
 			     data->length, data->data);
     sz = hex_encode(data->data, data->length, &p);
     if (sz == -1) return sz;
+    if (upper)
+        strupr(p);
     sz = append_string(context, sp, "%s", p);
     free(p);
     return sz;
@@ -160,9 +162,9 @@ append_mit_key(krb5_context context, krb5_storage *sp,
     buf[1] = (key->key.keyvalue.length & 0xff00) >> 8;
     keylenbytes.data = buf;
     keylenbytes.length = sizeof (buf);
-    sz = append_hex(context, sp, 1, &keylenbytes);
+    sz = append_hex(context, sp, 1, 1, &keylenbytes);
     if (sz == -1) return sz;
-    sz = append_hex(context, sp, 1, &key->key.keyvalue);
+    sz = append_hex(context, sp, 1, 1, &key->key.keyvalue);
     if (!key->salt)
         return sz;
     
@@ -195,8 +197,8 @@ append_mit_key(krb5_context context, krb5_storage *sp,
     }
     sz = append_string(context, sp, "\t%u\t%u\t", salttype,
                        key->salt->salt.length);
-    if (sz) return sz;
-    return append_hex(context, sp, 1, &key->salt->salt);
+    if (sz == -1) return sz;
+    return append_hex(context, sp, 1, 1, &key->salt->salt);
 }
 
 static krb5_error_code
@@ -225,12 +227,12 @@ entry2string_int (krb5_context context, krb5_storage *sp, hdb_entry *ent)
 	    append_string(context, sp, "::%d:",
 			  ent->keys.val[i].key.keytype);
 	/* --- keydata */
-	append_hex(context, sp, 0, &ent->keys.val[i].key.keyvalue);
+	append_hex(context, sp, 0, 0, &ent->keys.val[i].key.keyvalue);
 	append_string(context, sp, ":");
 	/* --- salt */
 	if(ent->keys.val[i].salt){
 	    append_string(context, sp, "%u/", ent->keys.val[i].salt->type);
-	    append_hex(context, sp, 0, &ent->keys.val[i].salt->salt);
+	    append_hex(context, sp, 0, 0, &ent->keys.val[i].salt->salt);
 	}else
 	    append_string(context, sp, "-");
     }
@@ -434,7 +436,7 @@ entry2mit_string_int(krb5_context context, krb5_storage *sp, hdb_entry *ent)
         sz = append_string(context, sp, "\t%u\t%u\t",
                            mit_KRB5_TL_LAST_PWD_CHANGE, d.length);
         if (sz == -1) return ENOMEM;
-        sz = append_hex(context, sp, 1, &d);
+        sz = append_hex(context, sp, 1, 1, &d);
         if (sz == -1) return ENOMEM;
     }
     if (ent->modified_by) {
@@ -455,14 +457,14 @@ entry2mit_string_int(krb5_context context, krb5_storage *sp, hdb_entry *ent)
                            mit_KRB5_TL_MOD_PRINC,
                            d.length + plen + 1 /* NULL counted */);
         if (sz == -1) return ENOMEM;
-        sz = append_hex(context, sp, 1, &d);
+        sz = append_hex(context, sp, 1, 1, &d);
         if (sz == -1) {
             free(modby_p);
             return ENOMEM;
         }
         d.data = modby_p;
         d.length = plen + 1;
-        sz = append_hex(context, sp, 1, &d);
+        sz = append_hex(context, sp, 1, 1, &d);
         free(modby_p);
         if (sz == -1) return ENOMEM;
     }
@@ -491,7 +493,7 @@ entry2mit_string_int(krb5_context context, krb5_storage *sp, hdb_entry *ent)
             }
         }
     }
-    sz = append_string(context, sp, "\t-1"); /* "extra data" */
+    sz = append_string(context, sp, "\t-1;"); /* "extra data" */
     if (sz == -1) return ENOMEM;
     return 0;
 }

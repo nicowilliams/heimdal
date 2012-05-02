@@ -67,12 +67,14 @@ dump(struct dump_options *opt, int argc, char **argv)
 	goto out;
     }
 
-    if (!opt->format_string || strcmp(opt->format_string, "Heimdal") == 0)
+    if (!opt->format_string || strcmp(opt->format_string, "Heimdal") == 0) {
         parg.fmt = HDB_DUMP_HEIMDAL;
-    else if (opt->format_string && strcmp(opt->format_string, "MIT") == 0)
+    } else if (opt->format_string && strcmp(opt->format_string, "MIT") == 0) {
         parg.fmt = HDB_DUMP_MIT;
-    else
+        fprintf(f, "kdb5_util load_dump version 5\n"); /* 5||6, either way */
+    } else {
         krb5_errx(context, 1, "Supported dump formats: Heimdal and MIT");
+    }
     parg.out = f;
     hdb_foreach(context, db, opt->decrypt_flag ? HDB_F_DECRYPT : 0,
 		hdb_print_entry, &parg);
