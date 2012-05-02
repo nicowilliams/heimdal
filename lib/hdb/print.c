@@ -82,7 +82,7 @@ append_string(krb5_context context, krb5_storage *sp, const char *fmt, ...)
 
 static krb5_error_code
 append_hex(krb5_context context, krb5_storage *sp,
-           int always_encode, int upper, krb5_data *data)
+           int always_encode, int lower, krb5_data *data)
 {
     ssize_t sz;
     int printable = 1;
@@ -103,8 +103,8 @@ append_hex(krb5_context context, krb5_storage *sp,
 			     data->length, data->data);
     sz = hex_encode(data->data, data->length, &p);
     if (sz == -1) return sz;
-    if (upper)
-        strupr(p);
+    if (lower)
+        strlwr(p);
     sz = append_string(context, sp, "%s", p);
     free(p);
     return sz;
@@ -151,6 +151,7 @@ append_mit_key(krb5_context context, krb5_storage *sp,
     krb5_error_code ret;
     ssize_t sz;
     size_t key_versions = key->salt ? 2 : 1;
+    size_t decrypted_key_length;
     char buf[2];
     krb5_data keylenbytes;
     unsigned int salttype;
@@ -158,8 +159,10 @@ append_mit_key(krb5_context context, krb5_storage *sp,
     sz = append_string(context, sp, "\t%u\t%u\t%d\t%d\t", key_versions, kvno,
                         key->key.keytype, key->key.keyvalue.length + 2);
     if (sz == -1) return sz;
-    buf[0] = key->key.keyvalue.length & 0xff;
-    buf[1] = (key->key.keyvalue.length & 0xff00) >> 8;
+    ret = krb5_enctype_keysize(context, key->key.keytype, &decrypted_key_length);
+    if (ret) return -1; /* XXX we lose the error code */
+    buf[0] = decrypted_key_length & 0xff;
+    buf[1] = (decrypted_key_length & 0xff00) >> 8;
     keylenbytes.data = buf;
     keylenbytes.length = sizeof (buf);
     sz = append_hex(context, sp, 1, 1, &keylenbytes);
