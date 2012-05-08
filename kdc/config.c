@@ -95,6 +95,8 @@ static struct getargs args[] = {
 	"ports to listen to", "portspec"
     },
 #ifdef SUPPORT_DETACH
+    {	"print-pid",		'C',	arg_flag,   &print_child_pid,
+        "print KDC pid if detached", NULL },
 #if DETACH_IS_DEFAULT
     {
 	"detach",       'D',      arg_negative_flag, &detach_from_console,

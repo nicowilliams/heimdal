@@ -46,6 +46,7 @@ sig_atomic_t exit_flag = 0;
 
 #ifdef SUPPORT_DETACH
 int detach_from_console = -1;
+int print_child_pid = -1;
 #endif
 
 static RETSIGTYPE
@@ -105,6 +106,55 @@ switch_environment(void)
 #endif
 }
 
+#ifdef SUPPORT_DETACH
+static int
+my_daemon(pid_t *child, int *pipe_fd)
+{
+    int fd, pipes[2];
+    int ret;
+
+    *pipe_fd = -1;
+    *child = -1;
+    if (pipe(pipes))
+        return errno;
+    *pipe_fd = pipes[0];
+
+    *child = fork();
+    if (*child == -1) {
+        ret = errno;
+        close(*pipe_fd);
+        *pipe_fd = -1;
+        return ret;
+    }
+
+    if (*child) {
+        char byte;
+        ssize_t sz;
+
+        /* Parent; wait for child to be ready */
+        close(pipes[1]);
+        sz = net_read(pipes[0], &byte, sizeof (byte));
+        if (sz == sizeof (byte))
+            return byte;
+        return -1;
+    }
+
+    /* Child */
+    if (setsid() == -1)
+        errx(1, "setsid() failed: %d", errno);
+    chdir("/");
+    fd = open(_PATH_DEVNULL, O_RDWR, 0);
+    if (fd == -1)
+        errx(1, "open(/dev/null) failed: %d", errno);
+    dup2(fd, STDIN_FILENO);
+    dup2(fd, STDOUT_FILENO);
+    dup2(fd, STDERR_FILENO);
+    close(pipes[0]);
+    *pipe_fd = pipes[1];
+    return 0;
+}
+#endif
+
 
 int
 main(int argc, char **argv)
@@ -113,6 +163,12 @@ main(int argc, char **argv)
     krb5_context context;
     krb5_kdc_configuration *config;
     int optidx = 0;
+    struct descr *d;
+    unsigned int ndescr;
+#ifdef SUPPORT_DETACH
+    int pipe_fd = -1;
+    char byte = 0;
+#endif
 
     setprogname(argv[0]);
 
@@ -157,10 +213,21 @@ main(int argc, char **argv)
     signal(SIGPIPE, SIG_IGN);
 #endif
 #endif
+    
 #ifdef SUPPORT_DETACH
-    if (detach_from_console)
-	daemon(0, 0);
+    if (detach_from_console) {
+        pid_t child;
+
+        ret = my_daemon(&child, &pipe_fd);
+        if (ret && child != 0)
+            errx(1, "child setup failed: %d", ret);
+        if (!ret && child > 0 && print_child_pid)
+            printf("%d\n", child);
+        if (child != 0)
+            return ret;
+    }
 #endif
+
 #ifdef __APPLE__
     bonjour_announce(context, config);
 #endif
@@ -168,7 +235,16 @@ main(int argc, char **argv)
 
     switch_environment();
 
-    loop(context, config);
+    ndescr = init_sockets(context, config, &d);
+    if(ndescr <= 0)
+	krb5_errx(context, 1, "No sockets!");
+
+#ifdef SUPPORT_DETACH
+    /* Indicate readiness */
+    net_write(pipe_fd, &byte, sizeof (byte));
+#endif /* SUPPORT_DETACH */
+
+    loop(context, config, d, ndescr);
     krb5_free_context(context);
     return 0;
 }

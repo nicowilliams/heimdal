@@ -59,6 +59,7 @@
 .Xc
 .Oc
 .Op Fl Fl detach
+.Op Fl C | Fl Fl print-pid
 .Op Fl Fl disable-des
 .Op Fl Fl addresses= Ns Ar list of addresses
 .Ek
@@ -123,6 +124,8 @@ If only a subset is desired, or the automatic detection fails, this
 option might be used.
 .It Fl Fl detach
 detach from pty and run as a daemon.
+.It Fl C , Fl Fl print-pid
+if detached then print the PID of the KDC process.
 .It Fl Fl disable-des
 disable all des encryption types, makes the kdc not use them.
 .El

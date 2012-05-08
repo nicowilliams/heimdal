@@ -49,6 +49,33 @@ have_db="${top_builddir}/tests/db/have-db"
 leaks_kill="${top_srcdir}/tests/kdc/leaks-kill.sh"
 wait_kdc="${top_srcdir}/tests/kdc/wait-kdc.sh"
 
+if $kdc --help 2>&1|${EGREP} detach > /dev/null; then
+    support_detach=true
+else
+    support_detach=false
+fi
+
+start_kdc() {
+    if $support_detach; then
+        kdcpid=`env MallocStackLogging=1 MallocStackLoggingNoCompact=1 \
+            MallocErrorAbort=1 MallocLogFile=${objdir}/malloc-log \
+            ${kdc} --detach -C "$@"`
+        if [ -z "$kdcpid" ]; then
+            exit 1
+        fi
+    else
+        env MallocStackLogging=1 MallocStackLoggingNoCompact=1 \
+            MallocErrorAbort=1 MallocLogFile=${objdir}/malloc-log ${kdc} &
+        kdcpid=$!
+
+        sh ${wait_kdc}
+        if [ "$?" != 0 ] ; then
+            kill -9 ${kdcpid}
+            exit 1
+        fi
+    fi
+}
+
 if [ ! "${NO_AFS}" ] ; then
     afs_no_unlog="--no-unlog"
     afs_no_afslog="--no-afslog"

@@ -102,8 +102,8 @@ extern int enable_http;
 #ifdef SUPPORT_DETACH
 
 #define DETACH_IS_DEFAULT FALSE
-
 extern int detach_from_console;
+extern int print_child_pid;
 #endif
 
 extern const struct units _kdc_digestunits[];
@@ -116,8 +116,12 @@ extern struct timeval _kdc_now;
 extern char *runas_string;
 extern char *chroot_string;
 
+struct descr;
+int init_sockets(krb5_context context, krb5_kdc_configuration *config,
+                 struct descr **desc);
 void
-loop(krb5_context context, krb5_kdc_configuration *config);
+loop(krb5_context context, krb5_kdc_configuration *config,
+     struct descr *d, unsigned int ndescr);
 
 krb5_kdc_configuration *
 configure(krb5_context context, int argc, char **argv, int *optidx);

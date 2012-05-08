@@ -294,7 +294,7 @@ init_socket(krb5_context context,
  * and return the number of them.
  */
 
-static int
+int
 init_sockets(krb5_context context,
 	     krb5_kdc_configuration *config,
 	     struct descr **desc)
@@ -868,14 +868,10 @@ next_min_free(krb5_context context, struct descr **d, unsigned int *ndescr)
 
 void
 loop(krb5_context context,
-     krb5_kdc_configuration *config)
+     krb5_kdc_configuration *config,
+     struct descr *d,
+     unsigned int ndescr)
 {
-    struct descr *d;
-    unsigned int ndescr;
-
-    ndescr = init_sockets(context, config, &d);
-    if(ndescr <= 0)
-	krb5_errx(context, 1, "No sockets!");
     kdc_log(context, config, 0, "KDC started");
     while(exit_flag == 0){
 	struct timeval tmout;

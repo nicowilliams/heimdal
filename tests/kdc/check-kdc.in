@@ -240,11 +240,8 @@ env MallocStackLogging=1 MallocStackLoggingNoCompact=1 MallocErrorAbort=1 Malloc
 ${kdc} &
 kdcpid=$!
 
-sh ${wait_kdc}
-if [ "$?" != 0 ] ; then
-    kill -9 ${kdcpid}
-    exit 1
-fi
+echo Starting kdc
+start_kdc || exit 1
 
 trap "kill -9 ${kdcpid}; echo signal killing kdc; exit 1;" EXIT
 

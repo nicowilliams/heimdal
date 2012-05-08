@@ -46,6 +46,7 @@ struct perf {
 
 #ifdef SUPPORT_DETACH
 int detach_from_console = -1;
+int print_child_pid = -1;
 #define DETACH_IS_DEFAULT FALSE
 #endif
 
