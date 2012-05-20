@@ -385,6 +385,8 @@ entry2mit_string_int(krb5_context context, krb5_storage *sp, hdb_entry *ent)
     if (ret) return ret;
     if (last_pw_chg)
         num_tl_data++;
+    if (ent->keys.len && ent->keys.val[0].mkvno)
+        num_tl_data++;
 
     extp = hdb_find_extension(ent, choice_HDB_extension_data_hist_keys);
     if (extp)
@@ -436,8 +438,11 @@ entry2mit_string_int(krb5_context context, krb5_storage *sp, hdb_entry *ent)
     if (sz == -1) return ENOMEM;
 
     /* Dump TL data we know: last pw chg and modified_by */
+    /* XXX Convert to using krb5 storage, so we don't have to swab bytes */
+    /* XXX Move all of these into per-TL data type functions */
 #define mit_KRB5_TL_LAST_PWD_CHANGE     1
 #define mit_KRB5_TL_MOD_PRINC           2
+#define mit_KRB5_TL_MKVNO               8
     if (last_pw_chg) {
         krb5_data d;
         time_t val;
@@ -480,6 +485,24 @@ entry2mit_string_int(krb5_context context, krb5_storage *sp, hdb_entry *ent)
         d.length = plen + 1;
         sz = append_hex(context, sp, 1, 1, &d);
         free(modby_p);
+        if (sz == -1) return ENOMEM;
+    }
+    if (ent->keys.len && ent->keys.val[0].mkvno) {
+        krb5_data d;
+        uint16_t val = UINT16_MAX;
+        unsigned char *ptr;
+
+        if (*ent->keys.val[0].mkvno < UINT16_MAX)
+            val = *ent->keys.val[0].mkvno;
+        
+        ptr = (unsigned char *)&val;
+        val = ptr[0] | (ptr[1] << 8);
+        d.data = &val;
+        d.length = sizeof (val);
+        sz = append_string(context, sp, "\t%u\t%u\t",
+                           mit_KRB5_TL_MKVNO, d.length);
+        if (sz == -1) return ENOMEM;
+        sz = append_hex(context, sp, 1, 1, &d);
         if (sz == -1) return ENOMEM;
     }
     /*

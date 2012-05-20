@@ -28,6 +28,11 @@ At this time support for MIT Kerberos KDB dump/load format and direct
 KDB access does not include support for PKINIT, or K/M key history,
 constrained delegation, and other advanced features.
 
+Note that Heimdal tracks master key kvno per-key in each principal
+record, while MIT encrypts all keys in a record with the same master
+key.  This means that you must not change Heimdal master keys if you
+want to be able to rollback to MIT.
+
 Heimdal supports using multiple HDBs at once, with all write going to
 just one HDB.  This allows for entries to be moved to a native HDB from
 an MIT KDB over time as those entries are changed.  Or you can use hprop

@@ -216,11 +216,12 @@ fix_salt(krb5_context context, hdb_entry *ent, Key *k)
  * @param entry	    HDB entry
  * @param sp	    krb5_storage with current offset set to the beginning of a
  *		    key
+ * @param mkvno     Version number of master key encrypting this key
  * @param version   See comments in caller body for the backstory on this
  * @param k	    Key * to load the key into
  */
 static krb5_error_code
-mdb_keyvalue2key(krb5_context context, hdb_entry *entry, krb5_storage *sp, uint16_t version, Key *k)
+mdb_keyvalue2key(krb5_context context, hdb_entry *entry, krb5_storage *sp, krb5_kvno mkvno, uint16_t version, Key *k)
 {
     size_t i;
     uint16_t u16, type;
@@ -231,7 +232,7 @@ mdb_keyvalue2key(krb5_context context, hdb_entry *entry, krb5_storage *sp, uint1
 	ret = ENOMEM;
 	goto out;
     }
-    *k->mkvno = 1;
+    *k->mkvno = mkvno;
 
     for (i = 0; i < version; i++) {
 	CHECK(ret = krb5_ret_uint16(sp, &type));
@@ -411,6 +412,7 @@ _hdb_mdb_value2entry(krb5_context context, krb5_data *data,
     krb5_storage *sp;
     Key k;
     krb5_kvno key_kvno;
+    krb5_kvno mkvno = 1; /* We've no idea what the minimum mkvno is  here */
     uint32_t u32;
     uint16_t u16, num_keys, num_tl;
     ssize_t sz;
@@ -514,6 +516,7 @@ _hdb_mdb_value2entry(krb5_context context, krb5_data *data,
            length: length */
 #define mit_KRB5_TL_LAST_PWD_CHANGE     1
 #define mit_KRB5_TL_MOD_PRINC           2
+#define mit_KRB5_TL_MKVNO               8
     for (i = 0; i < num_tl; i++) {
         int tl_type;
         krb5_principal modby;
@@ -529,6 +532,12 @@ _hdb_mdb_value2entry(krb5_context context, krb5_data *data,
          * XXX Move all this to separate functions, one per-TL type.
          */
         switch (tl_type) {
+        case mit_KRB5_TL_MKVNO:
+            if (u16 == 2) {
+                CHECK(ret = krb5_ret_uint16(sp, &u16));
+                mkvno = u16;
+            }
+            break;
         case mit_KRB5_TL_LAST_PWD_CHANGE:
             CHECK(ret = krb5_ret_uint32(sp, &u32));
             CHECK(ret = hdb_entry_set_pw_change_time(context, entry, u32));
@@ -581,7 +590,7 @@ _hdb_mdb_value2entry(krb5_context context, krb5_data *data,
 	CHECK(ret = krb5_ret_uint16(sp, &u16));
 	key_kvno = u16;
 
-	ret = mdb_keyvalue2key(context, entry, sp, version, &k);
+	ret = mdb_keyvalue2key(context, entry, sp, mkvno, version, &k);
 	if (ret)
 	    goto out;
 	if (k.key.keytype == 0 || k.key.keyvalue.length == 0) {
