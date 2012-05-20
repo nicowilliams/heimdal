@@ -193,16 +193,10 @@ krb5_get_forwarded_creds (krb5_context	    context,
 			  krb5_data         *out_data)
 {
     krb5_error_code ret;
-    krb5_creds *out_creds;
+    krb5_data *ppdata;
+    krb5_creds *ppcreds[2] = { NULL, NULL };
     krb5_addresses addrs, *paddrs;
-    KRB_CRED cred;
-    KrbCredInfo *krb_cred_info;
-    EncKrbCredPart enc_krb_cred_part;
-    size_t len;
-    unsigned char *buf;
-    size_t buf_size;
     krb5_kdc_flags kdc_flags;
-    krb5_crypto crypto;
     struct addrinfo *ai;
     krb5_creds *ticket;
 
@@ -211,11 +205,7 @@ krb5_get_forwarded_creds (krb5_context	    context,
     addrs.val = NULL;
 
     ret = krb5_get_credentials(context, 0, ccache, in_creds, &ticket);
-    if(ret == 0) {
-	if (ticket->addresses.len)
-	    paddrs = &addrs;
-	krb5_free_creds (context, ticket);
-    } else {
+    if (ret) {
 	krb5_boolean noaddr;
 	krb5_appdefault_boolean(context, NULL,
 				krb5_principal_get_realm(context,
@@ -224,6 +214,10 @@ krb5_get_forwarded_creds (krb5_context	    context,
 				&noaddr);
 	if (!noaddr)
 	    paddrs = &addrs;
+    } else {
+	if (ticket->addresses.len)
+	    paddrs = &addrs;
+	krb5_free_creds(context, ticket);
     }
 
     /*
@@ -231,57 +225,132 @@ krb5_get_forwarded_creds (krb5_context	    context,
      */
 
     if (paddrs != NULL) {
+        int eai;
 
-	ret = getaddrinfo (hostname, NULL, NULL, &ai);
-	if (ret) {
-	    krb5_error_code ret2 = krb5_eai_to_heim_errno(ret, errno);
-	    krb5_set_error_message(context, ret2,
+	eai = getaddrinfo (hostname, NULL, NULL, &ai);
+	if (eai) {
+	    ret = krb5_eai_to_heim_errno(eai, errno);
+	    krb5_set_error_message(context, ret,
 				   N_("resolving host %s failed: %s",
 				      "hostname, error"),
-				  hostname, gai_strerror(ret));
-	    return ret2;
+				  hostname, gai_strerror(eai));
+	    return ret;
 	}
 
-	ret = add_addrs (context, &addrs, ai);
-	freeaddrinfo (ai);
+	ret = add_addrs(context, &addrs, ai);
+	freeaddrinfo(ai);
 	if (ret)
 	    return ret;
     }
 
     kdc_flags.b = int2KDCOptions(flags);
 
-    ret = krb5_get_kdc_cred (context,
-			     ccache,
-			     kdc_flags,
-			     paddrs,
-			     NULL,
-			     in_creds,
-			     &out_creds);
-    krb5_free_addresses (context, &addrs);
+    ret = krb5_get_kdc_cred(context,
+			    ccache,
+			    kdc_flags,
+			    paddrs,
+			    NULL,
+			    in_creds,
+			    &ppcreds[0]);
+    krb5_free_addresses(context, &addrs);
     if (ret)
 	return ret;
+
+    ret = krb5_mk_ncred(context, auth_context, ppcreds, &ppdata, NULL);
+    if (ret)
+        goto out;
+
+    out_data->length = ppdata->length;
+    out_data->data   = ppdata->data;
+    krb5_data_zero(ppdata);
+    krb5_free_data(context, ppdata);
+
+ out:
+    krb5_free_creds (context, ppcreds[0]);
+    return ret;
+}
+
+/**
+ * Make a KRB-CRED PDU with N credentials.
+ *
+ * @param context A kerberos 5 context.
+ * @param auth_context the auth context with the key to encrypt the out_data.
+ * @param ppcreds A NULL terminated array of credentials to forward.
+ * @param ppdata The output KRB-CRED.
+ * @param replay_data (unused).
+ *
+ * @return Return an error code or 0.
+ *
+ * @ingroup krb5_credential
+ */
+
+/* ARGSUSED */
+krb5_error_code KRB5_CALLCONV
+krb5_mk_ncred(krb5_context context, krb5_auth_context auth_context,
+              krb5_creds **ppcreds, krb5_data **ppdata,
+              krb5_replay_data *replay_data)
+{
+    krb5_error_code ret;
+    EncKrbCredPart enc_krb_cred_part;
+    KrbCredInfo *krb_cred_info;
+    krb5_crypto crypto;
+    KRB_CRED cred;
+    unsigned char *buf = NULL;
+    size_t ncreds, i;
+    size_t buf_size;
+    size_t len;
+
+    for (ncreds = 0; ppcreds[ncreds]; ncreds++)
+        ;
 
     memset (&cred, 0, sizeof(cred));
     cred.pvno = 5;
     cred.msg_type = krb_cred;
-    ALLOC_SEQ(&cred.tickets, 1);
+    ALLOC_SEQ(&cred.tickets, ncreds);
     if (cred.tickets.val == NULL) {
-	ret = ENOMEM;
-	krb5_set_error_message(context, ret, N_("malloc: out of memory", ""));
-	goto out2;
+        ret = krb5_enomem(context);
+	goto out;
     }
-    ret = decode_Ticket(out_creds->ticket.data,
-			out_creds->ticket.length,
-			cred.tickets.val, &len);
-    if (ret)
-	goto out3;
-
     memset (&enc_krb_cred_part, 0, sizeof(enc_krb_cred_part));
-    ALLOC_SEQ(&enc_krb_cred_part.ticket_info, 1);
+    ALLOC_SEQ(&enc_krb_cred_part.ticket_info, ncreds);
     if (enc_krb_cred_part.ticket_info.val == NULL) {
-	ret = ENOMEM;
-	krb5_set_error_message(context, ret, N_("malloc: out of memory", ""));
-	goto out4;
+        ret = krb5_enomem(context);
+	goto out;
+    }
+
+    for (i = 0; i < ncreds; i++) {
+        ret = decode_Ticket(ppcreds[i]->ticket.data,
+                            ppcreds[i]->ticket.length,
+                            &cred.tickets.val[i],
+                            &len);/* don't care about len */
+        if (ret)
+           goto out;
+         
+        /* fill ticket_info.val[i] */
+        krb_cred_info = &enc_krb_cred_part.ticket_info.val[i];
+
+        /* XXX Check copy_*() errors */
+        copy_EncryptionKey (&ppcreds[i]->session, &krb_cred_info->key);
+        ALLOC(krb_cred_info->prealm, 1);
+        copy_Realm (&ppcreds[i]->client->realm, krb_cred_info->prealm);
+        ALLOC(krb_cred_info->pname, 1);
+        copy_PrincipalName(&ppcreds[i]->client->name, krb_cred_info->pname);
+        ALLOC(krb_cred_info->flags, 1);
+        *krb_cred_info->flags          = ppcreds[i]->flags.b;
+        ALLOC(krb_cred_info->authtime, 1);
+        *krb_cred_info->authtime       = ppcreds[i]->times.authtime;
+        ALLOC(krb_cred_info->starttime, 1);
+        *krb_cred_info->starttime      = ppcreds[i]->times.starttime;
+        ALLOC(krb_cred_info->endtime, 1);
+        *krb_cred_info->endtime        = ppcreds[i]->times.endtime;
+        ALLOC(krb_cred_info->renew_till, 1);
+        *krb_cred_info->renew_till = ppcreds[i]->times.renew_till;
+        ALLOC(krb_cred_info->srealm, 1);
+        copy_Realm (&ppcreds[i]->server->realm, krb_cred_info->srealm);
+        ALLOC(krb_cred_info->sname, 1);
+        copy_PrincipalName (&ppcreds[i]->server->name, krb_cred_info->sname);
+        ALLOC(krb_cred_info->caddr, 1);
+        copy_HostAddresses (&ppcreds[i]->addresses, krb_cred_info->caddr);
     }
 
     if (auth_context->flags & KRB5_AUTH_CONTEXT_DO_TIME) {
@@ -292,110 +361,63 @@ krb5_get_forwarded_creds (krb5_context	    context,
 
 	ALLOC(enc_krb_cred_part.timestamp, 1);
 	if (enc_krb_cred_part.timestamp == NULL) {
-	    ret = ENOMEM;
-	    krb5_set_error_message(context, ret, N_("malloc: out of memory", ""));
-	    goto out4;
+            ret = krb5_enomem(context);
+            goto out;
 	}
 	*enc_krb_cred_part.timestamp = sec;
 	ALLOC(enc_krb_cred_part.usec, 1);
 	if (enc_krb_cred_part.usec == NULL) {
-	    ret = ENOMEM;
-	    krb5_set_error_message(context, ret, N_("malloc: out of memory", ""));
-	    goto out4;
+            ret = krb5_enomem(context);
+	    goto out;
 	}
 	*enc_krb_cred_part.usec      = usec;
     } else {
 	enc_krb_cred_part.timestamp = NULL;
 	enc_krb_cred_part.usec = NULL;
+        /* XXX Er, shouldn't we set the seq nums?? */
     }
 
-    if (auth_context->local_address && auth_context->local_port && paddrs) {
-
-	ret = krb5_make_addrport (context,
-				  &enc_krb_cred_part.s_address,
-				  auth_context->local_address,
-				  auth_context->local_port);
+    if (auth_context->local_address && auth_context->local_port) {
+	ret = krb5_make_addrport(context,
+				 &enc_krb_cred_part.s_address,
+				 auth_context->local_address,
+				 auth_context->local_port);
 	if (ret)
-	    goto out4;
+	    goto out;
     }
 
     if (auth_context->remote_address) {
 	if (auth_context->remote_port) {
-	    krb5_boolean noaddr;
-	    krb5_const_realm srealm;
-
-	    srealm = krb5_principal_get_realm(context, out_creds->server);
-	    /* Is this correct, and should we use the paddrs == NULL
-               trick here as well? Having an address-less ticket may
-               indicate that we don't know our own global address, but
-               it does not necessary mean that we don't know the
-               server's. */
-	    krb5_appdefault_boolean(context, NULL, srealm, "no-addresses",
-				    FALSE, &noaddr);
-	    if (!noaddr) {
-		ret = krb5_make_addrport (context,
-					  &enc_krb_cred_part.r_address,
-					  auth_context->remote_address,
-					  auth_context->remote_port);
-		if (ret)
-		    goto out4;
-	    }
+            ret = krb5_make_addrport(context,
+                                     &enc_krb_cred_part.r_address,
+                                     auth_context->remote_address,
+                                     auth_context->remote_port);
+            if (ret)
+                goto out;
 	} else {
+            /*
+             * XXX Ugly, make krb5_make_addrport() handle missing port
+             * number (i.e., port == 0), then remove this else.
+             */
 	    ALLOC(enc_krb_cred_part.r_address, 1);
 	    if (enc_krb_cred_part.r_address == NULL) {
-		ret = ENOMEM;
-		krb5_set_error_message(context, ret,
-				       N_("malloc: out of memory", ""));
-		goto out4;
+                ret = krb5_enomem(context);
+		goto out;
 	    }
 
-	    ret = krb5_copy_address (context, auth_context->remote_address,
-				     enc_krb_cred_part.r_address);
+	    ret = krb5_copy_address(context, auth_context->remote_address,
+				    enc_krb_cred_part.r_address);
 	    if (ret)
-		goto out4;
+		goto out;
 	}
     }
 
-    /* fill ticket_info.val[0] */
-
-    enc_krb_cred_part.ticket_info.len = 1;
-
-    krb_cred_info = enc_krb_cred_part.ticket_info.val;
-
-    copy_EncryptionKey (&out_creds->session, &krb_cred_info->key);
-    ALLOC(krb_cred_info->prealm, 1);
-    copy_Realm (&out_creds->client->realm, krb_cred_info->prealm);
-    ALLOC(krb_cred_info->pname, 1);
-    copy_PrincipalName(&out_creds->client->name, krb_cred_info->pname);
-    ALLOC(krb_cred_info->flags, 1);
-    *krb_cred_info->flags          = out_creds->flags.b;
-    ALLOC(krb_cred_info->authtime, 1);
-    *krb_cred_info->authtime       = out_creds->times.authtime;
-    ALLOC(krb_cred_info->starttime, 1);
-    *krb_cred_info->starttime      = out_creds->times.starttime;
-    ALLOC(krb_cred_info->endtime, 1);
-    *krb_cred_info->endtime        = out_creds->times.endtime;
-    ALLOC(krb_cred_info->renew_till, 1);
-    *krb_cred_info->renew_till = out_creds->times.renew_till;
-    ALLOC(krb_cred_info->srealm, 1);
-    copy_Realm (&out_creds->server->realm, krb_cred_info->srealm);
-    ALLOC(krb_cred_info->sname, 1);
-    copy_PrincipalName (&out_creds->server->name, krb_cred_info->sname);
-    ALLOC(krb_cred_info->caddr, 1);
-    copy_HostAddresses (&out_creds->addresses, krb_cred_info->caddr);
-
-    krb5_free_creds (context, out_creds);
-
     /* encode EncKrbCredPart */
-
     ASN1_MALLOC_ENCODE(EncKrbCredPart, buf, buf_size,
 		       &enc_krb_cred_part, &len, ret);
-    free_EncKrbCredPart (&enc_krb_cred_part);
-    if (ret) {
-	free_KRB_CRED(&cred);
-	return ret;
-    }
-    if(buf_size != len)
+    if (ret)
+        goto out;
+    if (buf_size != len)
 	krb5_abortx(context, "internal error in ASN.1 encoder");
 
     /**
@@ -432,28 +454,32 @@ krb5_get_forwarded_creds (krb5_context	    context,
 					  len,
 					  0,
 					  &cred.enc_part);
-	free(buf);
 	krb5_crypto_destroy(context, crypto);
-	if (ret) {
-	    free_KRB_CRED(&cred);
-	    return ret;
-	}
+	if (ret)
+            goto out;
     }
 
     ASN1_MALLOC_ENCODE(KRB_CRED, buf, buf_size, &cred, &len, ret);
-    free_KRB_CRED (&cred);
     if (ret)
-	return ret;
-    if(buf_size != len)
+	goto out;
+    if (buf_size != len)
 	krb5_abortx(context, "internal error in ASN.1 encoder");
-    out_data->length = len;
-    out_data->data   = buf;
-    return 0;
- out4:
+
+    /* MIT makes us very sad */
+    *ppdata = calloc(1, sizeof (*ppdata));
+    if (!*ppdata) {
+        ret = krb5_enomem(context);
+        goto out;
+    }
+    (*ppdata)->length = len;
+    (*ppdata)->data   = buf;
+    ret = 0;
+
+ out:
     free_EncKrbCredPart(&enc_krb_cred_part);
- out3:
     free_KRB_CRED(&cred);
- out2:
-    krb5_free_creds (context, out_creds);
+    free(buf);
     return ret;
 }
+
+

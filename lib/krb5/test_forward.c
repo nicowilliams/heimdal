@@ -117,15 +117,17 @@ main(int argc, char **argv)
     if (ret)
 	krb5_err(context, 1, ret, "krb5_make_principal(server)");
 
-    ret = krb5_get_forwarded_creds (context,
-				    ac,
-				    id,
-				    KDC_OPT_FORWARDABLE,
-				    hostname,
-				    &cred,
-				    &data);
+    ret = krb5_get_forwarded_creds(context,
+				   ac,
+				   id,
+				   KDC_OPT_FORWARDABLE,
+				   hostname,
+				   &cred,
+				   &data);
     if (ret)
-	krb5_err (context, 1, ret, "krb5_get_forwarded_creds");
+	krb5_err(context, 1, ret, "krb5_get_forwarded_creds");
+
+    /* XXX Shouldn't we now test that we get creds out?? */
 
     krb5_data_free(&data);
     krb5_free_context(context);

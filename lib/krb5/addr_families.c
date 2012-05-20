@@ -1483,6 +1483,13 @@ krb5_make_addrport (krb5_context context,
     size_t len = addr->address.length + 2 + 4 * 4;
     u_char *p;
 
+    /*
+     * XXX Make this use the ASN.1 encode/decode functions, but there be
+     * dragons here, so double check the interop considerations that
+     * might apply.
+     */
+    /* XXX Make this assume port == 0 -> port is absent */
+
     *res = malloc (sizeof(**res));
     if (*res == NULL) {
 	krb5_set_error_message (context, ENOMEM,
