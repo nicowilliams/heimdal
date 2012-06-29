@@ -445,6 +445,7 @@ typedef union {
 #define KRB5_GC_NO_TRANSIT_CHECK	(1U << 5)
 #define KRB5_GC_CONSTRAINED_DELEGATION	(1U << 6)
 #define KRB5_GC_CANONICALIZE		(1U << 7)
+#define KRB5_GC_DONT_MATCH_REALM	(1U << 8)
 
 /* constants for compare_creds (and cc_retrieve_cred) */
 #define KRB5_TC_DONT_MATCH_REALM	(1U << 31)
@@ -905,9 +906,7 @@ typedef struct {
 
 typedef enum krb5_name_canon_rule_options {
 	KRB5_NCRO_GC_ONLY = 1 << 0,
-	KRB5_NCRO_USE_REFERRALS = 1 << 1,
-	KRB5_NCRO_NO_REFERRALS = 1 << 2,
-	KRB5_NCRO_SECURE = 1 << 2
+	KRB5_NCRO_SECURE = 1 << 1
 } krb5_name_canon_rule_options;
 
 typedef struct krb5_name_canon_rule *krb5_name_canon_rule;
