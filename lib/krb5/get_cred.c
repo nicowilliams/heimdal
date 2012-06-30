@@ -41,6 +41,15 @@ get_cred_kdc_capath(krb5_context, krb5_kdc_flags,
 		    krb5_ccache, krb5_creds *, krb5_principal,
 		    Ticket *, krb5_creds **, krb5_creds ***);
 
+static krb5_error_code
+get_credentials_with_flags(krb5_context context,
+                           size_t *tgs_limit,
+                           krb5_flags options,
+                           krb5_kdc_flags flags,
+                           krb5_ccache ccache,
+                           krb5_creds *in_creds,
+                           krb5_creds **out_creds);
+
 /*
  * Take the `body' and encode it into `padata' using the credentials
  * in `creds'.
@@ -917,8 +926,13 @@ get_cred_kdc_capath(krb5_context context,
 }
 
 static krb5_error_code
+get_start_realms(krb5_context context, krb5_creds *in_creds, krb5_realm **realms)
+{
+}
+
+static krb5_error_code
 get_cred_kdc_referral(krb5_context context,
-                      size_t tgs_limit,
+                      size_t *tgs_limit,
 		      krb5_kdc_flags flags,
 		      krb5_ccache ccache,
 		      krb5_creds *in_creds,
@@ -940,7 +954,7 @@ get_cred_kdc_referral(krb5_context context,
     krb5_creds mcreds;
     char *referral_realm;
 
-    if (tgs_limit == 0)
+    if (*tgs_limit == 0)
         return KRB5_GET_IN_TKT_LOOP;
 
     memset(&tgt, 0, sizeof(tgt));
@@ -949,10 +963,28 @@ get_cred_kdc_referral(krb5_context context,
     *out_creds = NULL;
 
     /*
-     * We want to try various different realms, starting with the client
-     * principal's realm
+     * We want to try various different realms.  We'll start with the
+     * client principal's realm, the host's (if in_creds->server is
+     * host-based) realm(s) (if domain_realm lists multiple realms for a
+     * domain we'll try them all) or the capath to the krbtgt's realm
+     * (if in_creds->server is a krbtgt), then a configurable list of
+     * realms just in case.  We should also add a list of realms in a
+     * possible hierarchical path to in_creds->server krbtgts' realms,
+     * hoping that each may have a short-cut to the target.  All this
+     * logic will be in get_start_realms().
+     *
+     * At any point we may get a referral, both when trying to get a
+     * ticket for in_creds->server and when trying to get a TGT so we
+     * can ask for a ticket for in_creds->server.  When we get a
+     * referral we recurse to try to get a bettter (and cacheable) TGT,
+     * else we use (but don't cache) the referral TGT.  This algorithm
+     * is recursive in nature and can take care of capaths and
+     * hierarchical paths when no referrals are produced.
+     *
+     * If a referral fails and we have non-zero remaining TGS attempts
+     * to make, then we keep trying.
      */
-    ret = get_start_realms(context, in_creds, impersonate_principal, &realms);
+    ret = get_start_realms(context, in_creds, , &realms);
     if (ret)
         return ret;
 
@@ -993,7 +1025,7 @@ get_cred_kdc_referral(krb5_context context,
         } else
             ret = EINVAL;
 
-        tgs_limit--;
+        (*tgs_limit)--;
         if (ret) {
             ret = get_cred_kdc_address(context, ccache, flags, NULL,
                                        &ask_for, &tgt, impersonate_principal,
@@ -1029,7 +1061,7 @@ get_cred_kdc_referral(krb5_context context,
          * used to would be useless.  Or don't check at all since we
          * have tgs_limit.
          */
-        if (tgs_limit == 0)
+        if (*tgs_limit == 0)
             return KRB5_GET_IN_TKT_LOOP;
 
         /*
@@ -1054,11 +1086,14 @@ get_cred_kdc_referral(krb5_context context,
                                   &ask_for_better.server);
         if (ret)
             goto out;
-        ret = krb5_get_credentials_with_flags(context,
-                                              KRB5_GC_DONT_MATCH_REALM,
-                                              ccache,
-                                              ask_for_better.server,
-                                              &better_tgt);
+
+        /* Re-enter! */
+        ret = get_credentials_with_flags(context, tgs_limit,
+                                         KRB5_GC_DONT_MATCH_REALM,
+                                         ccache,
+                                         ask_for_better.server,
+                                         &better_tgt);
+        (*tgs_limit)--;
         if (!ret) {
             /* We got a better TGT than the referral TGT, so use it */
             ret = get_cred_kdc_address(context, ccache, flags, NULL,
@@ -1073,10 +1108,10 @@ get_cred_kdc_referral(krb5_context context,
                                        second_ticket, &final_ticket);
         }
 
-        if (ret)
+        if (!ret || !*tgs_limit)
             break;
 
-        continue; /* XXX or give up? */
+        /* Continue if the referral failed?  For now we do. */
     }
 
     if (!realms[i] || ret)
@@ -1159,7 +1194,7 @@ _krb5_get_cred_kdc_any(krb5_context context,
     krb5_error_code ret;
     krb5_deltat offset;
 
-    if (tgs_limit == 0)
+    if (*tgs_limit == 0)
         return KRB5_GET_IN_TKT_LOOP;
 
     ret = krb5_cc_get_kdc_offset(context, ccache, &offset);
@@ -1170,7 +1205,7 @@ _krb5_get_cred_kdc_any(krb5_context context,
 
     flags.b.canonicalize = 1; /* always */
     ret = get_cred_kdc_referral(context,
-                                tgs_limit,
+                                *tgs_limit,
 				flags,
 				ccache,
 				in_creds,
@@ -1244,13 +1279,14 @@ store_cred(krb5_context context, krb5_ccache ccache,
 }
 
 
-KRB5_LIB_FUNCTION krb5_error_code KRB5_LIB_CALL
-krb5_get_credentials_with_flags(krb5_context context,
-				krb5_flags options,
-				krb5_kdc_flags flags,
-				krb5_ccache ccache,
-				krb5_creds *in_creds,
-				krb5_creds **out_creds)
+static krb5_error_code
+get_credentials_with_flags(krb5_context context,
+                           size_t *tgs_limit,
+                           krb5_flags options,
+                           krb5_kdc_flags flags,
+                           krb5_ccache ccache,
+                           krb5_creds *in_creds,
+                           krb5_creds **out_creds)
 {
     krb5_error_code ret;
     krb5_name_canon_iterator name_canon_iter = NULL;
@@ -1259,6 +1295,9 @@ krb5_get_credentials_with_flags(krb5_context context,
     krb5_creds *try_creds;
     krb5_creds *res_creds;
     int i;
+
+    if (*tgs_limit == 0)
+        return KRB5_GET_IN_TKT_LOOP;
 
     if (in_creds->session.keytype) {
 	ret = krb5_enctype_valid(context, in_creds->session.keytype);
@@ -1337,6 +1376,20 @@ out:
 	return not_found(context, in_creds->server, ret);
     }
     return 0;
+}
+
+
+KRB5_LIB_FUNCTION krb5_error_code KRB5_LIB_CALL
+krb5_get_credentials_with_flags(krb5_context context,
+				krb5_flags options,
+				krb5_kdc_flags flags,
+				krb5_ccache ccache,
+				krb5_creds *in_creds,
+				krb5_creds **out_creds)
+{
+    size_t tgs_limit = 17;
+
+    return get_credentials_with_flags(context, &tgs_limit, options, flags, ccache, in_creds, out_creds);
 }
 
 KRB5_LIB_FUNCTION krb5_error_code KRB5_LIB_CALL
