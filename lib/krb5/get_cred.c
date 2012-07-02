@@ -984,7 +984,7 @@ get_cred_kdc_referral(krb5_context context,
      * If a referral fails and we have non-zero remaining TGS attempts
      * to make, then we keep trying.
      */
-    ret = get_start_realms(context, in_creds, , &realms);
+    ret = get_start_realms(context, in_creds, &realms);
     if (ret)
         return ret;
 
