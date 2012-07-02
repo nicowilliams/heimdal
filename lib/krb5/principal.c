@@ -1150,8 +1150,10 @@ struct krb5_name_canon_rule {
 	krb5_name_canon_rule next;
 	krb5_name_canon_rule_type type;
 	krb5_name_canon_rule_options options;
-	char *domain;
-	char *realm;
+	char *match_domain;
+	char *match_realm;
+	char *append_domain;
+	char *set_realm;
 	unsigned int mindots;
 };
 
@@ -1301,22 +1303,26 @@ rule_parse_token(krb5_context context, krb5_name_canon_rule rule,
 	rule->options |= KRB5_NCRO_SECURE;
     } else if (strcmp(tok, "ccache_only") == 0) {
 	rule->options |= KRB5_NCRO_GC_ONLY;
-    } else if (strcmp(tok, "no_referrals") == 0) {
-	rule->options |= KRB5_NCRO_NO_REFERRALS;
-	rule->options &= ~KRB5_NCRO_USE_REFERRALS;
-    } else if (strcmp(tok, "use_referrals") == 0) {
-	rule->options |= KRB5_NCRO_USE_REFERRALS;
-	rule->options &= ~KRB5_NCRO_NO_REFERRALS;
     /* Rule ancilliary data: */
-    } else if (strncmp(tok, "domain=", strlen("domain=")) == 0) {
-	free(rule->domain);
-	rule->domain = strdup(tok + strlen("domain="));
-	if (!rule->domain)
+    } else if (strncmp(tok, "match_domain=", strlen("match_domain=")) == 0) {
+	free(rule->match_domain);
+	rule->match_domain = strdup(tok + strlen("match_domain="));
+	if (!rule->match_domain)
 	    return krb5_enomem(context);
-    } else if (strncmp(tok, "realm=", strlen("realm=")) == 0) {
-	free(rule->realm);
-	rule->realm = strdup(tok + strlen("realm="));
-	if (!rule->realm)
+    } else if (strncmp(tok, "append_domain=", strlen("append_domain=")) == 0) {
+	free(rule->append_domain);
+	rule->append_domain = strdup(tok + strlen("append_domain="));
+	if (!rule->append_domain)
+	    return krb5_enomem(context);
+    } else if (strncmp(tok, "match_realm=", strlen("match_realm=")) == 0) {
+	free(rule->match_realm);
+	rule->match_realm = strdup(tok + strlen("match_realm="));
+	if (!rule->match_realm)
+	    return krb5_enomem(context);
+    } else if (strncmp(tok, "set_realm=", strlen("set_realm=")) == 0) {
+	free(rule->set_realm);
+	rule->set_realm = strdup(tok + strlen("set_realm="));
+	if (!rule->set_realm)
 	    return krb5_enomem(context);
     } else if (strncmp(tok, "mindots=", strlen("mindots=")) == 0) {
 	errno = 0;
@@ -1478,12 +1484,15 @@ parse_name_canon_rules(krb5_context context, char **rulestrs,
     size_t i, k;
     krb5_name_canon_rule r;
 
+    *rules = NULL;
+
     for (cpp = rulestrs; *cpp; cpp++)
 	n++;
 
     if ((r = calloc(n, sizeof (*r))) == NULL)
 	return krb5_enomem(context);
 
+    /* XXX Re-write with strtok_r(), since we have one in libroken */
     /* This code is written without use of strtok_r() :( */
     for (i = 0, k = 0; i < n; i++) {
 	cp = rulestrs[i];
@@ -1507,9 +1516,14 @@ parse_name_canon_rules(krb5_context context, char **rulestrs,
 	    /* XXX Trace this! */
 	    continue; /* bogus rule */
 	}
+        if (r[k].type == KRB5_NCRT_RES_SEARCHLIST) {
+            /* XXX Finish this */
+            ...
+        }
 	k++; /* good rule */
     }
 
+    /* XXX Get rid of this */
     /* Expand search list rules */
     for (i = 0; i < n; i++) {
 	if (r[i].type != KRB5_NCRT_RES_SEARCHLIST)
@@ -1520,17 +1534,8 @@ parse_name_canon_rules(krb5_context context, char **rulestrs,
     }
 
     /* The first rule has to be valid */
-    k = n;
-    for (i = 0; i < n; i++) {
-	if (r[i].type != KRB5_NCRT_BOGUS) {
-	    k = i;
-	    break;
-	}
-    }
-    if (k > 0 && k < n) {
-	r[0] = r[k];
-	memset(&r[k], 0, sizeof (r[k])); /* KRB5_NCRT_BOGUS is 0 */
-    }
+    if (r[0].type == KRB5_NCRT_BOGUS)
+        return KRB5_CONFIG_BADFORMAT; /* XXX Better code? Or return def rule? */
 
     /* Setup next pointers */
     for (i = 1, k = 0; i < n; i++) {
