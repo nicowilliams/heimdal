@@ -226,7 +226,7 @@ krb5_get_host_realm(krb5_context context,
     int use_dns;
 
     if (host == NULL) {
-	if (gethostname (hostname, sizeof(hostname))) {
+	if (gethostname(hostname, sizeof(hostname))) {
 	    *realms = NULL;
 	    return errno;
 	}
@@ -238,8 +238,10 @@ krb5_get_host_realm(krb5_context context,
      */
 
     use_dns = (strchr(host, '.') != NULL);
+    if (!context->network_io_allowed)
+        use_dns = FALSE;
 
-    ret = _krb5_get_host_realm_int (context, host, use_dns, realms);
+    ret = _krb5_get_host_realm_int(context, host, use_dns, realms);
     if (ret && targethost != NULL) {
 	/*
 	 * If there was no realm mapping for the host (and we wasn't
@@ -256,3 +258,4 @@ krb5_get_host_realm(krb5_context context,
     }
     return ret;
 }
+
