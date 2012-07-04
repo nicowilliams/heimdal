@@ -37,11 +37,6 @@
 #include <assert.h>
 
 static krb5_error_code
-get_cred_kdc_capath(krb5_context, krb5_kdc_flags,
-		    krb5_ccache, krb5_creds *, krb5_principal,
-		    Ticket *, krb5_creds **, krb5_creds ***);
-
-static krb5_error_code
 get_credentials_with_flags(krb5_context context,
                            size_t *tgs_limit,
                            krb5_flags options,
@@ -743,187 +738,6 @@ add_cred(krb5_context context, krb5_creds const *tkt, krb5_creds ***tgts)
     return ret;
 }
 
-static krb5_error_code
-get_cred_kdc_capath_worker(krb5_context context,
-                           krb5_kdc_flags flags,
-                           krb5_ccache ccache,
-                           krb5_creds *in_creds,
-                           krb5_const_realm try_realm,
-                           krb5_principal impersonate_principal,
-                           Ticket *second_ticket,
-                           krb5_creds **out_creds,
-                           krb5_creds ***ret_tgts)
-{
-    krb5_error_code ret;
-    krb5_creds *tgt, tmp_creds;
-    krb5_const_realm client_realm, server_realm;
-    int ok_as_delegate = 1;
-
-    *out_creds = NULL;
-
-    client_realm = krb5_principal_get_realm(context, in_creds->client);
-    server_realm = krb5_principal_get_realm(context, in_creds->server);
-    memset(&tmp_creds, 0, sizeof(tmp_creds));
-    ret = krb5_copy_principal(context, in_creds->client, &tmp_creds.client);
-    if(ret)
-	return ret;
-
-    ret = krb5_make_principal(context,
-			      &tmp_creds.server,
-			      try_realm,
-			      KRB5_TGS_NAME,
-			      server_realm,
-			      NULL);
-    if(ret){
-	krb5_free_principal(context, tmp_creds.client);
-	return ret;
-    }
-    {
-	krb5_creds tgts;
-
-	ret = find_cred(context, ccache, tmp_creds.server,
-			*ret_tgts, &tgts);
-	if(ret == 0){
-	    /* only allow implicit ok_as_delegate if the realm is the clients realm */
-	    if (strcmp(try_realm, client_realm) != 0 || strcmp(try_realm, server_realm) != 0)
-		ok_as_delegate = tgts.flags.b.ok_as_delegate;
-
-	    *out_creds = calloc(1, sizeof(**out_creds));
-	    if(*out_creds == NULL) {
-		ret = krb5_enomem(context);
-	    } else {
-		ret = get_cred_kdc_address(context, ccache, flags, NULL,
-					   in_creds, &tgts,
-					   impersonate_principal,
-					   second_ticket,
-					   *out_creds);
-		if (ret) {
-		    free (*out_creds);
-		    *out_creds = NULL;
-		} else if (ok_as_delegate == 0)
-		    (*out_creds)->flags.b.ok_as_delegate = 0;
-	    }
-	    krb5_free_cred_contents(context, &tgts);
-	    krb5_free_principal(context, tmp_creds.server);
-	    krb5_free_principal(context, tmp_creds.client);
-	    return ret;
-	}
-    }
-    if(krb5_realm_compare(context, in_creds->client, in_creds->server))
-	return not_found(context, in_creds->server, KRB5_CC_NOTFOUND);
-
-    /* XXX this can loop forever */
-    while(1){
-	heim_general_string tgt_inst;
-
-	ret = get_cred_kdc_capath(context, flags, ccache, &tmp_creds,
-				  NULL, NULL, &tgt, ret_tgts);
-	if(ret) {
-	    krb5_free_principal(context, tmp_creds.server);
-	    krb5_free_principal(context, tmp_creds.client);
-	    return ret;
-	}
-	/*
-	 * if either of the chain or the ok_as_delegate was stripped
-	 * by the kdc, make sure we strip it too.
-	 */
-	if (ok_as_delegate == 0 || tgt->flags.b.ok_as_delegate == 0) {
-	    ok_as_delegate = 0;
-	    tgt->flags.b.ok_as_delegate = 0;
-	}
-
-	ret = add_cred(context, tgt, ret_tgts);
-	if(ret) {
-	    krb5_free_principal(context, tmp_creds.server);
-	    krb5_free_principal(context, tmp_creds.client);
-	    return ret;
-	}
-	tgt_inst = tgt->server->name.name_string.val[1];
-	if(strcmp(tgt_inst, server_realm) == 0)
-	    break;
-	krb5_free_principal(context, tmp_creds.server);
-	ret = krb5_make_principal(context, &tmp_creds.server,
-				  tgt_inst, KRB5_TGS_NAME, server_realm, NULL);
-	if(ret) {
-	    krb5_free_principal(context, tmp_creds.server);
-	    krb5_free_principal(context, tmp_creds.client);
-	    return ret;
-	}
-	ret = krb5_free_creds(context, tgt);
-	if(ret) {
-	    krb5_free_principal(context, tmp_creds.server);
-	    krb5_free_principal(context, tmp_creds.client);
-	    return ret;
-	}
-    }
-
-    krb5_free_principal(context, tmp_creds.server);
-    krb5_free_principal(context, tmp_creds.client);
-    *out_creds = calloc(1, sizeof(**out_creds));
-    if(*out_creds == NULL) {
-	ret = krb5_enomem(context);
-    } else {
-	ret = get_cred_kdc_address (context, ccache, flags, NULL,
-				    in_creds, tgt, impersonate_principal,
-				    second_ticket, *out_creds);
-	if (ret) {
-	    free (*out_creds);
-	    *out_creds = NULL;
-	}
-    }
-    krb5_free_creds(context, tgt);
-    return ret;
-}
-
-/*
-get_cred(server)
-	creds = cc_get_cred(server)
-	if(creds) return creds
-	tgt = cc_get_cred(krbtgt/server_realm@any_realm)
-	if(tgt)
-		return get_cred_tgt(server, tgt)
-	if(client_realm == server_realm)
-		return NULL
-	tgt = get_cred(krbtgt/server_realm@client_realm)
-	while(tgt_inst != server_realm)
-		tgt = get_cred(krbtgt/server_realm@tgt_inst)
-	return get_cred_tgt(server, tgt)
-	*/
-
-static krb5_error_code
-get_cred_kdc_capath(krb5_context context,
-		    krb5_kdc_flags flags,
-		    krb5_ccache ccache,
-		    krb5_creds *in_creds,
-		    krb5_principal impersonate_principal,
-		    Ticket *second_ticket,
-		    krb5_creds **out_creds,
-		    krb5_creds ***ret_tgts)
-{
-    krb5_error_code ret;
-    krb5_const_realm client_realm, server_realm, try_realm;
-
-    client_realm = krb5_principal_get_realm(context, in_creds->client);
-    server_realm = krb5_principal_get_realm(context, in_creds->server);
-
-    try_realm = client_realm;
-    ret = get_cred_kdc_capath_worker(context, flags, ccache, in_creds, try_realm,
-                                     impersonate_principal, second_ticket, out_creds,
-                                     ret_tgts);
-
-    if (ret == KRB5KDC_ERR_S_PRINCIPAL_UNKNOWN) {
-        try_realm = krb5_config_get_string(context, NULL, "capaths",
-                                           client_realm, server_realm, NULL);
-
-        if (try_realm != NULL && strcmp(try_realm, client_realm)) {
-            ret = get_cred_kdc_capath_worker(context, flags, ccache, in_creds,
-                                             try_realm, impersonate_principal,
-                                             second_ticket, out_creds, ret_tgts);
-        }
-    }
-
-    return ret;
-}
 
 static krb5_error_code
 concat_realms(krb5_context context,
@@ -957,6 +771,102 @@ concat_realms(krb5_context context,
 }
 
 static krb5_error_code
+add_realm(krb5_context context, krb5_realm **realms, krb5_realm realm)
+{
+    krb5_realm *tmp;
+    size_t i;
+
+    for (i = 0; *realms && (*realms)[i]; i++)
+        ;
+
+    tmp = realloc(realms, (i + 1) * sizeof (*realms));
+    if (!tmp)
+        goto enomem;
+
+    tmp[i + 1] = NULL;
+    tmp[i] = strdup(realm);
+    if (tmp[i])
+        return 0;
+
+enomem:
+    return krb5_enomem(context);
+}
+
+/* Helper for get_start_realms(), when the target is a krbtgt */
+static krb5_error_code
+get_capath_realms(krb5_context context,
+                  krb5_realm crealm,
+                  krb5_realm tgtrealm,
+                  krb5_realms *ref_realms,
+                  krb5_realms **realms_out)
+{
+    char **capaths_realms;
+    krb5_realm realms = NULL;
+    size_t i, k;
+
+    errno = 0;
+    capaths_realms = krb5_config_get_strings(context, NULL, "capaths",
+                                             crealm, tgtrealm, NULL);
+    if (errno)
+        return errno;
+    /* Look for a direct trust first */
+    for (i = 0; capaths_realms && capaths_realms[i]; i++) {
+        if (strcmp(capaths_realms[i], ".") == 0) {
+            ret = add_realm(context, &realms, capaths_realms[i]);
+            if (ret)
+                goto err;
+            break;
+        }
+    }
+    /* Next for the first indirect trust */
+    for (i = 0; capaths_realms && capaths_realms[i]; i++) {
+        if (strcmp(capaths_realms[i], ".") != 0) {
+            ret = add_realm(context, &realms, capaths_realms[i]);
+            if (ret)
+                goto err;
+            break;
+        }
+    }
+    krb5_config_free_strings(capaths_realms);
+
+    /* Do the same for the referral realms */
+    for (i = 0; ref_realms && ref_realms[i]; i++) {
+        capaths_realms = krb5_config_get_strings(context, NULL,
+                                                 "capaths",
+                                                 ref_realms[i],
+                                                 tgtrealm, NULL);
+        if (errno)
+            return errno;
+        for (k = 0; capaths_realms && capaths_realms[k]; k++) {
+            if (strcmp(capaths_realms[i], ".") == 0) {
+                ret = add_realm(context, &realms, capaths_realms[k]);
+                if (ret)
+                    goto err;
+                break;
+            }
+        }
+        for (k = 0; capaths_realms && capaths_realms[k]; k++) {
+            if (strcmp(capaths_realms[i], ".") != 0) {
+                ret = add_realm(context, &realms, capaths_realms[k]);
+                if (ret)
+                    goto err;
+                break;
+            }
+        }
+        krb5_config_free_strings(capaths_realms);
+    }
+    return 0;
+
+err:
+    krb5_config_free_strings(capaths_realms);
+    return ret;
+}
+
+/*
+ * Helper for get_cred_kdc_referral(), figures out at what realms to
+ * start looking for the in_creds->server.
+ */
+static krb5_error_code
 get_start_realms(krb5_context context,
                  krb5_creds *in_creds,
                  krb5_realm **realms_out)
@@ -988,23 +898,11 @@ get_start_realms(krb5_context context,
     if (in_creds->server->name.name_string.len == 2 &&
         !strcmp(in_creds->server->name.name_string.val[0], KRB5_TGS_NAME)) {
 
-        krb5_realm *capaths_realms;
-
-        /* Get realm from [capaths] */
-        capaths_realms = krb5_config_get_strings(context, NULL,
-                                                 "capaths",
-                                                 in_creds->client->realm,
-                                                 in_creds->server->name.name_string.val[1],
-                                                 NULL);
-        
-        if (!capaths_realms && ref_realms && *ref_realms) {
-            capaths_realms = krb5_config_get_strings(context, NULL,
-                                                     "capaths",
-                                                     ref_realms[0],
-                                                     in_creds->server->name.name_string.val[1],
-                                                     NULL);
-        }
-
+        ret = get_capath_realms(context, in_creds->client->realm,
+                                in_creds->server->name.name_string.val[1],
+                                ref_realms, &realms);
+        if (ret)
+            goto err;
     } else if (in_creds->server->name.name_string.len >= 2 &&
         in_creds->server->name.name_type == KRB5_NT_SRV_HST) {
 
@@ -1028,6 +926,14 @@ get_start_realms(krb5_context context,
         if (ret)
             goto err;
     }
+
+    /*
+     * XXX Here's where we'd add the set of possible hierarchical realms
+     * from the client principal's realm to the target realm, when the
+     * target principal is a krbtgt anyways.  For example, if the start
+     * realm is A.B.C and the target realm is X.Y.Z we'd want to append
+     * Y.Z, Z, C, and B.C here.
+     */
 
     *realms_out = realms;
     return 0;
@@ -1075,9 +981,9 @@ get_cred_kdc_referral(krb5_context context,
      * We want to try various different realms.  We'll start with the
      * client principal's realm, the host's (if in_creds->server is
      * host-based) realm(s) (if domain_realm lists multiple realms for a
-     * domain we'll try them all) or the capath to the krbtgt's realm
-     * (if in_creds->server is a krbtgt), then a configurable list of
-     * realms just in case.  We should also add a list of realms in a
+     * domain we'll try them all) or the best capath(s) to the krbtgt's
+     * realm (if in_creds->server is a krbtgt), then a configurable list
+     * of realms just in case.  We should also add a list of realms in a
      * possible hierarchical path to in_creds->server krbtgts' realms,
      * hoping that each may have a short-cut to the target.  All this
      * logic will be in get_start_realms().
@@ -1247,41 +1153,6 @@ out:
     krb5_free_cred_contents(context, &tgt);
     krb5_free_cred_contents(context, &ticket);
     return ret;
-}
-
-get_cred_worker(krb5_context context,
-                size_t *counter,
-                krb5_flags options,
-                krb5_kdc_flags flags,
-                krb5_ccache ccache,
-                krb5_creds *in_creds,
-                krb5_principal impersonate_principal,
-                Ticket *second_ticket,
-                krb5_creds **out_creds,
-                krb5_creds ***ret_tgts)
-{
-    /* XXX Implement */
-
-    /*
-     * if in_creds->server has a non-empty realm and we have a flag that
-     *     says we trust the realm of in_creds->server is right, then:
-     *   try to find the desired ticket in the ccache; return if success
-     *   recurse to get a TGT for in_creds->server's realm (i.e.,
-     *   krbtgt/server_realm@<empty-realm>), then go ask the KDCs for
-     *   that realm, else fail, and return result
-     * else (we don't know the realm)
-     *   if in_creds->server is a krbtgt then
-     *     mutually recurse with TBD, which will loop over a list of
-     *     realms like so: client's realm, capath next hop to second
-     *         component of the server, then the default realm(s)
-     *       for each realm try to get the ticket at that realm, return
-     *       on success
-     *
-     *       (this is best done by using the name canon infrastructure,
-     *       with the "rules" being the realm list described above.)
-     *   else
-     *     mutually recurse with TBD, with flag
-     */
 }
 
 /*
@@ -1496,9 +1367,12 @@ krb5_get_credentials_with_flags(krb5_context context,
 				krb5_creds *in_creds,
 				krb5_creds **out_creds)
 {
+    /* XXX 17 is probably too small in some cases; make configurable? */
     size_t tgs_limit = 17;
 
-    return get_credentials_with_flags(context, &tgs_limit, options, flags, ccache, in_creds, out_creds);
+    return get_credentials_with_flags(context, &tgs_limit, options,
+                                      flags, ccache, in_creds,
+                                      out_creds);
 }
 
 KRB5_LIB_FUNCTION krb5_error_code KRB5_LIB_CALL
