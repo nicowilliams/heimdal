@@ -221,6 +221,7 @@ init_context_from_config_file(krb5_context context)
     INIT_FIELD(context, bool, srv_lookup, context->srv_lookup, "dns_lookup_kdc");
     INIT_FIELD(context, int, large_msg_size, 1400, "large_message_size");
     INIT_FIELD(context, int, max_msg_size, 1000 * 1024, "maximum_message_size");
+    context->network_io_allowed = TRUE; /* can't be set in krb5.conf */
     INIT_FLAG(context, flags, KRB5_CTX_F_DNS_CANONICALIZE_HOSTNAME, TRUE, "dns_canonicalize_hostname");
     INIT_FLAG(context, flags, KRB5_CTX_F_CHECK_PAC, TRUE, "check_pac");
     context->default_cc_name = NULL;
@@ -245,6 +246,21 @@ init_context_from_config_file(krb5_context context)
     }
 
     return 0;
+}
+
+/**
+ * Make the kerberos library not do network I/O.  Only used by the KDC.
+ *
+ * @param context Kerberos 5 context.
+ * @param flag boolean flag to indicate whether network I/O is allowed.
+ *
+ * @ingroup krb5
+ */
+
+KRB5_LIB_FUNCTION void KRB5_LIB_CALL
+krb5_set_network_io_allowed(krb5_context context, krb5_boolean flag)
+{
+    context->network_io_allowed = flag;
 }
 
 static krb5_error_code
@@ -1075,7 +1091,7 @@ krb5_init_ets(krb5_context context)
  */
 
 KRB5_LIB_FUNCTION void KRB5_LIB_CALL
-krb5_set_use_admin_kdc (krb5_context context, krb5_boolean flag)
+krb5_set_use_admin_kdc(krb5_context context, krb5_boolean flag)
 {
     context->use_admin_kdc = flag;
 }
@@ -1091,7 +1107,7 @@ krb5_set_use_admin_kdc (krb5_context context, krb5_boolean flag)
  */
 
 KRB5_LIB_FUNCTION krb5_boolean KRB5_LIB_CALL
-krb5_get_use_admin_kdc (krb5_context context)
+krb5_get_use_admin_kdc(krb5_context context)
 {
     return context->use_admin_kdc;
 }
@@ -1324,7 +1340,7 @@ krb5_is_thread_safe(void)
  */
 
 KRB5_LIB_FUNCTION void KRB5_LIB_CALL
-krb5_set_dns_canonicalize_hostname (krb5_context context, krb5_boolean flag)
+krb5_set_dns_canonicalize_hostname(krb5_context context, krb5_boolean flag)
 {
     if (flag)
 	context->flags |= KRB5_CTX_F_DNS_CANONICALIZE_HOSTNAME;
@@ -1343,7 +1359,7 @@ krb5_set_dns_canonicalize_hostname (krb5_context context, krb5_boolean flag)
  */
 
 KRB5_LIB_FUNCTION krb5_boolean KRB5_LIB_CALL
-krb5_get_dns_canonicalize_hostname (krb5_context context)
+krb5_get_dns_canonicalize_hostname(krb5_context context)
 {
     return (context->flags & KRB5_CTX_F_DNS_CANONICALIZE_HOSTNAME) ? 1 : 0;
 }
@@ -1361,7 +1377,7 @@ krb5_get_dns_canonicalize_hostname (krb5_context context)
  */
 
 KRB5_LIB_FUNCTION krb5_error_code KRB5_LIB_CALL
-krb5_get_kdc_sec_offset (krb5_context context, int32_t *sec, int32_t *usec)
+krb5_get_kdc_sec_offset(krb5_context context, int32_t *sec, int32_t *usec)
 {
     if (sec)
 	*sec = context->kdc_sec_offset;
@@ -1383,7 +1399,7 @@ krb5_get_kdc_sec_offset (krb5_context context, int32_t *sec, int32_t *usec)
  */
 
 KRB5_LIB_FUNCTION krb5_error_code KRB5_LIB_CALL
-krb5_set_kdc_sec_offset (krb5_context context, int32_t sec, int32_t usec)
+krb5_set_kdc_sec_offset(krb5_context context, int32_t sec, int32_t usec)
 {
     context->kdc_sec_offset = sec;
     if (usec >= 0)
@@ -1402,7 +1418,7 @@ krb5_set_kdc_sec_offset (krb5_context context, int32_t sec, int32_t usec)
  */
 
 KRB5_LIB_FUNCTION time_t KRB5_LIB_CALL
-krb5_get_max_time_skew (krb5_context context)
+krb5_get_max_time_skew(krb5_context context)
 {
     return context->max_skew;
 }
@@ -1417,7 +1433,7 @@ krb5_get_max_time_skew (krb5_context context)
  */
 
 KRB5_LIB_FUNCTION void KRB5_LIB_CALL
-krb5_set_max_time_skew (krb5_context context, time_t t)
+krb5_set_max_time_skew(krb5_context context, time_t t)
 {
     context->max_skew = t;
 }
