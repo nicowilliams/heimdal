@@ -926,8 +926,117 @@ get_cred_kdc_capath(krb5_context context,
 }
 
 static krb5_error_code
-get_start_realms(krb5_context context, krb5_creds *in_creds, krb5_realm **realms)
+concat_realms(krb5_context context,
+              krb5_realm **list1,
+              krb5_realm *list2)
 {
+    size_t i, k;
+    krb5_realm *tmp;
+
+    if (!list2)
+        return 0;
+
+    for (i = 0; (*list1)[i]; i++)
+        ;
+    for (k = 0; list2[k]; k++)
+        ;
+
+    tmp = realloc(*list1, (i + k + 1) * sizeof (**list1));
+    if (!tmp)
+        return krb5_enomem(context);
+
+    for (k = 0; list2[k]; k++) {
+        tmp[i++] = list2[k];
+        list2[k] = NULL;
+    }
+    tmp[i] = NULL;
+    (void) krb5_free_host_realm(context, list2);
+
+    *list1 = tmp;
+    return 0;
+}
+
+static krb5_error_code
+get_start_realms(krb5_context context,
+                 krb5_creds *in_creds,
+                 krb5_realm **realms_out)
+{
+    krb5_error_code ret;
+    krb5_realm *tmp, *realms, *ref_realms;
+    size_t i = 0;
+
+    ret = krb5_get_referral_realms(context, &ref_realms);
+    if (ret)
+        goto err;
+
+    /*
+     * We'll have at least the client realm, we may also have whatever
+     * realm the in_creds->server already has, and a terminating NULL.
+     */
+    realms = calloc(3, sizeof (*realms));
+    if (!realms)
+        return krb5_enomem(context);
+
+    if (in_creds->client->realm &&
+        !(realms[i++] = strdup(in_creds->client->realm)))
+        goto enomem;
+
+    if (in_creds->server->realm && *in_creds->server->realm &&
+        !(realms[i++] = strdup(in_creds->server->realm)))
+        goto enomem;
+
+    if (in_creds->server->name.name_string.len == 2 &&
+        !strcmp(in_creds->server->name.name_string.val[0], KRB5_TGS_NAME)) {
+
+        krb5_realm *capaths_realms;
+
+        /* Get realm from [capaths] */
+        capaths_realms = krb5_config_get_strings(context, NULL,
+                                                 "capaths",
+                                                 in_creds->client->realm,
+                                                 in_creds->server->name.name_string.val[1],
+                                                 NULL);
+        
+        if (!capaths_realms && ref_realms && *ref_realms) {
+            capaths_realms = krb5_config_get_strings(context, NULL,
+                                                     "capaths",
+                                                     ref_realms[0],
+                                                     in_creds->server->name.name_string.val[1],
+                                                     NULL);
+        }
+
+    } else if (in_creds->server->name.name_string.len >= 2 &&
+        in_creds->server->name.name_type == KRB5_NT_SRV_HST) {
+
+        krb5_realm *host_realms;
+
+        /* Get realm from [domain_realm] */
+        ret = krb5_get_host_realm(context,
+                                  in_creds->server->name.name_string.val[1],
+                                  &host_realms);
+        if (ret)
+            goto err;
+
+        ret = concat_realms(context, &realms, host_realms);
+        if (ret)
+            goto err;
+    }
+
+    /* Append referral realms to realms */
+    if (ref_realms && *ref_realms) {
+        ret = concat_realms(context, &realms, ref_realms);
+        if (ret)
+            goto err;
+    }
+
+    *realms_out = realms;
+    return 0;
+
+enomem:
+    (void) krb5_free_host_realm(context, realms);
+    ret = krb5_enomem(context);
+err:
+    return ret;
 }
 
 static krb5_error_code
