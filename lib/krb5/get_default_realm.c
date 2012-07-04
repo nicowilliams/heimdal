@@ -78,3 +78,11 @@ krb5_get_default_realm(krb5_context context,
     *realm = res;
     return 0;
 }
+
+KRB5_LIB_FUNCTION krb5_error_code KRB5_LIB_CALL
+krb5_get_referral_realms(krb5_context context,
+			 krb5_realm **realms)
+{
+    /* XXX Implement config param */
+    return krb5_get_default_realms(context, realms);
+}
