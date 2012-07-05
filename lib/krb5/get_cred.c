@@ -1305,6 +1305,7 @@ store_cred(krb5_context context, krb5_ccache ccache,
     ret = krb5_copy_principal(context, server_princ, &p);
     if (ret)
 	return;
+    /* XXX Get rid of this */
     if (p->name.name_type == KRB5_NT_SRV_HST_NEEDS_CANON)
 	p->name.name_type = KRB5_NT_SRV_HST;
     creds->server = p;
@@ -1346,6 +1347,7 @@ get_credentials_with_flags(krb5_context context,
     if (res_creds == NULL)
 	return krb5_enomem(context);
 
+    /* XXX Change this to check_cc() when *in_creds->server->realm == NUL */
     if (in_creds->server->name.name_type == KRB5_NT_SRV_HST_NEEDS_CANON) {
 	ret = check_cc(context, options, ccache, in_creds, res_creds);
 	if (ret == 0) {
@@ -1587,6 +1589,7 @@ krb5_get_creds(krb5_context context,
     }
 
     /* Check for entry in ccache */
+    /* XXX Change this to check_cc() when *in_creds->server->realm == NUL */
     if (inprinc->name.name_type == KRB5_NT_SRV_HST_NEEDS_CANON) {
 	ret = check_cc(context, options, ccache, &in_creds, res_creds);
 	if (ret == 0) {
