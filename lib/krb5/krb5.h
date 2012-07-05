@@ -919,12 +919,6 @@ typedef struct {
  * Name canonicalization rule options
  */
 
-typedef enum krb5_name_canon_rule_options {
-	KRB5_NCRO_GC_ONLY = 1 << 0,
-	KRB5_NCRO_SECURE = 1 << 1
-} krb5_name_canon_rule_options;
-
-typedef struct krb5_name_canon_rule *krb5_name_canon_rule;
 typedef struct krb5_name_canon_iterator *krb5_name_canon_iterator;
 
 /*
