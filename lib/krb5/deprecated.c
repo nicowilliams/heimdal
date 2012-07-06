@@ -536,9 +536,10 @@ krb5_get_cred_from_kdc_opt(krb5_context context,
 			   krb5_flags flags)
     KRB5_DEPRECATED_FUNCTION("Use X instead")
 {
+    size_t tgs_limit = 17;
     krb5_kdc_flags f;
     f.i = flags;
-    return _krb5_get_cred_kdc_any(context, f, ccache,
+    return _krb5_get_cred_kdc_any(context, &tgs_limit, f, ccache,
 				  in_creds, NULL, NULL,
 				  out_creds, ret_tgts);
 }

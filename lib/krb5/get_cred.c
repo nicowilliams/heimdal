@@ -1305,9 +1305,6 @@ store_cred(krb5_context context, krb5_ccache ccache,
     ret = krb5_copy_principal(context, server_princ, &p);
     if (ret)
 	return;
-    /* XXX Get rid of this */
-    if (p->name.name_type == KRB5_NT_SRV_HST_NEEDS_CANON)
-	p->name.name_type = KRB5_NT_SRV_HST;
     creds->server = p;
     krb5_cc_store_cred(context, ccache, creds);
     creds->server = tmp_princ;
@@ -1326,7 +1323,6 @@ get_credentials_with_flags(krb5_context context,
 {
     krb5_error_code ret;
     krb5_name_canon_iterator name_canon_iter = NULL;
-    krb5_name_canon_rule_options rule_opts;
     krb5_creds **tgts;
     krb5_creds *try_creds;
     krb5_creds *res_creds;
@@ -1347,8 +1343,7 @@ get_credentials_with_flags(krb5_context context,
     if (res_creds == NULL)
 	return krb5_enomem(context);
 
-    /* XXX Change this to check_cc() when *in_creds->server->realm == NUL */
-    if (in_creds->server->name.name_type == KRB5_NT_SRV_HST_NEEDS_CANON) {
+    if (!*in_creds->server->realm) {
 	ret = check_cc(context, options, ccache, in_creds, res_creds);
 	if (ret == 0) {
 	    *out_creds = res_creds;
@@ -1363,9 +1358,8 @@ get_credentials_with_flags(krb5_context context,
 
 next_rule:
     krb5_free_cred_contents(context, res_creds);
-    memset(res_creds, 0, sizeof (*res_creds));
-    ret = krb5_name_canon_iterate_creds(context, &name_canon_iter, &try_creds,
-					&rule_opts);
+    memset(res_creds, 0, sizeof (res_creds));
+    ret = krb5_name_canon_iterate_creds(context, &name_canon_iter, &try_creds);
     if (ret)
 	goto out;
     if (name_canon_iter == NULL) {
@@ -1399,9 +1393,12 @@ next_rule:
 	krb5_free_creds(context, tgts[i]);
     }
     free(tgts);
+#if 0
+    /* XXX Fix */
     if (ret == KRB5KDC_ERR_S_PRINCIPAL_UNKNOWN &&
 	!(rule_opts & KRB5_NCRO_SECURE))
 	goto next_rule;
+#endif
 
     if (ret == 0 && (options & KRB5_GC_NO_STORE) == 0)
 	store_cred(context, ccache, in_creds->server, *out_creds);
@@ -1553,7 +1550,6 @@ krb5_get_creds(krb5_context context,
     krb5_creds *try_creds;
     krb5_creds *res_creds;
     krb5_name_canon_iterator name_canon_iter = NULL;
-    krb5_name_canon_rule_options rule_opts;
     size_t tgs_limit = 17; /* XXX */
     int i;
 
@@ -1589,8 +1585,7 @@ krb5_get_creds(krb5_context context,
     }
 
     /* Check for entry in ccache */
-    /* XXX Change this to check_cc() when *in_creds->server->realm == NUL */
-    if (inprinc->name.name_type == KRB5_NT_SRV_HST_NEEDS_CANON) {
+    if (!*inprinc->realm) {
 	ret = check_cc(context, options, ccache, &in_creds, res_creds);
 	if (ret == 0) {
 	    *out_creds = res_creds;
@@ -1604,8 +1599,7 @@ krb5_get_creds(krb5_context context,
 	goto out;
 
 next_rule:
-    ret = krb5_name_canon_iterate_creds(context, &name_canon_iter, &try_creds,
-					&rule_opts);
+    ret = krb5_name_canon_iterate_creds(context, &name_canon_iter, &try_creds);
     if (ret)
 	return ret;
     if (name_canon_iter == NULL) {
@@ -1660,9 +1654,12 @@ next_rule:
     }
     free(tgts);
 
+#if 0
+    /* XXX Fix */
     if (ret == KRB5KDC_ERR_S_PRINCIPAL_UNKNOWN &&
 	!(rule_opts & KRB5_NCRO_SECURE))
 	goto next_rule;
+#endif
 
     if(ret == 0 && (options & KRB5_GC_NO_STORE) == 0)
 	store_cred(context, ccache, inprinc, *out_creds);
