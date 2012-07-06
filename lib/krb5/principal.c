@@ -31,6 +31,7 @@
  * SUCH DAMAGE.
  */
 
+
 /**
  * @page krb5_principal_intro The principal handing functions.
  *
@@ -62,6 +63,17 @@ host/admin@H5L.ORG
 #define princ_comp(P) ((P)->name.name_string.val)
 #define princ_ncomp(P, N) ((P)->name.name_string.val[(N)])
 #define princ_realm(P) ((P)->realm)
+
+struct krb5_name_canon_iterator {
+    char                        **searchlist;
+    krb5_const_principal	in_princ;
+    krb5_principal		tmp_princ;
+    krb5_creds			*creds;
+    size_t                      search_idx;
+    int                         use_nss:1;
+    int				is_trivial:1;
+    int				done:1;
+};
 
 /**
  * Frees a Kerberos principal allocated by the library with
@@ -930,9 +942,10 @@ krb5_principal_compare(krb5_context context,
 		       krb5_const_principal princ1,
 		       krb5_const_principal princ2)
 {
-    if ((princ_type(princ1) == KRB5_NT_SRV_HST_NEEDS_CANON ||
-	princ_type(princ2) == KRB5_NT_SRV_HST_NEEDS_CANON) &&
-	princ_type(princ2) != princ_type(princ1)) {
+    if (princ_type(princ1) == KRB5_NT_SRV_HST &&
+	princ_type(princ2) == KRB5_NT_SRV_HST &&
+        *princ1->realm != *princ2->realm &&
+        (!*princ1->realm || !*princ2->realm)) {
 	krb5_error_code ret;
 	krb5_boolean princs_eq;
 	krb5_const_principal princ2canon;
@@ -940,7 +953,7 @@ krb5_principal_compare(krb5_context context,
 	krb5_principal try_princ;
 	krb5_name_canon_iterator nci;
 
-	if (princ_type(princ1) == KRB5_NT_SRV_HST_NEEDS_CANON) {
+	if (!*princ1->realm) {
 	    princ2canon = princ1;
 	    other_princ = princ2;
 	} else {
@@ -952,8 +965,7 @@ krb5_principal_compare(krb5_context context,
 	if (ret)
 	    return FALSE;
 	do {
-	    ret = krb5_name_canon_iterate_princ(context, &nci, &try_princ,
-						NULL);
+	    ret = krb5_name_canon_iterate_princ(context, &nci, &try_princ);
 	    if (ret || try_princ == NULL)
 		break;
 	    princs_eq = krb5_principal_compare(context, try_princ, other_princ);
@@ -1098,7 +1110,6 @@ static const struct {
     { "ENT_PRINCIPAL_AND_ID", KRB5_NT_ENT_PRINCIPAL_AND_ID },
     { "MS_PRINCIPAL", KRB5_NT_MS_PRINCIPAL },
     { "MS_PRINCIPAL_AND_ID", KRB5_NT_MS_PRINCIPAL_AND_ID },
-    { "SRV_HST_NEEDS_CANON", KRB5_NT_SRV_HST_NEEDS_CANON },
     { NULL, 0 }
 };
 
@@ -1138,25 +1149,6 @@ krb5_principal_is_krbtgt(krb5_context context, krb5_const_principal p)
 
 }
 
-typedef enum krb5_name_canon_rule_type {
-	KRB5_NCRT_BOGUS = 0,
-	KRB5_NCRT_AS_IS,
-	KRB5_NCRT_QUALIFY,
-	KRB5_NCRT_RES_SEARCHLIST,
-	KRB5_NCRT_NSS
-} krb5_name_canon_rule_type;
-
-struct krb5_name_canon_rule {
-	krb5_name_canon_rule next;
-	krb5_name_canon_rule_type type;
-	krb5_name_canon_rule_options options;
-	char *match_domain;
-	char *match_realm;
-	char *append_domain;
-	char *set_realm;
-	unsigned int mindots;
-};
-
 /**
  * Create a principal for the given service running on the given
  * hostname. If KRB5_NT_SRV_HST is used, the hostname is canonicalized
@@ -1187,10 +1179,12 @@ krb5_sname_to_principal(krb5_context context,
 			int32_t type,
 			krb5_principal *ret_princ)
 {
-    char *realm, *remote_host;
     krb5_error_code ret;
-    register char *cp;
+    krb5_name_canon_iterator iter = NULL;
     char localname[MAXHOSTNAMELEN];
+    char *realm, *remote_host;
+    char *canon_method = NULL;
+    register char *cp;
 
     if ((type != KRB5_NT_UNKNOWN) &&
 	(type != KRB5_NT_SRV_HST))
@@ -1212,32 +1206,24 @@ krb5_sname_to_principal(krb5_context context,
 	return krb5_enomem(context);
 
     if (type == KRB5_NT_SRV_HST) {
-	krb5_name_canon_rule rules;
 
 	/* Lower-case the hostname, because that's the convention */
+        /* XXX Move this in to canon_hostname()? */
 	for (cp = remote_host; *cp; cp++)
 	    if (isupper((int) (*cp)))
 		*cp = tolower((int) (*cp));
 
-	ret = _krb5_get_name_canon_rules(context, &rules);
-	if (ret) {
-	    _krb5_debug(context, 5, "Failed to get name canon rules: ret = %d",
-			ret);
-	    return ret;
-	}
-	if (rules->type == KRB5_NCRT_NSS && rules->next == NULL) {
-	    _krb5_debug(context, 5, "Using nss for name canon immediately "
-			"(without reverse lookups)");
+        krb5_appdefault_string(context, NULL, NULL,
+                               "hostname-canon-method", "nss", &canon_method);
+
+        if (!strcmp(canon_method, "nss")) {
 	    /* For the default rule we'll just canonicalize here */
 	    ret = krb5_sname_to_principal_old(context, NULL,
 						 remote_host, sname,
 						 KRB5_NT_SRV_HST,
 						 ret_princ);
-	    free(remote_host);
-	    _krb5_free_name_canon_rules(context, rules);
-	    return ret;
-	}
-	_krb5_free_name_canon_rules(context, rules);
+            goto out;
+        }
     }
 
     /* Trailing dot(s) would be bad */
@@ -1248,29 +1234,16 @@ krb5_sname_to_principal(krb5_context context,
     }
 
     realm = ""; /* "Referral realm" -- borrowed from newer MIT */
-
     ret = krb5_build_principal(context, ret_princ, strlen(realm),
 				  realm, sname, remote_host,
 				  (char *)0);
 
-    if (type == KRB5_NT_SRV_HST) {
-	/*
-	 * Hostname canonicalization is done elsewhere (in
-	 * krb5_get_credentials() and krb5_kt_get_entry()).
-	 *
-	 * We use special magic to indicate to those functions that
-	 * this principal name requires canonicalization.
-	 */
-	(*ret_princ)->name.name_type = KRB5_NT_SRV_HST_NEEDS_CANON;
-
-	_krb5_debug(context, 5, "Building a delayed canon principal for %s/%s@",
-		sname, remote_host);
-    }
-
+out:
+    krb5_free_name_canon_iterator(context, iter);
+    free(canon_method);
     free(remote_host);
     return ret;
 }
-
 
 static krb5_error_code
 get_resolver_searchlist(krb5_context context, char ***out)
@@ -1283,6 +1256,7 @@ get_resolver_searchlist(krb5_context context, char ***out)
     char **domains = NULL;
     size_t search_list_len;
     size_t i;
+    int ret;
 
     *out = NULL;
 
@@ -1341,258 +1315,91 @@ get_resolver_searchlist(krb5_context context, char ***out)
 }
 
 static krb5_error_code
-get_host_realm(krb5_context context, const char *hostname, char **realm)
+canon_hostname(krb5_context context, krb5_name_canon_iterator iter,
+               krb5_principal *out_princ)
 {
     krb5_error_code ret;
-    char **hrealms = NULL;
-
-    *realm = NULL;
-    if ((ret = krb5_get_host_realm(context, hostname, &hrealms)))
-	return ret;
-    if (!hrealms)
-	return KRB5_ERR_HOST_REALM_UNKNOWN; /* krb5_set_error() already done */
-    if (!hrealms[0]) {
-	krb5_free_host_realm(context, hrealms);
-	return KRB5_ERR_HOST_REALM_UNKNOWN; /* krb5_set_error() already done */
-    }
-    *realm = strdup(hrealms[0]);
-    krb5_free_host_realm(context, hrealms);
-    return 0;
-}
-
-/**
- * Apply a name canonicalization rule to a principal.
- *
- * @param context   Kerberos context
- * @param rule	    name canon rule
- * @param in_princ  principal name
- * @param out_print resulting principal name
- * @param rule_opts options for this rule
- */
-KRB5_LIB_FUNCTION krb5_error_code
-apply_name_canon_rule(krb5_context context, krb5_name_canon_rule rule,
-                      krb5_const_principal in_princ,
-                      krb5_principal *out_princ)
-{
-    krb5_error_code ret;
-    unsigned int ndots = 0;
-    char *realm = NULL;
-    const char *sname = NULL;
-    const char *hostname = NULL;
+    const char *search = NULL;
+    const char *sname;
+    const char *hostname;
     char *new_hostname;
     const char *cp;
+    int aret;
 
-    heim_assert(in_princ->name.name_type == KRB5_NT_SRV_HST_NEEDS_CANON,
+    heim_assert(iter->in_princ->name.name_type == KRB5_NT_SRV_HST,
 		"internal error: principal does not need canon");
     *out_princ = NULL;
-    if (rule_opts)
-	*rule_opts = 0;
 
-    if (rule->type == KRB5_NCRT_BOGUS)
-	return 0; /* rule doesn't apply */
+    if (iter->searchlist)
+        search = iter->searchlist[iter->search_idx++];
 
-    sname = krb5_principal_get_comp_string(context, in_princ, 0);
-    hostname = krb5_principal_get_comp_string(context, in_princ, 1);
-
-    _krb5_debug(context, 5, "Applying a name rule (type %d) to %s", rule->type,
-		hostname);
-    if (rule_opts)
-	*rule_opts = rule->options;
-
-    ret = 0;
-    switch (rule->type) {
-    case KRB5_NCRT_AS_IS:
-	if (rule->mindots > 0) {
-	    for (cp = strchr(hostname, '.'); cp && *cp; cp = strchr(cp, '.'))
-		ndots++;
-	    if (ndots < rule->mindots)
-		goto out; /* *out_princ == NULL; rule doesn't apply */
-	}
-	if (rule->domain) {
-	    cp = strstr(hostname, rule->domain);
-	    if (cp == NULL)
-		goto out; /* *out_princ == NULL; rule doesn't apply */
-	    if (cp != hostname && cp[-1] != '.')
-		goto out;
-	}
-	/* Rule matches, copy princ with hostname as-is, with normal magic */
-	realm = rule->realm;
-	if (!realm) {
-	    ret = get_host_realm(context, hostname, &realm);
-	    if (ret)
-		goto out;
-	}
-	_krb5_debug(context, 5, "As-is rule building a princ with realm=%s, "
-		    "sname=%s, and hostname=%s", rule->realm, sname, hostname);
-	ret = krb5_build_principal(context, out_princ,
-				      strlen(rule->realm),
-				      rule->realm, sname, hostname,
-				      (char *)0);
-	goto out;
-	break;
-
-    case KRB5_NCRT_QUALIFY:
-	/*
-	 * Note that we should never get these rules even if specified
-	 * in krb5.conf.  See rule parser.
-	 */
-	heim_assert(rule->domain != NULL,
-		    "missing domain for qualify name canon rule");
-	cp = strchr(hostname, '.');
-	if (cp && (cp = strstr(cp, rule->domain))) {
-	    new_hostname = strdup(hostname);
-	    if (new_hostname == NULL) {
-		ret = krb5_enomem(context);
-		goto out;
-	    }
-
-	} else {
-	    size_t len;
-
-	    len = strlen(hostname) + strlen(rule->domain) + 2;
-	    if ((new_hostname = malloc(len)) == NULL) {
-		ret = krb5_enomem(context);
-		goto out;
-	    }
-	    /* We use strcpy() and strcat() for portability for now */
-	    strcpy(new_hostname, hostname);
-	    if (rule->domain[0] != '.')
-		strcat(new_hostname, ".");
-	    strcat(new_hostname, rule->domain);
-	}
-	realm = rule->realm;
-	if (!realm) {
-	    ret = get_host_realm(context, new_hostname, &realm);
-	    if (ret)
-		goto out;
-	}
-	_krb5_debug(context, 5, "Building a princ with realm=%s, sname=%s, "
-		    "and hostname=%s", rule->realm, sname, new_hostname);
-	ret = krb5_build_principal(context, out_princ,
-				      strlen(realm), realm,
-				      sname, new_hostname, (char *)0);
-	free(new_hostname);
-	goto out;
-	break;
-
-    case KRB5_NCRT_NSS:
-	_krb5_debug(context, 5, "Using name service lookups (without "
-		    "reverse lookups)");
-	ret = krb5_sname_to_principal_old(context, rule->realm,
-					     hostname, sname,
-					     KRB5_NT_SRV_HST,
-					     out_princ);
-	if (rule->next != NULL &&
-	    (ret == KRB5_ERR_BAD_HOSTNAME ||
-	     ret == KRB5_ERR_HOST_REALM_UNKNOWN))
-	    /*
-	     * Bad hostname / realm unknown -> rule inapplicable if
-	     * there's more rules.  If it's the last rule then we want
-	     * to return all errors from krb5_sname_to_principal_old()
-	     * here.
-	     */
-	    ret = 0;
-	goto out;
-	break;
-
-    default:
-	/* Can't happen, but we need this to shut up gcc */
-	break;
+    if (!iter->use_nss && (!search || !*search)) {
+        /*
+         * Not using NSS and we have no search list or this element in
+         * the searchlist is empty -> use the principal as-is.
+         */
+        if (!search)
+            iter->done = 1;
+        return krb5_copy_principal(context, iter->in_princ, out_princ);
     }
 
-out:
-    if (!ret && *out_princ) {
-	krb5_error_code ret2;
-	char *unparsed;
+    /* Apply a search list */
+    sname = krb5_principal_get_comp_string(context, iter->in_princ, 0);
+    hostname = krb5_principal_get_comp_string(context, iter->in_princ, 1);
 
-	ret2 = krb5_unparse_name(context, *out_princ, &unparsed);
-	if (ret2) {
-	    _krb5_debug(context, 5, "Couldn't unparse resulting princ! (%d)",
-			ret);
-	} else {
-	    _krb5_debug(context, 5, "Name canon rule application yields this "
-			"unparsed princ: %s", unparsed);
-	    free(unparsed);
-	}
-    } else if (!ret) {
-	_krb5_debug(context, 5, "Name canon rule did not apply");
-    } else {
-	_krb5_debug(context, 5, "Name canon rule application error: %d", ret);
+    if (iter->use_nss) {
+        iter->done = 1;
+        return krb5_sname_to_principal_old(context, ""/* referral realm */,
+                                           hostname, sname, KRB5_NT_SRV_HST,
+                                           out_princ);
     }
-    if (realm != rule->realm)
-	free(realm);
-    if (*out_princ)
-	(*out_princ)->name.name_type = KRB5_NT_SRV_HST;
-    if (ret)
-	krb5_set_error_message(context, ret,
-			       N_("Name canon rule application failed", ""));
+
+    /* Check if the hostname already ends in this .domain */
+    cp = strchr(hostname, '.');
+    if (cp && (cp = strstr(cp, search)))
+        return krb5_copy_principal(context, iter->in_princ, out_princ);
+
+    aret = asprintf(&new_hostname, "%s.%s", hostname, search);
+    if (aret || !new_hostname)
+        return krb5_enomem(context);
+
+    ret = krb5_build_principal(context, out_princ, 0, "",
+                               sname, new_hostname, NULL);
+    free(new_hostname);
     return ret;
 }
-
-/**
- * Free name canonicalization rules
- */
-KRB5_LIB_FUNCTION void
-_krb5_free_name_canon_rules(krb5_context context, krb5_name_canon_rule rules)
-{
-    krb5_name_canon_rule r;
-
-    for (r = rules; r; r = r->next) {
-	free(r->realm);
-	free(r->domain);
-    }
-
-    free(rules);
-    rules = NULL;
-}
-
-struct krb5_name_canon_iterator {
-    char                        **searchlist;
-    krb5_const_principal	in_princ;
-    krb5_principal		tmp_princ;
-    krb5_creds			*creds;
-    int                         use_nss:1;
-    int                         secure_errors:1;
-    int				is_trivial:1;
-    int				done:1;
-};
 
 static krb5_error_code
 get_host_canon_rules(krb5_context context,
                      krb5_name_canon_iterator state)
 {
-    const char *rule;
-    const char *searchlist;
-    krb5_boolean secure_name_canon;
+    krb5_error_code ret;
+    char *canon_method = NULL;
+    char *searchlist = NULL;
+    char *s = NULL;
+    char *p, *lasts, *domain;
+    char **domains = NULL;;
+    size_t i;
 
     krb5_appdefault_string(context, NULL, NULL,
-                           "hostname-canon-method", "nss", &rule);
+                           "hostname-canon-method", "nss", &canon_method);
     krb5_appdefault_string(context, NULL, NULL,
                            "hostname-canon-searchlist",
                            "", &searchlist);
-    krb5_appdefault_boolean(context, NULL, NULL,
-                            "secure-name-canon",
-                            FALSE, /* XXX Eventually change to TRUE */
-                            &secure_name_canon);
 
-    if (secure_name_canon)
-        state.secure_errors = 1;
-
-    if (!strcmp(rule, "nss")) {
-        state.use_nss = 1;
-    } else if (!strcmp(rule, "search")) {
+    if (!strcmp(canon_method, "nss")) {
+        state->use_nss = 1;
+    } else if (!strcmp(canon_method, "search")) {
         if (*searchlist) {
-            char *s = strdup(searchlist);
-            char *p, *last, *domain;
-            char **domains;
-            size_t i;
-
-            if (!s)
-                return krb5_enomem(context);
+            s = strdup(searchlist);
+            if (!s) {
+                ret = krb5_enomem(context);
+                goto out;
+            }
             domains = calloc(6, sizeof (*domains));
             if (!domains) {
-                free(s);
-                return krb5_enomem(context);
+                ret = krb5_enomem(context);
+                goto out;
             }
 
             p = s;
@@ -1600,23 +1407,24 @@ get_host_canon_rules(krb5_context context,
                 p = NULL;
                 domains[i] = strdup(domain);
                 if (!domains[i]) {
-                    while (i > 0)
-                        free(domains[--i]);
-                    free(domains);
-                    free(s);
-                    return krb5_enomem(context);
+                    ret = krb5_enomem(context);
+                    goto out;
                 }
             }
-            free(s);
-            state.searchlist = domains;
+            state->searchlist = domains;
+            domains = NULL;
         } else {
-            krb5_error_code ret;
-            ret = get_resolver_searchlist(context, &state.searchlist);
-            if (ret)
-                return ret;
+            ret = get_resolver_searchlist(context, &state->searchlist);
         }
     }
-    return 0;
+
+out:
+    while (domains && i > 0)
+        free(domains[--i]);
+    free(domains);
+    free(canon_method);
+    free(searchlist);
+    return ret;
 }
 
 /**
@@ -1693,20 +1501,16 @@ krb5_name_canon_iterate(krb5_context context,
 	return 0;
     }
 
+    krb5_free_principal(context, state->tmp_princ);
     if (state->is_trivial && !state->done) {
 	state->done = 1;
-	return 0;
+        return krb5_copy_principal(context, state->in_princ,
+                                   &state->tmp_princ);
     }
 
-    do {
-	krb5_free_principal(context, state->tmp_princ);
-        ret = apply_name_canon_rule(context, state->rule,
-                                    state->in_princ,
-                                    &state->tmp_princ);
-	if (ret)
-	    return ret;
-	state->rule = state->rule->next;
-    } while (state->rule != NULL && state->tmp_princ == NULL);
+    ret = canon_hostname(context, state, &state->tmp_princ);
+    if (ret)
+        return ret;
 
     if (state->tmp_princ == NULL) {
 	krb5_free_name_canon_iterator(context, state);
@@ -1715,8 +1519,6 @@ krb5_name_canon_iterate(krb5_context context,
     }
     if (state->creds)
 	state->creds->server = state->tmp_princ;
-    if (state->rule == NULL)
-	state->done = 1;
     return 0;
 }
 
@@ -1729,18 +1531,16 @@ krb5_name_canon_iterate(krb5_context context,
  * @param context   Kerberos context
  * @param iter	    name canon rule iterator (input/output)
  * @param try_princ output principal name
- * @param rule_opts output rule options
  */
 KRB5_LIB_FUNCTION krb5_error_code KRB5_LIB_CALL
 krb5_name_canon_iterate_princ(krb5_context context,
 			      krb5_name_canon_iterator *iter,
-			      krb5_principal *try_princ,
-			      krb5_name_canon_rule_options *rule_opts)
+			      krb5_principal *try_princ)
 {
     krb5_error_code ret;
 
     *try_princ = NULL;
-    ret = krb5_name_canon_iterate(context, iter, rule_opts);
+    ret = krb5_name_canon_iterate(context, iter);
     if (*iter)
 	*try_princ = (*iter)->tmp_princ;
     return ret;
@@ -1755,18 +1555,16 @@ krb5_name_canon_iterate_princ(krb5_context context,
  * @param context   Kerberos context
  * @param iter	    name canon rule iterator
  * @param try_creds output krb5_creds
- * @param rule_opts output rule options
  */
 KRB5_LIB_FUNCTION krb5_error_code KRB5_LIB_CALL
 krb5_name_canon_iterate_creds(krb5_context context,
 			      krb5_name_canon_iterator *iter,
-			      krb5_creds **try_creds,
-			      krb5_name_canon_rule_options *rule_opts)
+			      krb5_creds **try_creds)
 {
     krb5_error_code ret;
 
     *try_creds = NULL;
-    ret = krb5_name_canon_iterate(context, iter, rule_opts);
+    ret = krb5_name_canon_iterate(context, iter);
     if (*iter)
 	*try_creds = (*iter)->creds;
     return ret;
@@ -1788,7 +1586,6 @@ krb5_free_name_canon_iterator(krb5_context context,
 	}
 	if (iter->tmp_princ)
 	    krb5_free_principal(context, iter->tmp_princ);
-	_krb5_free_name_canon_rules(context, iter->rules);
     }
     free(iter);
 }

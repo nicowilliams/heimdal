@@ -661,7 +661,7 @@ krb5_kt_get_entry(krb5_context context,
     krb5_principal try_princ;
     krb5_name_canon_iterator name_canon_iter;
 
-    if (!principal || principal->name.name_type != KRB5_NT_SRV_HST_NEEDS_CANON)
+    if (!principal || !*principal->realm)
 	return krb5_kt_get_entry_wrapped(context, id, principal, kvno, enctype,
 					 entry);
 
@@ -672,7 +672,7 @@ krb5_kt_get_entry(krb5_context context,
 
     do {
 	ret = krb5_name_canon_iterate_princ(context, &name_canon_iter,
-					    &try_princ, NULL);
+					    &try_princ);
 	if (ret)
 	    break;
 	ret = krb5_kt_get_entry_wrapped(context, id, try_princ, kvno,
