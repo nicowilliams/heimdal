@@ -220,6 +220,7 @@ init_context_from_config_file(krb5_context context)
     INIT_FIELD(context, bool, srv_lookup, TRUE, "srv_lookup");
     INIT_FIELD(context, bool, srv_lookup, context->srv_lookup, "dns_lookup_kdc");
     INIT_FIELD(context, int, large_msg_size, 1400, "large_message_size");
+    INIT_FIELD(context, bool, secure_name_canon, context->srv_lookup, "dns_lookup_kdc");
     context->network_io_allowed = TRUE; /* can't be set in krb5.conf */
     INIT_FLAG(context, flags, KRB5_CTX_F_DNS_CANONICALIZE_HOSTNAME, TRUE, "dns_canonicalize_hostname");
     INIT_FLAG(context, flags, KRB5_CTX_F_CHECK_PAC, TRUE, "check_pac");
