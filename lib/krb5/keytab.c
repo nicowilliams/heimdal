@@ -675,6 +675,10 @@ krb5_kt_get_entry(krb5_context context,
 					    &try_princ);
 	if (ret)
 	    break;
+        if (!try_princ) {
+            ret = KRB5_KT_NOTFOUND;
+            break;
+        }
 	ret = krb5_kt_get_entry_wrapped(context, id, try_princ, kvno,
 					enctype, entry);
     } while (ret == KRB5_KT_NOTFOUND && name_canon_iter);
