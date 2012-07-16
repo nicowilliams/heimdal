@@ -103,13 +103,18 @@ _gss_alloc_call_context(_gss_call_context *cc)
 
     /*
      * Fast path: alloc from static array.  What's fast about this is
-     * searching; allocation is infrequent.
+     * searching, since it's just pointer arithmetic; allocation is
+     * infrequent.  See _gss_get_call_context().
      */
     for (i = 0; i < CALL_CTX_FAST; i++) {
 	p = &call_contexts_fast[i];
 	if (AO_load(&p->cc_refs))
-	    continue;
+	    continue; /* It's OK if we race and miss an available slot */
 	if (AO_fetch_and_add1_full(&p->cc_refs) > 1) {
+            /*
+             * XXX Make sure we're not racing with a destroy and
+             * forgetting to destroy this, thus leaking
+             */
 	    (void) AO_fetch_and_sub1_full(&p->cc_refs);
 	    continue;
 	}
@@ -119,7 +124,13 @@ _gss_alloc_call_context(_gss_call_context *cc)
 	return GSS_S_COMPLETE;
     }
 
-    /* Slow path: calloc() and add to the slow path list */
+    /*
+     * Slow path: calloc() and add to the slow path list.
+     *
+     * Mind you, we cache the last used call context in thread-specific
+     * data, so this slow path for lookup (a singly linked list,
+     * protected by a global lock) should rarely be hit.
+     */
     p = calloc(1, sizeof (*p));
     if (!p)
 	return GSS_S_UNAVAILABLE;
@@ -148,8 +159,8 @@ _gss_alloc_call_context(_gss_call_context *cc)
  * application.
  *
  * We have a fast path, and a slow path, with thread-specific data used
- * to memoize the slow path so that repeated use -in the same thread- of
- * a call context that would require a trip through the slow path can
+ * to cache the slow path so that repeated use -in the same thread- of a
+ * call context that would require a trip through the slow path can
  * actually avoid that slow path.
  */
 OM_uint32
@@ -163,15 +174,24 @@ _gss_get_call_context(OM_uint32 *looking_for, _gss_call_context *cc)
     if (!looking_for)
 	return _gss_alloc_call_context(cc);
 
-    /* Fast path: no locks, look in tiny array */
-    if (looking_for >= &call_contexts_fast[0].cc_minor_status ||
+    /* Fast path: no locks, pointer arithmetic, O(1) */
+    if (looking_for >= &call_contexts_fast[0].cc_minor_status &&
 	looking_for <= &call_contexts_fast[CALL_CTX_FAST - 1].cc_minor_status) {
+        uintptr_t k = (uintptr_t)looking_for;
+
+        if (k % sizeof (_gss_call_context))
+            /* XXX We should allocate a better major status code */
+            return GSS_S_FAILURE;
 
 	/*
 	 * NOTE WELL: We assume that the first field of
 	 *            _gss_call_context is OM_uint32 cc_minor_status.
 	 */
 	i = ((_gss_call_context)looking_for) - &call_contexts_fast[0];
+        /*
+         * XXX Do we need this check?  We could just trust the app, be
+         * faster...
+         */
 	if (!AO_load(&call_contexts_fast[i].cc_refs))
 	    return GSS_S_BAD_CALL_CONTEXT;
 	*cc = &call_contexts_fast[i];
@@ -186,15 +206,18 @@ _gss_get_call_context(OM_uint32 *looking_for, _gss_call_context *cc)
     if (*cc)
 	return GSS_S_COMPLETE;
 
-    /* Slow path: search a singly linked list with lock held */
+    /* Slow path: search a singly linked list with global lock held */
     HEIMDAL_MUTEX_lock(&call_context_mutex);
-    HEIM_SLIST_FOREACH(p, call_contexts_slow, cc_link) {
-	if (looking_for != &p->cc_minor_status)
-	    continue;
-	HEIMDAL_MUTEX_unlock(&call_context_mutex);
-	*cc = p;
-	_gss_remember_call_context(looking_for, *cc);
-	return GSS_S_COMPLETE;
+    if (call_contexts_slow) {
+        HEIM_SLIST_FOREACH(p, call_contexts_slow, cc_link) {
+            if (looking_for != &p->cc_minor_status)
+                continue;
+            HEIMDAL_MUTEX_unlock(&call_context_mutex);
+            *cc = p;
+            /* Hit the medium path next time around in this thread */
+            _gss_remember_call_context(looking_for, *cc);
+            return GSS_S_COMPLETE;
+        }
     }
     HEIMDAL_MUTEX_unlock(&call_context_mutex);
 
@@ -235,7 +258,7 @@ _gss_get_call_context(OM_uint32 *looking_for, _gss_call_context *cc)
  * Utility function that takes an application-provided minor_status
  * argument (OM_uint32 *) and a mechanism OID and returns a mech-glue
  * call context, the mechanism provider struct, and a mechanism-specific
- * minor_status (OM_uint32 *) if there is one.
+ * minor_status pointer (OM_uint32 *) if there is one.
  *
  * This is intended to be used thus:
  *
@@ -274,12 +297,13 @@ _gss_get_call_context(OM_uint32 *looking_for, _gss_call_context *cc)
  * _gss_get_call_context() to get the call context, then for each
  * mechanism calling _gss_get_cc_glue_and_mech() with that call context
  * to get the gssapi_mech_interface and mech_min_stat for it.  This
- * causes the minor_status->call context mapping to be done just once.
+ * causes the minor_status -> call context mapping to be done just once.
  *
- * Non-standard GSS extensions that lack a minor_status argument should
- * have a OM_uint32 *minor_status automatic variable initialized to NULL
- * and pass in the pointer to it (&minor_status).  This allows us to
- * fetch the last used call context.
+ * Non-standard GSS extensions that lack a minor_status argument, but
+ * which need a call context to operate correctly, should have a
+ * OM_uint32 *minor_status automatic variable initialized to NULL and
+ * pass in the pointer to it (&minor_status).  This allows us to fetch
+ * the last used call context.
  *
  * Inputs:
  *
@@ -287,7 +311,7 @@ _gss_get_call_context(OM_uint32 *looking_for, _gss_call_context *cc)
  *
  * Outputs:
  *
- *  - mech_cc (may be NULL, if not *mech_cc is never NULL on success)
+ *  - mech_cc (if not then *mech_cc is never NULL on success)
  *
  * Inputs if deref'ed != NULL / outputs if deref'ed == NULL:
  *
@@ -295,7 +319,7 @@ _gss_get_call_context(OM_uint32 *looking_for, _gss_call_context *cc)
  *  - cc
  *  - m (may/must be NULL if mech is GSS_C_NO_OID)
  *
- * All outputs (and input/outputs) are non-NULL on success.
+ * All outputs (including input/outputs) are non-NULL on success.
  *
  * XXX Make sure we follow cc_parent to duplicate the parent's mech
  * element if it has one and the child doesn't.
@@ -357,12 +381,14 @@ _gss_get_cc_glue_and_mech(gss_const_OID mech,
 	return GSS_S_COMPLETE;
 
     /* Find an element of the call context for the given mechanism */
-    HEIM_SLIST_FOREACH(p, (*cc)->cc_mech, gmcc_link) {
-	if (p->gmcc_mech != *m)
-	    continue;
-	/* Already have one */
-	*mech_cc = p->gmcc_minor_status;
-	return GSS_S_COMPLETE;
+    if ((*cc)->cc_mech) {
+        HEIM_SLIST_FOREACH(p, (*cc)->cc_mech, gmcc_link) {
+            if (p->gmcc_mech != *m)
+                continue;
+            /* Already have one */
+            *mech_cc = p->gmcc_minor_status;
+            return GSS_S_COMPLETE;
+        }
     }
 
     if (!(*m)->gm_init_call_context || !(*m)->gm_release_call_context) {
@@ -373,6 +399,8 @@ _gss_get_cc_glue_and_mech(gss_const_OID mech,
 	 */
 	if (minor_statusp != NULL)
 	    *mech_cc = *minor_statusp;
+        else
+            *mech_cc = &(*cc)->cc_minor_status;
 	return GSS_S_COMPLETE;
     }
 
@@ -472,10 +500,12 @@ gss_duplicate_call_context(OM_uint32 *minor_status,
     return GSS_S_COMPLETE;
 }
 
+/* XXX Make this a void function */
 GSSAPI_LIB_FUNCTION _gss_call_context GSSAPI_LIB_CALL
 _gss_ref_call_context(_gss_call_context cc)
 {
     cc->cc_refs++;
+    return cc;
 }
 
 GSSAPI_LIB_FUNCTION OM_uint32 GSSAPI_LIB_CALL

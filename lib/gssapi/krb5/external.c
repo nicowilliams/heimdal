@@ -396,6 +396,7 @@ static gssapi_mech_interface_desc krb5_mech = {
     NULL,
     NULL,
     NULL,
+    NULL,
     NULL
 };
 
