@@ -308,7 +308,7 @@ check_PROGRAMS = test_acquire_cred $(TESTS)
 bin_PROGRAMS = gsstool
 noinst_PROGRAMS = test_cred test_kcred test_context test_ntlm \
 		  test_add_store_cred test_names test_cfx \
-		  test_oidtest_call_context
+		  test_call_context
 
 test_context_SOURCES = test_context.c test_common.c test_common.h
 test_ntlm_SOURCES = test_ntlm.c test_common.c test_common.h
