@@ -187,6 +187,7 @@ do {									\
 
 /*
  *
+ * XXX This needs the call context!  See below.
  */
 static int
 add_builtin(struct _gss_mech_switch_list *mech_list, gssapi_mech_interface mech)
@@ -204,6 +205,10 @@ add_builtin(struct _gss_mech_switch_list *mech_list, gssapi_mech_interface mech)
     m->gm_so = NULL;
     m->gm_mech = *mech;
     m->gm_mech_oid = mech->gm_mech_oid; /* XXX */
+    /*
+     * XXX Er, we shouldn't touch _gss_mech_oids except for the default
+     * call context!
+     */
     gss_add_oid_set_member(&minor_status,
 			   &m->gm_mech.gm_mech_oid, &_gss_mech_oids);
 
@@ -222,6 +227,9 @@ add_builtin(struct _gss_mech_switch_list *mech_list, gssapi_mech_interface mech)
 
 /*
  * Load the mechanisms file (/etc/gss/mech).
+ *
+ * XXX This needs the call context, so we can store _gss_mech_oids in
+ * it (see also add_builtin()).
  */
 void
 _gss_load_mech(struct _gss_mech_switch_list *mech_list)
@@ -434,6 +442,7 @@ _gss_load_mech(struct _gss_mech_switch_list *mech_list)
 		HEIMDAL_MUTEX_unlock(&_gss_mech_mutex);
 }
 
+/* XXX This needs the call context so it can pass it to _gss_load_mech */
 gssapi_mech_interface
 __gss_get_mechanism(struct _gss_mech_switch_list *mech_list, gss_const_OID mech)
 {

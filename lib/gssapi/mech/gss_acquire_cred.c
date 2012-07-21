@@ -62,7 +62,7 @@ gss_acquire_cred(OM_uint32 *minor_status,
 	major_status = _gss_get_call_context(minor_status, &cc);
 	if (major_status != GSS_S_COMPLETE)
 	    return major_status;
-	mech_list = _gss_get_mech_list(cc);
+	mech_list = _gss_get_mech_list(cc);/* XXX Shouldn't we use this? */
 
 	/*
 	 * First make sure that at least one of the requested
@@ -71,6 +71,7 @@ gss_acquire_cred(OM_uint32 *minor_status,
 	if (mechs) {
 		for (i = 0; i < mechs->count; i++) {
 			int t;
+                        /* XXX We should check mech_list, not _gss_mech_oids */
 			gss_test_oid_set_member(minor_status,
 			    &mechs->elements[i], _gss_mech_oids, &t);
 			if (t)
@@ -99,6 +100,7 @@ gss_acquire_cred(OM_uint32 *minor_status,
 	HEIM_SLIST_INIT(&cred->gc_mc);
 
 	if (mechs == GSS_C_NO_OID_SET)
+                /* XXX We should get this from the call context! */
 		mechs = _gss_mech_oids;
 
 	set.count = 1;

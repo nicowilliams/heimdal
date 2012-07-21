@@ -205,6 +205,7 @@ gss_accept_sec_context(OM_uint32 *minor_status,
 			return (GSS_S_DEFECTIVE_TOKEN);
 		}
 		memset(ctx, 0, sizeof(struct _gss_context));
+                ctx->gc_mech = m;
 		*context_handle = (gss_ctx_id_t) ctx;
 	} else {
 		m = ctx->gc_mech;
