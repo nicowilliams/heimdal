@@ -1,3 +1,16 @@
+
+get_cred enhancements:
+
+ - Fix keytab.c, s/if (!principal || !*principal->realm)/if (!principal)/
+
+ - Fix krb5_principal_compare() to handle referral realms
+
+ 
+
+
+
+
+
 -*- indented-text -*-
 
 ** lib/gssapi
