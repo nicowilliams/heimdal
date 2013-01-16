@@ -34,6 +34,8 @@
  */
 
 #include "baselocl.h"
+#include <stddef.h>
+#include <ctype.h>
 #include <syslog.h>
 
 static heim_base_atomic_type tidglobal = HEIM_TID_USER;
@@ -614,6 +616,151 @@ heim_auto_release_drain(heim_auto_release_t autorel)
 	HEIMDAL_MUTEX_lock(&autorel->pool_mutex);
     }
     HEIMDAL_MUTEX_unlock(&autorel->pool_mutex);
+}
+
+static int
+pointer_unescape_component(const char *path, const char *eoc, char *buf,
+                           heim_error_t *error)
+{
+    const char *cp;
+    ptrdiff_t nb = eoc - path;
+
+    heim_assert(nb > 0, "Internal error");
+    for (cp = path; cp != eoc && *cp; cp++, buf++, nb--) {
+        heim_assert(nb > 0, "Internal error");
+        if (*cp != '~') {
+            *buf = *cp;
+            continue;
+        }
+        /* Escaped ~ or / */
+        cp++;
+        if (!*cp || (*cp != '0' && *cp != '1')) {
+            heim_error_create_opt(error, EINVAL,
+                                  "Invalid JSON Pointer escaped string in "
+                                  "component");
+            return EINVAL;
+        }
+        *buf = (*cp == '0') ? '~' : '/';
+    }
+    heim_assert(nb >= 0, "Internal error");
+    *buf = '\0';
+    return 0;
+}
+
+static heim_string_t
+pointer_next_component(const char *ptr, const char **state, heim_error_t *error)
+{
+    const char *cp, *eoc;
+    char *component;
+
+    *error = NULL;
+    if (*state == NULL) {
+        *state = ptr;
+        if (**state == '\0')
+            return HSTR("");
+        if (**state != '/') {
+            heim_error_create_opt(error, EINVAL,
+                                  "JSON Pointers must be empty or start "
+                                  "with '/'");
+            return NULL;
+        }
+        (*state)++; /* skip the leading '/' */
+    }
+    cp = *state;
+
+    if (*cp == '\0')
+        return NULL;
+
+    eoc = strchr(cp, '/');
+    if (eoc == NULL)
+        eoc = cp + strlen(cp);
+    heim_assert((eoc - cp) > 0, "Internal error");
+    component = alloca(eoc - cp + 1);
+    if (pointer_unescape_component(cp, eoc, component, error))
+        return NULL;
+    return heim_string_create(component);
+}
+
+static heim_object_t
+pointer_next_node(heim_object_t o, heim_string_t c, heim_error_t *error)
+{
+    heim_tid_t node_type;
+    long int num;
+    size_t n;
+    const char *s;
+
+    *error = NULL;
+    node_type = heim_get_tid(o);
+    if (node_type == HEIM_TID_ARRAY) {
+        s = heim_string_get_utf8(c);
+        if (*s == '0' || strspn(s, "0123456789") < strlen(s)) {
+            heim_error_create_opt(error, EINVAL, /* XXX Better error? */
+                                  "JSON Pointer component indexing an array "
+                                  "is not a number");
+            return NULL;
+        }
+        errno = 0;
+        num = strtol(s, NULL, 10);
+        if (errno) {
+            heim_error_create_opt(error, EINVAL,
+                                  "JSON Pointer component indexing an array "
+                                  "is too large or small a number");
+            return NULL;
+        }
+        if (num < 0) {
+            heim_error_create_opt(error, ERANGE,
+                                  "JSON Pointer component indexing an array "
+                                  "is not a non-negative number");
+            return NULL;
+        }
+        n = (size_t)num;
+        if (n != num) {
+            heim_error_create_opt(error, ERANGE,
+                                  "JSON Pointer component indexing an array "
+                                  "is too large");
+            return NULL;
+        }
+        return heim_array_get_value(o, n);
+    }
+    if (node_type == HEIM_TID_DICT)
+        return heim_dict_get_value(o, c);
+    return NULL;
+}
+
+heim_object_t
+heim_pointer_get_value(heim_object_t tree, const char *ptr,
+                       heim_error_t *error)
+{
+    const char *state = NULL;
+    heim_string_t component;
+    heim_object_t node;
+    heim_tid_t node_type;
+
+    *error = NULL;
+    for (node = tree, component = pointer_next_component(ptr, &state, error);
+         component;
+         component = pointer_next_component(ptr, &state, error)) {
+
+	node_type = heim_get_tid(node);
+        if (node_type != HEIM_TID_ARRAY &&
+            node_type != HEIM_TID_DICT) {
+            heim_error_create_opt(error, EINVAL,
+                                  "JSON Pointer component indexes a"
+                                  "non-container object");
+	    return NULL;
+	}
+        node = pointer_next_node(node, component, error);
+        if (node == NULL)
+            return NULL;
+    }
+    return node;
+}
+
+heim_object_t
+heim_pointer_copy_value(heim_object_t tree, const char *ptr,
+                        heim_error_t *error)
+{
+    return heim_retain(heim_pointer_get_value(tree, ptr, error));
 }
 
 /*
