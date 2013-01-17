@@ -385,6 +385,8 @@ test_path(void)
     heim_assert(dict != NULL, "dict");
     o = heim_path_get(dict, NULL, k1, NULL);
     if (heim_cmp(o, heim_number_create(1))) return 1;
+    o = heim_pointer_get_value(dict, "/k1", NULL);
+    if (heim_cmp(o, heim_number_create(1))) return 1;
     o = heim_path_get(dict, NULL, k2, NULL);
     if (heim_get_tid(o) != heim_dict_get_type_id()) return 1;
     o = heim_path_get(dict, NULL, k2, k2_1, NULL);
@@ -402,6 +404,8 @@ test_path(void)
     o = heim_path_get(dict, NULL, k2, k2_5, heim_number_create(1), NULL);
     if (heim_cmp(o, heim_number_create(2))) return 1;
     o = heim_path_get(dict, NULL, k2, k2_5, heim_number_create(3), k2_5_1, NULL);
+    if (heim_cmp(o, neg_num = heim_number_create(-1))) return 1;
+    o = heim_pointer_get_value(dict, "/k2/k2-5/3/k2-5-1", NULL);
     if (heim_cmp(o, neg_num = heim_number_create(-1))) return 1;
     heim_release(neg_num);
     o = heim_path_get(dict, NULL, k2, k2_5, heim_number_create(4), NULL);

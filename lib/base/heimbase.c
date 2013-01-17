@@ -653,7 +653,8 @@ pointer_next_component(const char *ptr, const char **state, heim_error_t *error)
     const char *cp, *eoc;
     char *component;
 
-    *error = NULL;
+    if (error)
+        *error = NULL;
     if (*state == NULL) {
         *state = ptr;
         if (**state == '\0')
@@ -664,17 +665,24 @@ pointer_next_component(const char *ptr, const char **state, heim_error_t *error)
                                   "with '/'");
             return NULL;
         }
-        (*state)++; /* skip the leading '/' */
     }
     cp = *state;
 
     if (*cp == '\0')
         return NULL;
+    heim_assert(*cp == '/', "Internal error");
+    cp++;
+    if (*cp == '\0') {
+        heim_error_create_opt(error, EINVAL,
+                              "JSON Pointers must not end on a with a '/'");
+        return NULL;
+    }
 
     eoc = strchr(cp, '/');
     if (eoc == NULL)
         eoc = cp + strlen(cp);
     heim_assert((eoc - cp) > 0, "Internal error");
+    *state = eoc;
     component = alloca(eoc - cp + 1);
     if (pointer_unescape_component(cp, eoc, component, error))
         return NULL;
@@ -689,7 +697,8 @@ pointer_next_node(heim_object_t o, heim_string_t c, heim_error_t *error)
     size_t n;
     const char *s;
 
-    *error = NULL;
+    if (error)
+        *error = NULL;
     node_type = heim_get_tid(o);
     if (node_type == HEIM_TID_ARRAY) {
         s = heim_string_get_utf8(c);
@@ -736,7 +745,8 @@ heim_pointer_get_value(heim_object_t tree, const char *ptr,
     heim_object_t node;
     heim_tid_t node_type;
 
-    *error = NULL;
+    if (error)
+        *error = NULL;
     for (node = tree, component = pointer_next_component(ptr, &state, error);
          component;
          component = pointer_next_component(ptr, &state, error)) {
