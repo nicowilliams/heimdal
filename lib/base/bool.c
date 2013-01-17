@@ -49,7 +49,7 @@ struct heim_type_data _heim_bool_object = {
 heim_bool_t
 heim_bool_create(int val)
 {
-    return heim_base_make_tagged_object(!!val, HEIM_TID_BOOL);
+    return heim_base_make_tagged_object(heim_bool_t, !!val, HEIM_TID_BOOL);
 }
 
 int

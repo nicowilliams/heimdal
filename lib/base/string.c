@@ -37,13 +37,12 @@
 #include <string.h>
 
 static void
-string_dealloc(void *ptr)
+string_dealloc(heim_string_t s)
 {
-    heim_string_t s = ptr;
     heim_string_free_f_t *deallocp;
     heim_string_free_f_t dealloc;
 
-    if (*(const char *)ptr != '\0')
+    if (*(const char *)s != '\0')
 	return;
 
     /* Possible string ref */
@@ -124,7 +123,7 @@ heim_string_ref_create(const char *string, heim_string_free_f_t dealloc)
     heim_string_t s;
     heim_string_free_f_t *deallocp;
 
-    s = _heim_alloc_object(&_heim_string_object, 1);
+    s = _heim_alloc_object(&_heim_string_object, 1).string;
     if (s) {
 	const char **strp;
 
@@ -151,7 +150,7 @@ heim_string_create_with_bytes(const void *data, size_t len)
 {
     heim_string_t s;
 
-    s = _heim_alloc_object(&_heim_string_object, len + 1);
+    s = _heim_alloc_object(&_heim_string_object, len + 1).string;
     if (s) {
 	memcpy(s, data, len);
 	((char *)s)[len] = '\0';
@@ -182,7 +181,7 @@ heim_string_create_with_format(const char *fmt, ...)
     if (ret < 0 || str == NULL)
 	return NULL;
 
-    s = heim_string_ref_create(str, string_dealloc);
+    s = heim_string_ref_create(str, (heim_string_free_f_t)string_dealloc);
     if (s == NULL)
 	free(str);
     return s;
@@ -246,7 +245,7 @@ __heim_string_constant(const char *_str)
     s = heim_string_create(_str);
 
     HEIMDAL_MUTEX_lock(&mutex);
-    s2 = heim_dict_get_value(dict, s);
+    s2 = heim_dict_get_value(dict, s).string;
     if (s2) {
 	heim_release(s);
 	s = s2;

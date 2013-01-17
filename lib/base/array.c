@@ -49,7 +49,7 @@ struct heim_array_data {
 static void
 array_dealloc(heim_object_t ptr)
 {
-    heim_array_t array = ptr;
+    heim_array_t array = ptr.array;
     size_t n;
     for (n = 0; n < array->len; n++)
 	heim_release(array->val[n]);
@@ -78,7 +78,7 @@ heim_array_create(void)
 {
     heim_array_t array;
 
-    array = _heim_alloc_object(&array_object, sizeof(*array));
+    array = _heim_alloc_object(&array_object, sizeof(*array)).array;
     if (array == NULL)
 	return NULL;
 

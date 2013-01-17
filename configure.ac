@@ -315,6 +315,7 @@ AC_TYPE_OFF_T
 AC_CHECK_TYPE_EXTRA(mode_t, unsigned short, [])
 AC_CHECK_TYPE_EXTRA(sig_atomic_t, int, [#include <signal.h>])
 AC_HAVE_TYPE([long long])
+AC_HAVE_C_TRANSPARENT_UNION
 AC_HEADER_TIME
 AC_STRUCT_TM
 

@@ -41,10 +41,33 @@
 #include <stdarg.h>
 #include <stdbool.h>
 
+typedef struct heim_null *heim_null_t;
+typedef struct heim_bool *heim_bool_t;
+typedef struct heim_number_data *heim_number_t;
+typedef struct heim_string_data *heim_string_t;
+typedef struct heim_data * heim_data_t;
+typedef struct heim_dict_data *heim_dict_t;
+typedef struct heim_array_data *heim_array_t;
+typedef struct heim_error * heim_error_t;
+typedef struct heim_db_data *heim_db_t;
+
+#ifdef HAVE_C_TRANSPARENT_UNION
+union heim_object {
+    heim_null_t null;
+    heim_bool_t boolean;
+    heim_number_t number;
+    heim_string_t string;
+    heim_data_t data;
+    heim_dict_t dict;
+    heim_array_t array;
+    heim_db_t db;
+};
+typedef union heim_object heim_object_t __attribute__ ((__transparent_union__));
+#else
 typedef void * heim_object_t;
+#endif
+
 typedef unsigned int heim_tid_t;
-typedef heim_object_t heim_bool_t;
-typedef heim_object_t heim_null_t;
 #define HEIM_BASE_ONCE_INIT 0
 typedef long heim_base_once_t; /* XXX arch dependant */
 
@@ -64,14 +87,14 @@ typedef long heim_base_once_t; /* XXX arch dependant */
 #endif
 
 
-void *	heim_retain(heim_object_t);
+heim_object_t	heim_retain(heim_object_t);
 void	heim_release(heim_object_t);
 
 void	heim_show(heim_object_t);
 
-typedef void (*heim_type_dealloc)(void *);
+typedef void (*heim_type_dealloc)(heim_object_t);
 
-void *
+heim_object_t
 heim_alloc(size_t size, const char *name, heim_type_dealloc dealloc);
 
 heim_tid_t
@@ -116,8 +139,6 @@ heim_bool_val(heim_bool_t);
  * Array
  */
 
-typedef struct heim_array_data *heim_array_t;
-
 heim_array_t heim_array_create(void);
 heim_tid_t heim_array_get_type_id(void);
 
@@ -146,8 +167,6 @@ void	heim_array_filter(heim_array_t, int (^)(heim_object_t));
  * Dict
  */
 
-typedef struct heim_dict_data *heim_dict_t;
-
 heim_dict_t heim_dict_create(size_t size);
 heim_tid_t heim_dict_get_type_id(void);
 
@@ -169,7 +188,6 @@ void	heim_dict_delete_key(heim_dict_t, heim_object_t);
  * String
  */
 
-typedef struct heim_string_data *heim_string_t;
 typedef void (*heim_string_free_f_t)(void *);
 
 heim_string_t heim_string_create(const char *);
@@ -187,8 +205,6 @@ heim_string_t __heim_string_constant(const char *);
 /*
  * Errors
  */
-
-typedef struct heim_error * heim_error_t;
 
 heim_error_t heim_error_create_enomem(void);
 
@@ -242,8 +258,7 @@ typedef struct heim_octet_string {
 } heim_octet_string;
 #endif
 
-typedef struct heim_data * heim_data_t;
-typedef void (*heim_data_free_f_t)(void *);
+typedef void (*heim_data_free_f_t)(heim_data_t);
 
 heim_data_t	heim_data_create(const void *, size_t);
 heim_data_t	heim_data_ref_create(const void *, size_t, heim_data_free_f_t);
@@ -256,8 +271,6 @@ size_t		heim_data_get_length(heim_data_t);
 /*
  * DB
  */
-
-typedef struct heim_db_data *heim_db_t;
 
 typedef void (*heim_db_iterator_f_t)(heim_data_t, heim_data_t, void *);
 
@@ -331,8 +344,6 @@ void    heim_db_iterate(heim_db_t, heim_string_t,
 /*
  * Number
  */
-
-typedef struct heim_number_data *heim_number_t;
 
 heim_number_t heim_number_create(int);
 heim_tid_t heim_number_get_type_id(void);

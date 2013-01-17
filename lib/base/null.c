@@ -49,5 +49,5 @@ struct heim_type_data _heim_null_object = {
 heim_null_t
 heim_null_create(void)
 {
-    return heim_base_make_tagged_object(0, HEIM_TID_NULL);
+    return heim_base_make_tagged_object(heim_null_t, 0, HEIM_TID_NULL);
 }

@@ -48,9 +48,8 @@ struct heim_dict_data {
 };
 
 static void
-dict_dealloc(void *ptr)
+dict_dealloc(heim_dict_t dict)
 {
-    heim_dict_t dict = ptr;
     struct hashentry **h, *g, *i;
 
     for (h = dict->tab; h < &dict->tab[dict->size]; ++h) {
@@ -114,7 +113,7 @@ heim_dict_create(size_t size)
 {
     heim_dict_t dict;
 
-    dict = _heim_alloc_object(&dict_object, sizeof(*dict));
+    dict = _heim_alloc_object(&dict_object, sizeof(*dict)).dict;
 
     dict->size = findprime(size);
     if (dict->size == 0) {
@@ -171,10 +170,13 @@ _search(heim_dict_t dict, heim_object_t ptr)
 heim_object_t
 heim_dict_get_value(heim_dict_t dict, heim_object_t key)
 {
+    heim_object_t o;
     struct hashentry *p;
+
+    o.dict = NULL;
     p = _search(dict, key);
     if (p == NULL)
-	return NULL;
+	return o;
 
     return p->value;
 }
@@ -191,10 +193,13 @@ heim_dict_get_value(heim_dict_t dict, heim_object_t key)
 heim_object_t
 heim_dict_copy_value(heim_dict_t dict, heim_object_t key)
 {
+    heim_object_t o;
     struct hashentry *p;
+
+    o.dict = NULL;
     p = _search(dict, key);
     if (p == NULL)
-	return NULL;
+	return o;
 
     return heim_retain(p->value);
 }

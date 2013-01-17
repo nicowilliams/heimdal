@@ -36,7 +36,7 @@
 #include "baselocl.h"
 
 static void
-number_dealloc(void *ptr)
+number_dealloc(heim_number_t number)
 {
 }
 
@@ -91,9 +91,9 @@ heim_number_create(int number)
     heim_number_t n;
 
     if (number < 0xffffff && number >= 0)
-	return heim_base_make_tagged_object(number, HEIM_TID_NUMBER);
+	return heim_base_make_tagged_object(heim_number_t, number, HEIM_TID_NUMBER);
 
-    n = _heim_alloc_object(&_heim_number_object, sizeof(int));
+    n = _heim_alloc_object(&_heim_number_object, sizeof(int)).number;
     if (n)
 	*((int *)n) = number;
     return n;
