@@ -84,7 +84,7 @@ static int open_file(const char *, int , int, int *, heim_error_t *);
 static int read_json(const char *, heim_object_t *, heim_error_t *);
 static struct heim_db_type json_dbt;
 
-static void db_dealloc(void *ptr);
+static void db_dealloc(heim_db_t db);
 
 struct heim_type_data db_object = {
     HEIM_TID_DB,
@@ -147,13 +147,13 @@ static HEIMDAL_MUTEX db_type_mutex = HEIMDAL_MUTEX_INITIALIZER;
 static void
 db_init_plugins_once(void *arg)
 {
-    db_plugins = heim_retain(arg);
+    db_plugins = heim_retain(arg).dict;
 }
 
 static void
-plugin_dealloc(void *arg)
+plugin_dealloc(heim_object_t arg)
 {
-    db_plugin plug = arg;
+    db_plugin plug = (db_plugin)arg.dict;
 
     heim_release(plug->name);
 }
@@ -209,13 +209,13 @@ heim_db_register(const char *dbtype,
     if (s == NULL)
 	return ENOMEM;
 
-    plug = heim_alloc(sizeof (*plug), "db_plug", plugin_dealloc);
+    plug = (db_plugin)heim_alloc(sizeof (*plug), "db_plug", plugin_dealloc).dict;
     if (plug == NULL) {
 	heim_release(s);
 	return ENOMEM;
     }
 
-    plug->name = heim_retain(s);
+    plug->name = heim_retain(s).string;
     plug->openf = plugin->openf;
     plug->clonef = plugin->clonef;
     plug->closef = plugin->closef;
@@ -232,20 +232,19 @@ heim_db_register(const char *dbtype,
     plug->data = data;
 
     HEIMDAL_MUTEX_lock(&db_type_mutex);
-    plug2 = heim_dict_get_value(db_plugins, s);
+    plug2 = (db_plugin)heim_dict_get_value(db_plugins, s).dict;
     if (plug2 == NULL)
-	ret = heim_dict_set_value(db_plugins, s, plug);
+	ret = heim_dict_set_value(db_plugins, s, (heim_data_t)plug);
     HEIMDAL_MUTEX_unlock(&db_type_mutex);
-    heim_release(plug);
+    heim_release((heim_data_t)plug);
     heim_release(s);
 
     return ret;
 }
 
 static void
-db_dealloc(void *arg)
+db_dealloc(heim_db_t db)
 {
-    heim_db_t db = arg;
     heim_assert(!db->in_transaction,
 		"rollback or commit heim_db_t before releasing it");
     if (db->db_data)
@@ -279,7 +278,7 @@ dbtype_iter2create_f(heim_object_t dbtype, heim_object_t junk, void *arg)
 
     if (iter_ctx->db != NULL)
 	return;
-    iter_ctx->db = heim_db_create(heim_string_get_utf8(dbtype),
+    iter_ctx->db = heim_db_create(heim_string_get_utf8(dbtype.string),
 				  iter_ctx->dbname, iter_ctx->options,
 				  iter_ctx->error);
 }
@@ -365,7 +364,7 @@ heim_db_create(const char *dbtype, const char *dbname,
     }
 
     HEIMDAL_MUTEX_lock(&db_type_mutex);
-    plug = heim_dict_get_value(db_plugins, s);
+    plug = (db_plugin)heim_dict_get_value(db_plugins, s).dict;
     HEIMDAL_MUTEX_unlock(&db_type_mutex);
     heim_release(s);
     if (plug == NULL) {
@@ -377,7 +376,7 @@ heim_db_create(const char *dbtype, const char *dbname,
 	return NULL;
     }
 
-    db = _heim_alloc_object(&db_object, sizeof(*db));
+    db = _heim_alloc_object(&db_object, sizeof(*db)).db;
     if (db == NULL) {
 	heim_release(options);
 	return NULL;
@@ -453,7 +452,7 @@ heim_db_clone(heim_db_t db, heim_error_t *error)
 			      db->options, error);
     }
 
-    result = _heim_alloc_object(&db_object, sizeof(*result));
+    result = _heim_alloc_object(&db_object, sizeof(*result)).db;
     if (result == NULL) {
 	if (error)
 	    *error = heim_error_create_enomem();
@@ -576,7 +575,7 @@ heim_db_commit(heim_db_t db, heim_error_t *error)
     }
 
     if (db->options == NULL)
-	journal_fname = heim_dict_get_value(db->options, HSTR("journal-filename"));
+	journal_fname = heim_dict_get_value(db->options, HSTR("journal-filename")).string;
 
     if (journal_fname != NULL) {
 	heim_array_t a;
@@ -768,13 +767,13 @@ heim_db_copy_value(heim_db_t db, heim_string_t table, heim_data_t key,
 	}
 
 	v = heim_path_copy(db->set_keys, error, table, key64, NULL);
-	if (v != NULL) {
+	if (v.data != NULL) {
 	    heim_release(key64);
-	    return v;
+	    return v.data;
 	}
 	v = heim_path_copy(db->del_keys, error, table, key64, NULL); /* can't be NULL */
 	heim_release(key64);
-	if (v != NULL)
+	if (v.data != NULL)
 	    return NULL;
     }
 
@@ -964,12 +963,12 @@ db_replay_log_table_set_keys_iter(heim_object_t key, heim_object_t value,
     if (db->ret)
 	return;
 
-    k = from_base64((heim_string_t)key, &db->error);
+    k = from_base64(key.string, &db->error);
     if (k == NULL) {
 	db->ret = ENOMEM;
 	return;
     }
-    v = (heim_data_t)value;
+    v = value.data;
 
     db->ret = db->plug->setf(db->db_data, db->current_table, k, v, &db->error);
     heim_release(k);
@@ -987,11 +986,11 @@ db_replay_log_table_del_keys_iter(heim_object_t key, heim_object_t value,
 	return;
     }
 
-    k = from_base64((heim_string_t)key, &db->error);
+    k = from_base64(key.string, &db->error);
     if (k == NULL)
 	return;
 
-    k = (heim_data_t)key;
+    k = key.data;
 
     db->ret = db->plug->delf(db->db_data, db->current_table, k, &db->error);
     heim_release(k);
@@ -1006,8 +1005,8 @@ db_replay_log_set_keys_iter(heim_object_t table, heim_object_t table_dict,
     if (db->ret)
 	return;
 
-    db->current_table = table;
-    heim_dict_iterate_f(table_dict, db, db_replay_log_table_set_keys_iter);
+    db->current_table = table.string;
+    heim_dict_iterate_f(table_dict.dict, db, db_replay_log_table_set_keys_iter);
 }
 
 static void
@@ -1019,8 +1018,8 @@ db_replay_log_del_keys_iter(heim_object_t table, heim_object_t table_dict,
     if (db->ret)
 	return;
 
-    db->current_table = table;
-    heim_dict_iterate_f(table_dict, db, db_replay_log_table_del_keys_iter);
+    db->current_table = table.string;
+    heim_dict_iterate_f(table_dict.dict, db, db_replay_log_table_del_keys_iter);
 }
 
 static int
@@ -1067,14 +1066,14 @@ db_replay_log(heim_db_t db, heim_error_t *error)
     if (db->options == NULL)
 	return 0;
 
-    journal_fname = heim_dict_get_value(db->options, HSTR("journal-filename"));
+    journal_fname = heim_dict_get_value(db->options, HSTR("journal-filename")).string;
     if (journal_fname == NULL)
 	return 0;
 
     ret = read_json(heim_string_get_utf8(journal_fname), &journal, error);
     if (ret == ENOENT)
 	return 0;
-    if (ret == 0 && journal == NULL)
+    if (ret == 0 && journal.data == NULL)
 	return 0;
     if (ret != 0)
 	return ret;
@@ -1084,12 +1083,12 @@ db_replay_log(heim_db_t db, heim_error_t *error)
 			  (ret, N_("Invalid journal contents; delete journal",
 				   "")));
 
-    len = heim_array_get_length(journal);
+    len = heim_array_get_length(journal.array);
 
     if (len > 0)
-	db->set_keys = heim_array_get_value(journal, 0);
+	db->set_keys = heim_array_get_value(journal.array, 0).dict;
     if (len > 1)
-	db->del_keys = heim_array_get_value(journal, 1);
+	db->del_keys = heim_array_get_value(journal.array, 1).dict;
     ret = db_do_log_actions(db, error);
     if (ret)
 	return ret;
@@ -1252,7 +1251,7 @@ read_json(const char *dbname, heim_object_t *out, heim_error_t *error)
     int fd = -1;
     ssize_t bytes;
 
-    *out = NULL;
+    (*out).data = NULL;
     ret = open_file(dbname, 0, 0, &fd, error);
     if (ret)
 	return ret;
@@ -1289,7 +1288,7 @@ read_json(const char *dbname, heim_object_t *out, heim_error_t *error)
     str[st.st_size] = '\0';
     *out = heim_json_create(str, 10, 0, error);
     free(str);
-    if (*out == NULL)
+    if ((*out).data == NULL)
 	return (error && *error) ? heim_error_get_code(*error) : EINVAL;
     return 0;
 }
@@ -1335,11 +1334,11 @@ json_db_open(void *plug, const char *dbtype, const char *dbname,
 	    vc = heim_dict_get_value(options, HSTR("create"));
 	    ve = heim_dict_get_value(options, HSTR("exclusive"));
 	    vt = heim_dict_get_value(options, HSTR("truncate"));
-	    if (vc && vt) {
-		ret = open_file(dbname, 1, ve ? 1 : 0, NULL, error);
+	    if (vc.data && vt.data) {
+		ret = open_file(dbname, 1, ve.data ? 1 : 0, NULL, error);
 		if (ret)
 		    return ret;
-	    } else if (vc || ve || vt) {
+	    } else if (vc.data || ve.data || vt.data) {
 		return HEIM_ERROR(error, EINVAL,
 				  (EINVAL, N_("Invalid JSON DB open options",
 					      "")));
@@ -1392,7 +1391,7 @@ json_db_open(void *plug, const char *dbtype, const char *dbname,
 					  "")));
     }
 
-    jsondb = heim_alloc(sizeof (*jsondb), "json_db", NULL);
+    jsondb = (json_db_t)heim_alloc(sizeof (*jsondb), "json_db", NULL).db;
     if (jsondb == NULL) {
 	heim_release(contents);
 	heim_release(dbname_s);
@@ -1410,7 +1409,7 @@ json_db_open(void *plug, const char *dbtype, const char *dbname,
     else {
 	jsondb->dict = heim_dict_create(29);
 	if (jsondb->dict == NULL) {
-	    heim_release(jsondb);
+	    heim_release((heim_db_t)jsondb);
 	    return ENOMEM;
 	}
     }
@@ -1432,7 +1431,7 @@ json_db_close(void *db, heim_error_t *error)
     heim_release(jsondb->dbname);
     heim_release(jsondb->bkpname);
     heim_release(jsondb->dict);
-    heim_release(jsondb);
+    heim_release((heim_db_t)jsondb);
     return 0;
 }
 
@@ -1592,7 +1591,7 @@ json_db_copy_value(void *db, heim_string_t table, heim_data_t key,
 	return NULL;
     }
 
-    result = heim_path_copy(jsondb->dict, error, table, key_string, NULL);
+    result = heim_path_copy(jsondb->dict, error, table, key_string, NULL).data;
     heim_release(key_string);
     return result;
 }
@@ -1669,9 +1668,9 @@ static void json_db_iter_f(heim_object_t key, heim_object_t value, void *arg)
     const char *key_string;
     heim_data_t key_data;
 
-    key_string = heim_string_get_utf8((heim_string_t)key);
+    key_string = heim_string_get_utf8(key.string);
     key_data = heim_data_ref_create(key_string, strlen(key_string), NULL);
-    ctx->iter_f(key_data, (heim_object_t)value, ctx->iter_ctx);
+    ctx->iter_f(key_data, value.data, ctx->iter_ctx);
     heim_release(key_data);
 }
 
@@ -1689,7 +1688,7 @@ json_db_iter(void *db, heim_string_t table, void *iter_data,
     if (table == NULL)
 	table = HSTR("");
 
-    table_dict = heim_dict_get_value(jsondb->dict, table);
+    table_dict = heim_dict_get_value(jsondb->dict, table).dict;
     if (table_dict == NULL)
 	return;
 

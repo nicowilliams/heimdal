@@ -61,6 +61,7 @@ union heim_object {
     heim_dict_t dict;
     heim_array_t array;
     heim_db_t db;
+    heim_error_t error;
 };
 typedef union heim_object heim_object_t __attribute__ ((__transparent_union__));
 #else
@@ -258,7 +259,7 @@ typedef struct heim_octet_string {
 } heim_octet_string;
 #endif
 
-typedef void (*heim_data_free_f_t)(heim_data_t);
+typedef void (*heim_data_free_f_t)(void *);
 
 heim_data_t	heim_data_create(const void *, size_t);
 heim_data_t	heim_data_ref_create(const void *, size_t, heim_data_free_f_t);

@@ -42,11 +42,10 @@ struct heim_error {
 };
 
 static void
-error_dealloc(void *ptr)
+error_dealloc(heim_error_t e)
 {
-    struct heim_error *p = ptr;
-    heim_release(p->msg);
-    heim_release(p->next);
+    heim_release(e->msg);
+    heim_release(e->next);
 }
 
 static int
@@ -127,7 +126,7 @@ heim_error_createv(int error_code, const char *fmt, va_list ap)
 	return NULL; /* XXX We should have a special heim_error_t for this */
     }
 
-    e = _heim_alloc_object(&_heim_error_object, sizeof(struct heim_error));
+    e = _heim_alloc_object(&_heim_error_object, sizeof(struct heim_error)).error;
     if (e) {
 	e->msg = heim_string_create(str);
 	e->error_code = error_code;
@@ -147,7 +146,7 @@ heim_error_copy_string(heim_error_t error)
 	heim_abort("invalid heim_error_t");
     }
     /* XXX concat all strings */
-    return heim_retain(error->msg);
+    return heim_retain(error->msg).string;
 }
 
 int
@@ -173,6 +172,6 @@ heim_error_append(heim_error_t top, heim_error_t append)
     }
     if (top->next)
 	heim_release(top->next);
-    top->next = heim_retain(append);
+    top->next = heim_retain(append).error;
     return top;
 }
