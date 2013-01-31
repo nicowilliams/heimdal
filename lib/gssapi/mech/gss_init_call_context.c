@@ -113,7 +113,7 @@ _gss_alloc_call_context(_gss_call_context *cc)
 	if (AO_fetch_and_add1_full(&p->cc_refs) > 1) {
             /*
              * XXX Make sure we're not racing with a destroy and
-             * forgetting to destroy this, thus leaking
+             * forgetting to destroy this, thus leaking or worse
              */
 	    (void) AO_fetch_and_sub1_full(&p->cc_refs);
 	    continue;
@@ -143,6 +143,10 @@ _gss_alloc_call_context(_gss_call_context *cc)
     /*
      * Optimize lookup of this call context from the same thread so
      * we don't fall into the slow path below.
+     *
+     * This is a bit too soon since the cc is only allocated at this
+     * point, not fully setup.  But no harm should ensue since our
+     * callers will be setting up the rest of it.
      */
     _gss_remember_call_context(&(*cc)->cc_minor_status, *cc);
     return GSS_S_COMPLETE;
@@ -180,8 +184,12 @@ _gss_get_call_context(OM_uint32 *looking_for, _gss_call_context *cc)
         uintptr_t k = (uintptr_t)looking_for;
 
         if (k % sizeof (_gss_call_context))
-            /* XXX We should allocate a better major status code */
-            return GSS_S_FAILURE;
+            /*
+             * The minor status pointer is clearly invalid; the app has
+             * a nasty bug.  We should really just abort(), as that'd
+             * make such app bugs easier to find.
+             */
+            return GSS_S_FAILURE | GSS_S_CALL_INACCESSIBLE_READ;
 
 	/*
 	 * NOTE WELL: We assume that the first field of
@@ -189,8 +197,8 @@ _gss_get_call_context(OM_uint32 *looking_for, _gss_call_context *cc)
 	 */
 	i = ((_gss_call_context)looking_for) - &call_contexts_fast[0];
         /*
-         * XXX Do we need this check?  We could just trust the app, be
-         * faster...
+         * Do we need this check?  We could just trust the app...  But
+         * if we check this at all then we should abort() (see above).
          */
 	if (!AO_load(&call_contexts_fast[i].cc_refs))
 	    return GSS_S_BAD_CALL_CONTEXT;
@@ -230,13 +238,15 @@ _gss_get_call_context(OM_uint32 *looking_for, _gss_call_context *cc)
      * Note that this is past the slow path.  If we have a mixture of
      * PGSS-aware apps using lots of call contexts and some non-PGSS-
      * aware apps in the same process, then we'll fall into the slow
-     * path for the non-PGSS-aware application.  For the common case of
-     * non-PGSS-aware apps we have a fair number of branches above, but
-     * no loops.
+     * path for the non-PGSS-aware application, but once more we cache
+     * this result in thread-specific data, so most of the time
+     * non-PGSS-aware apps will hit the medium path.
      */
     p = _gss_get_thr_call_context(NULL);
     if (!p) {
 	OM_uint32 major_status;
+
+        /* XXX This is all wrong!  We want to duplicate the default cc! */
 
 	p = calloc(1, sizeof (*p));
 	if (!p)
@@ -462,11 +472,6 @@ gss_init_call_context(OM_uint32 *minor_status,
     if (configuration != NULL) {
 	new_cc->cc_configuration.length = configuration->length;
 	new_cc->cc_configuration.value = config;
-    } else if (old_cc != NULL) {
-	old_cc->cc_refs++;
-	new_cc->cc_parent = old_cc;
-	new_cc->cc_gss_mechsp = old_cc->cc_gss_mechsp;
-	new_cc->cc_configuration = old_cc->cc_configuration;
     }
 
     *new_minor_status = &new_cc->cc_minor_status;
@@ -485,13 +490,13 @@ gss_duplicate_call_context(OM_uint32 *minor_status,
     if (major_status != GSS_S_COMPLETE)
 	return major_status;
 
-    new_cc = calloc(1, sizeof (*new_cc));
-    if (new_cc == NULL)
-	return GSS_S_UNAVAILABLE;
-    old_cc->cc_refs++;
-    new_cc->cc_refs = 1;
+    major_status = _gss_alloc_call_context(&new_cc);
+    if (major_status != GSS_S_COMPLETE)
+	return major_status;
+    AO_fetch_and_add1_full(&old_cc->cc_refs);
     new_cc->cc_parent = old_cc;
     new_cc->cc_gss_mechsp = old_cc->cc_gss_mechsp;
+    new_cc->cc->loaded_mech_oids = old_cc->cc->loaded_mech_oids;
     new_cc->cc_configuration = old_cc->cc_configuration;
 
     /* We don't duplicate mech elements here */
@@ -500,11 +505,10 @@ gss_duplicate_call_context(OM_uint32 *minor_status,
     return GSS_S_COMPLETE;
 }
 
-/* XXX Make this a void function */
 GSSAPI_LIB_FUNCTION _gss_call_context GSSAPI_LIB_CALL
 _gss_ref_call_context(_gss_call_context cc)
 {
-    cc->cc_refs++;
+    AO_fetch_and_add1_full(&cc->cc_refs);
     return cc;
 }
 
@@ -521,9 +525,10 @@ _gss_release_call_context(_gss_call_context *ccp)
 
     /* This check is silly; give us a bad handle and results are undefined */
     if (AO_load(&cc->cc_refs) == 0)
-	return GSS_S_BAD_CALL_CONTEXT;
+	return GSS_S_BAD_CALL_CONTEXT; /* XXX abort instead! */
 
     if (AO_fetch_and_sub1_full(&cc->cc_refs) == 0) {
+        /* XXX Oops, we race between cleanup and allocation! */
 	while (cc->cc_mech) {
 	    p = HEIM_SLIST_FIRST(cc->cc_mech);
 	    if (p->gmcc_mech->gm_release_call_context)
@@ -532,9 +537,13 @@ _gss_release_call_context(_gss_call_context *ccp)
 	    HEIM_SLIST_REMOVE_HEAD(cc->cc_mech, gmcc_link);
 	}
 	if (cc->cc_parent == NULL) {
-	    /* XXX Free loaded mechs, if any */
+	    /* XXX free cc_gss_mechsp */
+            gss_release_oid_set(&junk, &cc->loaded_mech_oids);
 	    free(cc->cc_configuration.value);
+            cc->cc_configuration.value = NULL;
+            cc->cc_configuration.length = 0;
 	}
+        cc->cc_parent = NULL;
 	if (cc >= &call_contexts_fast[0] &&
 	    cc <= &call_contexts_fast[CALL_CTX_FAST - 1])
 	    return GSS_S_COMPLETE;

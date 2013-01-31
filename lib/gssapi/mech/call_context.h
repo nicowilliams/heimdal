@@ -80,8 +80,9 @@ struct _gss_call_context {
 	 * (using the GNU nm) to find global variables in the mechglue
 	 * that might need to move here.
 	 */
-	struct _gss_mech_switch_list cc_gss_mechs;
-	struct _gss_mech_switch_list *cc_gss_mechsp;
+        gss_OID_set                     loaded_mech_oids;
+	struct _gss_mech_switch_list    cc_gss_mechs;
+	struct _gss_mech_switch_list    *cc_gss_mechsp;
 };
 
 typedef HEIM_SLIST_HEAD(call_contexts_slow_rest, _gss_call_context) *_gss_call_context_list;

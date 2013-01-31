@@ -187,13 +187,12 @@ do {									\
 
 /*
  *
- * XXX This needs the call context!  See below.
  */
-static int
-add_builtin(struct _gss_mech_switch_list *mech_list, gssapi_mech_interface mech)
+static OM_uint32
+add_builtin(_gss_call_context *cc, gssapi_mech_interface mech)
 {
     struct _gss_mech_switch *m;
-    OM_uint32 minor_status;
+    OM_uint32 major_status, minor_status;
 
     /* not registering any mech is ok */
     if (mech == NULL)
@@ -205,23 +204,31 @@ add_builtin(struct _gss_mech_switch_list *mech_list, gssapi_mech_interface mech)
     m->gm_so = NULL;
     m->gm_mech = *mech;
     m->gm_mech_oid = mech->gm_mech_oid; /* XXX */
-    /*
-     * XXX Er, we shouldn't touch _gss_mech_oids except for the default
-     * call context!
-     */
-    gss_add_oid_set_member(&minor_status,
-			   &m->gm_mech.gm_mech_oid, &_gss_mech_oids);
 
-    /* pick up the oid sets of names */
+    /* Get the name type OIDs */
+    if (m->gm_mech.gm_inquire_names_for_mech) {
+        major_status =
+            (*m->gm_mech.gm_inquire_names_for_mech)(&minor_status,
+                                                    &m->gm_mech.gm_mech_oid,
+                                                    &m->gm_name_types);
+    }
 
-    if (m->gm_mech.gm_inquire_names_for_mech)
-	(*m->gm_mech.gm_inquire_names_for_mech)(&minor_status,
-	    &m->gm_mech.gm_mech_oid, &m->gm_name_types);
+    if (m->gm_name_types == NULL) {
+        major_status = gss_create_empty_oid_set(&minor_status,
+                                                &m->gm_name_types);
+        if (major_status)
+            return GSS_S_UNAVAILABLE;
+    }
 
-    if (m->gm_name_types == NULL)
-	gss_create_empty_oid_set(&minor_status, &m->gm_name_types);
+    /* Add the mech only if we're done with the above allocations */
+    major_status = gss_add_oid_set_member(&minor_status,
+                                          &m->gm_mech.gm_mech_oid,
+                                          &_gss_mech_oids);
+    if (major_status)
+        return GSS_S_UNAVAILABLE;
 
-    HEIM_SLIST_INSERT_HEAD(mech_list, m, gm_link);
+
+    HEIM_SLIST_INSERT_HEAD(cc->cc_gss_mechsp, m, gm_link);
     return 0;
 }
 
@@ -230,43 +237,48 @@ add_builtin(struct _gss_mech_switch_list *mech_list, gssapi_mech_interface mech)
  *
  * XXX This needs the call context, so we can store _gss_mech_oids in
  * it (see also add_builtin()).
+ *
+ * XXX This needs to return a major status.  We might have ENOMEM.  Or
+ * maybe we should abort?  For now we do that.
  */
 void
-_gss_load_mech(struct _gss_mech_switch_list *mech_list)
+_gss_load_mech(_gss_call_context *cc, struct _gss_mech_switch_list *mech_list)
 {
-	OM_uint32	major_status, minor_status;
-	FILE		*fp;
-	char		buf[256];
-	char		*p;
-	char		*name, *oid, *lib, *kobj;
-	struct _gss_mech_switch *m;
-	void		*so;
-	gss_OID_desc	mech_oid;
-	int		found;
+	OM_uint32	                major_status, minor_status;
+        struct _gss_mech_switch_list    *mech_list;
+	FILE		                *fp;
+	char		                buf[256];
+	char		                *p;
+	char		                *name, *oid, *lib, *kobj;
+	struct _gss_mech_switch         *m;
+	void		                *so;
+	gss_OID_desc	                mech_oid;
+	int		                found;
 
-	if (!mech_list)
-		mech_list = &_gss_mechs;
+        mech_list = cc->cc_gss_mechsp;
 
-	if (mech_list == &_gss_mechs)
-	    HEIMDAL_MUTEX_lock(&_gss_mech_mutex);
+	if (HEIM_SLIST_FIRST(mech_list))
+		return; /* already loaded */
 
-	if (HEIM_SLIST_FIRST(mech_list)) {
-		if (mech_list == &_gss_mechs)
-			HEIMDAL_MUTEX_unlock(&_gss_mech_mutex);
-		return;
-	}
+        major_status = gss_create_empty_oid_set(&minor_status,
+                                                &cc->loaded_mech_oids);
+        if (major_status)
+            return GSS_S_UNAVAILABLE;
 
 	major_status = gss_create_empty_oid_set(&minor_status,
-	    &_gss_mech_oids);
+	    &cc->loaded_mech_oids);
 	if (major_status) {
 		if (mech_list == &_gss_mechs)
 		    HEIMDAL_MUTEX_unlock(&_gss_mech_mutex);
 		return;
 	}
 
-	add_builtin(mech_list, __gss_krb5_initialize());
-	add_builtin(mech_list, __gss_spnego_initialize());
-	add_builtin(mech_list, __gss_ntlm_initialize());
+	major_status = add_builtin(mech_list, __gss_krb5_initialize());
+        if (major_status) abort(); /* XXX Use assert */
+	major_status = add_builtin(mech_list, __gss_spnego_initialize());
+        if (major_status) abort();
+	major_status = add_builtin(mech_list, __gss_ntlm_initialize());
+        if (major_status) abort();
 
 #ifdef HAVE_DLOPEN
 	fp = fopen(_PATH_GSS_MECH, "r");

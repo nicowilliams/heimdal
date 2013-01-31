@@ -261,6 +261,9 @@ _gss_remember_call_context(OM_uint32 *cc_ref, _gss_call_context cc)
     if (mg == NULL)
 	return;
 
+    if (mg->last_cc)
+        _gss_release_call_context(mg->last_cc);
+
     mg->last_cc = _gss_ref_call_context(cc);
     mg->last_cc_min_stat = cc_ref;
 }
