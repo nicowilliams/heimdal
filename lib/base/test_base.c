@@ -414,6 +414,15 @@ test_path(void)
     o = heim_path_get(dict, NULL, k3, heim_number_create(3), NULL);
     if (heim_cmp(o, heim_number_create(42))) return 1;
 
+    if (heim_pointer_set_value(dict, "/k2/k2-5/3/-", heim_number_create(17), NULL))
+        return 1;
+    o = heim_pointer_get_value(dict, "/k2/k2-5/3/5", NULL);
+    if (heim_cmp(o, heim_number_create(17))) return 1;
+    if (heim_pointer_set_value(dict, "/k2/k2-5/3/4", heim_number_create(19), NULL))
+        return 1;
+    o = heim_pointer_get_value(dict, "/k2/k2-5/3/4", NULL);
+    if (heim_cmp(o, heim_number_create(19))) return 1;
+
     heim_release(dict);
     heim_release(p1);
     heim_release(p2a);

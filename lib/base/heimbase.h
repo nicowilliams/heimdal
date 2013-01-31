@@ -210,6 +210,8 @@ heim_error_t heim_error_append(heim_error_t, heim_error_t);
  * Path and JSON Pointer
  */
 
+int heim_pointer_set_value(heim_object_t tree, const char *ptr,
+                           heim_object_t value, heim_error_t *error);
 heim_object_t heim_pointer_get_value(heim_object_t tree, const char *ptr,
                                      heim_error_t *error);
 heim_object_t heim_pointer_copy_value(heim_object_t tree, const char *ptr,

@@ -76,6 +76,7 @@ HEIMDAL_BASE_1.0 {
 		heim_path_vdelete;
 		heim_path_vget;
 		heim_path_vcopy;
+                heim_pointer_set_value;
                 heim_pointer_get_value;
                 heim_pointer_copy_value;
 		heim_release;

@@ -736,6 +736,91 @@ pointer_next_node(heim_object_t o, heim_string_t c, heim_error_t *error)
     return NULL;
 }
 
+/**
+ * Set a node in a heim_object tree at a location indicated by a JSON Pointer
+ *
+ * @param ptr tree
+ * @param ptr C string with JSON Pointer contents
+ * @param value
+ * @param error error (output)
+ *
+ * @return 0 on success, -1 if path not found, or a system error on other failure
+ *
+ * @addtogroup heimbase
+ */
+int
+heim_pointer_set_value(heim_object_t tree, const char *ptr,
+                       heim_object_t value, heim_error_t *error)
+{
+    const char *state = NULL;
+    heim_string_t component;
+    heim_object_t node, next_node;
+    heim_tid_t node_type;
+    const char *s;
+    long int num;
+    size_t n;
+
+    if (error)
+        *error = NULL;
+    node = tree;
+    for (component = pointer_next_component(ptr, &state, error);
+         component;
+         component = pointer_next_component(ptr, &state, error)) {
+
+	node_type = heim_get_tid(node);
+        if (node_type != HEIM_TID_ARRAY &&
+            node_type != HEIM_TID_DICT) {
+            heim_error_create_opt(error, EINVAL,
+                                  "JSON Pointer component indexes a"
+                                  "non-container object");
+            return EINVAL;
+	}
+        if (strchr(state, '/')) {
+            next_node = pointer_next_node(node, component, error);
+            if (!next_node)
+                return -1;
+            node = next_node;
+            continue;
+        }
+        /* We're at the end of the path; set the value */
+        if (node_type == HEIM_TID_ARRAY) {
+            s = heim_string_get_utf8(component);
+            if (strcmp(s, "-"))
+                return heim_array_append_value(node, value);
+            errno = 0;
+            num = strtol(s, NULL, 10);
+            if (errno) {
+                heim_error_create_opt(error, errno,
+                                      "JSON Pointer component is invalid "
+                                      "array index");
+                return errno;
+            }
+            n = (size_t)num;
+            if (num < 0 || n != num) {
+                heim_error_create_opt(error, ERANGE,
+                                      "JSON Pointer component is invalid "
+                                      "array index");
+                return errno;
+            }
+            return heim_array_insert_value(node, n, value);
+        }
+        return heim_dict_set_value(node, component, value);
+    }
+
+    return -1;
+}
+
+/**
+ * Get a node in a heim_object tree by JSON Pointer
+ *
+ * @param ptr tree
+ * @param ptr C string with JSON Pointer contents
+ * @param error error (output)
+ *
+ * @return object (not retained) if found
+ *
+ * @addtogroup heimbase
+ */
 heim_object_t
 heim_pointer_get_value(heim_object_t tree, const char *ptr,
                        heim_error_t *error)
@@ -766,6 +851,17 @@ heim_pointer_get_value(heim_object_t tree, const char *ptr,
     return node;
 }
 
+/**
+ * Get a node in a heim_object tree by JSON Pointer
+ *
+ * @param ptr tree
+ * @param ptr C string with JSON Pointer contents
+ * @param error error (output)
+ *
+ * @return retained object if found
+ *
+ * @addtogroup heimbase
+ */
 heim_object_t
 heim_pointer_copy_value(heim_object_t tree, const char *ptr,
                         heim_error_t *error)
