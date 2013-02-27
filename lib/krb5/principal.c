@@ -1377,6 +1377,9 @@ get_resolver_searchlist(krb5_context context, char ***out)
 #endif /* HAVE_RES_NINIT || HAVE_RES_SEARCH */
 }
 
+/*
+ * Run one hostname canonicalization step.
+ */
 static krb5_error_code
 canon_hostname(krb5_context context, krb5_name_canon_iterator iter,
                krb5_principal *out_princ)
@@ -1450,6 +1453,11 @@ get_host_canon_rules(krb5_context context,
                            "hostname-canon-searchlist",
                            "", &searchlist);
 
+    /*
+     * We have just two methods: nss (getaddrinfo(), DNS), and
+     * domain search list.  The search list may be specified in the
+     * Kerberos config or taken from the resolver.
+     */
     if (!strcmp(canon_method, "nss")) {
         state->use_nss = 1;
     } else if (!strcmp(canon_method, "search")) {
@@ -1518,8 +1526,11 @@ krb5_name_canon_iterator_start(krb5_context context,
 
     if (princ_type(princ) != KRB5_NT_SRV_HST) {
 	/*
-	 * Name needs no canon -> trivial iterator; we still want an
-	 * iterator just so as to keep callers simple.
+         * Name needs no canon because it's not a host-based service
+         * name and we have no canonicalizations defined for other
+         * names.  This means we have a single-step iterator: return [a
+         * copy of] the original principal.  We still need an iterator
+         * just so as to keep callers simple.
 	 */
 	state->is_trivial = 1;
 	state->creds = in_creds;
@@ -1529,19 +1540,32 @@ krb5_name_canon_iterator_start(krb5_context context,
 	    goto out;
     }
 
-    state->in_princ = princ; /* XXX should probably copy; make API better */
+    ret = krb5_copy_principal(context, princ, &state->inprinc);
+    if (ret)
+        goto out;
     if (in_creds) {
+        /*
+         * In each step we'll be outputing a variant of in_creds with
+         * the canonicalized principal as the server.  We copy in_creds
+         * for this, and we overwrite its server field each time.
+         */
 	if (!state->is_trivial) {
 	    ret = krb5_copy_creds(context, in_creds, &state->creds);
 	    if (ret) goto out;
 	}
-	state->tmp_princ = state->creds->server; /* so we don't leak */
+        /*
+         * We'll need to free state->creds->server; since we free
+         * state->tmp_princ in each step the following statement makes
+         * sure we free state->creds->server.
+         */
+	state->tmp_princ = state->creds->server;
     }
 
     *iter = state;
     return 0;
 
 out:
+    krb5_free_principal(context, state->in_princ);
     krb5_free_name_canon_iterator(context, state);
     return krb5_enomem(context);
 }
@@ -1564,8 +1588,13 @@ krb5_name_canon_iterate(krb5_context context,
 	return 0;
     }
 
+    /*
+     * Free the previously-returned canonicalized principal, and/or the
+     * state->creds->server.
+     */
     krb5_free_principal(context, state->tmp_princ);
-    if (state->is_trivial && !state->done) {
+    state->tmp_princ = NULL;
+    if (state->is_trivial) {
 	state->done = 1;
         return krb5_copy_principal(context, state->in_princ,
                                    &state->tmp_princ);
@@ -1642,6 +1671,7 @@ krb5_free_name_canon_iterator(krb5_context context,
 {
     if (iter == NULL)
 	return;
+    krb5_free_principal(context, state->in_princ);
     if (!iter->is_trivial) {
 	if (iter->creds) {
 	    krb5_free_creds(context, iter->creds);
