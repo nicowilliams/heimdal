@@ -724,13 +724,14 @@ find_cred(krb5_context context,
 static krb5_error_code
 add_cred(krb5_context context, krb5_creds const *tkt, krb5_creds ***tgts)
 {
-    int i;
+    size_t i;
     krb5_error_code ret;
     krb5_creds **tmp = *tgts;
 
-    for(i = 0; tmp && tmp[i]; i++); /* XXX */
+    for (i = 0; tmp && tmp[i]; i++)
+        ; /* XXX */
     tmp = realloc(tmp, (i+2)*sizeof(*tmp));
-    if(tmp == NULL)
+    if (tmp == NULL)
 	return krb5_enomem(context);
     *tgts = tmp;
     ret = krb5_copy_creds(context, tkt, &tmp[i]);
