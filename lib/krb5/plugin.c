@@ -66,6 +66,7 @@ static int plugins_needs_scan = 1;
 static const char *sysplugin_dirs[] =  {
     LIBDIR "/plugin/krb5",
 #ifdef __APPLE__
+    "/Library/KerberosPlugins/KerberosFrameworkPlugins",
     "/System/Library/KerberosPlugins/KerberosFrameworkPlugins",
 #endif
     NULL
@@ -436,7 +437,7 @@ _krb5_load_plugins(krb5_context context, const char *name, const char **paths)
 	}
     }
 
-    module = heim_dict_get_value(modules, s);
+    module = heim_dict_copy_value(modules, s);
     if (module == NULL) {
 	module = heim_dict_create(11);
 	if (module == NULL) {
@@ -445,7 +446,6 @@ _krb5_load_plugins(krb5_context context, const char *name, const char **paths)
 	    return;
 	}
 	heim_dict_set_value(modules, s, module);
-	heim_release(module);
     }
     heim_release(s);
 
@@ -486,25 +486,26 @@ _krb5_load_plugins(krb5_context context, const char *name, const char **paths)
 	    }
 
 	    /* check if already cached */
-	    p = heim_dict_get_value(module, spath);
+	    p = heim_dict_copy_value(module, spath);
 	    if (p == NULL) {
 		p = heim_alloc(sizeof(*p), "krb5-plugin", plug_dealloc);
 		if (p)
 		    p->dsohandle = dlopen(path, RTLD_LOCAL|RTLD_LAZY);
 
-		if (p->dsohandle) {
+		if (p && p->dsohandle) {
 		    p->path = heim_retain(spath);
 		    p->names = heim_dict_create(11);
 		    heim_dict_set_value(module, spath, p);
 		}
-		heim_release(p);
 	    }
+            heim_release(p);
 	    heim_release(spath);
 	    free(path);
 	}
 	closedir(d);
     }
     HEIMDAL_MUTEX_unlock(&plugin_mutex);
+    heim_release(module);
 #endif /* HAVE_DLOPEN */
 }
 
@@ -561,7 +562,7 @@ search_modules(heim_object_t key, heim_object_t value, void *ctx)
 {
     struct iter_ctx *s = ctx;
     struct plugin2 *p = value;
-    struct plug *pl = heim_dict_get_value(p->names, s->n);
+    struct plug *pl = heim_dict_copy_value(p->names, s->n);
     struct common_plugin_method *cpm;
 
     if (pl == NULL) {
@@ -579,13 +580,13 @@ search_modules(heim_object_t key, heim_object_t value, void *ctx)
 		cpm = pl->dataptr = NULL;
 	}
 	heim_dict_set_value(p->names, s->n, pl);
-	heim_release(pl);
     } else {
 	cpm = pl->dataptr;
     }
 
-    if (cpm && cpm->version >= 0 && cpm->version >= s->min_version)
+    if (cpm && cpm->version >= s->min_version)
 	heim_array_append_value(s->result, pl);
+    heim_release(pl);
 }
 
 static void
@@ -663,7 +664,7 @@ _krb5_plugin_run_f(krb5_context context,
     s.ret = KRB5_PLUGIN_NO_HANDLE;
 
     /* Get loaded plugins */
-    dict = heim_dict_get_value(modules, m);
+    dict = heim_dict_copy_value(modules, m);
     heim_release(m);
 
     /* Add loaded plugins to s.result array */
@@ -704,6 +705,7 @@ _krb5_plugin_run_f(krb5_context context,
 
     heim_release(s.result);
     heim_release(s.n);
+    heim_release(dict);
 
     return s.ret;
 }
