@@ -66,7 +66,7 @@ host/admin@H5L.ORG
 
 struct krb5_name_canon_iterator {
     char                        **searchlist;
-    krb5_const_principal	in_princ;
+    krb5_principal	        in_princ;
     krb5_principal		tmp_princ;
     krb5_creds			*creds;
     size_t                      search_idx;
@@ -1540,7 +1540,7 @@ krb5_name_canon_iterator_start(krb5_context context,
 	    goto out;
     }
 
-    ret = krb5_copy_principal(context, princ, &state->inprinc);
+    ret = krb5_copy_principal(context, princ, &state->in_princ);
     if (ret)
         goto out;
     if (in_creds) {
@@ -1671,7 +1671,7 @@ krb5_free_name_canon_iterator(krb5_context context,
 {
     if (iter == NULL)
 	return;
-    krb5_free_principal(context, state->in_princ);
+    krb5_free_principal(context, iter->in_princ);
     if (!iter->is_trivial) {
 	if (iter->creds) {
 	    krb5_free_creds(context, iter->creds);
