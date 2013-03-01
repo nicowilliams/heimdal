@@ -956,7 +956,8 @@ cleanup_referral_state(krb5_context context, struct referral_state *s)
     s->ask_for_better.server = NULL;
 
     krb5_free_cred_contents(context, &s->ticket);
-    memset(&s->tgt, 0, sizeof(s->tgt));
+    krb5_free_cred_contents(context, &s->final_ticket);
+    memset(&s->final_ticket, 0, sizeof(s->final_ticket));
     memset(&s->ticket, 0, sizeof(s->ticket));
 
     krb5_free_creds(context, s->tgt);
@@ -1166,6 +1167,21 @@ get_cred_kdc_referral(krb5_context context,
             s.ticket.flags.b.ok_as_delegate = 0;
         }
 
+        /*
+         * So we have a referral TGT.  But the transit path in the
+         * referral TGT may not be correct.  Therefore we try to get a
+         * possibly-better TGT for the same realm.
+         *
+         * We could keep track of the transit path so far and check it
+         * against local policy, but our local policy need not match the
+         * target service's.  Still, we could make this configurable and
+         * then fetch better TGTs only when we can tell that the transit
+         * path is bogus, e.g., because it would cause a loop.  Or we
+         * could make this configurable and unwind to try to get a
+         * better TGT only when a KDC returns KDC_ERR_PATH_NOT_ACCEPTED
+         * or KDC_ERR_POLICY.
+         */
+
         /* Get a better TGT for the referral realm and try that */
         s.ask_for_better = *in_creds;
         ret = krb5_copy_principal(context, s.ticket.server,
@@ -1174,13 +1190,6 @@ get_cred_kdc_referral(krb5_context context,
             goto out;
 
         /* Re-enter to get the better TGT */
-        /*
-         * XXX We probably want to save the value of tgs_limit around
-         * this, so that we do limit this call but don't stop ourselves
-         * from trying to use either this ticket or the referral ticket.
-         *
-         * Alternatively... use KRB5_GC_CACHED here.
-         */
         ret = get_credentials_with_flags(context, tgs_limit,
                                          KRB5_GC_DONT_MATCH_REALM,
                                          flags, ccache,
