@@ -806,7 +806,7 @@ get_capath_realms(krb5_context context,
     krb5_error_code ret;
     char **capaths_realms;
     krb5_realm *realms = NULL;
-    size_t i, k;
+    size_t i;
 
     errno = 0;
     capaths_realms = krb5_config_get_strings(context, NULL, "capaths",
@@ -827,7 +827,9 @@ get_capath_realms(krb5_context context,
      * If capaths_realms == NULL we should work out the last hop realm
      * of the hierarchical path to the target and add that realm to the
      * list here.  Because the whole algorithm is recursive we'll end up
-     * computing the whole path, one hop at a time.
+     * computing the whole path, one hop at a time.  Of course, here we
+     * really need to know what the current starting realm is, and... we
+     * don't.
      */
 
     krb5_config_free_strings(capaths_realms);
@@ -851,7 +853,6 @@ get_start_realms(krb5_context context,
     krb5_error_code ret;
     krb5_realm *realms, *ref_realms;
     size_t is_tgt;
-    size_t i = 0;
 
     is_tgt = krb5_principal_is_krbtgt(context, in_creds->server);
 
@@ -924,9 +925,6 @@ get_start_realms(krb5_context context,
     *realms_out = realms;
     return 0;
 
-enomem:
-    (void) krb5_free_host_realm(context, realms);
-    ret = krb5_enomem(context);
 err:
     return ret;
 }
@@ -935,8 +933,9 @@ struct referral_state {
     krb5_principal  tgtname;
     krb5_creds      tgt;
     krb5_creds      ask_for;
-    krb5_creds      ticket;
+    krb5_creds      ask_for_tgt;
     krb5_creds      ask_for_better;
+    krb5_creds      ticket;
     krb5_creds      final_ticket;  /* to be output */
     krb5_creds      *better_tgt;
 };
@@ -946,15 +945,17 @@ cleanup_referral_state(krb5_context context, struct referral_state *s)
 {
     krb5_free_principal(context, s->tgtname);
     krb5_free_principal(context, s->ask_for.server);
+    krb5_free_principal(context, s->ask_for_tgt.server);
     krb5_free_principal(context, s->ask_for_better.server);
     s->tgtname = NULL;
     s->ask_for.server = NULL;
+    s->ask_for_tgt.server = NULL;
     s->ask_for_better.server = NULL;
 
     krb5_free_cred_contents(context, &s->tgt);
     krb5_free_cred_contents(context, &s->ticket);
-    s->tgt = NULL;
-    s->ticket = NULL;
+    memset(&s->tgt, 0, sizeof(s->tgt));
+    memset(&s->ticket, 0, sizeof(s->ticket));
 
     krb5_free_creds(context, s->better_tgt);
     s->better_tgt = NULL;
@@ -973,6 +974,7 @@ get_cred_kdc_referral(krb5_context context,
 {
     krb5_realm *realms;
     krb5_error_code ret, ret2;
+    struct referral_state s;
     int ok_as_delegate = 1;
     size_t i;
 
@@ -1075,7 +1077,27 @@ get_cred_kdc_referral(krb5_context context,
 	if (ret && ret != KRB5_CC_NOTFOUND)
             break;
 
-        /* XXX Add recursion to get s.tgt here */
+        /*
+         * Setup a krb5_creds based on the in_creds but with the current
+         * start realm as the realm of the target server.
+         *
+         * Should we setup any s.ask_for_tgt.flags?
+         */
+        s.ask_for_tgt.client = in_creds->client;
+        s.ask_for_tgt.server = NULL;
+        ret = krb5_copy_principal(context, s.tgtname, &s.ask_for_tgt.server);
+        if (ret)
+            goto out;
+        ret = krb5_principal_set_realm(context, s.ask_for.server, realms[i]);
+        if (ret)
+            goto out;
+
+        /* Re-enter to get the TGT we need */
+        ret = get_credentials_with_flags(context, tgs_limit,
+                                         KRB5_GC_DONT_MATCH_REALM,
+                                         flags, ccache,
+                                         &s.ask_for_tgt,
+                                         &s.tgt);/* XXX wrong */
 
         (*tgs_limit)--;
         ret = get_cred_kdc_address(context, ccache, flags, NULL,
@@ -1116,9 +1138,10 @@ get_cred_kdc_referral(krb5_context context,
         /* Check that there are no referrals loops */
         /*
          * XXX Use a dict, which we'd have to pass around; we won't save
-         * referral TGTs, and whatever equivalents we get may have come
-         * from the ccache, which means we'd not add them to ret_tgts...
-         * so checking ret_tgts as we used to would be useless.
+         * referral TGTs, and whatever equivalents we get may have
+         * gotten from the ccache, which means we'd not add them to
+         * ret_tgts...  so checking ret_tgts as we used to would be
+         * useless.
          *
          * For now we just heuristically detect loops when tgs_limit
          * falls to zero.
@@ -1190,7 +1213,6 @@ get_cred_kdc_referral(krb5_context context,
         }
 
         /* Continue if the referral failed?  For now we do. */
-        /* XXX cleanup */
     }
 
     if (ret)
