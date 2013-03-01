@@ -777,10 +777,11 @@ add_realm(krb5_context context, krb5_realm **realms, krb5_realm realm)
     krb5_realm *tmp;
     size_t i;
 
-    for (i = 0; *realms && (*realms)[i]; i++)
+    for (i = 0; (*realms)[i]; i++)
         ;
 
-    tmp = realloc(realms, (i + 1) * sizeof (**realms));
+    /* No overflow here; i will be small */
+    tmp = realloc(*realms, (i + 1) * sizeof (**realms));
     if (!tmp)
         goto enomem;
 
@@ -800,7 +801,6 @@ static krb5_error_code
 get_capath_realms(krb5_context context,
                   krb5_realm crealm,
                   krb5_realm tgtrealm,
-                  krb5_realm *ref_realms,
                   krb5_realm **realms_out)
 {
     krb5_error_code ret;
@@ -812,8 +812,8 @@ get_capath_realms(krb5_context context,
     capaths_realms = krb5_config_get_strings(context, NULL, "capaths",
                                              crealm, tgtrealm, NULL);
     if (errno)
-        return errno;
-    /* Look for a direct trust first */
+        return errno; /* XXX Do better, like krb5_enomem() for ENOMEM */
+
     for (i = 0; capaths_realms && capaths_realms[i]; i++) {
         if (strcmp(capaths_realms[i], ".") == 0) {
             ret = add_realm(context, &realms, capaths_realms[i]);
@@ -822,43 +822,16 @@ get_capath_realms(krb5_context context,
             break;
         }
     }
-    /* Next for the first indirect trust */
-    for (i = 0; capaths_realms && capaths_realms[i]; i++) {
-        if (strcmp(capaths_realms[i], ".") != 0) {
-            ret = add_realm(context, &realms, capaths_realms[i]);
-            if (ret)
-                goto err;
-            break;
-        }
-    }
+
+    /*
+     * If capaths_realms == NULL we should work out the last hop realm
+     * of the hierarchical path to the target and add that realm to the
+     * list here.  Because the whole algorithm is recursive we'll end up
+     * computing the whole path, one hop at a time.
+     */
+
     krb5_config_free_strings(capaths_realms);
 
-    /* Do the same for the referral realms */
-    for (i = 0; ref_realms && ref_realms[i]; i++) {
-        capaths_realms = krb5_config_get_strings(context, NULL,
-                                                 "capaths",
-                                                 ref_realms[i],
-                                                 tgtrealm, NULL);
-        if (errno)
-            return errno;
-        for (k = 0; capaths_realms && capaths_realms[k]; k++) {
-            if (strcmp(capaths_realms[i], ".") == 0) {
-                ret = add_realm(context, &realms, capaths_realms[k]);
-                if (ret)
-                    goto err;
-                break;
-            }
-        }
-        for (k = 0; capaths_realms && capaths_realms[k]; k++) {
-            if (strcmp(capaths_realms[i], ".") != 0) {
-                ret = add_realm(context, &realms, capaths_realms[k]);
-                if (ret)
-                    goto err;
-                break;
-            }
-        }
-        krb5_config_free_strings(capaths_realms);
-    }
     return 0;
 
 err:
@@ -877,7 +850,10 @@ get_start_realms(krb5_context context,
 {
     krb5_error_code ret;
     krb5_realm *realms, *ref_realms;
+    size_t is_tgt;
     size_t i = 0;
+
+    is_tgt = krb5_principal_is_krbtgt(context, in_creds->server);
 
     ret = krb5_get_referral_realms(context, &ref_realms);
     if (ret)
@@ -887,34 +863,35 @@ get_start_realms(krb5_context context,
      * We'll have at least the client realm, we may also have whatever
      * realm the in_creds->server already has, and a terminating NULL.
      */
-    realms = calloc(3, sizeof (*realms));
+    realms = calloc(2, sizeof (*realms));
     if (!realms)
         return krb5_enomem(context);
 
     /*
-     * If the server principal has a non-empty (non-"referral") realm,
-     * then we should start there.  That will mean we'll go looking for
-     * a krbtgt/<that-realm>, which will mean we'll find ourselves here
-     * again, but this time with an empty realm.
+     * If the server principal is not a krbtgt and has a non-empty
+     * (not a "referral") realm, then we should start there (but maybe
+     * this should be configurable?).  That will mean we'll go looking
+     * for a krbtgt/<that-realm>, which will mean we'll find ourselves
+     * here again, but this time with an empty realm.
      */
-    if (in_creds->server->realm && *in_creds->server->realm &&
-        !(realms[i++] = strdup(in_creds->server->realm)))
-        goto enomem;
+    if (!is_tgt && in_creds->server->realm && *in_creds->server->realm) {
+        ret = add_realm(context, &realms, in_creds->server->realm);
+        if (ret)
+            goto err;
+    }
 
-    if (in_creds->client->realm &&
-        !(realms[i++] = strdup(in_creds->client->realm)))
-        goto enomem;
+    ret = add_realm(context, &realms, in_creds->server->realm);
+    if (ret)
+        goto err;
 
-    if (in_creds->server->name.name_string.len == 2 &&
-        !strcmp(in_creds->server->name.name_string.val[0], KRB5_TGS_NAME)) {
-
+    if (is_tgt) {
         /*
          * A krbtgt, so try to find a realm to ask for a ticket for this
          * krbtgt using [capaths].
          */
         ret = get_capath_realms(context, in_creds->client->realm,
                                 in_creds->server->name.name_string.val[1],
-                                ref_realms, &realms);
+                                &realms);
         if (ret)
             goto err;
     } else if (in_creds->server->name.name_string.len >= 2 &&
@@ -944,20 +921,6 @@ get_start_realms(krb5_context context,
             goto err;
     }
 
-    /*
-     * XXX Here's where we'd add the set of possible hierarchical realms
-     * from the client principal's realm to the target realm, when the
-     * target principal is a krbtgt anyways.  For example, if the start
-     * realm were A.B.C and the target realm X.Y.Z then we'd want to
-     * append Y.Z, Z, C, and B.C here, and in that order since that's
-     * the most likely order to find short-cut trusts (since by
-     * recursion we'll end up trying all of them), but we risk trying
-     * to get krbtgts for these realms more than once, which in failure
-     * cases could be painful.  What we should do is cache DNS SRV RR
-     * lookups so that failures to find KDCs for any realm can cause
-     * retries of failed cases to fail sooner and with less effort.
-     */
-
     *realms_out = realms;
     return 0;
 
@@ -966,6 +929,35 @@ enomem:
     ret = krb5_enomem(context);
 err:
     return ret;
+}
+
+struct referral_state {
+    krb5_principal  tgtname;
+    krb5_creds      tgt;
+    krb5_creds      ask_for;
+    krb5_creds      ticket;
+    krb5_creds      ask_for_better;
+    krb5_creds      final_ticket;  /* to be output */
+    krb5_creds      *better_tgt;
+};
+
+static void
+cleanup_referral_state(krb5_context context, struct referral_state *s)
+{
+    krb5_free_principal(context, s->tgtname);
+    krb5_free_principal(context, s->ask_for.server);
+    krb5_free_principal(context, s->ask_for_better.server);
+    s->tgtname = NULL;
+    s->ask_for.server = NULL;
+    s->ask_for_better.server = NULL;
+
+    krb5_free_cred_contents(context, &s->tgt);
+    krb5_free_cred_contents(context, &s->ticket);
+    s->tgt = NULL;
+    s->ticket = NULL;
+
+    krb5_free_creds(context, s->better_tgt);
+    s->better_tgt = NULL;
 }
 
 static krb5_error_code
@@ -980,9 +972,7 @@ get_cred_kdc_referral(krb5_context context,
 		      krb5_creds ***ret_tgts)
 {
     krb5_realm *realms;
-    krb5_principal tgtname;
     krb5_error_code ret, ret2;
-    krb5_creds tgt, ask_for, ticket, ask_for_better, *better_tgt, final_ticket;
     int ok_as_delegate = 1;
     size_t i;
 
@@ -992,108 +982,127 @@ get_cred_kdc_referral(krb5_context context,
     if (*tgs_limit == 0)
         return KRB5_GET_IN_TKT_LOOP;
 
-    memset(&tgt, 0, sizeof(tgt));
-    memset(&ticket, 0, sizeof(ticket));
-
     *out_creds = NULL;
 
     /*
-     * We want to try to get a ticket for the given principal from
-     * various different realms.  We'll start with the client
-     * principal's realm, the host's (if in_creds->server is host-based)
-     * realm(s) (if domain_realm lists multiple realms for a domain
-     * we'll try them all) or the best capath(s) to the krbtgt's realm
-     * (if in_creds->server is a krbtgt), then a configurable list of
-     * realms just in case.  We should also add a list of realms in a
-     * possible hierarchical path to in_creds->server krbtgts' realms,
-     * hoping that each may have a short-cut to the target.  All this
-     * logic will be in get_start_realms().
+     * Given some service principal name, either foo@BAR or foo@ we want
+     * to try the following variants:
+     *
+     *  - foo@CLIENT PRINC's REALM
+     *  - foo@CONFIGURED DEFAULT REALM(s) (if not the same as above)
+     *  - foo@GIVEN REALM (if foo is not a krbtgt)
+     *  - foo@<get realm(s) from domain_realm or DNS if foo is host-based>
+     *        (multiple domain_realm entries are allowed for each domain)
+     *  - foo@<get last hop realm from capaths or hierarchical if foo is
+     *         a krbtgt>
+     *
+     * get_start_realms() puts together the list of "start realms".
+     *
+     * As we go we'll need a TGT for each of those realms.  We'll
+     * recurse if need be to get one.
      *
      * At any point we may get a referral, both when trying to get a
      * ticket for in_creds->server and when trying to get a TGT so we
      * can ask for a ticket for in_creds->server.  When we get a
-     * referral we recurse to try to get a bettter (and cacheable) TGT,
-     * else we use (but don't cache) the referral TGT.  This algorithm
-     * is recursive in nature and can take care of capaths and
-     * hierarchical paths when no referrals are produced.
+     * referral we recurse to try to get a better (and cacheable) TGT,
+     * and if we don't get one we use (but don't cache) the referral
+     * TGT.  This algorithm is recursive in nature and can take care of
+     * capaths and hierarchical paths in the absence of referrals.
      *
-     * If a referral fails and we have non-zero remaining TGS attempts
-     * to make, then we keep trying.
+     * We finish when we first get a ticket for in_creds->server, or
+     * when *tgs_limit reaches zero.  We decrement *tgs_limit once
+     * per-principal we do TGS exchanges for (not per-TGS exchange).
      */
     ret = get_start_realms(context, in_creds, &realms);
     if (ret)
-        return ret;
+        return ret; /* likely ENOMEM */
 
+    memset(&s, 0, sizeof(s)); /* loop state */
     for (i = 0; realms[i]; i++) {
-        /* XXX Add cleanup from previous loop */
+        /* Cleanup from previous loop */
+        cleanup_referral_state(context, &s);
 
-        /* Get a tgt for the realm we're trying now */
-	ret = krb5_make_principal(context, &tgtname,
+        /*
+         * We'll need to get a tgt for the realm we're trying now (this
+         * is likely cached already, as the very first start realm will
+         * be the client principal's, and they're quite likely to have a
+         * cached TGT for their realm).  Make the krbtgt name for this.
+         */
+	ret = krb5_make_principal(context, &s.tgtname,
 				  "", /* find_cred() ignores this anyways */
 				  KRB5_TGS_NAME,
 				  realms[i],
 				  NULL);
 	if(ret)
-	    return ret;
-
-        /* Get a TGT for the current realm from the ccache */
-	ret = find_cred(context, ccache, tgtname, *ret_tgts, &tgt);
-	krb5_free_principal(context, tgtname);
-	if (ret)
-	    continue;
+	    break;
 
         /*
          * Setup a krb5_creds based on the in_creds but with the current
          * start realm as the realm of the target server.
          */
-        ask_for = *in_creds;
-        ret = krb5_copy_principal(context, in_creds->server, &ask_for.server);
+        s.ask_for = *in_creds;
+        s.ask_for.server = NULL;
+        ret = krb5_copy_principal(context, in_creds->server, &s.ask_for.server);
         if (ret)
             goto out;
-        ret = krb5_principal_set_realm(context, ask_for.server, realms[i]);
+        ret = krb5_principal_set_realm(context, s.ask_for.server, realms[i]);
         if (ret)
             goto out;
 
         if (impersonate_principal == NULL || flags.b.constrained_delegation) {
             krb5_cc_clear_mcred(&mcreds);
-            mcreds.server = ask_for.server;
-            ret = krb5_cc_retrieve_cred(context, ccache, 0, &mcreds, &ticket);
-        } else
-            ret = EINVAL; /* any error will do */
+            mcreds.server = s.ask_for.server;
+            ret = krb5_cc_retrieve_cred(context, ccache, 0, &mcreds, &s.ticket);
+            if (!ret)
+                goto out; /* Found the one we were looking for in the ccache */
+        }
 
+        /*
+         * We didn't find a ticket in the ccache.  Try asking realms[i]
+         * for one.  Count the upcoming TGS exchange, even if it fails
+         * because the realm's KDCs are unreachable, and count it once
+         * even if there are retransmissions.
+         */
+
+        /*
+         * Look for the TGT for the current realm from the ccache.  It's
+         * OK if we don't find one: we'll end up trying to get a TGT to
+         * get to the current start realm, so we can start the referrals
+         * chase there.  After all, the point of the start realm list is
+         * to ask realms we trust most first.
+         */
+	ret = find_cred(context, ccache, s.tgtname, *ret_tgts, &s.tgt);
+	if (ret && ret != KRB5_CC_NOTFOUND)
+            break;
+
+        /* XXX Add recursion to get s.tgt here */
+
+        (*tgs_limit)--;
+        ret = get_cred_kdc_address(context, ccache, flags, NULL,
+                                   &s.ask_for, &s.tgt,
+                                   impersonate_principal,
+                                   second_ticket, &s.ticket);
         if (ret) {
             /*
-             * We didn't find a ticket in the ccache.  Try asking
-             * realms[i] for one.  Count the upcoming TGS exchange, even
-             * if it fails because the realm's KDCs are unreachable, and
-             * count it once even if there are retransmissions.
+             * XXX We need to make sure we don't fall to the next
+             * realm in the search list unless either the app or
+             * config did not need secure realm resolution, or we
+             * used FAST and got a secure KRB-ERROR saying
+             * S_PRINC_UNKNOWN.  We can probably take care of this
+             * by having an option for get_cred_kdc_address() for
+             * asking for FAST.
              */
-            (*tgs_limit)--;
-            ret = get_cred_kdc_address(context, ccache, flags, NULL,
-                                       &ask_for, &tgt, impersonate_principal,
-                                       second_ticket, &ticket);
-            if (ret)
-                /*
-                 * XXX We need to make sure we don't fall to the next
-                 * realm in the search list unless either the app or
-                 * config did not need secure realm resolution, or we
-                 * used FAST and got a secure KRB-ERROR saying
-                 * S_PRINC_UNKNOWN.  We can probably take care of this
-                 * by having an option for get_cred_kdc_address() for
-                 * asking for FAST.
-                 */
-                /* XXX Cleanup? */
-                continue;
+            continue;
         }
 
         /* We got a ticket, cached or not.  Was it the one we wanted? */
         if (krb5_principal_compare_any_realm(context,
-                                             ask_for.server,
-                                             ticket.server))
+                                             s.ask_for.server,
+                                             s.ticket.server))
             break; /* Yes! */
 
         /* No?  Better be a referral then... */
-        if (!krb5_principal_is_krbtgt(context, ticket.server)) {
+        if (!krb5_principal_is_krbtgt(context, s.ticket.server)) {
             krb5_set_error_message(context, KRB5KRB_AP_ERR_NOT_US,
                                    N_("Got back an non krbtgt "
                                       "ticket referrals", ""));
@@ -1102,7 +1111,7 @@ get_cred_kdc_referral(krb5_context context,
         }
 
         /* ... referral it is */
-        referral_realm = ticket.server->name.name_string.val[1];
+        referral_realm = s.ticket.server->name.name_string.val[1];
 
         /* Check that there are no referrals loops */
         /*
@@ -1123,15 +1132,15 @@ get_cred_kdc_referral(krb5_context context,
          * If either of the chain or the ok_as_delegate was stripped
          * by the kdc, make sure we strip it too.
          */
-        if (ok_as_delegate == 0 || ticket.flags.b.ok_as_delegate == 0) {
+        if (ok_as_delegate == 0 || s.ticket.flags.b.ok_as_delegate == 0) {
             ok_as_delegate = 0;
-            ticket.flags.b.ok_as_delegate = 0;
+            s.ticket.flags.b.ok_as_delegate = 0;
         }
 
         /* Get a better TGT for the referral realm and try that */
-        ask_for_better = *in_creds;
-        ret = krb5_copy_principal(context, ticket.server,
-                                  &ask_for_better.server);
+        s.ask_for_better = *in_creds;
+        ret = krb5_copy_principal(context, s.ticket.server,
+                                  &s.ask_for_better.server);
         if (ret)
             goto out;
 
@@ -1139,12 +1148,12 @@ get_cred_kdc_referral(krb5_context context,
         ret = get_credentials_with_flags(context, tgs_limit,
                                          KRB5_GC_DONT_MATCH_REALM,
                                          flags, ccache,
-                                         &ask_for_better,
-                                         &better_tgt);
+                                         &s.ask_for_better,
+                                         &s.better_tgt);
 
         /* Update the target principal's realm to be the referred-to one */
-        ret2 = krb5_principal_set_realm(context, ask_for.server,
-                                       ticket.server->realm);
+        ret2 = krb5_principal_set_realm(context, s.ask_for.server,
+                                       s.ticket.server->realm);
         if (ret2) {
             ret = ret2;
             goto out;
@@ -1156,18 +1165,18 @@ get_cred_kdc_referral(krb5_context context,
              * We got a better TGT than the referral TGT, so save it and
              * use it.
              */
-            ret = add_cred(context, better_tgt, ret_tgts);
+            ret = add_cred(context, s.better_tgt, ret_tgts);
             if (ret)
                 goto out;
-            /* XXX assert better_tgt != NULL; remember to free it */
+            /* XXX assert s.better_tgt != NULL; remember to free it */
             ret = get_cred_kdc_address(context, ccache, flags, NULL,
-                                       &ask_for, better_tgt,
+                                       &s.ask_for, s.better_tgt,
                                        impersonate_principal,
                                        second_ticket, &final_ticket);
         } else {
             /* Fine, use the referral TGT (but we won't cache it) */
             ret = get_cred_kdc_address(context, ccache, flags, NULL,
-                                       &ask_for, &ticket,
+                                       &s.ask_for, &s.ticket,
                                        impersonate_principal,
                                        second_ticket, &final_ticket);
         }
@@ -1195,12 +1204,11 @@ get_cred_kdc_referral(krb5_context context,
     /* Output the ticket we got */
     /* XXX Finish */
     krb5_free_cred_contents(context, &tgt);
-    tgt = ticket;
-    memset(&ticket, 0, sizeof(ticket));
+    tgt = s.ticket;
     if (ret)
         goto out;
 
-    ret = krb5_copy_creds(context, &ticket, out_creds);
+    ret = krb5_copy_creds(context, &s.ticket, out_creds);
 
 out:
     /* XXX Add cleanup code */
