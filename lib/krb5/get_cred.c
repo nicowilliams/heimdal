@@ -981,7 +981,9 @@ get_cred_kdc_referral(krb5_context context,
     struct referral_state s;
     int ok_as_delegate = 1;
     size_t i;
+
     krb5_creds mcreds;
+    char *referral_realm;
 
     if (*tgs_limit == 0)
         return KRB5_GET_IN_TKT_LOOP;
@@ -1100,6 +1102,8 @@ get_cred_kdc_referral(krb5_context context,
                                          flags, ccache,
                                          &s.ask_for_tgt,
                                          &s.tgt);/* XXX wrong */
+        if (ret)
+            continue;
 
         (*tgs_limit)--;
         ret = get_cred_kdc_address(context, ccache, flags, NULL,
@@ -1135,7 +1139,7 @@ get_cred_kdc_referral(krb5_context context,
         }
 
         /* ... referral it is */
-        referral_realm = s.ticket.server->name.name_string.val[1];
+	referral_realm = s.ticket.server->name.name_string.val[1];
 
         /* Check that there are no referrals loops */
         /*
@@ -1170,6 +1174,13 @@ get_cred_kdc_referral(krb5_context context,
             goto out;
 
         /* Re-enter to get the better TGT */
+        /*
+         * XXX We probably want to save the value of tgs_limit around
+         * this, so that we do limit this call but don't stop ourselves
+         * from trying to use either this ticket or the referral ticket.
+         *
+         * Alternatively... use KRB5_GC_CACHED here.
+         */
         ret = get_credentials_with_flags(context, tgs_limit,
                                          KRB5_GC_DONT_MATCH_REALM,
                                          flags, ccache,
@@ -1178,13 +1189,13 @@ get_cred_kdc_referral(krb5_context context,
 
         /* Update the target principal's realm to be the referred-to one */
         ret2 = krb5_principal_set_realm(context, s.ask_for.server,
-                                       s.ticket.server->realm);
+                                        referral_realm);
         if (ret2) {
             ret = ret2;
             goto out;
         }
 
-        (*tgs_limit)--;
+	(*tgs_limit)--;
         if (!ret) {
             /*
              * We got a better TGT than the referral TGT, so save it and
@@ -1209,12 +1220,10 @@ get_cred_kdc_referral(krb5_context context,
         if (!ret)
             break;
 
-        if (!*tgs_limit) {
-            ret = KRB5_GET_IN_TKT_LOOP;
-            goto out;
-        }
-
-        /* Continue if the referral failed?  For now we do. */
+        /*
+         * Continue if the referral failed?  See comment above about
+         * authenticating KRB-ERRORs.  For now we continue.
+         */
     }
 
     if (ret)
@@ -1228,12 +1237,12 @@ get_cred_kdc_referral(krb5_context context,
 #endif
             
     /* Output the ticket we got */
-    /* XXX Finish */
-    tgt = s.ticket;
-    if (ret)
-        goto out;
-
-    ret = krb5_copy_creds(context, &s.ticket, out_creds);
+    if (s.ticket.ticket.data)
+        ret = krb5_copy_creds(context, &s.ticket, out_creds);
+    else if (s.final_ticket.ticket.data)
+        ret = krb5_copy_creds(context, &s.final_ticket, out_creds);
+    else
+        assert(ret != 0);
 
 out:
     cleanup_referral_state(context, &s);
