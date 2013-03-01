@@ -699,21 +699,24 @@ find_cred(krb5_context context,
 	  krb5_ccache id,
 	  krb5_principal server,
 	  krb5_creds **tgts,
-	  krb5_creds *out_creds)
+	  krb5_creds **out_creds)
 {
     krb5_error_code ret;
-    krb5_creds mcreds;
+    krb5_creds mcreds, ocreds;
 
     krb5_cc_clear_mcred(&mcreds);
     mcreds.server = server;
     ret = krb5_cc_retrieve_cred(context, id, KRB5_TC_DONT_MATCH_REALM,
-				&mcreds, out_creds);
-    if (ret == 0)
-	return 0;
+				&mcreds, &ocreds);
+    if (ret == 0) {
+        ret = krb5_copy_creds(context, &ocreds, out_creds);
+        krb5_free_cred_contents(context, &ocreds);
+        return ret;
+    }
     while (tgts && *tgts){
 	if (krb5_compare_creds(context, KRB5_TC_DONT_MATCH_REALM,
 			       &mcreds, *tgts)){
-	    ret = krb5_copy_creds_contents(context, *tgts, out_creds);
+	    ret = krb5_copy_creds(context, *tgts, out_creds);
 	    return ret;
 	}
 	tgts++;
@@ -931,13 +934,13 @@ err:
 
 struct referral_state {
     krb5_principal  tgtname;
-    krb5_creds      tgt;
     krb5_creds      ask_for;
     krb5_creds      ask_for_tgt;
     krb5_creds      ask_for_better;
     krb5_creds      ticket;
     krb5_creds      final_ticket;  /* to be output */
     krb5_creds      *better_tgt;
+    krb5_creds      *tgt;
 };
 
 static void
@@ -952,12 +955,13 @@ cleanup_referral_state(krb5_context context, struct referral_state *s)
     s->ask_for_tgt.server = NULL;
     s->ask_for_better.server = NULL;
 
-    krb5_free_cred_contents(context, &s->tgt);
     krb5_free_cred_contents(context, &s->ticket);
     memset(&s->tgt, 0, sizeof(s->tgt));
     memset(&s->ticket, 0, sizeof(s->ticket));
 
+    krb5_free_creds(context, s->tgt);
     krb5_free_creds(context, s->better_tgt);
+    s->tgt = NULL;
     s->better_tgt = NULL;
 }
 
@@ -977,9 +981,7 @@ get_cred_kdc_referral(krb5_context context,
     struct referral_state s;
     int ok_as_delegate = 1;
     size_t i;
-
     krb5_creds mcreds;
-    char *referral_realm;
 
     if (*tgs_limit == 0)
         return KRB5_GET_IN_TKT_LOOP;
@@ -1101,7 +1103,7 @@ get_cred_kdc_referral(krb5_context context,
 
         (*tgs_limit)--;
         ret = get_cred_kdc_address(context, ccache, flags, NULL,
-                                   &s.ask_for, &s.tgt,
+                                   &s.ask_for, s.tgt,
                                    impersonate_principal,
                                    second_ticket, &s.ticket);
         if (ret) {
@@ -1195,13 +1197,13 @@ get_cred_kdc_referral(krb5_context context,
             ret = get_cred_kdc_address(context, ccache, flags, NULL,
                                        &s.ask_for, s.better_tgt,
                                        impersonate_principal,
-                                       second_ticket, &final_ticket);
+                                       second_ticket, &s.final_ticket);
         } else {
             /* Fine, use the referral TGT (but we won't cache it) */
             ret = get_cred_kdc_address(context, ccache, flags, NULL,
                                        &s.ask_for, &s.ticket,
                                        impersonate_principal,
-                                       second_ticket, &final_ticket);
+                                       second_ticket, &s.final_ticket);
         }
 
         if (!ret)
@@ -1218,14 +1220,15 @@ get_cred_kdc_referral(krb5_context context,
     if (ret)
         goto out;
 
+#if 0
     if (!realms[i]) {
         ret = KRB5KDC_ERR_S_PRINCIPAL_UNKNOWN;
         goto out;
     }
+#endif
             
     /* Output the ticket we got */
     /* XXX Finish */
-    krb5_free_cred_contents(context, &tgt);
     tgt = s.ticket;
     if (ret)
         goto out;
@@ -1233,11 +1236,8 @@ get_cred_kdc_referral(krb5_context context,
     ret = krb5_copy_creds(context, &s.ticket, out_creds);
 
 out:
-    /* XXX Add cleanup code */
+    cleanup_referral_state(context, &s);
     (void) krb5_free_host_realm(context, realms);
-    krb5_free_principal(context, ask_for.server);
-    krb5_free_cred_contents(context, &tgt);
-    krb5_free_cred_contents(context, &ticket);
     return ret;
 }
 
