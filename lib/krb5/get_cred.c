@@ -953,7 +953,7 @@ cleanup_referral_state(krb5_context context, struct referral_state *s)
 
     if (s->tgt)
         krb5_free_creds(context, s->tgt);
-    if (s->tgt)
+    if (s->better_tgt)
         krb5_free_creds(context, s->better_tgt);
     s->tgt = NULL;
     s->better_tgt = NULL;
