@@ -744,44 +744,15 @@ add_cred(krb5_context context, krb5_creds const *tkt, krb5_creds ***tgts)
 
 
 static krb5_error_code
-concat_realms(krb5_context context,
-              krb5_realm **list1,
-              krb5_realm *list2)
-{
-    size_t i, k;
-    krb5_realm *tmp;
-
-    if (!list2)
-        return 0;
-
-    for (i = 0; (*list1)[i]; i++)
-        ;
-    for (k = 0; list2[k]; k++)
-        ;
-
-    tmp = realloc(*list1, (i + k + 1) * sizeof (**list1));
-    if (!tmp)
-        return krb5_enomem(context);
-
-    for (k = 0; list2[k]; k++) {
-        tmp[i++] = list2[k];
-        list2[k] = NULL;
-    }
-    tmp[i] = NULL;
-    (void) krb5_free_host_realm(context, list2);
-
-    *list1 = tmp;
-    return 0;
-}
-
-static krb5_error_code
 add_realm(krb5_context context, krb5_realm **realms, krb5_realm realm)
 {
     krb5_realm *tmp;
     size_t i;
 
-    for (i = 0; (*realms)[i]; i++)
-        ;
+    for (i = 0; (*realms)[i]; i++) {
+        if (!strcmp((*realms)[i], realm))
+            return 0;
+    }
 
     /* No overflow here; i will be small */
     tmp = realloc(*realms, (i + 1) * sizeof (**realms));
@@ -797,6 +768,24 @@ add_realm(krb5_context context, krb5_realm **realms, krb5_realm realm)
 
 enomem:
     return krb5_enomem(context);
+}
+
+static krb5_error_code
+concat_realms(krb5_context context,
+              krb5_realm **list1,
+              krb5_realm *list2)
+{
+    krb5_error_code ret = 0;
+    size_t i;
+
+    /*
+     * Yes, this is horribly inefficient.  Both lists should have very
+     * few elements though...
+     */
+    for (i = 0; !ret && list2 && list2[i]; i++)
+        ret = add_realm(context, list1, list2[i]);
+
+    return ret;
 }
 
 /* Helper for get_start_realms(), when the target is a krbtgt */
@@ -884,9 +873,11 @@ get_start_realms(krb5_context context,
             goto err;
     }
 
-    ret = add_realm(context, &realms, in_creds->server->realm);
-    if (ret)
-        goto err;
+    if (strcmp(in_creds->client->realm, in_creds->server->realm)) {
+        ret = add_realm(context, &realms, in_creds->client->realm);
+        if (ret)
+            goto err;
+    }
 
     if (is_tgt) {
         /*
@@ -960,8 +951,10 @@ cleanup_referral_state(krb5_context context, struct referral_state *s)
     memset(&s->final_ticket, 0, sizeof(s->final_ticket));
     memset(&s->ticket, 0, sizeof(s->ticket));
 
-    krb5_free_creds(context, s->tgt);
-    krb5_free_creds(context, s->better_tgt);
+    if (s->tgt)
+        krb5_free_creds(context, s->tgt);
+    if (s->tgt)
+        krb5_free_creds(context, s->better_tgt);
     s->tgt = NULL;
     s->better_tgt = NULL;
 }
@@ -1093,10 +1086,11 @@ get_cred_kdc_referral(krb5_context context,
         ret = krb5_copy_principal(context, s.tgtname, &s.ask_for_tgt.server);
         if (ret)
             goto out;
-        ret = krb5_principal_set_realm(context, s.ask_for.server, realms[i]);
+        ret = krb5_principal_set_realm(context, s.ask_for_tgt.server, realms[i]);
         if (ret)
             goto out;
 
+        /* XXX out of order */
         /* Re-enter to get the TGT we need */
         ret = get_credentials_with_flags(context, tgs_limit,
                                          KRB5_GC_DONT_MATCH_REALM,
