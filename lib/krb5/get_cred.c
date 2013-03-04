@@ -839,11 +839,15 @@ err:
  */
 static krb5_error_code
 get_start_realms(krb5_context context,
+                 krb5_ccache ccache,
                  krb5_creds *in_creds,
                  krb5_realm **realms_out)
 {
     krb5_error_code ret;
-    krb5_realm *realms, *ref_realms;
+    krb5_data cc_start_realm = {0, 0};
+    char *cc_start_str;
+    krb5_realm *realms = NULL;
+    krb5_realm *ref_realms = NULL;
     size_t is_tgt;
 
     is_tgt = krb5_principal_is_krbtgt(context, in_creds->server);
@@ -856,9 +860,9 @@ get_start_realms(krb5_context context,
      * We'll have at least the client realm, we may also have whatever
      * realm the in_creds->server already has, and a terminating NULL.
      */
-    realms = calloc(2, sizeof (*realms));
+    realms = calloc(1, sizeof (*realms));
     if (!realms)
-        return krb5_enomem(context);
+        goto err;
 
     /*
      * If the server principal is not a krbtgt and has a non-empty
@@ -873,7 +877,17 @@ get_start_realms(krb5_context context,
             goto err;
     }
 
-    if (strcmp(in_creds->client->realm, in_creds->server->realm)) {
+    ret = krb5_cc_get_config(context, ccache, NULL, "StartRealm",
+                             &cc_start_realm);
+    if (ret != KRB5_CC_END && ret != KRB5_CC_NOTFOUND)
+        return ret;
+    if (!ret) {
+        cc_start_str = strndup(cc_start_realm.data, cc_start_realm.length);
+        if (!cc_start_str)
+            goto err;
+        ret = add_realm(context, &realms, cc_start_str);
+        free(cc_start_str);
+    } else if (strcmp(in_creds->client->realm, in_creds->server->realm)) {
         ret = add_realm(context, &realms, in_creds->client->realm);
         if (ret)
             goto err;
@@ -920,6 +934,9 @@ get_start_realms(krb5_context context,
     return 0;
 
 err:
+    /* XXX free stuff */
+    if (ret == ENOMEM)
+        return krb5_enomem(context);
     return ret;
 }
 
@@ -1013,7 +1030,7 @@ get_cred_kdc_referral(krb5_context context,
      * when *tgs_limit reaches zero.  We decrement *tgs_limit once
      * per-principal we do TGS exchanges for (not per-TGS exchange).
      */
-    ret = get_start_realms(context, in_creds, &realms);
+    ret = get_start_realms(context, ccache, in_creds, &realms);
     if (ret)
         return ret; /* likely ENOMEM */
 
@@ -1054,7 +1071,7 @@ get_cred_kdc_referral(krb5_context context,
             mcreds.server = s.ask_for.server;
             ret = krb5_cc_retrieve_cred(context, ccache, 0, &mcreds, &s.ticket);
             if (!ret)
-                goto out; /* Found the one we were looking for in the ccache */
+                break; /* Found the one we were looking for in the ccache */
         }
 
         /*
@@ -1081,24 +1098,28 @@ get_cred_kdc_referral(krb5_context context,
          *
          * Should we setup any s.ask_for_tgt.flags?
          */
-        s.ask_for_tgt.client = in_creds->client;
-        s.ask_for_tgt.server = NULL;
-        ret = krb5_copy_principal(context, s.tgtname, &s.ask_for_tgt.server);
-        if (ret)
-            goto out;
-        ret = krb5_principal_set_realm(context, s.ask_for_tgt.server, realms[i]);
-        if (ret)
-            goto out;
+        if (ret) {
+            s.ask_for_tgt.client = in_creds->client;
+            s.ask_for_tgt.server = NULL;
+            ret = krb5_copy_principal(context, s.tgtname,
+                                      &s.ask_for_tgt.server);
+            if (ret)
+                goto out;
+            ret = krb5_principal_set_realm(context, s.ask_for_tgt.server,
+                                           realms[i]);
+            if (ret)
+                goto out;
 
-        /* XXX out of order */
-        /* Re-enter to get the TGT we need */
-        ret = get_credentials_with_flags(context, tgs_limit,
-                                         KRB5_GC_DONT_MATCH_REALM,
-                                         flags, ccache,
-                                         &s.ask_for_tgt,
-                                         &s.tgt);/* XXX wrong */
-        if (ret)
-            continue;
+            /* XXX out of order */
+            /* Re-enter to get the TGT we need */
+            ret = get_credentials_with_flags(context, tgs_limit,
+                                             KRB5_GC_DONT_MATCH_REALM,
+                                             flags, ccache,
+                                             &s.ask_for_tgt,
+                                             &s.tgt);/* XXX wrong */
+            if (ret)
+                continue;
+        }
 
         (*tgs_limit)--;
         ret = get_cred_kdc_address(context, ccache, flags, NULL,
