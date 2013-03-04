@@ -1426,7 +1426,7 @@ canon_hostname(krb5_context context, krb5_name_canon_iterator iter,
         return krb5_copy_principal(context, iter->in_princ, out_princ);
 
     aret = asprintf(&new_hostname, "%s.%s", hostname, search);
-    if (aret || !new_hostname)
+    if (aret == -1 || !new_hostname)
         return krb5_enomem(context);
 
     ret = krb5_build_principal(context, out_princ, 0, "",
@@ -1439,7 +1439,7 @@ static krb5_error_code
 get_host_canon_rules(krb5_context context,
                      krb5_name_canon_iterator state)
 {
-    krb5_error_code ret;
+    krb5_error_code ret = 0;
     char *canon_method = NULL;
     char *searchlist = NULL;
     char *s = NULL;
@@ -1674,6 +1674,7 @@ krb5_free_name_canon_iterator(krb5_context context,
     krb5_free_principal(context, iter->in_princ);
     if (!iter->is_trivial) {
 	if (iter->creds) {
+            iter->creds->server = NULL; /* XXX wrong */
 	    krb5_free_creds(context, iter->creds);
 	    iter->tmp_princ = NULL;
 	}
