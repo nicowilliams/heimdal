@@ -1309,7 +1309,8 @@ out:
 }
 
 static krb5_error_code
-get_resolver_searchlist(krb5_context context, char ***out)
+get_resolver_searchlist(krb5_context context, krb5_boolean try_short_first,
+                        char ***out)
 {
 #if defined(HAVE_RES_NINIT) || defined(HAVE_RES_SEARCH)
 #ifdef USE_RES_NINIT
@@ -1350,13 +1351,26 @@ get_resolver_searchlist(krb5_context context, char ***out)
 	}
     }
 
+    if (try_short_first)
+        search_list_len++;
+
+    domains = calloc(search_list_len + 1, sizeof (*domains));
+
+    i = 0;
+    if (try_short_first) {
+        domains[0] = strdup("");
+        if (!domains[0]) {
+            free(domains);
+            return krb5_enomem(context);
+        }
+        i++;
+    }
+
     if (search_list_len == 0)
         return 0;
-
-    domains = calloc(search_list_len, sizeof (*domains));
     if (domains == NULL)
 	return krb5_enomem(context);
-    for (i = 0; i < search_list_len; i++) {
+    for (; i < search_list_len; i++) {
         domains[i] = strdup(dnsrch[i]);
 	if (!domains[i]) {
 	    while (i > 0)
@@ -1440,18 +1454,22 @@ get_host_canon_rules(krb5_context context,
                      krb5_name_canon_iterator state)
 {
     krb5_error_code ret = 0;
+    krb5_boolean try_short_first = TRUE;
     char *canon_method = NULL;
     char *searchlist = NULL;
     char *s = NULL;
     char *p, *lasts, *domain;
-    char **domains = NULL;;
-    size_t i;
+    char **domains = NULL;
+    size_t i, n; /* index and size of domains[] */
 
     krb5_appdefault_string(context, NULL, NULL,
                            "hostname-canon-method", "nss", &canon_method);
     krb5_appdefault_string(context, NULL, NULL,
                            "hostname-canon-searchlist",
                            "", &searchlist);
+    krb5_appdefault_boolean(context, NULL, NULL,
+                            "hostname-canon-searchlist",
+                            TRUE, &try_short_first);
 
     /*
      * We have just two methods: nss (getaddrinfo(), DNS), and
@@ -1462,20 +1480,34 @@ get_host_canon_rules(krb5_context context,
         state->use_nss = 1;
     } else if (!strcmp(canon_method, "search")) {
         if (*searchlist) {
+            for (n = 0; (s = strchr(searchlist, ':')); n++)
+                ;
             s = strdup(searchlist);
             if (!s) {
                 ret = krb5_enomem(context);
                 goto out;
             }
-            domains = calloc(6, sizeof (*domains));
+            domains = calloc(n + 1, sizeof (*domains));
             if (!domains) {
                 ret = krb5_enomem(context);
                 goto out;
             }
 
+            i = 0;
+            if (try_short_first) {
+                domains[0] = strdup("");
+                if (!domains[0]) {
+                    ret = krb5_enomem(context);
+                    goto out; 
+                }
+                i++;
+            }
+
             p = s;
-            for (i = 0; (domain = strtok_r(p, ":", &lasts)); i++) {
+            for (; (domain = strtok_r(p, ":", &lasts)) && i < n; i++) {
                 p = NULL;
+                if (!*domain && !domains[i][0])
+                    continue;
                 domains[i] = strdup(domain);
                 if (!domains[i]) {
                     ret = krb5_enomem(context);
@@ -1485,7 +1517,8 @@ get_host_canon_rules(krb5_context context,
             state->searchlist = domains;
             domains = NULL;
         } else {
-            ret = get_resolver_searchlist(context, &state->searchlist);
+            ret = get_resolver_searchlist(context, try_short_first,
+                                          &state->searchlist);
         }
     }
 
@@ -1596,13 +1629,13 @@ krb5_name_canon_iterate(krb5_context context,
     state->tmp_princ = NULL;
     if (state->is_trivial) {
 	state->done = 1;
-        return krb5_copy_principal(context, state->in_princ,
-                                   &state->tmp_princ);
+        ret = krb5_copy_principal(context, state->in_princ,
+                                  &state->tmp_princ);
+    } else {
+        ret = canon_hostname(context, state, &state->tmp_princ);
+        if (ret)
+            return ret;
     }
-
-    ret = canon_hostname(context, state, &state->tmp_princ);
-    if (ret)
-        return ret;
 
     if (state->tmp_princ == NULL) {
 	krb5_free_name_canon_iterator(context, state);
