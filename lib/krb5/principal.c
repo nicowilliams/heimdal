@@ -1468,7 +1468,7 @@ get_host_canon_rules(krb5_context context,
                            "hostname-canon-searchlist",
                            "", &searchlist);
     krb5_appdefault_boolean(context, NULL, NULL,
-                            "hostname-canon-searchlist",
+                            "hostname-canon-try-short-first",
                             TRUE, &try_short_first);
 
     /*
@@ -1480,7 +1480,7 @@ get_host_canon_rules(krb5_context context,
         state->use_nss = 1;
     } else if (!strcmp(canon_method, "search")) {
         if (*searchlist) {
-            for (n = 0; (s = strchr(searchlist, ':')); n++)
+            for (n = 1; (s = strchr(searchlist, ':')); n++)
                 ;
             s = strdup(searchlist);
             if (!s) {
