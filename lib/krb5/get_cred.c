@@ -1139,10 +1139,13 @@ get_cred_kdc_referral(krb5_context context,
             continue;
         }
 
-        /* We got a ticket, cached or not.  Was it the one we wanted? */
-        if (krb5_principal_compare_any_realm(context,
-                                             s.ask_for.server,
-                                             s.ticket.server))
+        /*
+         * We got a ticket, cached or not.  Was it the one we wanted?
+         *
+         * If it's in the same realm it's good enough (see
+         * check_server_referral()).
+         */
+        if (krb5_realm_compare(context, s.ask_for.server, s.ticket.server))
             break; /* Yes! */
 
         /* No?  Better be a referral then... */
