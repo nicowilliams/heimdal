@@ -755,7 +755,7 @@ add_realm(krb5_context context, krb5_realm **realms, krb5_realm realm)
     }
 
     /* No overflow here; i will be small */
-    tmp = realloc(*realms, (i + 1) * sizeof (**realms));
+    tmp = realloc(*realms, (i + 2) * sizeof (**realms));
     if (!tmp)
         goto enomem;
 
@@ -797,9 +797,10 @@ get_capath_realms(krb5_context context,
 {
     krb5_error_code ret;
     char **capaths_realms;
-    krb5_realm *realms = NULL;
+    krb5_realm realm;
     size_t i;
 
+    /* XXX We need the previous hop realm as an argument, not crealm! */
     errno = 0;
     capaths_realms = krb5_config_get_strings(context, NULL, "capaths",
                                              crealm, tgtrealm, NULL);
@@ -807,12 +808,14 @@ get_capath_realms(krb5_context context,
         return errno; /* XXX Do better, like krb5_enomem() for ENOMEM */
 
     for (i = 0; capaths_realms && capaths_realms[i]; i++) {
-        if (strcmp(capaths_realms[i], ".") == 0) {
-            ret = add_realm(context, &realms, capaths_realms[i]);
-            if (ret)
-                goto err;
-            break;
-        }
+        if (strcmp(capaths_realms[i], ".") == 0)
+            realm = crealm;
+        else
+            realm = capaths_realms[i];
+        ret = add_realm(context, realms_out, realm);
+        if (ret)
+            goto err;
+        break;
     }
 
     /*
@@ -987,7 +990,7 @@ get_cred_kdc_referral(krb5_context context,
 		      krb5_creds **out_creds,
 		      krb5_creds ***ret_tgts)
 {
-    krb5_realm *realms;
+    krb5_realm *realms = NULL;
     krb5_error_code ret, ret2;
     struct referral_state s;
     int ok_as_delegate = 1;
