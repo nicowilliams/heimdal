@@ -1151,7 +1151,7 @@ get_cred_kdc_referral(krb5_context context,
                                    N_("Got back an non krbtgt "
                                       "ticket referrals", ""));
             ret = KRB5KRB_AP_ERR_NOT_US; /* ... nope; c ya */
-            goto out;
+            goto out; /* XXX continue */
         }
 
         /* ... referral it is */
@@ -1457,12 +1457,10 @@ next_rule:
 	krb5_free_creds(context, tgts[i]);
     }
     free(tgts);
-#if 0
-    /* XXX Fix */
-    if (ret == KRB5KDC_ERR_S_PRINCIPAL_UNKNOWN &&
-	!(rule_opts & KRB5_NCRO_SECURE))
+
+    /* XXX Need to make secure/insecure fallback configurable */
+    if (ret == KRB5KDC_ERR_S_PRINCIPAL_UNKNOWN)
 	goto next_rule;
-#endif
 
     if (ret == 0 && (options & KRB5_GC_NO_STORE) == 0)
 	store_cred(context, ccache, in_creds->server, *out_creds);
