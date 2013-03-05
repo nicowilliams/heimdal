@@ -1487,6 +1487,8 @@ get_host_canon_rules(krb5_context context,
                 ret = krb5_enomem(context);
                 goto out;
             }
+            if (try_short_first)
+                n++;
             domains = calloc(n + 1, sizeof (*domains));
             if (!domains) {
                 ret = krb5_enomem(context);
@@ -1506,7 +1508,7 @@ get_host_canon_rules(krb5_context context,
             p = s;
             for (; (domain = strtok_r(p, ":", &lasts)) && i < n; i++) {
                 p = NULL;
-                if (!*domain && !domains[i][0])
+                if (!*domain && !domains[0][0])
                     continue;
                 domains[i] = strdup(domain);
                 if (!domains[i]) {
