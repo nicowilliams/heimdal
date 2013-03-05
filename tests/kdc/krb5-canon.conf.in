@@ -1,14 +1,18 @@
 [libdefaults]
-	default_realm = TEST.H5L.SE TEST2.H5L.SE
+	default_realm = TEST.H5L.SE TEST2.H5L.SE TEST3.H5L.SE
 	no-addresses = TRUE
 	dns_lookup_realm = no
-	name_canon_rules = as-is:realm=TEST.H5L.SE
-	name_canon_rules = as-is:realm=TEST2.H5L.SE
-	name_canon_rules = as-is:realm=TEST3.H5L.SE
-	name_canon_rules = qualify:domain=test1.h5l.se:realm=TEST.H5L.SE
-	name_canon_rules = qualify:domain=test1.h5l.se:realm=TEST2.H5L.SE
-	name_canon_rules = qualify:domain=test2.h5l.se:realm=TEST2.H5L.SE
-	name_canon_rules = qualify:domain=test3.h5l.se:realm=TEST3.H5L.SE
+        # New rules
+	hostname-canon-method = search
+	hostname-canon-searchlist = test1.h5l.se:test2.h5l.se:test3.h5l.se
+        ## OLD RULES -- XXX REMOVE
+	#name_canon_rules = as-is:realm=TEST.H5L.SE
+	#name_canon_rules = as-is:realm=TEST2.H5L.SE
+	#name_canon_rules = as-is:realm=TEST3.H5L.SE
+	#name_canon_rules = qualify:domain=test1.h5l.se:realm=TEST.H5L.SE
+	#name_canon_rules = qualify:domain=test1.h5l.se:realm=TEST2.H5L.SE
+	#name_canon_rules = qualify:domain=test2.h5l.se:realm=TEST2.H5L.SE
+	#name_canon_rules = qualify:domain=test3.h5l.se:realm=TEST3.H5L.SE
 
 [appdefaults]
 	pkinit_anchors = FILE:@srcdir@/../../lib/hx509/data/ca.crt
@@ -32,6 +36,7 @@
 
 [domain_realm]
 	.test1.h5l.se = TEST.H5L.SE
+	.test1.h5l.se = TEST2.H5L.SE
 	.test2.h5l.se = TEST2.H5L.SE
 	.test3.h5l.se = TEST3.H5L.SE
 	localhost = TEST.H5L.SE
