@@ -1722,12 +1722,9 @@ next_rule:
     }
     free(tgts);
 
-#if 0
     /* XXX Fix */
-    if (ret == KRB5KDC_ERR_S_PRINCIPAL_UNKNOWN &&
-	!(rule_opts & KRB5_NCRO_SECURE))
+    if (ret == KRB5KDC_ERR_S_PRINCIPAL_UNKNOWN)
 	goto next_rule;
-#endif
 
     if(ret == 0 && (options & KRB5_GC_NO_STORE) == 0)
 	store_cred(context, ccache, inprinc, *out_creds);
