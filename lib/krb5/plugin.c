@@ -551,6 +551,7 @@ struct iter_ctx {
     heim_string_t n;
     const char *name;
     int min_version;
+    int flags;
     heim_array_t result;
     krb5_error_code (KRB5_LIB_CALL *func)(krb5_context, const void *, void *, void *);
     void *userctx;
@@ -599,7 +600,7 @@ eval_results(heim_object_t value, void *ctx, int *stop)
 	return;
 
     s->ret = s->func(s->context, pl->dataptr, pl->ctx, s->userctx);
-    if (s->ret != KRB5_PLUGIN_NO_HANDLE)
+    if (s->ret != KRB5_PLUGIN_NO_HANDLE && !(flags & KRB5_PLUGIN_INVOKE_ALL))
         *stop = 1;
 }
 
@@ -657,6 +658,7 @@ _krb5_plugin_run_f(krb5_context context,
     s.context = context;
     s.name = name;
     s.n = heim_string_create(name);
+    s.flags = flags;
     s.min_version = min_version;
     s.result = heim_array_create();
     s.func = func;
@@ -694,7 +696,8 @@ _krb5_plugin_run_f(krb5_context context,
 	    continue;
 	s.ret = s.func(s.context, p->symbol, plug_ctx, s.userctx);
 	cpm->fini(plug_ctx);
-	if (s.ret != KRB5_PLUGIN_NO_HANDLE)
+	if (s.ret != KRB5_PLUGIN_NO_HANDLE &&
+            !(flags & KRB5_PLUGIN_INVOKE_ALL))
 	    break;
     }
     _krb5_plugin_free(registered_plugins);
