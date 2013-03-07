@@ -1050,6 +1050,15 @@ get_cred_kdc_referral(krb5_context context,
      * when *tgs_limit reaches zero.  We decrement *tgs_limit once
      * per-principal we do TGS exchanges for (not per-TGS exchange).
      */
+    /*
+     * XXX Regarding previous_hop: when it starts as NULL we must set it
+     * to the realm of a start TGT that we do have.  See "StartRealm" cc
+     * config.
+     *
+     * XXX Also, we should change krb5_cc_store_cred() to set StartRealm
+     * when a) it is storing a krbtgt/REALM@REALM, and b) the ccache
+     * doesn't already have a StartRealm cc config element.
+     */
     ret = get_start_realms(context, ccache, in_creds, previous_hop, &realms);
     if (ret)
         return ret; /* likely ENOMEM */
