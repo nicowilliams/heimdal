@@ -1481,8 +1481,8 @@ get_host_canon_rules(krb5_context context,
         state->use_nss = 1;
     } else if (!strcmp(canon_method, "search")) {
         if (*searchlist) {
-            for (n = 1; (s = strchr(searchlist, ':')); n++)
-                ;
+            for (n = 1, s = searchlist; (s = strchr(s, ':')); n++)
+                s++;
             s = strdup(searchlist);
             if (!s) {
                 ret = krb5_enomem(context);
