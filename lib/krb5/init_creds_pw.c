@@ -1568,7 +1568,7 @@ krb5_init_creds_set_keytab(krb5_context context,
     while(krb5_kt_next_entry(context, keytab, &entry, &cursor) == 0){
 	void *ptr;
 
-	if (!krb5_principal_compare(context, entry.principal, ctx->cred.client))
+	if (!krb5_principal_match2(context, entry.principal, ctx->cred.client, 0))
 	    goto next;
 
 	found = 1;
