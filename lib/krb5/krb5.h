@@ -464,6 +464,13 @@ typedef union {
 #define KRB5_TC_OPENCLOSE 0x00000001
 #define KRB5_TC_NOTICKET  0x00000002
 
+/* constants for krb5_principal_compare_flags */
+#define KRB5_PRINCIPAL_COMPARE_IGNORE_REALM  1  /**< ignore realm component */
+#define KRB5_PRINCIPAL_COMPARE_ENTERPRISE    2  /**< UPNs as real principals */
+#define KRB5_PRINCIPAL_COMPARE_CASEFOLD      4  /**< case-insensitive */
+#define KRB5_PRINCIPAL_COMPARE_UTF8          8  /**< normalization-insensitive */
+#define KRB5_PRINCIPAL_COMPARE_CANON         16 /**< canonicalize one princ */
+
 typedef AuthorizationData krb5_authdata;
 
 typedef KRB_ERROR krb5_error;
