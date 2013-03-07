@@ -851,6 +851,7 @@ get_start_realms(krb5_context context,
     char *cc_start_str;
     krb5_realm *realms = NULL;
     krb5_realm *ref_realms = NULL;
+    krb5_realm *host_realms = NULL;
     size_t is_tgt;
 
     is_tgt = krb5_principal_is_krbtgt(context, in_creds->server);
@@ -909,8 +910,6 @@ get_start_realms(krb5_context context,
     } else if (in_creds->server->name.name_string.len >= 2 &&
         in_creds->server->name.name_type == KRB5_NT_SRV_HST) {
 
-        krb5_realm *host_realms;
-
         /*
          * A host-based service principal.  Get realm from
          * [domain_realm], DNS even.
@@ -924,6 +923,7 @@ get_start_realms(krb5_context context,
         ret = concat_realms(context, &realms, host_realms);
         if (ret)
             goto err;
+        krb5_free_host_realm(context, host_realms);
     }
 
     /* Now append referral realms (default realms if not) to realms */
@@ -938,6 +938,8 @@ get_start_realms(krb5_context context,
 
 err:
     /* XXX free stuff */
+    krb5_free_host_realm(context, ref_realms);
+    krb5_free_host_realm(context, host_realms);
     if (ret == ENOMEM)
         return krb5_enomem(context);
     return ret;
