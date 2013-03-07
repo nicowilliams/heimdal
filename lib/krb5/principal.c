@@ -1084,6 +1084,39 @@ krb5_principal_match(krb5_context context,
     return TRUE;
 }
 
+/**
+ * Compares the two principals and returns TRUE if they are the same and
+ * FALSE if not.  The flags argument specifies comparison options.
+ *
+ * @param context Kerberos 5 context
+ * @param princ1 first principal to compare
+ * @param princ2 second principal to compare
+ * @param flags flags
+ *
+ * @ingroup krb5_principal
+ * @see krb5_principal_compare_any_realm()
+ * @see krb5_realm_compare()
+ */
+
+krb5_boolean
+krb5_principal_compare_flags(krb5_context context,
+                             krb5_const_principal princ1,
+                             krb5_const_principal princ2,
+                             int flags)
+{
+    if ((flags & KRB5_PRINCIPAL_COMPARE_ENTERPRISE) ||
+        (flags & KRB5_PRINCIPAL_COMPARE_CASEFOLD) ||
+        (flags & KRB5_PRINCIPAL_COMPARE_UTF8))
+        return ENOTSUP; /* XXX Implement! */
+
+    if (flags & KRB5_PRINCIPAL_COMPARE_CANON)
+        return krb5_principal_match2(context, princ1, princ2, flags);
+    if (flags & KRB5_PRINCIPAL_COMPARE_IGNORE_REALM)
+        return krb5_principal_compare_any_realm(context, princ1, princ2);
+    return krb5_principal_compare(context, princ1, princ2);
+}
+
+
 /*
  * This is the original krb5_sname_to_principal(), renamed to be a
  * helper of the new one.
