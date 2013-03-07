@@ -540,7 +540,7 @@ krb5_kt_compare(krb5_context context,
 		krb5_enctype enctype)
 {
     if(principal != NULL &&
-       !(krb5_principal_compare(context, entry->principal, principal) ||
+       !(krb5_principal_match2(context, entry->principal, principal, 0) ||
 	 compare_aliseses(context, entry, principal)))
 	return FALSE;
     if(vno && vno != entry->vno)
