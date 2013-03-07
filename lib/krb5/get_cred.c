@@ -796,8 +796,9 @@ get_hierarchical_next_hop(krb5_context context, krb5_const_realm lhs,
 {
     size_t lhs_len = strlen(lhs);
     size_t targ_len = strlen(target);
-    const char *targ_in_lhs, *lhs_in_targ;
-    /* XXX Implement! */
+    const char *targ_in_lhs, *lhs_in_targ, *p;
+    const char *label = NULL;
+
     /*
      * Cases:
      *
@@ -806,18 +807,34 @@ get_hierarchical_next_hop(krb5_context context, krb5_const_realm lhs,
      *    the right-most label of lhs;
      * 2) target is a suffix of lhs -> add the right-most label of lhs
      *    that is not in target
-     * 3) target is a prefix of lhs -> remove a label from target.
+     * 3) target is a prefix of lhs -> same as (1)
      */
     targ_in_lhs = strstr(lhs, target);
     lhs_in_targ = strstr(target, lhs);
     if (*targ_in_lhs && strlen(targ_in_lhs) == targ_len) {
         /* case (2) */
-    } else if (*lhs_in_targ & strlen(lhs_in_targ) == lhs_len) {
-        /* case (3) */
+        for (p = strchr(lhs, '.'); p && p < targ_in_lhs; p = strchr(p, '.'))
+            label = ++p;
+        if (!label)
+            label = lhs;
     } else {
-        /* case (1) */
+        /* cases (1) and (3) */
+        p = strchr(target, '.');
+        if (!p) {
+            p = strrchr(lhs, '.');
+            if (!p)
+                label = lhs;
+            else
+                label = p + 1;
+        } else {
+            label = p + 1;
+        }
     }
-    return ENOTSUP;
+
+    *next_hop = strdup(label);
+    if (!*next_hop)
+        return krb5_enomem(context);
+    return 0;
 }
 
 /* Helper for get_start_realms(), when the target is a krbtgt */
@@ -853,9 +870,7 @@ get_capath_realms(krb5_context context,
      * If capaths_realms == NULL we should work out the last hop realm
      * of the hierarchical path to the target and add that realm to the
      * list here.  Because the whole algorithm is recursive we'll end up
-     * computing the whole path, one hop at a time.  Of course, here we
-     * really need to know what the current starting realm is, and... we
-     * don't.
+     * computing the whole path, one hop at a time.
      */
     if (!capaths_realms || !capaths_realms[0]) {
         ret = get_hierarchical_next_hop(context, start_hop, tgt_realm, &realm);
@@ -864,6 +879,7 @@ get_capath_realms(krb5_context context,
         ret = add_realm(context, realms_out, realm);
         if (ret)
             goto err;
+        free(realm);
     }
 
     krb5_config_free_strings(capaths_realms);
