@@ -934,60 +934,111 @@ _krb5_principal_compare_PrincipalName(krb5_context context,
  * @see krb5_realm_compare()
  */
 
-/*
- * return TRUE iff princ1 == princ2
- */
-
 KRB5_LIB_FUNCTION krb5_boolean KRB5_LIB_CALL
 krb5_principal_compare(krb5_context context,
 		       krb5_const_principal princ1,
 		       krb5_const_principal princ2)
 {
-    if (princ_type(princ1) == KRB5_NT_SRV_HST &&
-	princ_type(princ2) == KRB5_NT_SRV_HST &&
-        *princ1->realm != *princ2->realm &&
-        (!*princ1->realm || !*princ2->realm)) {
-	krb5_error_code ret;
-	krb5_boolean princs_eq;
-	krb5_const_principal princ2canon;
-	krb5_const_principal other_princ;
-	krb5_principal try_princ;
-	krb5_name_canon_iterator nci;
-
-	if (!*princ1->realm) {
-	    princ2canon = princ1;
-	    other_princ = princ2;
-	} else {
-	    princ2canon = princ2;
-	    other_princ = princ1;
-	}
-
-	ret = krb5_name_canon_iterator_start(context, princ2canon, NULL, &nci);
-	if (ret)
-	    return FALSE;
-	do {
-	    ret = krb5_name_canon_iterate_princ(context, &nci, &try_princ);
-	    if (ret || try_princ == NULL)
-		break;
-	    princs_eq = krb5_principal_compare(context, try_princ, other_princ);
-	    if (princs_eq) {
-		krb5_free_name_canon_iterator(context, nci);
-		return TRUE;
-	    }
-	} while (nci != NULL);
-	krb5_free_name_canon_iterator(context, nci);
-    }
-
-    /*
-     * Either neither princ requires canonicalization, both do, or
-     * no applicable name canonicalization rules were found and we fell
-     * through (chances are we'll fail here too in that last case).
-     * We're not going to do n^2 comparisons in the case of both princs
-     * requiring canonicalization.
-     */
     if(!krb5_realm_compare(context, princ1, princ2))
 	return FALSE;
     return krb5_principal_compare_any_realm(context, princ1, princ2);
+}
+
+
+/**
+ * Compares a principal a query principal to a principal that should be
+ * from a ccache or keytab entry.  The query principal will be
+ * canonicalized if need be.
+ *
+ * TRUE if they are the same and FALSE if not.
+ *
+ * @param context Kerberos 5 context
+ * @param princ1 first principal to compare
+ * @param princ2 second principal to compare
+ *
+ * @ingroup krb5_principal
+ * @see krb5_principal_compare_any_realm()
+ * @see krb5_realm_compare()
+ */
+
+KRB5_LIB_FUNCTION krb5_boolean KRB5_LIB_CALL
+krb5_principal_match2(krb5_context context,
+                      krb5_const_principal princ,
+                      krb5_const_principal match_to,
+                      int flags)
+{
+    krb5_error_code ret;
+    krb5_boolean princs_eq = FALSE;
+    krb5_principal try_princ;
+    krb5_name_canon_iterator nci;
+    krb5_realm def_realm;
+    krb5_realm *host_realms = NULL;
+    size_t i;
+
+    flags &= ~(KRB5_PRINCIPAL_COMPARE_CANON);
+
+    /* TGS princs, and match_to has a referral realm -> ignore realm */
+    if (!*match_to->realm && krb5_principal_is_krbtgt(context, match_to)) {
+        flags |= KRB5_PRINCIPAL_COMPARE_IGNORE_REALM;
+        return krb5_principal_compare_flags(context, match_to, princ, flags);
+    }
+
+    /* Deal with non-host-based princs */
+    if (*match_to->realm && princ_type(match_to) != KRB5_NT_SRV_HST) {
+        return krb5_principal_compare_flags(context, match_to, princ, flags);
+    } else if (princ_type(match_to) != KRB5_NT_SRV_HST) {
+        ret = krb5_get_default_realm(context, &def_realm);
+        if (ret)
+            return FALSE;
+        ret = krb5_copy_principal(context, match_to, &try_princ);
+        if (ret)
+            return FALSE;
+        ret = krb5_principal_set_realm(context, try_princ, def_realm);
+        if (ret)
+            return FALSE;
+        princs_eq = krb5_principal_compare_flags(context, match_to,
+                                                 princ, flags);
+        krb5_free_default_realm(context, def_realm);
+        krb5_free_principal(context, try_princ);
+        return princs_eq;
+    }
+
+    /* match_to is a host-based princ; canonicalize match_to and compare */
+    ret = krb5_name_canon_iterator_start(context, match_to, NULL, &nci);
+    if (ret)
+        return FALSE;
+    do {
+        krb5_free_host_realm(context, host_realms);
+	ret = krb5_name_canon_iterate_princ(context, &nci, &try_princ);
+        if (ret || try_princ == NULL)
+            break;
+        if (*try_princ->realm) {
+            princs_eq = krb5_principal_compare_flags(context, try_princ,
+                                                     princ, flags);
+            if (princs_eq)
+                break;
+            continue;
+        }
+
+        /* Figure out a realm */
+        ret = krb5_get_host_realm(context, princ_comp(try_princ)[1], &host_realms);
+        if (ret)
+            break;
+        for (i = 0; host_realms && host_realms[i]; i++) {
+            ret = krb5_principal_set_realm(context, try_princ, host_realms[i]);
+            if (ret)
+                break;
+            princs_eq = krb5_principal_compare_flags(context, try_princ,
+                                                     princ, flags);
+            if (princs_eq)
+                break;
+        }
+    } while (!princs_eq && !ret && nci != NULL);
+
+    krb5_free_name_canon_iterator(context, nci);
+    krb5_free_host_realm(context, host_realms);
+
+    return princs_eq;
 }
 
 /**
@@ -1424,7 +1475,7 @@ canon_hostname(krb5_context context, krb5_name_canon_iterator iter,
         return krb5_copy_principal(context, iter->in_princ, out_princ);
     }
 
-    /* Apply a search list */
+    /* Apply a search list or name service */
     sname = krb5_principal_get_comp_string(context, iter->in_princ, 0);
     hostname = krb5_principal_get_comp_string(context, iter->in_princ, 1);
 
