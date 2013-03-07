@@ -1300,7 +1300,8 @@ krb5_sname_to_principal(krb5_context context,
     ret = krb5_build_principal(context, ret_princ, strlen(realm),
 				  realm, sname, remote_host,
 				  (char *)0);
-
+    if (!ret)
+        (*ret_princ)->name.name_type = type;
 out:
     krb5_free_name_canon_iterator(context, iter);
     free(canon_method);
