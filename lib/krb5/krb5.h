@@ -459,6 +459,7 @@ typedef union {
 #define KRB5_TC_MATCH_AUTHDATA		(1 << 24)
 #define KRB5_TC_MATCH_2ND_TKT		(1 << 23)
 #define KRB5_TC_MATCH_IS_SKEY		(1 << 22)
+#define KRB5_TC_MATCH_CANON  		(1 << 21)
 
 /* constants for get_flags and set_flags */
 #define KRB5_TC_OPENCLOSE 0x00000001

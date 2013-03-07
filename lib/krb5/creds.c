@@ -206,23 +206,27 @@ krb5_compare_creds(krb5_context context, krb5_flags whichfields,
 		   const krb5_creds * mcreds, const krb5_creds * creds)
 {
     krb5_boolean match = TRUE;
+    int princ_cmp_flags = 0;
 
-    if (match && mcreds->server) {
-	if (whichfields & (KRB5_TC_DONT_MATCH_REALM | KRB5_TC_MATCH_SRV_NAMEONLY))
-	    match = krb5_principal_compare_any_realm (context, mcreds->server,
-						      creds->server);
-	else
-	    match = krb5_principal_compare (context, mcreds->server,
-					    creds->server);
+    if (whichfields & (KRB5_TC_DONT_MATCH_REALM | KRB5_TC_MATCH_SRV_NAMEONLY))
+        princ_cmp_flags |= KRB5_PRINCIPAL_COMPARE_IGNORE_REALM;
+
+    if (whichfields & KRB5_TC_MATCH_CANON)
+        princ_cmp_flags |= KRB5_PRINCIPAL_COMPARE_CANON;
+
+    if (mcreds->server) {
+        match = krb5_principal_compare_flags(context, mcreds->server,
+                                             creds->server, princ_cmp_flags);
     }
 
     if (match && mcreds->client) {
+        princ_cmp_flags &= ~(KRB5_PRINCIPAL_COMPARE_CANON);
+        princ_cmp_flags &= ~(KRB5_PRINCIPAL_COMPARE_IGNORE_REALM);
 	if(whichfields & KRB5_TC_DONT_MATCH_REALM)
-	    match = krb5_principal_compare_any_realm (context, mcreds->client,
-						      creds->client);
-	else
-	    match = krb5_principal_compare (context, mcreds->client,
-					    creds->client);
+            princ_cmp_flags |= KRB5_PRINCIPAL_COMPARE_IGNORE_REALM;
+
+        match = krb5_principal_compare(context, mcreds->client,
+                                       creds->client);
     }
 
     if (match && (whichfields & KRB5_TC_MATCH_KEYTYPE))
