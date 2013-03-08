@@ -683,15 +683,15 @@ krb5_cc_store_cred(krb5_context context,
     krb5_data realm = { 0, 0 };
     krb5_principal p;
 
-    p = creds->ticket->server;
+    p = creds->server;
 
     if (krb5_principal_is_krbtgt(context, p) &&
         strcmp(p->name.name_string.val[0], p->realm)) {
-        ret = krb5_cc_get_config(context, ccache, NULL, "StartRealm", &realm);
+        ret = krb5_cc_get_config(context, id, NULL, "StartRealm", &realm);
         if (ret == KRB5_CC_END || ret == KRB5_CC_NOTFOUND) {
-            realm.data = p.realm;
-            realm.length = strlen(p.realm);
-            ret = krb5_cc_set_config(context, ccache, NULL, "StartRealm", &realm);
+            realm.data = p->realm;
+            realm.length = strlen(p->realm);
+            ret = krb5_cc_set_config(context, id, NULL, "StartRealm", &realm);
             if (ret)
                 return ret;
         } else if (ret) {
