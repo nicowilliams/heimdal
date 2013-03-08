@@ -984,7 +984,8 @@ krb5_principal_match2(krb5_context context,
     }
 
     /* Deal with non-host-based princs */
-    if (*match_to->realm && princ_type(match_to) != KRB5_NT_SRV_HST) {
+    if ((krb5_realm_compare(match_to, princ) || *match_to->realm) &&
+        princ_type(match_to) != KRB5_NT_SRV_HST) {
         return krb5_principal_compare_flags(context, match_to, princ, flags);
     } else if (princ_type(match_to) != KRB5_NT_SRV_HST) {
         ret = krb5_get_default_realm(context, &def_realm);
@@ -1012,13 +1013,13 @@ krb5_principal_match2(krb5_context context,
 	ret = krb5_name_canon_iterate_princ(context, &nci, &try_princ);
         if (ret || try_princ == NULL)
             break;
-        if (*try_princ->realm) {
-            princs_eq = krb5_principal_compare_flags(context, try_princ,
-                                                     princ, flags);
-            if (princs_eq)
-                break;
+
+        princs_eq = krb5_principal_compare_flags(context, try_princ,
+                                                 princ, flags);
+        if (princs_eq)
+            break;
+        if (*try_princ->realm) 
             continue;
-        }
 
         /* Figure out a realm */
         ret = krb5_get_host_realm(context, princ_comp(try_princ)[1], &host_realms);
