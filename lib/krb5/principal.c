@@ -984,7 +984,7 @@ krb5_principal_match2(krb5_context context,
     }
 
     /* Deal with non-host-based princs */
-    if ((krb5_realm_compare(match_to, princ) || *match_to->realm) &&
+    if ((krb5_realm_compare(context, match_to, princ) || *match_to->realm) &&
         princ_type(match_to) != KRB5_NT_SRV_HST) {
         return krb5_principal_compare_flags(context, match_to, princ, flags);
     } else if (princ_type(match_to) != KRB5_NT_SRV_HST) {

@@ -540,7 +540,7 @@ krb5_get_cred_from_kdc_opt(krb5_context context,
     krb5_kdc_flags f;
     f.i = flags;
     return _krb5_get_cred_kdc_any(context, &tgs_limit, f, ccache,
-				  in_creds, NULL, NULL,
+				  in_creds, NULL, NULL, NULL,
 				  out_creds, ret_tgts);
 }
 

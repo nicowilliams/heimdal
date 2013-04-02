@@ -824,7 +824,7 @@ get_hierarchical_next_hop(krb5_context context, krb5_const_realm lhs,
      * periods.
      */
     if (asprintf(&dot_target, ".%s", target) == -1)
-        return krb5_enomem();
+        return krb5_enomem(context);
     for (p = strstr(lhs, dot_target); p && *p; p = strstr(p, dot_target))
         targ_in_lhs = p;
 
@@ -866,7 +866,7 @@ get_hierarchical_next_hop(krb5_context context, krb5_const_realm lhs,
 /* Helper for get_start_realms(), when the target is a krbtgt */
 static krb5_error_code
 get_capath_realms(krb5_context context,
-                  krb5_realm tgtrealm,
+                  krb5_realm tgt_realm,
                   krb5_realm start_hop,
                   krb5_realm **realms_out)
 {
@@ -877,7 +877,7 @@ get_capath_realms(krb5_context context,
 
     errno = 0;
     capaths_realms = krb5_config_get_strings(context, NULL, "capaths",
-                                             start_hop, tgtrealm, NULL);
+                                             start_hop, tgt_realm, NULL);
     if (errno)
         return errno; /* XXX Do better, like krb5_enomem() for ENOMEM */
 
@@ -925,7 +925,7 @@ get_cc_start_realm(krb5_context context, krb5_ccache ccache, krb5_realm *realm)
         return ret;
 
     *realm = strndup(d.data, d.length);
-    krb5_data_free(context, &d);
+    krb5_free_data(context, &d);
     if (!*realm)
         return krb5_enomem(context);
     return 0;
@@ -943,8 +943,6 @@ get_start_realms(krb5_context context,
                  krb5_realm **realms_out)
 {
     krb5_error_code ret;
-    krb5_data cc_start_realm = {0, 0};
-    char *cc_start_str = NULL;
     krb5_realm *realms = NULL;
     krb5_realm *ref_realms = NULL;
     krb5_realm *host_realms = NULL;
@@ -1086,7 +1084,7 @@ get_cred_kdc_referral(krb5_context context,
 		      krb5_creds *in_creds,
 		      krb5_principal impersonate_principal,
 		      Ticket *second_ticket,
-                      krb5_realm *start_hop;
+                      krb5_realm *start_hop,
 		      krb5_creds **out_creds,
 		      krb5_creds ***ret_tgts)
 {
@@ -1222,7 +1220,6 @@ get_cred_kdc_referral(krb5_context context,
                                              KRB5_GC_DONT_MATCH_REALM,
                                              flags, ccache,
                                              &s.ask_for_tgt,
-                                             realms[i],
                                              start_hop,
                                              &s.tgt);
             if (ret)
@@ -1230,11 +1227,11 @@ get_cred_kdc_referral(krb5_context context,
         }
 
         /* We have a TGT, so start_hop moves to that TGT's realm. */
-        if (s.tgt->server.name.name_string.len < 2) {
-            ret = KRB5KRB_AP_KRB5KRB_AP;
+        if (s.tgt->server->name.name_string.len < 2) {
+            ret = KRB5_KDCREP_MODIFIED;
             goto out; /* XXX can't happen */
         }
-        s.next_start_hop = strdup(s.tgt->server.name.name_string.val[1]);
+        s.next_start_hop = strdup(s.tgt->server->name.name_string.val[1]);
         if (!s.next_start_hop) {
             ret = krb5_enomem(context);
             goto out;
@@ -1331,7 +1328,6 @@ get_cred_kdc_referral(krb5_context context,
                                          KRB5_GC_DONT_MATCH_REALM,
                                          flags, ccache,
                                          &s.ask_for_better,
-                                         realms[i],
                                          start_hop,
                                          &s.better_tgt);
 
