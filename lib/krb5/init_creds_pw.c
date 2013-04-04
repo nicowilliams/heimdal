@@ -252,17 +252,22 @@ out:
  */
 
 static void
-report_expiration (krb5_context context,
-		   krb5_prompter_fct prompter,
-		   krb5_data *data,
-		   const char *str,
-		   time_t now)
+report_expiration(krb5_context context,
+		  krb5_prompter_fct prompter,
+		  krb5_data *data,
+		  const char *fmt,
+                  ...)
 {
     char *p = NULL;
+    va_list ap;
 
-    if (asprintf(&p, "%s%s", str, ctime(&now)) < 0 || p == NULL)
+    va_start(ap, fmt);
+    if (asprintf(&p, fmt, ap) < 0 || p == NULL) {
+        va_end(ap);
 	return;
+    }
     (*prompter)(context, data, NULL, p, 0, NULL);
+    va_end(ap);
     free(p);
 }
 
@@ -284,7 +289,8 @@ krb5_process_last_request(krb5_context context,
     LastReq *lr;
     krb5_boolean reported = FALSE;
     krb5_timestamp sec;
-    time_t t;
+    char *verb;
+    time_t t, exp_time;
     size_t i;
 
     /*
@@ -323,28 +329,37 @@ krb5_process_last_request(krb5_context context,
     if (ctx->prompter == NULL)
         return 0;
 
-    krb5_timeofday (context, &sec);
+    krb5_timeofday(context, &sec);
 
-    t = sec + get_config_time (context,
-			       realm,
-			       "warn_pwexpire",
-			       7 * 24 * 60 * 60);
+    t = sec + get_config_time(context,
+			      realm,
+			      "warn_pwexpire",
+			      7 * 24 * 60 * 60);
 
     for (i = 0; i < lr->len; ++i) {
-	if (lr->val[i].lr_value <= t) {
+        if (!lr->val[i].lr_value)
+            continue;
+        exp_time = lr->val[i].lr_value;
+        if (lr->val[i].lr_value < sec + context->kdc_sec_offset)
+            verb = "expired";
+        else
+            verb = "will expire";
+        if (lr->val[i].lr_value <= t) {
 	    switch (abs(lr->val[i].lr_type)) {
 	    case LR_PW_EXPTIME :
 		report_expiration(context, ctx->prompter,
 				  ctx->prompter_data,
-				  "Your password will expire at ",
-				  lr->val[i].lr_value);
+				  "Your password %s at %s",
+                                  verb,
+				  ctime(&exp_time));
 		reported = TRUE;
 		break;
 	    case LR_ACCT_EXPTIME :
 		report_expiration(context, ctx->prompter,
 				  ctx->prompter_data,
-				  "Your account will expire at ",
-				  lr->val[i].lr_value);
+				  "Your account %s at %s",
+                                  verb,
+				  ctime(&exp_time));
 		reported = TRUE;
 		break;
 	    }
@@ -353,11 +368,13 @@ krb5_process_last_request(krb5_context context,
 
     if (!reported
 	&& ctx->enc_part.key_expiration
+        && *ctx->enc_part.key_expiration
 	&& *ctx->enc_part.key_expiration <= t) {
+        exp_time = *ctx->enc_part.key_expiration;
         report_expiration(context, ctx->prompter,
 			  ctx->prompter_data,
-			  "Your password/account will expire at ",
-			  *ctx->enc_part.key_expiration);
+			  "Your password/account will expire at %s",
+			  ctime(&exp_time));
     }
     return 0;
 }
