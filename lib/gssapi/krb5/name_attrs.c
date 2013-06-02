@@ -204,7 +204,7 @@ ret_issuer(krb5_context context, OM_uint32 *minor_status,
         goto out;
     }
     major_status = _gsskrb5_export_name(minor_status,
-                                        (gss_const_name_t)root_krbtgt, value);
+                                        (const gss_name_t)root_krbtgt, value);
 
 out:
     if (major_status != GSS_S_COMPLETE) {

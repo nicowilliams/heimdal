@@ -1087,7 +1087,7 @@ GSSAPI_LIB_FUNCTION OM_uint32 GSSAPI_LIB_CALL gss_inquire_name (
 
 GSSAPI_LIB_FUNCTION OM_uint32 GSSAPI_LIB_CALL gss_get_name_attribute (
     OM_uint32 *,	/* minor_status */
-    gss_name_t,		/* name */
+    gss_const_name_t,	/* name */
     gss_buffer_t,	/* attr */
     int *,		/* authenticated */
     int *,		/* complete */
