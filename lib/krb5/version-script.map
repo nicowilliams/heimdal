@@ -240,6 +240,7 @@ HEIMDAL_KRB5_2.0 {
 		krb5_digest_set_type;
 		krb5_digest_set_uri;
 		krb5_digest_set_username;
+                krb5_display_nametype;
 		krb5_domain_x500_decode;
 		krb5_domain_x500_encode;
 		krb5_eai_to_heim_errno;

@@ -304,6 +304,28 @@ OM_uint32 GSSAPI_CALLCONV _gss_spnego_display_name
 			    output_name_buffer, output_name_type);
 }
 
+OM_uint32 GSSAPI_CALLCONV
+_gss_spnego_get_name_attribute(OM_uint32 * minor_status,
+                               gss_const_name_t input_name,
+                               gss_buffer_t attr_name,
+                               int *authenticated,
+                               int *complete,
+                               gss_buffer_t value,
+                               gss_buffer_t display_value,
+                               int *more)
+{
+    spnego_name name = (spnego_name)input_name;
+
+    *minor_status = 0;
+
+    if (name == NULL || name->mech == GSS_C_NO_NAME)
+	return GSS_S_FAILURE;
+
+    return gss_get_name_attribute(minor_status, name->mech, attr_name,
+                                  authenticated, complete, value,
+                                  display_value, more);
+}
+
 OM_uint32 GSSAPI_CALLCONV _gss_spnego_import_name
            (OM_uint32 * minor_status,
             const gss_buffer_t name_buffer,

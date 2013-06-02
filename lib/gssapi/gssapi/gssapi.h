@@ -1055,6 +1055,16 @@ gss_userok(const gss_name_t name,
 
 extern GSSAPI_LIB_VARIABLE gss_buffer_desc __gss_c_attr_local_login_user;
 #define GSS_C_ATTR_LOCAL_LOGIN_USER (&__gss_c_attr_local_login_user)
+extern GSSAPI_LIB_VARIABLE gss_buffer_desc __gss_c_attr_generic_issuername;
+#define GSS_C_ATTR_GENERIC_ISSUERNAME (&__gss_c_attr_generic_issuername)
+extern GSSAPI_LIB_VARIABLE gss_buffer_desc __gss_c_attr_generic_username;
+#define GSS_C_ATTR_GENERIC_USERNAME (&__gss_c_attr_generic_username)
+extern GSSAPI_LIB_VARIABLE gss_buffer_desc __gss_c_attr_generic_servicename;
+#define GSS_C_ATTR_GENERIC_SERVICENAME (&__gss_c_attr_generic_servicename)
+extern GSSAPI_LIB_VARIABLE gss_buffer_desc __gss_c_attr_generic_hostname;
+#define GSS_C_ATTR_GENERIC_HOSTNAME (&__gss_c_attr_generic_hostname)
+extern GSSAPI_LIB_VARIABLE gss_buffer_desc __gss_c_attr_generic_domainname;
+#define GSS_C_ATTR_GENERIC_DOMAINNAME (&__gss_c_attr_generic_domainname)
 
 /*
  * Naming extensions

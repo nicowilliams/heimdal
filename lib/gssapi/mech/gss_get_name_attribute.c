@@ -32,6 +32,23 @@
 
 #include "mech_locl.h"
 
+#define GENERIC_NAME_ATTR_URN_PREFIX \
+    "urn:ietf:id:ietf-kitten-name-attrs-00-generic-"
+
+#define DEF_GENERIC_NAME_ATTRIBUTE(upper, lower)                            \
+    gss_buffer_desc GSSAPI_LIB_VARIABLE __gss_c_attr_generic_ ## lower = {  \
+        sizeof(GENERIC_NAME_ATTR_URN_PREFIX # lower) - 1,                   \
+        GENERIC_NAME_ATTR_URN_PREFIX # lower                                \
+    }
+
+DEF_GENERIC_NAME_ATTRIBUTE(ISSUERNAME, issuername);
+DEF_GENERIC_NAME_ATTRIBUTE(USERNAME, username);
+DEF_GENERIC_NAME_ATTRIBUTE(SERVICENAME, servicename);
+DEF_GENERIC_NAME_ATTRIBUTE(HOSTNAME, hostname);
+DEF_GENERIC_NAME_ATTRIBUTE(DOMAINNAME, domainname);
+
+#undef GENERIC_NAME_ATTR_URN_PREFIX
+
 GSSAPI_LIB_FUNCTION OM_uint32 GSSAPI_LIB_CALL
 gss_get_name_attribute(OM_uint32 *minor_status,
 		       gss_name_t input_name,
