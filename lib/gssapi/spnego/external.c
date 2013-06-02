@@ -136,15 +136,15 @@ static gssapi_mech_interface_desc spnego_mech = {
     NULL,
     spnego_mo,
     sizeof(spnego_mo) / sizeof(spnego_mo[0]),
-    NULL,
-    NULL,
-    NULL,
-    NULL,
-    NULL,
-    NULL,
-    NULL,
-    NULL,
-    NULL,
+    NULL, /* XXX implement gm_localname */
+    NULL, /* XXX implement gm_authorize_localname */
+    NULL, /* XXX implement gm_display_name_ext */
+    NULL, /* XXX implement gm_inquire_name */
+    _gss_spnego_get_name_attribute,
+    NULL, /* XXX implement gm_set_name_attribute */
+    NULL, /* XXX implement gm_delete_name_attribute */
+    NULL, /* XXX implement gm_export_name_composite */
+    NULL  /* XXX implement gm_compat */
 };
 
 gssapi_mech_interface

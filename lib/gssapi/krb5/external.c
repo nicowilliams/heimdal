@@ -380,23 +380,23 @@ static gssapi_mech_interface_desc krb5_mech = {
     _gsskrb5_export_cred,
     _gsskrb5_import_cred,
     _gsskrb5_acquire_cred_ext,
-    NULL,
-    NULL,
-    NULL,
-    NULL,
-    NULL,
-    NULL,
+    NULL, /* gm_iter_creds */
+    NULL, /* gm_destroy_cred */
+    NULL, /* gm_cred_hold */
+    NULL, /* gm_cred_unhold */
+    NULL, /* gm_cred_label_get */
+    NULL, /* gm_cred_label_set */
     krb5_mo,
     sizeof(krb5_mo) / sizeof(krb5_mo[0]),
     _gsskrb5_localname,
     _gsskrb5_authorize_localname,
-    NULL,
-    NULL,
-    NULL,
-    NULL,
-    NULL,
-    NULL,
-    NULL
+    NULL, /* gm_display_name_ext */
+    NULL, /* gm_inquire_name */
+    _gsskrb5_get_name_attribute,
+    NULL, /* gm_set_name_attribute */
+    NULL, /* gm_delete_name_attribute */
+    NULL, /* gm_export_name_composite */
+    NULL  /* gm_compat */
 };
 
 gssapi_mech_interface
