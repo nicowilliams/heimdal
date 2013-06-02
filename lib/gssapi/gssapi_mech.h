@@ -410,7 +410,7 @@ typedef OM_uint32 GSSAPI_CALLCONV _gss_inquire_name_t (
 
 typedef OM_uint32 GSSAPI_CALLCONV _gss_get_name_attribute_t (
 	       OM_uint32 *,	      /* minor_status */
-	       gss_name_t,            /* name */
+	       gss_const_name_t,      /* name */
 	       gss_buffer_t,          /* attr */
 	       int *,                 /* authenticated */
 	       int *,                 /* complete */

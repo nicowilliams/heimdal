@@ -1143,6 +1143,27 @@ krb5_parse_nametype(krb5_context context, const char *str, int32_t *nametype)
 }
 
 /**
+ * Return the name type string corresponding to a name type integer.
+ *
+ * @ingroup krb5_principal
+ */
+
+KRB5_LIB_FUNCTION const char * KRB5_LIB_CALL
+krb5_display_nametype(krb5_context context, int32_t nametype)
+{
+    size_t i;
+
+    if (nametype < 0 || nametype >= sizeof(nametypes)/sizeof(nametypes[0])) {
+        /* XXX Need to add a new error for this */
+        krb5_set_error_message(context, EINVAL,
+                               N_("Unknown nametype %d", ""), nametype);
+        return NULL;
+    }
+
+    return nametypes[i].type;
+}
+
+/**
  * Returns true if name is Kerberos NULL name
  *
  * @ingroup krb5_principal

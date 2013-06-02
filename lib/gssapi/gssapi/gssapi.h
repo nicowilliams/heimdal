@@ -1053,8 +1053,70 @@ GSSAPI_LIB_FUNCTION int GSSAPI_LIB_CALL
 gss_userok(gss_const_name_t name,
            const char *user);
 
+/*
+ * Extended name attributes [RFC6680]
+ *
+ * EXPERIMENTAL.
+ */
+
+/* GSS equiv of krb5_aname_to_localname() */
 extern GSSAPI_LIB_VARIABLE gss_buffer_desc __gss_c_attr_local_login_user;
 #define GSS_C_ATTR_LOCAL_LOGIN_USER (&__gss_c_attr_local_login_user)
+
+/* Prefix for generic name attributes */
+#define GSS_C_ATTRNAME_GENERIC_PREFIX \
+    "urn:ietf:id:ietf-kitten-name-attrs-00-gen-"
+
+/*
+ * Name attribute to prefix (with a space between) to other attributes
+ * to get unconstrained values.  For example, calling
+ * gss_get_name_attribute() to get the GSS_C_ATTR_GENERIC_HOSTNAME of a
+ * gss_name_t will only return the hostname if a) the name is host-based,
+ * and b) if the issuer of the name is permitted to issue credentials
+ * to the hostname in question, otherwise it will fail.  Prefixing
+ * GSS_C_ATTR_GENERIC_UNCONSTRAINED to GSS_C_ATTR_GENERIC_HOSTNAME
+ * allows the mechanism to return the hostname as it appears in the
+ * gss_name_t with no constraints checking whatsoever.
+ *
+ * Note that the service name component of service names are generally
+ * not constrained (any issuer can issue credentials for any service
+ * name; only hostnames and domainnames, for host- and domain-based
+ * service names are).
+ */
+#define GSS_C_ATTR_GENERIC_UNCONSTRAINED \
+    "urn:ietf:id:ietf-kitten-name-attrs-00-gen-unconstrained"
+
+extern GSSAPI_LIB_VARIABLE gss_buffer_desc __gss_c_attr_generic_issuername;
+#define GSS_C_ATTR_BUF_GENERIC_ISSUERNAME (&__gss_c_attr_generic_issuername)
+#define GSS_C_ATTR_GENERIC_ISSUERNAME \
+    GSS_C_ATTRNAME_GENERIC_PREFIX "issuername"
+extern GSSAPI_LIB_VARIABLE gss_buffer_desc __gss_c_attr_generic_username;
+#define GSS_C_ATTR_BUF_GENERIC_USERNAME (&__gss_c_attr_generic_username)
+#define GSS_C_ATTR_GENERIC_USERNAME \
+    GSS_C_ATTRNAME_GENERIC_PREFIX "username"
+extern GSSAPI_LIB_VARIABLE gss_buffer_desc __gss_c_attr_generic_servicename;
+#define GSS_C_ATTR_BUF_GENERIC_SERVICENAME (&__gss_c_attr_generic_servicename)
+#define GSS_C_ATTR_GENERIC_SERVICENAME \
+    GSS_C_ATTRNAME_GENERIC_PREFIX "servicename"
+extern GSSAPI_LIB_VARIABLE gss_buffer_desc __gss_c_attr_generic_hostname;
+#define GSS_C_ATTR_BUF_GENERIC_HOSTNAME (&__gss_c_attr_generic_hostname)
+#define GSS_C_ATTR_GENERIC_HOSTNAME \
+    GSS_C_ATTRNAME_GENERIC_PREFIX "hostname"
+extern GSSAPI_LIB_VARIABLE gss_buffer_desc __gss_c_attr_generic_domainname;
+#define GSS_C_ATTR_BUF_GENERIC_DOMAINNAME (&__gss_c_attr_generic_domainname)
+#define GSS_C_ATTR_GENERIC_DOMAINNAME \
+    GSS_C_ATTRNAME_GENERIC_PREFIX "domainname"
+
+extern GSSAPI_LIB_VARIABLE gss_buffer_desc __gss_c_attr_generic_unconstrained_issuername;
+#define GSS_C_ATTR_GENERIC_UNCONSTRAINED_ISSUERNAME (&__gss_c_attr_generic_unconstrained_issuername)
+extern GSSAPI_LIB_VARIABLE gss_buffer_desc __gss_c_attr_generic_unconstrained_username;
+#define GSS_C_ATTR_GENERIC_UNCONSTRAINED_USERNAME (&__gss_c_attr_generic_unconstrained_username)
+extern GSSAPI_LIB_VARIABLE gss_buffer_desc __gss_c_attr_generic_unconstrained_servicename;
+#define GSS_C_ATTR_GENERIC_UNCONSTRAINED_SERVICENAME (&__gss_c_attr_generic_unconstrained_servicename)
+extern GSSAPI_LIB_VARIABLE gss_buffer_desc __gss_c_attr_generic_unconstrained_hostname;
+#define GSS_C_ATTR_GENERIC_UNCONSTRAINED_HOSTNAME (&__gss_c_attr_generic_unconstrained_hostname)
+extern GSSAPI_LIB_VARIABLE gss_buffer_desc __gss_c_attr_generic_unconstrained_domainname;
+#define GSS_C_ATTR_GENERIC_UNCONSTRAINED_DOMAINNAME (&__gss_c_attr_generic_unconstrained_domainname)
 
 /*
  * Naming extensions
@@ -1077,7 +1139,7 @@ GSSAPI_LIB_FUNCTION OM_uint32 GSSAPI_LIB_CALL gss_inquire_name (
 
 GSSAPI_LIB_FUNCTION OM_uint32 GSSAPI_LIB_CALL gss_get_name_attribute (
     OM_uint32 *,	/* minor_status */
-    gss_name_t,		/* name */
+    gss_const_name_t,	/* name */
     gss_buffer_t,	/* attr */
     int *,		/* authenticated */
     int *,		/* complete */

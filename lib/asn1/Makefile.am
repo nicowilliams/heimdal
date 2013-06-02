@@ -97,7 +97,6 @@ dist_libasn1base_la_SOURCES =			\
 	der_copy.c				\
 	der_cmp.c				\
 	der_format.c				\
-	fuzzer.c				\
 	heim_asn1.h				\
 	extra.c					\
 	roken_rename.h				\
