@@ -94,6 +94,14 @@ _gsskrb5_get_name_attribute(OM_uint32 *minor_status,
         *complete = 1;
 
     /*
+     * XXX This comment isn't quite right.  For hostname/domainname we
+     * want a new generic, composable attr that tells the app whether
+     * the host/domainname match the issuer's name constraints (and we
+     * have to come up with a way to express those).  The authenticated
+     * output is for distinguishing attrs set by an issuer vs. those set
+     * by the initiator, so here we should *always* set
+     * *authenticated = 1.
+     *
      * Handling of the authenticated meta-attribute is currently
      * less than stellar.
      *
