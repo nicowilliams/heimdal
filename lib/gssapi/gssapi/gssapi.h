@@ -1055,6 +1055,7 @@ gss_userok(const gss_name_t name,
 
 extern GSSAPI_LIB_VARIABLE gss_buffer_desc __gss_c_attr_local_login_user;
 #define GSS_C_ATTR_LOCAL_LOGIN_USER (&__gss_c_attr_local_login_user)
+
 extern GSSAPI_LIB_VARIABLE gss_buffer_desc __gss_c_attr_generic_issuername;
 #define GSS_C_ATTR_GENERIC_ISSUERNAME (&__gss_c_attr_generic_issuername)
 extern GSSAPI_LIB_VARIABLE gss_buffer_desc __gss_c_attr_generic_username;
@@ -1065,6 +1066,17 @@ extern GSSAPI_LIB_VARIABLE gss_buffer_desc __gss_c_attr_generic_hostname;
 #define GSS_C_ATTR_GENERIC_HOSTNAME (&__gss_c_attr_generic_hostname)
 extern GSSAPI_LIB_VARIABLE gss_buffer_desc __gss_c_attr_generic_domainname;
 #define GSS_C_ATTR_GENERIC_DOMAINNAME (&__gss_c_attr_generic_domainname)
+
+extern GSSAPI_LIB_VARIABLE gss_buffer_desc __gss_c_attr_generic_unconstrained_issuername;
+#define GSS_C_ATTR_GENERIC_UNCONSTRAINED_ISSUERNAME (&__gss_c_attr_generic_unconstrained_issuername)
+extern GSSAPI_LIB_VARIABLE gss_buffer_desc __gss_c_attr_generic_unconstrained_username;
+#define GSS_C_ATTR_GENERIC_UNCONSTRAINED_USERNAME (&__gss_c_attr_generic_unconstrained_username)
+extern GSSAPI_LIB_VARIABLE gss_buffer_desc __gss_c_attr_generic_unconstrained_servicename;
+#define GSS_C_ATTR_GENERIC_UNCONSTRAINED_SERVICENAME (&__gss_c_attr_generic_unconstrained_servicename)
+extern GSSAPI_LIB_VARIABLE gss_buffer_desc __gss_c_attr_generic_unconstrained_hostname;
+#define GSS_C_ATTR_GENERIC_UNCONSTRAINED_HOSTNAME (&__gss_c_attr_generic_unconstrained_hostname)
+extern GSSAPI_LIB_VARIABLE gss_buffer_desc __gss_c_attr_generic_unconstrained_domainname;
+#define GSS_C_ATTR_GENERIC_UNCONSTRAINED_DOMAINNAME (&__gss_c_attr_generic_unconstrained_domainname)
 
 /*
  * Naming extensions
