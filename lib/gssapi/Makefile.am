@@ -296,7 +296,7 @@ $(srcdir)/spnego/spnego-private.h:
 	cd $(srcdir) && perl ../../cf/make-proto.pl -q -P comment -p spnego/spnego-private.h $(spnegosrc) || rm -f spnego/spnego-private.h
 
 
-TESTS = test_oid test_names test_cfx
+TESTS = test_oid test_names test_cfx test_name_attrs
 # test_sequence 
 
 test_cfx_SOURCES = krb5/test_cfx.c
