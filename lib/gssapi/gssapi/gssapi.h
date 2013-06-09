@@ -1096,7 +1096,7 @@ extern GSSAPI_LIB_VARIABLE gss_buffer_desc __gss_c_attr_local_login_user;
 
 #define __GSS_C_ATTR_P "urn:ietf:id:ietf-kitten-name-attrs-00-"
 #define GSS_C_ATTR_GENERIC_UNCONSTRAINED __GSS_C_ATTR_P "gen-unconstrained"
-#define GSS_C_ATTR_GENERIC_UNCONSTRAINED_OK __GSS_C_ATTR_P "gen-constrained-ok"
+#define GSS_C_ATTR_GENERIC_UNCONSTRAINED_OK __GSS_C_ATTR_P "gen-unconstrained-ok"
 #define GSS_C_ATTR_GENERIC_FAST __GSS_C_ATTR_P "gen-fast"
 
 extern GSSAPI_LIB_VARIABLE gss_buffer_desc __gss_c_attr_generic_issuername;

@@ -182,8 +182,11 @@ _gsskrb5_get_name_attribute(OM_uint32 *minor_status,
         return GSS_S_COMPLETE;
     }
 
-    if (attr_num == K5_MNA_LOCAL_USERNAME)
+    if (attr_num == K5_MNA_LOCAL_USERNAME) {
+        if (more)
+            *more = 0;
         return ret_lname(context, minor_status, name, display_value);
+    }
 
     if (attr_num == K5_MNA_USERNAME || attr_num == K5_MNA_COMP0) {
         if (more)
@@ -471,6 +474,9 @@ ret_comps(krb5_context context, OM_uint32 *minor_status,
           gss_buffer_t display_value)
 {
     unsigned int comp, comps;
+
+    if (more == NULL)
+        return GSS_S_UNAVAILABLE;
 
     comps = krb5_principal_get_num_comp(context, name);
 
