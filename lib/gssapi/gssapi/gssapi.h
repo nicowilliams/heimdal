@@ -1082,9 +1082,22 @@ extern GSSAPI_LIB_VARIABLE gss_buffer_desc __gss_c_attr_local_login_user;
  * not constrained (any issuer can issue credentials for any service
  * name; only hostnames and domainnames, for host- and domain-based
  * service names are).
+ *
+ * If the GSS_C_ATTR_GENERIC_UNCONSTRAINED_OK prefix is used then
+ * gss_get_name_attribute() will check the name constraints applicable
+ * to the issuer for the requested attribute, will set its
+ * 'authenticated' to true if the name constraints were met, false
+ * otherwise, and will output the attribute's value either way.
+ *
+ * If the GSS_C_ATTR_GENERIC_FAST is used then
+ * gss_get_name_attribute() should not perform any slow I/O, such as DNS
+ * lookups.
  */
-#define GSS_C_ATTR_GENERIC_UNCONSTRAINED \
-    "urn:ietf:id:ietf-kitten-name-attrs-00-gen-unconstrained"
+
+#define __GSS_C_ATTR_P "urn:ietf:id:ietf-kitten-name-attrs-00-"
+#define GSS_C_ATTR_GENERIC_UNCONSTRAINED __GSS_C_ATTR_P "gen-unconstrained"
+#define GSS_C_ATTR_GENERIC_UNCONSTRAINED_OK __GSS_C_ATTR_P "gen-constrained-ok"
+#define GSS_C_ATTR_GENERIC_FAST __GSS_C_ATTR_P "gen-fast"
 
 extern GSSAPI_LIB_VARIABLE gss_buffer_desc __gss_c_attr_generic_issuername;
 #define GSS_C_ATTR_BUF_GENERIC_ISSUERNAME (&__gss_c_attr_generic_issuername)

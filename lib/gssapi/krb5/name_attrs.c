@@ -89,11 +89,14 @@ struct krb5_mech_name_attr_map {
 };
 
 static enum krb5_mech_name_attr attrname2attrnum(const char *, size_t);
-static void parse_attr(gss_buffer_t, gss_buffer_t, size_t *);
-static OM_uint32 validate_username(krb5_context, OM_uint32 *, const char *,
-                                   const char *, gss_buffer_t);
-static OM_uint32 validate_domainname(krb5_context, OM_uint32 *, const char *,
-                                     const char *, const char *, gss_buffer_t);
+static void parse_attr(gss_buffer_t, gss_buffer_t, size_t *, size_t *,
+                       size_t *);
+static OM_uint32 validate_username(krb5_context, OM_uint32 *,
+                                   krb5_const_principal, size_t, const char *,
+                                   const char *, gss_buffer_t, int *);
+static OM_uint32 validate_domainname(krb5_context, OM_uint32 *, size_t,
+                                     size_t, const char *, const char *,
+                                     const char *, gss_buffer_t, int *);
 static OM_uint32 ret_issuer(krb5_context, OM_uint32 *, krb5_const_principal,
                             gss_buffer_t, gss_buffer_t);
 static OM_uint32 ret_lname(krb5_context, OM_uint32 *, krb5_const_principal,
@@ -105,7 +108,7 @@ static OM_uint32 ret_comps(krb5_context, OM_uint32 *,
 
 OM_uint32 GSSAPI_CALLCONV
 _gsskrb5_get_name_attribute(OM_uint32 *minor_status,
-                            gss_name_t input_name,
+                            gss_const_name_t input_name,
                             gss_buffer_t attr,
                             int *authenticated,
                             int *complete,
@@ -119,13 +122,13 @@ _gsskrb5_get_name_attribute(OM_uint32 *minor_status,
     const char *nametype;
     gss_buffer_desc attr_tail;
     char *s;
-    size_t constrained = 1;
+    size_t constrained = 1, unconstrained_ok = 0, fast = 0;
     int32_t nt;
     OM_uint32 major_status;
 
     GSSAPI_KRB5_INIT(&context);
 
-    parse_attr(attr, &attr_tail, &constrained);
+    parse_attr(attr, &attr_tail, &constrained, &unconstrained_ok, &fast);
     attr_num = attrname2attrnum(attr_tail.value, attr_tail.length);
     
     if (attr_num == K5_MNA_UNKNOWN)
@@ -189,11 +192,12 @@ _gsskrb5_get_name_attribute(OM_uint32 *minor_status,
         if (major_status != GSS_S_COMPLETE)
             return major_status;
         if (attr_num == K5_MNA_USERNAME && constrained) {
-            return validate_username(context, minor_status,
+            return validate_username(context, minor_status, name,
+                                     unconstrained_ok,
                                      krb5_principal_get_realm(context, name),
                                      krb5_principal_get_comp_string(context,
                                                                     name, 0),
-                                     display_value);
+                                     display_value, authenticated);
         }
         return GSS_S_COMPLETE;
     }
@@ -205,11 +209,12 @@ _gsskrb5_get_name_attribute(OM_uint32 *minor_status,
             return major_status;
         if (attr_num == K5_MNA_HOSTNAME && constrained) {
             return validate_domainname(context, minor_status,
+                                       unconstrained_ok, fast,
                                        krb5_principal_get_realm(context, name),
                                        NULL,
                                        krb5_principal_get_comp_string(context,
                                                                       name, 0),
-                                       display_value);
+                                       display_value, authenticated);
         }
         return GSS_S_COMPLETE;
     }
@@ -221,11 +226,12 @@ _gsskrb5_get_name_attribute(OM_uint32 *minor_status,
             return major_status;
         if (attr_num == K5_MNA_DOMAINNAME && constrained) {
             return validate_domainname(context, minor_status,
+                                       unconstrained_ok, fast,
                                        krb5_principal_get_realm(context, name),
                                        krb5_principal_get_comp_string(context,
                                                                       name, 0),
                                        NULL,
-                                       display_value);
+                                       display_value, authenticated);
         }
         return GSS_S_COMPLETE;
     }
@@ -257,14 +263,16 @@ tolower_str(char *p)
 static
 OM_uint32
 validate_username(krb5_context context, OM_uint32 *minor_status,
+                  krb5_const_principal name, size_t unconstrained_ok,
                   const char *realm, const char *username,
-                  gss_buffer_t display_value)
+                  gss_buffer_t display_value, int *authenticated)
 {
     OM_uint32 major_status = GSS_S_UNAVAILABLE;
     krb5_error_code ret;
     const char *s;
     char *def_realm = NULL;
     char *domain = NULL;
+    gss_buffer_desc lname = {0, 0};
 
     /* XXX Check user_realm instead */
     ret = krb5_get_default_realm(context, &def_realm);
@@ -290,12 +298,22 @@ validate_username(krb5_context context, OM_uint32 *minor_status,
         major_status = GSS_S_COMPLETE;
         goto cleanup;
     }
-    /* TODO: check aname2lname or kuserok() */
+
+    /* Check aname2lname */
+    major_status = ret_lname(context, minor_status, name, &lname);
+    if (!unconstrained_ok && major_status == GSS_S_COMPLETE &&
+        strcmp(username, lname.value) != 0) {
+        major_status = GSS_S_UNAVAILABLE;
+    }
+
+    /* TODO: check kuserok?! */
 
 cleanup:
+    free(lname.value);
     free(def_realm);
     free(domain);
-    if (display_value && (ret || major_status != GSS_S_COMPLETE)) {
+    if (!unconstrained_ok && display_value &&
+        (ret || major_status != GSS_S_COMPLETE)) {
         display_value->value = NULL;
         display_value->length = 0;
     }
@@ -303,14 +321,20 @@ cleanup:
         *minor_status = ret;
         return GSS_S_FAILURE;
     }
+    if (major_status == GSS_S_UNAVAILABLE && unconstrained_ok) {
+        if (authenticated)
+            *authenticated = 0;
+        return GSS_S_COMPLETE;
+    }
     return major_status;
 }
 
 static
 OM_uint32
 validate_domainname(krb5_context context, OM_uint32 *minor_status,
-                  const char *realm, const char *domainname,
-                  const char *host, gss_buffer_t display_value)
+                    size_t unconstrained_ok, size_t fast, const char *realm,
+                    const char *domainname, const char *host,
+                    gss_buffer_t display_value, int *authenticated)
 {
     OM_uint32 major_status = GSS_S_UNAVAILABLE;
     krb5_error_code ret = 0;
@@ -348,7 +372,7 @@ validate_domainname(krb5_context context, OM_uint32 *minor_status,
         goto cleanup;
     }
 
-    ret = _krb5_get_host_realm_int(context, host, 0 /*use_dns*/, &realms);
+    ret = _krb5_get_host_realm_int(context, host, !fast, &realms);
     if (ret)
         goto cleanup;
     for (i = 0; realms[i]; i++) {
@@ -363,13 +387,19 @@ cleanup:
     krb5_free_host_realm(context, realms);
     free(def_realm);
     free(domain);
-    if (display_value && (ret || major_status != GSS_S_COMPLETE)) {
+    if (!unconstrained_ok && display_value &&
+        (ret || major_status != GSS_S_COMPLETE)) {
         display_value->value = NULL;
         display_value->length = 0;
     }
     if (ret) {
         *minor_status = ret;
         return GSS_S_FAILURE;
+    }
+    if (major_status == GSS_S_UNAVAILABLE && unconstrained_ok) {
+        if (authenticated)
+            *authenticated = 0;
+        return GSS_S_COMPLETE;
     }
     return major_status;
 }
@@ -463,14 +493,28 @@ OM_uint32
 ret_lname(krb5_context context, OM_uint32 *minor_status,
           krb5_const_principal name, gss_buffer_t display_value)
 {
-    char lname[256];
+    char *lname;
+
+    lname = malloc(256); /* XXX krb5_aname_to_localname() sucks */
+    if (!lname) {
+        *minor_status = krb5_enomem(context);
+        return GSS_S_FAILURE;
+    }
 
     *minor_status = krb5_aname_to_localname(context, name, sizeof(lname), lname);
+    if (*minor_status == 0) {
+        if (display_value) {
+            display_value->value = lname;
+            display_value->length = strlen(lname);
+            lname = NULL;
+        }
+        free(lname);
+        return GSS_S_COMPLETE;
+    }
+    free(lname);
     if (*minor_status == KRB5_NO_LOCALNAME)
         return GSS_S_UNAVAILABLE;
-    if (*minor_status)
-        return GSS_S_FAILURE;
-    return GSS_S_COMPLETE;
+    return GSS_S_FAILURE;
 }
 
 static
@@ -490,10 +534,12 @@ attrname2attrnum(const char *attrname, size_t attrname_len)
 }
 
 static void
-parse_attr(gss_buffer_t attr, gss_buffer_t tail, size_t *constrained)
+parse_attr(gss_buffer_t attr, gss_buffer_t tail, size_t *constrained,
+           size_t *unconstrained_ok, size_t *fast)
 {
     const char *prefix;
     size_t prefix_len;
+    gss_buffer_desc buf;
 
     tail->value = memchr(attr->value, ' ', attr->length);
     if (tail->value == NULL) {
@@ -506,11 +552,15 @@ parse_attr(gss_buffer_t attr, gss_buffer_t tail, size_t *constrained)
     prefix_len = attr->length - tail->length - 1;
     if (strncmp(prefix, GSS_C_ATTR_GENERIC_UNCONSTRAINED, prefix_len) == 0)
         *constrained = 0;
+    else if (strncmp(prefix, GSS_C_ATTR_GENERIC_UNCONSTRAINED_OK, prefix_len) == 0)
+        *unconstrained_ok = 1;
+    else if (strncmp(prefix, GSS_C_ATTR_GENERIC_FAST, prefix_len) == 0)
+        *fast = 1;
+
     /*
-     * Here we might parse more prefixes out of tail by recursing, if we
-     * had more prefixes anyways.  We'd also add more arguments like
-     * 'constrained' by which to indicate which prefixes we had (and/or
-     * by which to understand, as we recurse, the order of the prefixes,
-     * if that were to matter).
+     * Tail recurse; it's at most three times, and if the compiler isn't
+     * dumb we could go many more times anyways (as long as we return!).
      */
+    buf = *tail;
+    parse_attr(&buf, tail, constrained, unconstrained_ok, fast);
 }
