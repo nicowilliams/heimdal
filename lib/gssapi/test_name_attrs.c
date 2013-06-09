@@ -99,14 +99,14 @@ static struct getargs args[] = {
 };
 
 static void
-usage(void)
+usage(int status)
 {
     arg_printusage(args, sizeof(args)/sizeof(*args), NULL,
                    "name-type name-string mech attribute-name\n\n"
                    "\tValid name-types:\n"
                    "\t\thostbased, domainbased (not yet), user, krb5, any\n"
                    "\tValid mechs: krb5\n");
-    exit(1);
+    exit(status);
 }
 
 
@@ -124,13 +124,15 @@ main(int argc, char **argv)
 
     setprogname(argv[0]);
     if (getarg(args, sizeof(args) / sizeof(args[0]), argc, argv, &optidx))
-	usage();
+	usage(1);
 
     argc -= optidx;
     argv += optidx;
 
-    if (help_flag || argc != 4)
-	usage();
+    if (help_flag || argc == 0)
+	usage(0);
+    if (argc != 4)
+	usage(1);
 
     if (version_flag){
 	print_version(NULL);
@@ -149,10 +151,10 @@ main(int argc, char **argv)
     else if (!strcmp(argv[0], "any"))
         name_type = GSS_C_NO_OID;
     else
-        usage();
+        usage(1);
 
     if (strcmp(argv[2], "krb5"))
-        usage();
+        usage(1);
     mech = GSS_KRB5_MECHANISM;
 
     name_buf.value = argv[1];
