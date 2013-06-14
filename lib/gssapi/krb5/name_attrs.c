@@ -415,7 +415,7 @@ ret_issuer(krb5_context context, OM_uint32 *minor_status,
 {
     OM_uint32 major_status = GSS_S_COMPLETE;
     krb5_error_code ret;
-    krb5_principal root_krbtgt = NULL;
+    krb5_principal realm = NULL;
     char *s;
 
     s = strdup(krb5_principal_get_realm(context, name));
@@ -427,23 +427,25 @@ ret_issuer(krb5_context context, OM_uint32 *minor_status,
         display_value->value = s;
         display_value->length = strlen(s);
     }
-    ret = krb5_make_principal(context, &root_krbtgt, s, KRB5_TGS_NAME, s, NULL);
-    if (ret) {
-        *minor_status = ret;
-        major_status = GSS_S_FAILURE;
-        goto out;
-    }
-    if (value)
-        major_status = _gsskrb5_export_name(minor_status,
-                                            (const gss_name_t)root_krbtgt, value);
 
-out:
+    if (!value)
+        return GSS_S_COMPLETE;
+
+    ret = krb5_make_principal(context, &realm, s, NULL);
+    if (ret) {
+        free(s);
+        *minor_status = ret;
+        return GSS_S_FAILURE;
+    }
+    major_status = _gsskrb5_export_name(minor_status,
+                                        (const gss_name_t)realm, value);
+
+    krb5_free_principal(context, realm);
     if (major_status != GSS_S_COMPLETE) {
         free(s);
         display_value->value = NULL;
         display_value->length = 0;
     }
-    krb5_free_principal(context, root_krbtgt);
     return major_status;
 }
 
