@@ -853,6 +853,25 @@ fcc_end_get (krb5_context context,
     return 0;
 }
 
+struct rem_cred_match_ctx {
+    krb5_flags whichfields;
+    krb5_creds *mcred;
+};
+
+
+static krb5_boolean KRB5_CALLCONV
+match_kept_creds(krb5_context context,
+                 void *ctx,
+                 const krb5_creds *cred)
+{
+    struct rem_cred_match_ctx *match_ctx = ctx;
+
+    if (krb5_compare_creds(ctx, match_ctx->whichfields,
+                           match_ctx->mcred, cred))
+        return FALSE;
+    return TRUE;
+}
+
 static krb5_error_code KRB5_CALLCONV
 fcc_remove_cred(krb5_context context,
 		 krb5_ccache id,
@@ -860,64 +879,51 @@ fcc_remove_cred(krb5_context context,
 		 krb5_creds *cred)
 {
     krb5_error_code ret;
-    krb5_ccache copy, newfile;
-    char *newname = NULL;
+    krb5_ccache copy;
+    char *newname;
     int fd;
+    struct rem_cred_match_ctx match_ctx;
+
+    memset(&match_ctx, 0, sizeof(match_ctx));
+    match_ctx.whichfields = which;
+    match_ctx.mcred = cred;
 
     if (FCACHE(id) == NULL)
         return krb5_einval(context, 2);
 
-    ret = krb5_cc_new_unique(context, krb5_cc_type_memory, NULL, &copy);
-    if (ret)
-	return ret;
-
-    ret = krb5_cc_copy_cache(context, id, copy);
-    if (ret) {
-	krb5_cc_destroy(context, copy);
-	return ret;
-    }
-
-    ret = krb5_cc_remove_cred(context, copy, which, cred);
-    if (ret) {
-	krb5_cc_destroy(context, copy);
-	return ret;
-    }
-
     ret = asprintf(&newname, "FILE:%s.XXXXXX", FILENAME(id));
-    if (ret < 0 || newname == NULL) {
-	krb5_cc_destroy(context, copy);
+    if (ret < 0 || newname == NULL)
 	return ENOMEM;
-    }
 
     fd = mkstemp(&newname[5]);
     if (fd < 0) {
 	ret = errno;
-	krb5_cc_destroy(context, copy);
+	free(newname);
 	return ret;
     }
     close(fd);
 
-    ret = krb5_cc_resolve(context, newname, &newfile);
+    ret = krb5_cc_resolve(context, newname, &copy);
     if (ret) {
 	unlink(&newname[5]);
 	free(newname);
-	krb5_cc_destroy(context, copy);
 	return ret;
     }
 
-    ret = krb5_cc_copy_cache(context, copy, newfile);
-    krb5_cc_destroy(context, copy);
+    ret = krb5_cc_copy_match_f(context, id, copy,
+                               match_kept_creds, &match_ctx, NULL);
     if (ret) {
+	krb5_cc_destroy(context, copy);
 	free(newname);
-	krb5_cc_destroy(context, newfile);
 	return ret;
     }
 
     ret = rk_rename(&newname[5], FILENAME(id));
     if (ret)
 	ret = errno;
+
     free(newname);
-    krb5_cc_close(context, newfile);
+    krb5_cc_close(context, copy);
 
     return ret;
 }
