@@ -702,7 +702,10 @@ find_cred(krb5_context context,
 
     krb5_cc_clear_mcred(&mcreds);
     mcreds.server = server;
-    ret = krb5_cc_retrieve_cred(context, id, KRB5_TC_DONT_MATCH_REALM,
+    krb5_timeofday(context, &mcreds.times.endtime);
+    ret = krb5_cc_retrieve_cred(context, id,
+                                KRB5_TC_DONT_MATCH_REALM |
+                                KRB5_TC_MATCH_TIMES,
 				&mcreds, out_creds);
     if(ret == 0)
 	return 0;
@@ -983,11 +986,13 @@ get_cred_kdc_referral(krb5_context context,
 	krb5_creds mcreds;
 	char *referral_realm;
 
-	/* Use cache if we are not doing impersonation or contrainte deleg */
+	/* Use cache if we are not doing impersonation or contrained deleg */
 	if (impersonate_principal == NULL || flags.b.constrained_delegation) {
 	    krb5_cc_clear_mcred(&mcreds);
 	    mcreds.server = referral.server;
-	    ret = krb5_cc_retrieve_cred(context, ccache, 0, &mcreds, &ticket);
+            krb5_timeofday(context, &mcreds.times.endtime);
+	    ret = krb5_cc_retrieve_cred(context, ccache, KRB5_TC_MATCH_TIMES,
+                                        &mcreds, &ticket);
 	} else
 	    ret = EINVAL;
 
@@ -1121,39 +1126,20 @@ static krb5_error_code
 check_cc(krb5_context context, krb5_flags options, krb5_ccache ccache,
 	 krb5_creds *in_creds, krb5_creds *out_creds)
 {
-    krb5_error_code ret;
-    krb5_timestamp timeret;
+    krb5_timestamp now;
 
-    /*
-     * If we got a credential, check if credential is expired before
-     * returning it.
-     */
-    ret = krb5_cc_retrieve_cred(context, ccache,
-				options & KRB5_TC_MATCH_KEYTYPE,
-                                in_creds, out_creds);
-    if (ret != 0)
-	return ret; /* Caller will check for KRB5_CC_END */
+    krb5_timeofday(context, &now);
 
-    /*
-     * If we got a credential, check if credential is expired before
-     * returning it, but only if KRB5_GC_EXPIRED_OK is not set.
-     */
-
-    /* If expired ok, don't bother checking */
-    if (options & KRB5_GC_EXPIRED_OK)
-	return 0;
-
-    krb5_timeofday(context, &timeret);
-    if (out_creds->times.endtime > timeret)
-	return 0;
-
-    /* Expired and not ok; remove and pretend we didn't find it */
-    if (options & KRB5_GC_CACHED)
-	krb5_cc_remove_cred(context, ccache, 0, out_creds);
-
-    krb5_free_cred_contents(context, out_creds);
-    memset(out_creds, 0, sizeof (*out_creds));
-    return KRB5_CC_END;
+    if (!(options & KRB5_GC_EXPIRED_OK) &&
+        in_creds->times.endtime < now) {
+        /* Should have been memset() to zero */
+        in_creds->times.renew_till = 0;
+        krb5_timeofday(context, &in_creds->times.renew_till);
+    }
+    return krb5_cc_retrieve_cred(context, ccache,
+                                 (options & KRB5_TC_MATCH_KEYTYPE) |
+                                 KRB5_TC_MATCH_TIMES,
+                                 in_creds, out_creds);
 }
 
 static void
