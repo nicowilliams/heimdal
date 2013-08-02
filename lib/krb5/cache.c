@@ -1323,7 +1323,7 @@ krb5_cc_set_config(krb5_context context, krb5_ccache id,
     if (data) {
 	/* not that anyone care when this expire */
 	cred.times.authtime = time(NULL);
-	cred.times.endtime = cred.times.authtime + 3600 * 24 * 30;
+	cred.times.endtime = INT32_MAX;
 
 	ret = krb5_data_copy(&cred.ticket, data->data, data->length);
 	if (ret)
