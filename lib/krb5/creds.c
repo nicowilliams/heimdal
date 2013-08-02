@@ -239,8 +239,10 @@ krb5_compare_creds(krb5_context context, krb5_flags whichfields,
 
     if (match && (whichfields & KRB5_TC_MATCH_TIMES))
 	/* compare only expiration times */
-	match = (mcreds->times.renew_till <= creds->times.renew_till) &&
-	    (mcreds->times.endtime <= creds->times.endtime);
+	match = (mcreds->times.renew_till == 0 ||
+                 mcreds->times.renew_till <= creds->times.renew_till) &&
+                (mcreds->times.endtime == 0 ||
+                 mcreds->times.endtime <= creds->times.endtime);
 
     if (match && (whichfields & KRB5_TC_MATCH_AUTHDATA)) {
 	unsigned int i;
