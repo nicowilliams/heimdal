@@ -225,7 +225,7 @@ get_server(krb5_context context,
 			       KRB5_TGS_NAME, realm, NULL);
 }
 
-static int
+static krb5_error_code
 renew_validate(krb5_context context,
 	       int renew,
 	       int validate,
@@ -754,35 +754,41 @@ struct renew_ctx {
     krb5_ccache  ccache;
     krb5_principal principal;
     krb5_deltat ticket_life;
+    int tries;
+    time_t exp_delay;
 };
 
 static time_t
 renew_func(void *ptr)
 {
+    krb5_error_code ret = 0;
     struct renew_ctx *ctx = ptr;
     time_t expire;
     time_t renew_expire;
-    static time_t exp_delay = 1;
 
     expire = ticket_lifetime(ctx->context, ctx->ccache, ctx->principal,
 			     server_str, &renew_expire);
 
     if (renew_expire > expire) {
-	renew_validate(ctx->context, 1, validate_flag, ctx->ccache,
-		       server_str, ctx->ticket_life);
+        ret = renew_validate(ctx->context, 1, validate_flag,
+                             ctx->ccache, server_str, ctx->ticket_life);
+        if (!ret)
+            ctx->tries = 0;
         expire = ticket_lifetime(ctx->context, ctx->ccache, ctx->principal,
 				 server_str, &renew_expire);
     }
 
     if (expire < ctx->ticket_life / 2) {
-	get_new_tickets(ctx->context, ctx->principal,
-			ctx->ccache, ctx->ticket_life, 0);
+        ret = get_new_tickets(ctx->context, ctx->principal, ctx->ccache,
+                              ctx->ticket_life, 0);
+        if (!ret)
+            ctx->tries = 0;
         expire = ticket_lifetime(ctx->context, ctx->ccache, ctx->principal,
 				 server_str, &renew_expire);
     }
 
 #ifndef NO_AFS
-    if (do_afslog && k_hasafs())
+    if (!ret && do_afslog && k_hasafs())
 	krb5_afslog(ctx->context, ctx->ccache, NULL, NULL);
 #endif
 
@@ -794,12 +800,17 @@ renew_func(void *ptr)
      * for some reason...
      */
 
-    if (expire < 1) {
-        if (exp_delay < 7200)
-	    exp_delay *= 2;
-	return exp_delay;
+    if (!ret && ctx->tries < 3)
+        ctx->tries++;
+
+    if (expire < 1 && ctx->tries > 2) {
+        if (ctx->exp_delay == 0)
+            ctx->exp_delay = 1;
+        if (ctx->exp_delay < 7200)
+	    ctx->exp_delay *= 2;
+	return ctx->exp_delay;
     }
-    exp_delay = 1;
+    ctx->exp_delay = 1;
 
     return expire / 2 + 1;
 }
@@ -1168,6 +1179,8 @@ main(int argc, char **argv)
     if (argc > 1) {
 	struct renew_ctx ctx;
 	time_t timeout;
+
+        memset(&ctx, 0, sizeof(ctx));
 
 	timeout = ticket_lifetime(context, ccache, principal,
 				  server_str, NULL) / 2;
