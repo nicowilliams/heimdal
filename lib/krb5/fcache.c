@@ -42,6 +42,8 @@ typedef struct krb5_fcache{
 
 struct fcc_cursor {
     int fd;
+    off_t cred_start;
+    off_t cred_end;
     krb5_storage *sp;
 };
 
@@ -397,6 +399,8 @@ fcc_open(krb5_context context,
     struct stat sb1, sb2;
     int strict_checking;
     int fd;
+
+    *fd_ret = -1;
 
     if (FCACHE(id) == NULL)
         return krb5_einval(context, 2);
@@ -825,10 +829,15 @@ fcc_get_next (krb5_context context,
 
     if((ret = fcc_lock(context, id, FCC_CURSOR(*cursor)->fd, FALSE)) != 0)
 	return ret;
+    FCC_CURSOR(*cursor)->cred_start = lseek(FCC_CURSOR(*cursor)->fd,
+                                           0, SEEK_CUR);
 
     ret = krb5_ret_creds(FCC_CURSOR(*cursor)->sp, creds);
     if (ret)
 	krb5_clear_error_message(context);
+
+    FCC_CURSOR(*cursor)->cred_end = lseek(FCC_CURSOR(*cursor)->fd,
+                                         0, SEEK_CUR);
 
     fcc_unlock(context, FCC_CURSOR(*cursor)->fd);
     return ret;
@@ -873,10 +882,10 @@ match_kept_creds(krb5_context context,
 }
 
 static krb5_error_code KRB5_CALLCONV
-fcc_remove_cred(krb5_context context,
-		 krb5_ccache id,
-		 krb5_flags which,
-		 krb5_creds *cred)
+fcc_remove_cred_rename(krb5_context context,
+                       krb5_ccache id,
+                       krb5_flags which,
+                       krb5_creds *cred)
 {
     krb5_error_code ret;
     krb5_ccache copy;
@@ -926,6 +935,118 @@ fcc_remove_cred(krb5_context context,
     krb5_cc_close(context, copy);
 
     return ret;
+}
+
+static krb5_boolean KRB5_CALLCONV
+cred_delete(krb5_context context,
+            krb5_ccache id,
+            krb5_cc_cursor *cursor,
+            krb5_creds *cred)
+{
+    krb5_error_code ret = EINVAL;
+    krb5_storage *sp;
+    off_t new_cred_sz;
+    int fd;
+    krb5_const_realm srealm = krb5_principal_get_realm(context, cred->server);
+
+    /* Mark the cred for deletion */
+    if (cred->times.endtime < INT_MAX) {
+        cred->times.endtime = 1;
+    } else if (srealm && strcmp(srealm, "X-CACHECONF:") == 0) {
+        ret = krb5_principal_set_realm(context, cred->server, "X-RMED-CONF:");
+        if (ret)
+            goto out;
+    } else {
+        goto out;
+    }
+
+    sp = krb5_storage_emem();
+    krb5_storage_set_eof_code(sp, KRB5_CC_END);
+    storage_set_flags(context, sp, FCACHE(id)->version);
+    if (!krb5_config_get_bool_default(context, NULL, TRUE,
+                                      "libdefaults",
+                                      "fcc-mit-ticketflags",
+                                      NULL))
+        krb5_storage_set_flags(sp, KRB5_STORAGE_CREDS_FLAGS_WRONG_BITORDER);
+
+    ret = krb5_store_creds(sp, cred);
+    if (ret)
+        goto out;
+
+    /* The new cred must be the same size as the old cred */
+    new_cred_sz = krb5_storage_seek(sp, 0, SEEK_END);
+    if (new_cred_sz !=
+        (FCC_CURSOR(*cursor)->cred_end - FCC_CURSOR(*cursor)->cred_start))
+        goto out;
+
+    /* The fd we have in cursor is O_RDONLY */
+    ret = fcc_open(context, id, "remove_cred", &fd,
+                   O_WRONLY | O_BINARY | O_CLOEXEC | O_NOFOLLOW, 0);
+    if (ret == 0) {
+        if (lseek(fd, FCC_CURSOR(*cursor)->cred_start, SEEK_SET) == (off_t)-1) {
+            char buf[128];
+            rk_strerror_r(ret, buf, sizeof(buf));
+            ret = errno;
+            krb5_set_error_message(context, ret, N_("seek %s: %s", ""),
+                                   FILENAME(id), buf);
+        } else {
+            ret = write_storage(context, sp, fd);
+        }
+    }
+    fcc_unlock(context, fd);
+    if (close(fd) < 0) {
+	if (ret == 0) {
+	    char buf[128];
+	    rk_strerror_r(ret, buf, sizeof(buf));
+	    ret = errno;
+	    krb5_set_error_message(context, ret, N_("close %s: %s", ""),
+				   FILENAME(id), buf);
+	}
+    }
+
+out:
+    krb5_storage_free(sp);
+    if (ret)
+        return FALSE;
+    return TRUE;
+}
+
+static krb5_error_code KRB5_CALLCONV
+fcc_remove_cred(krb5_context context,
+                krb5_ccache id,
+                krb5_flags which,
+                krb5_creds *mcred)
+{
+    krb5_error_code ret;
+    krb5_cc_cursor cursor;
+    krb5_creds found_cred;
+
+    if (FCACHE(id) == NULL)
+        return krb5_einval(context, 2);
+
+    ret = krb5_cc_start_seq_get(context, id, &cursor);
+    if (ret)
+        return ret;
+    while ((ret = krb5_cc_next_cred(context, id, &cursor, &found_cred)) == 0) {
+        if (!krb5_compare_creds(context, which, mcred, &found_cred))
+            continue;
+        if (!cred_delete(context, id, &cursor, &found_cred)) {
+
+            /*
+             * Fall back on creating a new ccache and renaming into
+             * place.
+             */
+            krb5_cc_end_seq_get(context, id, &cursor);
+            krb5_free_cred_contents(context, &found_cred);
+            return fcc_remove_cred_rename(context, id, which, mcred);
+        }
+        krb5_free_cred_contents(context, &found_cred);
+    }
+    if (ret && ret != KRB5_CC_END) {
+        krb5_cc_end_seq_get(context, id, &cursor);
+        return ret;
+    }
+    return krb5_cc_end_seq_get(context, id, &cursor);
 }
 
 static krb5_error_code KRB5_CALLCONV
