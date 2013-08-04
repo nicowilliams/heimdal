@@ -1132,13 +1132,14 @@ check_cc(krb5_context context, krb5_flags options, krb5_ccache ccache,
 
     if (!(options & KRB5_GC_EXPIRED_OK) &&
         in_creds->times.endtime < now) {
-        /* Should have been memset() to zero */
         in_creds->times.renew_till = 0;
-        krb5_timeofday(context, &in_creds->times.renew_till);
+        krb5_timeofday(context, &in_creds->times.endtime);
+        options |= KRB5_TC_MATCH_TIMES;
     }
     return krb5_cc_retrieve_cred(context, ccache,
-                                 (options & KRB5_TC_MATCH_KEYTYPE) |
-                                 KRB5_TC_MATCH_TIMES,
+                                 (options &
+                                  (KRB5_TC_MATCH_KEYTYPE |
+                                   KRB5_TC_MATCH_TIMES)),
                                  in_creds, out_creds);
 }
 
