@@ -990,8 +990,7 @@ get_cred_kdc_referral(krb5_context context,
 	if (impersonate_principal == NULL || flags.b.constrained_delegation) {
 	    krb5_cc_clear_mcred(&mcreds);
 	    mcreds.server = referral.server;
-            krb5_timeofday(context, &mcreds.times.endtime);
-	    ret = krb5_cc_retrieve_cred(context, ccache, KRB5_TC_MATCH_TIMES,
+	    ret = krb5_cc_retrieve_cred(context, ccache, 0,
                                         &mcreds, &ticket);
 	} else
 	    ret = EINVAL;
@@ -1126,7 +1125,11 @@ static krb5_error_code
 check_cc(krb5_context context, krb5_flags options, krb5_ccache ccache,
 	 krb5_creds *in_creds, krb5_creds *out_creds)
 {
+    krb5_error_code ret;
     krb5_timestamp now;
+    krb5_times save_times;
+
+    save_times = in_creds->times;
 
     krb5_timeofday(context, &now);
 
@@ -1136,11 +1139,14 @@ check_cc(krb5_context context, krb5_flags options, krb5_ccache ccache,
         krb5_timeofday(context, &in_creds->times.endtime);
         options |= KRB5_TC_MATCH_TIMES;
     }
-    return krb5_cc_retrieve_cred(context, ccache,
-                                 (options &
-                                  (KRB5_TC_MATCH_KEYTYPE |
-                                   KRB5_TC_MATCH_TIMES)),
-                                 in_creds, out_creds);
+    ret = krb5_cc_retrieve_cred(context, ccache,
+                                (options &
+                                 (KRB5_TC_MATCH_KEYTYPE |
+                                  KRB5_TC_MATCH_TIMES)),
+                                in_creds, out_creds);
+
+    in_creds->times = save_times;
+    return ret;
 }
 
 static void
