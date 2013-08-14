@@ -27,7 +27,7 @@ if test -z "$WFLAGS" -a "$GCC" = "yes"; then
   # WFLAGS_LITE can be appended to WFLAGS to turn off a host of warnings
   # that fail for various bits of older code in appl/.  Let's not use it
   # for the main libraries, though.
-  WFLAGS_LITE="-Wno-extra -Wno-missing-field-initializers -Wno-strict-aliasing -Wno-shadow"
+  WFLAGS_LITE=""
   # -Wno-unused-result (not supported on gcc-4.2)
 
 fi
