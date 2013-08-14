@@ -67,7 +67,7 @@ DB_close(krb5_context context, HDB *db)
     heim_assert(d != 0, "Closing already closed HDB");
 
     if (dbcp != NULL)
-	dbcp->c_close(dbcp);
+	(*dbcp->c_close)(dbcp);
     if (d != NULL)
 	d->close(d, 0);
     if (db3->lock_fd >= 0)

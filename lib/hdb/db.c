@@ -35,11 +35,7 @@
 
 #if HAVE_DB1
 
-#if defined(HAVE_DB_185_H)
 #include <db_185.h>
-#elif defined(HAVE_DB_H)
-#include <db.h>
-#endif
 
 typedef struct {
     HDB hdb;            /* generic members */
