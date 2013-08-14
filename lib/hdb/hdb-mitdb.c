@@ -671,12 +671,7 @@ mdb_entry2value(krb5_context context, hdb_entry *entry, krb5_data *data)
 
 #if HAVE_DB1
 
-#if defined(HAVE_DB_185_H)
 #include <db_185.h>
-#elif defined(HAVE_DB_H)
-#include <db.h>
-#endif
-
 
 static krb5_error_code
 mdb_close(krb5_context context, HDB *db)

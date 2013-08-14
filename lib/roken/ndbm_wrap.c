@@ -34,17 +34,7 @@
 #include <config.h>
 
 #include "ndbm_wrap.h"
-#if defined(HAVE_DBHEADER)
-#include <db.h>
-#elif defined(HAVE_DB5_DB_H)
-#include <db5/db.h>
-#elif defined(HAVE_DB4_DB_H)
-#include <db4/db.h>
-#elif defined(HAVE_DB3_DB_H)
-#include <db3/db.h>
-#else
-#include <db.h>
-#endif
+#include <db_185.h>
 
 #include <stdio.h>
 #include <stdlib.h>
