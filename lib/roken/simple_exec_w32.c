@@ -339,7 +339,7 @@ simple_execvp_timed(const char *file, char *const args[],
 		    time_t (*func)(void *), void *ptr, time_t timeout)
 {
     intptr_t hp;
-    int rv;
+    int rv = 0;
 
     hp = spawnvp(_P_NOWAIT, file, args);
 
@@ -348,7 +348,10 @@ simple_execvp_timed(const char *file, char *const args[],
     else if (hp == 0)
 	return 0;
 
-    rv = wait_for_process_timed(GetProcessId((HANDLE) hp), func, ptr, timeout);
+    if (timeout >= 0) {
+        rv = wait_for_process_timed(GetProcessId((HANDLE) hp), func, ptr,
+                                    timeout);
+    }
 
     CloseHandle((HANDLE) hp);
 
@@ -368,7 +371,7 @@ simple_execve_timed(const char *file, char *const args[], char *const envp[],
 		    time_t (*func)(void *), void *ptr, time_t timeout)
 {
     intptr_t hp;
-    int rv;
+    int rv = 0;
 
     hp = spawnve(_P_NOWAIT, file, args, envp);
 
@@ -377,7 +380,10 @@ simple_execve_timed(const char *file, char *const args[], char *const envp[],
     else if (hp == 0)
 	return 0;
 
-    rv = wait_for_process_timed(GetProcessId((HANDLE) hp), func, ptr, timeout);
+    if (timeout >= 0) {
+        rv = wait_for_process_timed(GetProcessId((HANDLE) hp), func, ptr,
+                                    timeout);
+    }
 
     CloseHandle((HANDLE) hp);
 

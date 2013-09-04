@@ -275,9 +275,22 @@ simple_execve_timed(const char *file, char *const args[], char *const envp[],
     case -1:
 	return SE_E_FORKFAILED;
     case 0:
+        if (timeout < 0) {
+            /*
+             * So we should return immediately and we want to not leave
+             * zombies behind.
+             */
+            pid = fork();
+            if (pid == -1)
+                _exit(127);
+            if (pid > 0)
+                _exit(0);
+        }
 	execve(file, args, envp);
 	exit((errno == ENOENT) ? EX_NOTFOUND : EX_NOEXEC);
     default:
+        if (timeout < 0)
+            timeout = 0;
 	return wait_for_process_timed(pid, func, ptr, timeout);
     }
 }
