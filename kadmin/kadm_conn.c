@@ -119,57 +119,66 @@ terminate(int sig)
     SIGRETURN(0);
 }
 
+#define KADMIN_STRINGIFY(x) #x
+
 static int
 spawn_child(krb5_context contextp, int *socks,
-	    unsigned int num_socks, int this_sock)
+	    unsigned int num_socks, int this_sock,
+            int argc, char **argv)
 {
-    int e;
-    size_t i;
+    int ret, e;
     struct sockaddr_storage __ss;
     struct sockaddr *sa = (struct sockaddr *)&__ss;
     socklen_t sa_size = sizeof(__ss);
     krb5_socket_t s;
-    pid_t pid;
+    char **args;
     krb5_address addr;
     char buf[128];
+    char s_buf[sizeof(KADMIN_STRINGIFY(INT_MAX))];
     size_t buf_len;
 
     s = accept(socks[this_sock], sa, &sa_size);
-    if(rk_IS_BAD_SOCKET(s)) {
+    if (rk_IS_BAD_SOCKET(s)) {
 	krb5_warn(contextp, rk_SOCK_ERRNO, "accept");
 	return 1;
     }
+    if (snprintf(buf, sizeof(buf), "<unknown>") >= sizeof("<unknown>"))
+        heim_assert(sizeof("<unknown>") < sizeof(buf), "internal error");
+
     e = krb5_sockaddr2address(contextp, sa, &addr);
     if(e)
 	krb5_warn(contextp, e, "krb5_sockaddr2address");
     else {
-	e = krb5_print_address (&addr, buf, sizeof(buf),
-				&buf_len);
-	if(e)
+	e = krb5_print_address(&addr, buf, sizeof(buf), &buf_len);
+	if (e)
 	    krb5_warn(contextp, e, "krb5_print_address");
 	else
 	    krb5_warnx(contextp, "connection from %s", buf);
 	krb5_free_address(contextp, &addr);
     }
 
-    pid = fork();
-    if(pid == 0) {
-	for(i = 0; i < num_socks; i++)
-	    rk_closesocket(socks[i]);
-	dup2(s, STDIN_FILENO);
-	dup2(s, STDOUT_FILENO);
-	if(s != STDIN_FILENO && s != STDOUT_FILENO)
-	    rk_closesocket(s);
-	return 0;
-    } else {
-	rk_closesocket(s);
+    if (snprintf(s_buf, sizeof(s_buf), "%d", s) >= sizeof(s_buf)) {
+        heim_assert(sizeof(KADMIN_STRINGIFY(INT_MAX)) == sizeof(s_buf), "internal error");
+        heim_assert(1, "fail safe");
     }
+
+    args = calloc(argc, sizeof(char *));
+    args[0] = argv[0];
+    args[1] = "-H";
+    args[2] = s_buf;
+    memcpy(&args[3], &argv[1], argc - 1);
+    ret = simple_execvp_timed(argv[0], args, NULL, NULL, -2);
+    if (ret)
+        krb5_warn(contextp, errno, "failed to start a child kadmind process "
+                  "to handle connection from %s", buf);
+    rk_closesocket(s);
     return 1;
 }
 
 static void
 wait_for_connection(krb5_context contextp,
-		    krb5_socket_t *socks, unsigned int num_socks)
+		    krb5_socket_t *socks, unsigned int num_socks,
+                    int argc, char **argv)
 {
     unsigned int i;
     int e;
@@ -207,7 +216,8 @@ wait_for_connection(krb5_context contextp,
 	else {
 	    for(i = 0; i < num_socks; i++) {
 		if(FD_ISSET(socks[i], &read_set))
-		    if(spawn_child(contextp, socks, num_socks, i) == 0)
+		    if(spawn_child(contextp, socks, num_socks, i,
+                                   argc, argv) == 0)
 			return;
 	    }
 	}
@@ -222,7 +232,8 @@ wait_for_connection(krb5_context contextp,
 
 
 void
-start_server(krb5_context contextp, const char *port_str)
+start_server(krb5_context contextp, const char *port_str,
+             int argc, char **argv)
 {
     int e;
     struct kadm_port *p;
@@ -270,6 +281,7 @@ start_server(krb5_context contextp, const char *port_str)
 		krb5_warn(contextp, rk_SOCK_ERRNO, "socket");
 		continue;
 	    }
+            rk_cloexec(s);
 
 	    socket_set_reuseaddr(s, 1);
 	    socket_set_ipv6only(s, 1);
@@ -291,5 +303,5 @@ start_server(krb5_context contextp, const char *port_str)
     if(num_socks == 0)
 	krb5_errx(contextp, 1, "no sockets to listen to - exiting");
 
-    wait_for_connection(contextp, socks, num_socks);
+    wait_for_connection(contextp, socks, num_socks, argc, argv);
 }

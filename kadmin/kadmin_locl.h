@@ -144,7 +144,7 @@ random_password(char *, size_t);
 extern sig_atomic_t term_flag, doing_useful_work;
 
 void parse_ports(krb5_context, const char*);
-void start_server(krb5_context, const char*);
+void start_server(krb5_context, const char*, int, char**);
 
 /* server.c */
 

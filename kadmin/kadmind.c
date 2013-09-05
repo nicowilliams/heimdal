@@ -33,6 +33,8 @@
 
 #include "kadmin_locl.h"
 
+char *prog = "kadmind";
+
 static char *check_library  = NULL;
 static char *check_function = NULL;
 static getarg_strings policy_libraries = { 0, NULL };
@@ -42,6 +44,7 @@ static char *keytab_str = sHDB;
 static int help_flag;
 static int version_flag;
 static int debug_flag;
+static int accepted_socket = -1;
 static char *port_str;
 char *realm;
 
@@ -70,6 +73,7 @@ static struct getargs args[] = {
     },
     {	"ports",	'p',	arg_string, &port_str,
 	"ports to listen to", "port" },
+    {   "handle-one",   'H',    arg_integer, &accepted_socket, NULL, NULL },
     {	"help",		'h',	arg_flag,   &help_flag, NULL, NULL },
     {	"version",	'v',	arg_flag,   &version_flag, NULL, NULL }
 };
@@ -115,9 +119,6 @@ main(int argc, char **argv)
 	exit(0);
     }
 
-    argc -= optidx;
-    argv += optidx;
-
     if (config_file == NULL) {
 	int aret;
 
@@ -162,7 +163,7 @@ main(int argc, char **argv)
     if (ret)
 	krb5_err(context, 1, ret, "kadm5_add_passwd_quality_verifier");
 
-    if(debug_flag) {
+    if (debug_flag) {
 	int debug_port;
 
 	if(port_str == NULL)
@@ -173,6 +174,7 @@ main(int argc, char **argv)
 	mini_inetd(debug_port, &sfd);
     } else {
 #ifdef _WIN32
+        /* Can't there be an inetd on Windows? */
 	start_server(context, port_str);
 #else
 	struct sockaddr_storage __ss;
@@ -184,9 +186,9 @@ main(int argc, char **argv)
 	 * our own server.
 	 */
 
-	if(roken_getsockname(STDIN_FILENO, sa, &sa_size) < 0 &&
-	   rk_SOCK_ERRNO == ENOTSOCK) {
-	    start_server(context, port_str);
+	if (roken_getsockname(STDIN_FILENO, sa, &sa_size) < 0 &&
+            rk_SOCK_ERRNO == ENOTSOCK) {
+	    start_server(context, port_str, argc, argv);
 	}
 #endif /* _WIN32 */
 	sfd = STDIN_FILENO;
