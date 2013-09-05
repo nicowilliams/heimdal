@@ -44,7 +44,7 @@ static char *keytab_str = sHDB;
 static int help_flag;
 static int version_flag;
 static int debug_flag;
-static int accepted_socket = -1;
+static int accepted_socket = rk_INVALID_SOCKET;
 static char *port_str;
 char *realm;
 
@@ -98,7 +98,6 @@ main(int argc, char **argv)
     int i;
     krb5_log_facility *logfacility;
     krb5_keytab keytab;
-    krb5_socket_t sfd = rk_INVALID_SOCKET;
 
     setprogname(argv[0]);
 
@@ -171,11 +170,15 @@ main(int argc, char **argv)
 					     "tcp", 749);
 	else
 	    debug_port = htons(atoi(port_str));
-	mini_inetd(debug_port, &sfd);
-    } else {
+	mini_inetd(debug_port, &accepted_socket);
+    } else if (accepted_socket == rk_INVALID_SOCKET) {
 #ifdef _WIN32
         /* Can't there be an inetd on Windows? */
 	start_server(context, port_str);
+        /*
+         * XXX We should really close any handles/fds we don't need, but
+         * except for cloexec we don't know how to.
+         */
 #else
 	struct sockaddr_storage __ss;
 	struct sockaddr *sa = (struct sockaddr *)&__ss;
@@ -191,13 +194,13 @@ main(int argc, char **argv)
 	    start_server(context, port_str, argc, argv);
 	}
 #endif /* _WIN32 */
-	sfd = STDIN_FILENO;
+	accepted_socket = STDIN_FILENO;
     }
 
     if(realm)
 	krb5_set_default_realm(context, realm); /* XXX */
 
-    kadmind_loop(context, keytab, sfd);
+    kadmind_loop(context, keytab, accepted_socket);
 
     return 0;
 }
