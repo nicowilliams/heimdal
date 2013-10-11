@@ -1,0 +1,11 @@
+# Not relocatable, for now
+BASEDIR=/
+NAME="Secure Endpoints Heimdal"
+PKG=SEheimdal
+DESC="Secure Endpoints Heimdal"
+EMAIL=heimdal@secure-endpoints.com
+VENDOR="Secure Endpoints"
+MAXINST=1
+CLASSES=none
+ORDER=none
+CATEGORY=application
