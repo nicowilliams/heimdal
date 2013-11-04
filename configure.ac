@@ -674,6 +674,7 @@ AC_CONFIG_FILES(Makefile 		\
 	tests/plugin/Makefile		\
 	packages/Makefile		\
 	packages/mac/Makefile		\
+	packages/solaris-svr4/Makefile	\
 	doc/Makefile			\
 	tools/Makefile			\
 )
