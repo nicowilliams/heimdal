@@ -55,8 +55,8 @@ while [[ $# -gt 0 ]]; do
     --objdir) objdir=${2}; shift;;
     --objdir=*) objdir=${1#*=};;
     --nocheck|--nocheck=*) check=false;;
-    --) shift; break;;
-    -h|--help) ; usage 0;;
+    --) break;;
+    -h|--help) usage 0;;
     *) usage;;
     esac
     shift
