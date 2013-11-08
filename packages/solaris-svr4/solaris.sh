@@ -31,6 +31,14 @@ function pkg_arch {
     fi
 }
 
+function realdirpath {
+    (cd "$1" && echo $PWD)
+}
+
+echo PATH=$PATH
+
+echo gcc=$(which gcc)
+
 check=true
 built=false
 build32=false
@@ -46,14 +54,14 @@ while [[ $# -gt 0 ]]; do
     --64) build64=true;;
     --pkginfo) pkginfo=${2}; shift;;
     --pkginfo=*) pkginfo=${1#*=};;
-    --built) built=true; builddir=${2}; shift;;
-    --built=*) built=true; builddir=${1#*=};;
+    --built) built=true; builddir=$(realdirpath ${2}); shift;;
+    --built=*) built=true; builddir=$(realdirpath ${1#*=});;
     --pkgname) pkgname=${2}; shift;;
     --pkgname=*) pkgname=${1#*=};;
     --srcdir) srcdir=${2}; shift;;
     --srcdir=*) srcdir=${1#*=};;
-    --objdir) objdir=${2}; shift;;
-    --objdir=*) objdir=${1#*=};;
+    --objdir) objdir=$(realdirpath ${2}); shift;;
+    --objdir=*) objdir=$(realdirpath ${1#*=});;
     --nocheck|--nocheck=*) check=false;;
     --) break;;
     -h|--help) usage 0;;
@@ -82,7 +90,6 @@ base=$(cd "$base" && pwd)
 config=${srcdir}/configure
 destdir=${objdir}/destdir
 imgdir=${objdir}/imgdir
-unset pkgs
 
 builddir32=
 builddir64=
@@ -153,7 +160,8 @@ for bitness in 32 64; do
     fi
 
     echo "Install into DESTDIR=${destdir}"
-    make install DESTDIR="${destdir}" > /dev/null
+    export SHELL=/usr/bin/bash
+    make install V=1 SHELL=/usr/bin/bash DESTDIR="${destdir}"
     echo "Package"
     grep -v '^PKG=' "$pkginfo" > "$objdir/pkginfo"
     printf 'PKG=%s\n' "$pkgname" >> "$objdir/pkginfo"
@@ -161,7 +169,8 @@ for bitness in 32 64; do
     pkgmk -a sparc -v "$(uname -r)--$version" -d "$imgdir" -f <(
         printf 'i pkginfo=$OBJDIR/pkginfo\n'
         printf 'i copyright=$SRCDIR/packages/solaris-svr4/copyright\n'
-        pkgproto "${destdir}/${prefix}=${prefix}"
+        pkgproto "${destdir}/${prefix}=${prefix}" | 
+            sed -e "s,\<$LOGNAME\> \([^ ]*\),root bin,"
     ) SRCDIR="$srcdir" OBJDIR="$objdir" "${pkgname}"
     pkgtrans -s "$imgdir" "${imgdir}/${pkgname}.pkg" ${pkgname}
     pkgs[${#pkgs[@]}]=${imgdir}/${pkgname}.pkg
