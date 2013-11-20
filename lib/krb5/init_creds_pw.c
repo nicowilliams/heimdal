@@ -1551,7 +1551,7 @@ krb5_init_creds_set_keytab(krb5_context context,
     krb5_enctype *etypes = NULL;
     krb5_error_code ret;
     size_t netypes = 0;
-    int kvno = 0, found = 0;
+    int kvno = 0;
 
     a = malloc(sizeof(*a));
     if (a == NULL)
@@ -1569,19 +1569,38 @@ krb5_init_creds_set_keytab(krb5_context context,
      * esp if the keytab is really a password based entry, then the
      * KDC might have more enctypes in the database then what we have
      * in the keytab.
+     *
+     * First we get an entry.  Then we iterate the keytab if it supports
+     * it.
      */
 
+    ret = krb5_kt_get_entry(context, keytab, ctx->cred.client, 0, 0, &entry);
+    if (ret)
+        goto out;
+
+    /* check if enctype is supported */
+    if (krb5_enctype_valid(context, entry.keyblock.keytype) == 0) {
+        kvno = entry.vno;
+        etypes = calloc(sizeof(etypes[0]), 2);
+        etypes[0] = entry.keyblock.keytype;
+        etypes[1] = ETYPE_NULL;
+        netypes = 1;
+    }
+
+    krb5_kt_free_entry(context, &entry);
+
     ret = krb5_kt_start_seq_get(context, keytab, &cursor);
-    if(ret)
+    if (ret)
 	goto out;
 
-    while(krb5_kt_next_entry(context, keytab, &entry, &cursor) == 0){
+    while (krb5_kt_next_entry(context, keytab, &entry, &cursor) == 0) {
 	void *ptr;
 
 	if (!krb5_principal_compare(context, entry.principal, ctx->cred.client))
 	    goto next;
 
-	found = 1;
+        if (entry.vno < kvno)
+            goto next;
 
 	/* check if we ahve this kvno already */
 	if (entry.vno > kvno) {
@@ -1591,17 +1610,25 @@ krb5_init_creds_set_keytab(krb5_context context,
 	    etypes = NULL;
 	    netypes = 0;
 	    kvno = entry.vno;
-	} else if (entry.vno != kvno)
-	    goto next;
+	}
 
 	/* check if enctype is supported */
 	if (krb5_enctype_valid(context, entry.keyblock.keytype) != 0)
+            /*
+             * Note that etypes might be NULL here, and might come out
+             * NULL if we never find a valid enctype.
+             *
+             * Note also that we don't set ret in this loop, except
+             * where realloc() fails, so that at the end etypes != NULL
+             * implies success.
+             */
 	    goto next;
 
 	/* add enctype to supported list */
 	ptr = realloc(etypes, sizeof(etypes[0]) * (netypes + 2));
 	if (ptr == NULL) {
 	    free(etypes);
+            etypes = NULL;
 	    ret = krb5_enomem(context);
 	    goto out;
 	}
@@ -1615,20 +1642,18 @@ krb5_init_creds_set_keytab(krb5_context context,
     }
     krb5_kt_end_seq_get(context, keytab, &cursor);
 
-    if (etypes) {
-	if (ctx->etypes)
-	    free(ctx->etypes);
-	ctx->etypes = etypes;
-    }
-
  out:
-    if (!found) {
-	if (ret == 0)
-	    ret = KRB5_KT_NOTFOUND;
-	_krb5_kt_principal_not_found(context, ret, keytab, ctx->cred.client, 0, 0);
+    if (etypes) {
+        /*
+         * Success, even if ret != 0.  If ret != 0 probably the keytab
+         * can't be enumerated, e.g., the HDBGET keytab type.
+         */
+        if (ctx->etypes)
+            free(ctx->etypes);
+        ctx->etypes = etypes;
+        return 0;
     }
-
-    return ret;
+    return _krb5_kt_principal_not_found(context, ret, keytab, ctx->cred.client, 0, 0);
 }
 
 static krb5_error_code KRB5_CALLCONV
