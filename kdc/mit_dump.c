@@ -111,13 +111,13 @@ my_fgetln(FILE *f, char **buf, size_t *sz, size_t *len)
             *sz = 2048;
     }
     *len = 0;
-    while ((p = fgets(&(*buf)[*len], *sz, f))) {
+    while ((p = fgets(&(*buf)[*len], *sz - *len, f))) {
         *len = strlen(*buf);
         if (feof(f))
             return 0;
         if (strchr(*buf, '\n'))
             return 0;
-        n = realloc(buf, *sz + (*sz >> 1));
+        n = realloc(*buf, *sz + (*sz >> 1));
         if (!n) {
             free(*buf);
             *buf = NULL;
