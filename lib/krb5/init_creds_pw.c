@@ -1529,6 +1529,28 @@ keytab_key_proc(krb5_context context, krb5_enctype enctype,
 }
 
 
+static krb5_error_code
+add_enctype(krb5_context context,
+            krb5_enctype enctype,
+            krb5_enctype **enctypes,
+            size_t *nenctypes)
+{
+    krb5_enctype *p;
+
+    p = realloc(*enctypes, sizeof((*enctypes)[0]) * ((*nenctypes) + 2));
+    if (p == NULL) {
+        free(*enctypes);
+        *enctypes = NULL;
+        return krb5_enomem(context);
+    }
+
+    *enctypes = p;
+    (*enctypes)[(*nenctypes)++] = enctype;
+    (*enctypes)[*nenctypes] = KRB5_ENCTYPE_NULL;
+
+    return 0;
+}
+
 /**
  * Set the keytab to use for authentication.
  *
@@ -1549,6 +1571,7 @@ krb5_init_creds_set_keytab(krb5_context context,
     krb5_keytab_entry entry;
     krb5_kt_cursor cursor;
     krb5_enctype *etypes = NULL;
+    krb5_enctype *as_etypes, *etype;
     krb5_error_code ret;
     size_t netypes = 0;
     int kvno = 0;
@@ -1565,37 +1588,43 @@ krb5_init_creds_set_keytab(krb5_context context,
     ctx->keyproc = keytab_key_proc;
 
     /*
-     * We need to the KDC what enctypes we support for this keytab,
-     * esp if the keytab is really a password based entry, then the
-     * KDC might have more enctypes in the database then what we have
-     * in the keytab.
+     * We need to tell the KDC what enctypes we support for this keytab,
+     * esp if the keytab is really a password based entry, then the KDC
+     * might have more enctypes in the database then what we have in the
+     * keytab.
      *
-     * First we get an entry.  Then we iterate the keytab if it supports
-     * it.
+     * We'll iterate the keytab and gather the enctypes of all the keys
+     * with the highest kvno for this principal.  If we can't iterate
+     * over the keytab then we'll iterate over the configured enctypes
+     * looking for matches in the keytab.
      */
+    ret = krb5_kt_start_seq_get(context, keytab, &cursor);
+    if (ret == HEIM_ERR_OPNOTSUPP) {
+        /* Probaly an HDBGET keytab */
+        ret = krb5_get_default_in_tkt_etypes(context, KRB5_PDU_AS_REQUEST, &as_etypes);
+        if (ret)
+            goto out;
 
-    ret = krb5_kt_get_entry(context, keytab, ctx->cred.client, 0, 0, &entry);
-    if (ret)
+        for (etype = as_etypes; *etype != KRB5_ENCTYPE_NULL; etype++) {
+            ret = krb5_kt_get_entry(context, keytab, ctx->cred.client,
+                                    kvno, *etype, &entry);
+            if (ret)
+                continue;
+            if (kvno == 0)
+                kvno = entry.vno;
+            krb5_kt_free_entry(context, &entry);
+            if (krb5_enctype_valid(context, *etype) == 0) {
+                ret = add_enctype(context, *etype, &etypes, &netypes);
+                if (ret) {
+                    free(etypes);
+                    return krb5_enomem(context);
+                }
+            }
+        }
         goto out;
-
-    /* check if enctype is supported */
-    if (krb5_enctype_valid(context, entry.keyblock.keytype) == 0) {
-        kvno = entry.vno;
-        etypes = calloc(sizeof(etypes[0]), 2);
-        etypes[0] = entry.keyblock.keytype;
-        etypes[1] = ETYPE_NULL;
-        netypes = 1;
     }
 
-    krb5_kt_free_entry(context, &entry);
-
-    ret = krb5_kt_start_seq_get(context, keytab, &cursor);
-    if (ret)
-	goto out;
-
     while (krb5_kt_next_entry(context, keytab, &entry, &cursor) == 0) {
-	void *ptr;
-
 	if (!krb5_principal_compare(context, entry.principal, ctx->cred.client))
 	    goto next;
 
@@ -1625,18 +1654,15 @@ krb5_init_creds_set_keytab(krb5_context context,
 	    goto next;
 
 	/* add enctype to supported list */
-	ptr = realloc(etypes, sizeof(etypes[0]) * (netypes + 2));
-	if (ptr == NULL) {
+        ret = add_enctype(context, entry.keyblock.keytype, &etypes, &netypes);
+	if (ret) {
 	    free(etypes);
             etypes = NULL;
-	    ret = krb5_enomem(context);
-	    goto out;
+            krb5_kt_free_entry(context, &entry);
+            krb5_kt_end_seq_get(context, keytab, &cursor);
+	    return krb5_enomem(context);
 	}
 
-	etypes = ptr;
-	etypes[netypes] = entry.keyblock.keytype;
-	etypes[netypes + 1] = ETYPE_NULL;
-	netypes++;
     next:
 	krb5_kt_free_entry(context, &entry);
     }
@@ -1653,6 +1679,8 @@ krb5_init_creds_set_keytab(krb5_context context,
         ctx->etypes = etypes;
         return 0;
     }
+    if (ret == 0)
+        ret = KRB5_KT_NOTFOUND;
     return _krb5_kt_principal_not_found(context, ret, keytab, ctx->cred.client, 0, 0);
 }
 
