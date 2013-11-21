@@ -1605,6 +1605,14 @@ krb5_init_creds_set_keytab(krb5_context context,
         if (ret)
             goto out;
 
+        /*
+         * This is silly, bound to be slow for when the as_etypes[] is a
+         * large array.  It'd be much better to have a keytab-as-HDB
+         * adaptor than to use HDBs as keytabs.  Or maybe to have both.
+         * And/or just a better keytab API.  Then we could really make
+         * use of the timestamps in keytab entries for discarding old
+         * entries and what not.
+         */
         for (etype = as_etypes; *etype != KRB5_ENCTYPE_NULL; etype++) {
             ret = krb5_kt_get_entry(context, keytab, ctx->cred.client,
                                     kvno, *etype, &entry);
