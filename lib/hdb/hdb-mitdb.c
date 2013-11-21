@@ -1341,21 +1341,12 @@ _hdb_mit_dump2mitdb_entry(krb5_context context, char *line, krb5_storage *sp)
 
     /* scan and write TL data */
     for (i = 0; i < num_tl_data; i++) {
-        char *reading_what;
         int tl_type, tl_length;
         unsigned char *buf;
 
         tl_type = getint(&p, "TL data type");
         tl_length = getint(&p, "data length");
 
-        if (asprintf(&reading_what, "TL data type %d (length %d)",
-                     tl_type, tl_length) < 0)
-            return ENOMEM;
-
-        /*
-         * XXX Leaking reading_what, but only on ENOMEM cases anyways,
-         * so we don't care.
-         */
         CHECK_UINT16(tl_type);
         ret = krb5_store_uint16(sp, tl_type);
         if (ret) return ret;
@@ -1366,7 +1357,7 @@ _hdb_mit_dump2mitdb_entry(krb5_context context, char *line, krb5_storage *sp)
         if (tl_length) {
             buf = malloc(tl_length);
             if (!buf) return ENOMEM;
-            if (getdata(&p, buf, tl_length, reading_what) != tl_length)
+            if (getdata(&p, buf, tl_length, "TL data") != tl_length)
                 return EINVAL;
             sz = krb5_storage_write(sp, buf, tl_length);
             free(buf);
@@ -1374,7 +1365,6 @@ _hdb_mit_dump2mitdb_entry(krb5_context context, char *line, krb5_storage *sp)
         } else {
             if (strcmp(nexttoken(&p, 0, "'-1' field"), "-1") != 0) return EINVAL;
         }
-        free(reading_what);
     }
 
     for (i = 0; i < num_key_data; i++) {
