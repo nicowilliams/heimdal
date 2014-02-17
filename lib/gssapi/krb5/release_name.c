@@ -33,21 +33,63 @@
 
 #include "gsskrb5_locl.h"
 
-OM_uint32 GSSAPI_CALLCONV _gsskrb5_release_name
-           (OM_uint32 * minor_status,
-            gss_name_t * input_name
-           )
+static void free_name_attrs(OM_uint32 *, struct gsskrb5_name_attr **);
+
+OM_uint32 GSSAPI_CALLCONV
+_gsskrb5_free_name(OM_uint32 *minor_status,
+                   krb5_context context,
+                   gss_name_t *input_name)
+{
+    return _gsskrb5_free_name2(minor_status, context,
+                               (gsskrb5_name *)input_name);
+}
+
+OM_uint32 GSSAPI_CALLCONV
+_gsskrb5_free_name2(OM_uint32 *minor_status,
+                   krb5_context context,
+                   gsskrb5_name *input_name)
+{
+    gsskrb5_name name = *input_name;
+
+    if (name == NULL)
+        return GSS_S_COMPLETE;
+
+    krb5_free_principal(context, name->princ);
+    if (name->ticket_enc_part != NULL)
+        krb5_free_ticket(context, name->ticket_enc_part);
+    if (name->ticket)
+        free_Ticket(name->ticket);
+    free_name_attrs(minor_status, name->requested_attrs);
+    free_name_attrs(minor_status, name->cached_attrs);
+    free(name->requested_attrs);
+    free(name->cached_attrs);
+
+    *(gss_name_t *)input_name = GSS_C_NO_NAME;
+    return GSS_S_COMPLETE;
+}
+
+OM_uint32 GSSAPI_CALLCONV
+_gsskrb5_release_name(OM_uint32 *minor_status, gss_name_t *input_name)
 {
     krb5_context context;
-    krb5_principal name = (krb5_principal)*input_name;
 
     *minor_status = 0;
+    if (input_name == NULL)
+        return GSS_S_COMPLETE;
 
     GSSAPI_KRB5_INIT (&context);
 
-    *input_name = GSS_C_NO_NAME;
+    return _gsskrb5_free_name(minor_status, context, input_name);
+}
 
-    krb5_free_principal(context, name);
+static void
+free_name_attrs(OM_uint32 *minor_status, struct gsskrb5_name_attr **attrs)
+{
+    struct gsskrb5_name_attr **a;
 
-    return GSS_S_COMPLETE;
+    for (a = attrs; a != NULL && *a != NULL; a++) {
+        free((*a)->attr);
+        _gsskrb5_release_buffer(minor_status, &(*a)->value);
+        _gsskrb5_release_buffer(minor_status, &(*a)->display_value);
+    }
 }

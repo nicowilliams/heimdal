@@ -39,20 +39,32 @@ OM_uint32 GSSAPI_CALLCONV _gsskrb5_duplicate_name (
             gss_name_t * dest_name
            )
 {
-    krb5_const_principal src = (krb5_const_principal)src_name;
+    gsskrb5_const_name src = (gsskrb5_const_name)src_name;
     krb5_context context;
-    krb5_principal dest;
+    gsskrb5_name dest;
     krb5_error_code kret;
 
     GSSAPI_KRB5_INIT (&context);
 
-    kret = krb5_copy_principal (context, src, &dest);
+    dest = calloc(1, sizeof(*dest));
+    if (dest == NULL) {
+        *minor_status = krb5_enomem(context);
+        return GSS_S_FAILURE;
+    }
+    dest->ticket = NULL;
+    dest->ticket_enc_part = NULL;
+    dest->requested_attrs = NULL;
+    dest->cached_attrs = NULL;
+
+
+    kret = krb5_copy_principal(context, src->princ, &dest->princ);
     if (kret) {
 	*minor_status = kret;
 	return GSS_S_FAILURE;
-    } else {
-	*dest_name = (gss_name_t)dest;
-	*minor_status = 0;
-	return GSS_S_COMPLETE;
     }
+
+    /* XXX copy the rest: ticket, ticket enc part, and requested attributes! */
+    *dest_name = (gss_name_t)dest;
+    *minor_status = 0;
+    return GSS_S_COMPLETE;
 }

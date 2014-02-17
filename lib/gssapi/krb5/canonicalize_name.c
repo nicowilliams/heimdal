@@ -33,12 +33,11 @@
 
 #include "gsskrb5_locl.h"
 
-OM_uint32 GSSAPI_CALLCONV _gsskrb5_canonicalize_name (
-            OM_uint32 * minor_status,
-            gss_const_name_t input_name,
-            const gss_OID mech_type,
-            gss_name_t * output_name
-           )
+OM_uint32 GSSAPI_CALLCONV
+_gsskrb5_canonicalize_name(OM_uint32 * minor_status,
+                           gss_const_name_t input_name,
+                           const gss_OID mech_type,
+                           gss_name_t * output_name)
 {
     krb5_context context;
     krb5_principal name;
@@ -52,7 +51,7 @@ OM_uint32 GSSAPI_CALLCONV _gsskrb5_canonicalize_name (
     if (ret)
 	return ret;
 
-    *output_name = (gss_name_t)name;
+    _gsskrb5_make_name(minor_status, context, name, output_name);
 
     return GSS_S_COMPLETE;
 }

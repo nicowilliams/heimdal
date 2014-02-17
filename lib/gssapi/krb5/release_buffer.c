@@ -33,14 +33,12 @@
 
 #include "gsskrb5_locl.h"
 
-OM_uint32 _gsskrb5_release_buffer
-           (OM_uint32 * minor_status,
-            gss_buffer_t buffer
-           )
+OM_uint32
+_gsskrb5_release_buffer(OM_uint32 *minor_status, gss_buffer_t buffer)
 {
-  *minor_status = 0;
-  free (buffer->value);
-  buffer->value  = NULL;
-  buffer->length = 0;
-  return GSS_S_COMPLETE;
+    *minor_status = 0;
+    free(buffer->value);
+    buffer->length = 0;
+    buffer->value = NULL;
+    return GSS_S_COMPLETE;
 }

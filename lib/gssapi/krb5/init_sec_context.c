@@ -199,38 +199,42 @@ _gsskrb5_create_ctx(
 
 
 static OM_uint32
-gsskrb5_get_creds(
-        OM_uint32 * minor_status,
-	krb5_context context,
-	krb5_ccache ccache,
-	gsskrb5_ctx ctx,
-	gss_const_name_t target_name,
-	int use_dns,
-	OM_uint32 time_req,
-	OM_uint32 * time_rec)
+gsskrb5_get_creds(OM_uint32 *minor_status,
+                  krb5_context context,
+                  krb5_ccache ccache,
+                  gsskrb5_ctx ctx,
+                  gss_const_name_t target_name,
+                  int use_dns,
+                  OM_uint32 time_req,
+                  OM_uint32 *time_rec)
 {
     OM_uint32 ret;
     krb5_error_code kret;
     krb5_creds this_cred;
     OM_uint32 lifetime_rec;
+    krb5_principal name;
 
-    if (ctx->target) {
-	krb5_free_principal(context, ctx->target);
-	ctx->target = NULL;
-    }
+    _gsskrb5_free_name2(minor_status, context, &ctx->target);
+
     if (ctx->kcred) {
 	krb5_free_creds(context, ctx->kcred);
 	ctx->kcred = NULL;
     }
 
     ret = _gsskrb5_canon_name(minor_status, context, use_dns,
-			      ctx->source, target_name, &ctx->target);
+                              _gsskrb5_name2pname(ctx->source), target_name,
+                              &name);
     if (ret)
 	return ret;
 
+    ret = _gsskrb5_make_name2(minor_status, context, name, &ctx->target);
+    krb5_free_principal(context, name);
+    if (ret)
+        return ret;
+
     memset(&this_cred, 0, sizeof(this_cred));
-    this_cred.client = ctx->source;
-    this_cred.server = ctx->target;
+    this_cred.client = (krb5_principal)_gsskrb5_name2pname(ctx->source);
+    this_cred.server = (krb5_principal)_gsskrb5_name2pname(ctx->target);
 
     if (time_req && time_req != GSS_C_INDEFINITE) {
 	krb5_timestamp ts;
@@ -309,14 +313,14 @@ gsskrb5_initiator_ready(
  */
 
 static void
-do_delegation (krb5_context context,
-	       krb5_auth_context ac,
-	       krb5_ccache ccache,
-	       krb5_creds *cred,
-	       krb5_const_principal name,
-	       krb5_data *fwd_data,
-	       uint32_t flagmask,
-	       uint32_t *flags)
+do_delegation(krb5_context context,
+	      krb5_auth_context ac,
+	      krb5_ccache ccache,
+	      krb5_creds *cred,
+	      krb5_const_principal name,
+	      krb5_data *fwd_data,
+	      uint32_t flagmask,
+	      uint32_t *flags)
 {
     krb5_creds creds;
     KDCOptions fwd_flags;
@@ -395,6 +399,7 @@ init_auth
     krb5_data fwd_data;
     OM_uint32 lifetime_rec;
     int allow_dns = 1;
+    krb5_principal pname;
 
     krb5_data_zero(&outbuf);
     krb5_data_zero(&fwd_data);
@@ -415,12 +420,15 @@ init_auth
     } else
 	ctx->ccache = cred->ccache;
 
-    kret = krb5_cc_get_principal (context, ctx->ccache, &ctx->source);
+    kret = krb5_cc_get_principal(context, ctx->ccache, &pname);
     if (kret) {
 	*minor_status = kret;
 	ret = GSS_S_FAILURE;
 	goto failure;
     }
+
+    ret = _gsskrb5_make_name2(minor_status, context, pname, &ctx->source);
+    krb5_free_principal(context, pname);
 
     /*
      * This is hideous glue for (NFS) clients that wants to limit the
@@ -568,10 +576,11 @@ init_auth_restart
     flags = 0;
     ap_options = 0;
     if (flagmask & GSS_C_DELEG_FLAG) {
-	do_delegation (context,
-		       ctx->deleg_auth_context,
-		       ctx->ccache, ctx->kcred, ctx->target,
-		       &fwd_data, flagmask, &flags);
+	do_delegation(context,
+		      ctx->deleg_auth_context,
+		      ctx->ccache, ctx->kcred,
+                      _gsskrb5_name2pname(ctx->target),
+		      &fwd_data, flagmask, &flags);
     }
 
     if (req_flags & GSS_C_MUTUAL_FLAG) {
@@ -625,7 +634,8 @@ init_auth_restart
 
     enctype = ctx->auth_context->keyblock->keytype;
 
-    ret = krb5_cc_get_config(context, ctx->ccache, ctx->target,
+    ret = krb5_cc_get_config(context, ctx->ccache,
+                             _gsskrb5_name2pname(ctx->target),
 			     "time-offset", &timedata);
     if (ret == 0) {
 	if (timedata.length == 4) {
@@ -724,7 +734,8 @@ handle_error_packet(krb5_context context,
 	    timedata.data = p;
 	    timedata.length = sizeof(p);
 
-	    krb5_cc_set_config(context, ctx->ccache, ctx->target,
+	    krb5_cc_set_config(context, ctx->ccache,
+                               _gsskrb5_name2pname(ctx->target),
 			       "time-offset", &timedata);
 
 	    if ((ctx->more_flags & RETRIED) == 0)

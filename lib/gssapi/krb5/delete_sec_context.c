@@ -62,16 +62,16 @@ _gsskrb5_delete_sec_context(OM_uint32 * minor_status,
     krb5_auth_con_free (context, ctx->deleg_auth_context);
     if (ctx->kcred)
 	krb5_free_creds(context, ctx->kcred);
-    if(ctx->source)
-	krb5_free_principal (context, ctx->source);
-    if(ctx->target)
-	krb5_free_principal (context, ctx->target);
+    if (ctx->source)
+	_gsskrb5_free_name2(minor_status, context, &ctx->source);
+    if (ctx->target)
+	_gsskrb5_free_name2(minor_status, context, &ctx->target);
     if (ctx->ticket)
-	krb5_free_ticket (context, ctx->ticket);
-    if(ctx->order)
+	krb5_free_ticket(context, ctx->ticket);
+    if (ctx->order)
 	_gssapi_msg_order_destroy(&ctx->order);
     if (ctx->service_keyblock)
-	krb5_free_keyblock (context, ctx->service_keyblock);
+	krb5_free_keyblock(context, ctx->service_keyblock);
     krb5_data_free(&ctx->fwd_data);
     if (ctx->crypto)
     	krb5_crypto_destroy(context, ctx->crypto);

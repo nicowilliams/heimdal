@@ -53,10 +53,30 @@
 
 struct gss_msg_order;
 
+struct gsskrb5_name_attr {
+  char *attr;
+  gss_buffer_desc value;
+  gss_buffer_desc display_value;    /* If set, it's cached */
+  unsigned int complete:1;
+  unsigned int authenticated:1;
+  unsigned int displayed:1;
+  unsigned int constraints_checked:1;   /* Set if name constraints checked */
+  unsigned int meets_constraints:1;     /* Set if name constraints met */
+};
+
+typedef struct gsskrb5_name {
+  krb5_principal princ;              /* princ name */
+  Ticket *ticket;               /* acceptor-side, or imported composite name */
+  krb5_ticket *ticket_enc_part; /* ditto */
+  struct gsskrb5_name_attr **requested_attrs;   /* gss_set_name_atttribute() */
+  struct gsskrb5_name_attr **cached_attrs;      /* cache for get */
+} *gsskrb5_name;
+typedef const struct gsskrb5_name *gsskrb5_const_name;
+
 typedef struct gsskrb5_ctx {
   struct krb5_auth_context_data *auth_context;
   struct krb5_auth_context_data *deleg_auth_context;
-  krb5_principal source, target;
+  gsskrb5_name source, target;
 #define IS_DCE_STYLE(ctx) (((ctx)->flags & GSS_C_DCE_STYLE) != 0)
   OM_uint32 flags;
   enum { LOCAL = 1, OPEN = 2,
@@ -91,6 +111,7 @@ typedef struct gsskrb5_ctx {
 
 typedef struct {
   krb5_principal principal;
+  gsskrb5_name name;
   int cred_flags;
 #define GSS_CF_DESTROY_CRED_ON_RELEASE	1
 #define GSS_CF_NO_CI_FLAGS		2
@@ -102,8 +123,6 @@ typedef struct {
   HEIMDAL_MUTEX cred_id_mutex;
   krb5_enctype *enctypes;
 } *gsskrb5_cred;
-
-typedef struct Principal *gsskrb5_name;
 
 /*
  *

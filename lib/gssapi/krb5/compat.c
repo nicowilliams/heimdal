@@ -89,11 +89,11 @@ _gss_DES3_get_mic_compat(OM_uint32 *minor_status,
     OM_uint32 ret;
 
     if ((ctx->more_flags & COMPAT_OLD_DES3_SELECTED) == 0) {
-	ret = check_compat(minor_status, context, ctx->target,
+	ret = check_compat(minor_status, context, ctx->target->princ,
 			   "broken_des3_mic", &use_compat, TRUE);
 	if (ret)
 	    return ret;
-	ret = check_compat(minor_status, context, ctx->target,
+	ret = check_compat(minor_status, context, ctx->target->princ,
 			   "correct_des3_mic", &use_compat, FALSE);
 	if (ret)
 	    return ret;

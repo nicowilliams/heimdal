@@ -175,7 +175,9 @@ gsskrb5_accept_delegated_token
 	goto out;
     }
 
-    kret = krb5_cc_initialize(context, ccache, ctx->source);
+    /* FIXME constify more of krb5 API */
+    kret = krb5_cc_initialize(context, ccache,
+                              (krb5_principal)_gsskrb5_name2pname(ctx->source));
     if (kret) {
 	ctx->flags &= ~GSS_C_DELEG_FLAG;
 	goto out;
@@ -344,18 +346,18 @@ send_error_token(OM_uint32 *minor_status,
 
 
 static OM_uint32
-gsskrb5_acceptor_start(OM_uint32 * minor_status,
+gsskrb5_acceptor_start(OM_uint32 *minor_status,
 		       gsskrb5_ctx ctx,
 		       krb5_context context,
 		       gss_const_cred_id_t acceptor_cred_handle,
 		       const gss_buffer_t input_token_buffer,
 		       const gss_channel_bindings_t input_chan_bindings,
-		       gss_name_t * src_name,
+		       gss_name_t *src_name,
 		       gss_OID * mech_type,
 		       gss_buffer_t output_token,
-		       OM_uint32 * ret_flags,
-		       OM_uint32 * time_rec,
-		       gss_cred_id_t * delegated_cred_handle)
+		       OM_uint32 *ret_flags,
+		       OM_uint32 *time_rec,
+		       gss_cred_id_t *delegated_cred_handle)
 {
     krb5_error_code kret;
     OM_uint32 ret = GSS_S_COMPLETE;
@@ -458,22 +460,13 @@ gsskrb5_acceptor_start(OM_uint32 * minor_status,
      * We need to copy the principal names to the context and the
      * calling layer.
      */
-    kret = krb5_copy_principal(context,
-			       ctx->ticket->client,
-			       &ctx->source);
-    if (kret) {
-	ret = GSS_S_FAILURE;
-	*minor_status = kret;
-    }
+    ret = _gsskrb5_make_name2(minor_status, context, ctx->ticket->client, &ctx->source);
+    if (ret)
+        return ret; /* XXX cleanup */
 
-    kret = krb5_copy_principal(context,
-			       ctx->ticket->server,
-			       &ctx->target);
-    if (kret) {
-	ret = GSS_S_FAILURE;
-	*minor_status = kret;
-	return ret;
-    }
+    ret = _gsskrb5_make_name2(minor_status, context, ctx->ticket->server, &ctx->target);
+    if (ret)
+        return ret; /* XXX cleanup */
 
     /*
      * We need to setup some compat stuff, this assumes that
@@ -484,14 +477,9 @@ gsskrb5_acceptor_start(OM_uint32 * minor_status,
 	return ret;
 
     if (src_name != NULL) {
-	kret = krb5_copy_principal (context,
-				    ctx->ticket->client,
-				    (gsskrb5_name*)src_name);
-	if (kret) {
-	    ret = GSS_S_FAILURE;
-	    *minor_status = kret;
-	    return ret;
-	}
+        ret = _gsskrb5_make_name(minor_status, context, ctx->ticket->client, src_name);
+	if (ret != GSS_S_COMPLETE)
+	    return ret; /* XXX cleanup */
     }
 
     /*
@@ -672,18 +660,18 @@ gsskrb5_acceptor_start(OM_uint32 * minor_status,
 }
 
 static OM_uint32
-acceptor_wait_for_dcestyle(OM_uint32 * minor_status,
+acceptor_wait_for_dcestyle(OM_uint32 *minor_status,
 			   gsskrb5_ctx ctx,
 			   krb5_context context,
 			   gss_const_cred_id_t acceptor_cred_handle,
 			   const gss_buffer_t input_token_buffer,
 			   const gss_channel_bindings_t input_chan_bindings,
-			   gss_name_t * src_name,
-			   gss_OID * mech_type,
+			   gss_name_t *src_name,
+			   gss_OID *mech_type,
 			   gss_buffer_t output_token,
-			   OM_uint32 * ret_flags,
-			   OM_uint32 * time_rec,
-			   gss_cred_id_t * delegated_cred_handle)
+			   OM_uint32 *ret_flags,
+			   OM_uint32 *time_rec,
+			   gss_cred_id_t *delegated_cred_handle)
 {
     OM_uint32 ret;
     krb5_error_code kret;
@@ -773,13 +761,9 @@ acceptor_wait_for_dcestyle(OM_uint32 * minor_status,
     if (ret_flags) *ret_flags = ctx->flags;
 
     if (src_name) {
-	kret = krb5_copy_principal(context,
-				   ctx->source,
-				   (gsskrb5_name*)src_name);
-	if (kret) {
-	    *minor_status = kret;
-	    return GSS_S_FAILURE;
-	}
+        ret = _gsskrb5_make_name(minor_status, context, ctx->ticket->client, src_name);
+	if (ret != GSS_S_COMPLETE)
+	    return ret; /* XXX cleanup */
     }
 
     /*
@@ -836,17 +820,17 @@ acceptor_wait_for_dcestyle(OM_uint32 * minor_status,
 
 
 OM_uint32 GSSAPI_CALLCONV
-_gsskrb5_accept_sec_context(OM_uint32 * minor_status,
-			    gss_ctx_id_t * context_handle,
+_gsskrb5_accept_sec_context(OM_uint32 *minor_status,
+			    gss_ctx_id_t *context_handle,
 			    gss_const_cred_id_t acceptor_cred_handle,
 			    const gss_buffer_t input_token_buffer,
 			    const gss_channel_bindings_t input_chan_bindings,
-			    gss_name_t * src_name,
+			    gss_name_t *src_name,
 			    gss_OID * mech_type,
 			    gss_buffer_t output_token,
-			    OM_uint32 * ret_flags,
-			    OM_uint32 * time_rec,
-			    gss_cred_id_t * delegated_cred_handle)
+			    OM_uint32 *ret_flags,
+			    OM_uint32 *time_rec,
+			    gss_cred_id_t *delegated_cred_handle)
 {
     krb5_context context;
     OM_uint32 ret;

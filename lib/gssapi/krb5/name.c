@@ -1,6 +1,5 @@
 /*
- * Copyright (c) 2011, PADL Software Pty Ltd.
- * All rights reserved.
+ * Copyright (c) 2014 Cryptonector LLC
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -13,14 +12,14 @@
  *    notice, this list of conditions and the following disclaimer in the
  *    documentation and/or other materials provided with the distribution.
  *
- * 3. Neither the name of PADL Software nor the names of its contributors
+ * 3. Neither the name of the Institute nor the names of its contributors
  *    may be used to endorse or promote products derived from this software
  *    without specific prior written permission.
  *
- * THIS SOFTWARE IS PROVIDED BY PADL SOFTWARE AND CONTRIBUTORS ``AS IS'' AND
+ * THIS SOFTWARE IS PROVIDED BY THE INSTITUTE AND CONTRIBUTORS ``AS IS'' AND
  * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
  * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
- * ARE DISCLAIMED.  IN NO EVENT SHALL PADL SOFTWARE OR CONTRIBUTORS BE LIABLE
+ * ARE DISCLAIMED.  IN NO EVENT SHALL THE INSTITUTE OR CONTRIBUTORS BE LIABLE
  * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
  * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
  * OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
@@ -32,35 +31,48 @@
 
 #include "gsskrb5_locl.h"
 
-OM_uint32 GSSAPI_CALLCONV
-_gsskrb5_authorize_localname(OM_uint32 *minor_status,
-                             gss_const_name_t input_name,
-                             gss_const_buffer_t user_name,
-                             gss_const_OID user_name_type)
+krb5_const_principal GSSAPI_CALLCONV
+_gsskrb5_name2pname(gsskrb5_const_name name)
 {
-    krb5_context context;
-    krb5_const_principal princ = _gsskrb5_name2pname((gsskrb5_const_name)input_name);
-    char *user;
-    int user_ok;
+    return ((gsskrb5_name)name)->princ;
+}
 
-    if (!gss_oid_equal(user_name_type, GSS_C_NT_USER_NAME))
-        return GSS_S_BAD_NAMETYPE;
+OM_uint32 GSSAPI_CALLCONV
+_gsskrb5_make_name2(OM_uint32 *minor_status,
+                    krb5_context ctx,
+                    krb5_principal orig,
+                    gsskrb5_name *name)
+{
+    return _gsskrb5_make_name(minor_status, ctx, orig, (gss_name_t *)name);
+}
 
-    GSSAPI_KRB5_INIT(&context);
+OM_uint32 GSSAPI_CALLCONV
+_gsskrb5_make_name(OM_uint32 *minor_status,
+                   krb5_context ctx,
+                   krb5_principal orig,
+                   gss_name_t *name)
+{
+    krb5_error_code ret;
+    gsskrb5_name new_name = calloc(1, sizeof(*new_name));
 
-    user = malloc(user_name->length + 1);
-    if (user == NULL) {
-        *minor_status = ENOMEM;
+    if (new_name == NULL) {
+        *minor_status = krb5_enomem(ctx);
         return GSS_S_FAILURE;
     }
 
-    memcpy(user, user_name->value, user_name->length);
-    user[user_name->length] = '\0';
+    ret = krb5_copy_principal(ctx, orig, &new_name->princ);
+    if (ret != 0) {
+        *minor_status = ret;
+        return GSS_S_FAILURE;
+    }
+
+    new_name->ticket = NULL;
+    new_name->ticket_enc_part = NULL;
+    new_name->requested_attrs = NULL;
+    new_name->cached_attrs = NULL;
+
+    *name = (gss_name_t)new_name;
 
     *minor_status = 0;
-    user_ok = krb5_kuserok(context, princ, user);
-
-    free(user);
-
-    return user_ok ? GSS_S_COMPLETE : GSS_S_UNAUTHORIZED;
+    return GSS_S_COMPLETE;
 }

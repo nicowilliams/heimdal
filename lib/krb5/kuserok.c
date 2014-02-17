@@ -448,7 +448,7 @@ out:
 
 KRB5_LIB_FUNCTION krb5_boolean KRB5_LIB_CALL
 krb5_kuserok(krb5_context context,
-	     krb5_principal principal,
+	     krb5_const_principal principal,
 	     const char *luser)
 {
     return _krb5_kuserok(context, principal, luser, TRUE);
@@ -457,7 +457,7 @@ krb5_kuserok(krb5_context context,
 
 KRB5_LIB_FUNCTION krb5_boolean KRB5_LIB_CALL
 _krb5_kuserok(krb5_context context,
-	      krb5_principal principal,
+	      krb5_const_principal principal,
 	      const char *luser,
 	      krb5_boolean an2ln_ok)
 {
