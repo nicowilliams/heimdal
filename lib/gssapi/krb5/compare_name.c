@@ -40,14 +40,13 @@ OM_uint32 GSSAPI_CALLCONV _gsskrb5_compare_name
             int * name_equal
            )
 {
-    krb5_const_principal princ1 = (krb5_const_principal)name1;
-    krb5_const_principal princ2 = (krb5_const_principal)name2;
+    krb5_const_principal princ1 = _gsskrb5_name2pname((gsskrb5_const_name)name1);
+    krb5_const_principal princ2 = _gsskrb5_name2pname((gsskrb5_const_name)name2);
     krb5_context context;
 
     GSSAPI_KRB5_INIT(&context);
 
-    *name_equal = krb5_principal_compare (context,
-					  princ1, princ2);
+    *name_equal = krb5_principal_compare(context, princ1, princ2);
     *minor_status = 0;
     return GSS_S_COMPLETE;
 }

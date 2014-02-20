@@ -40,7 +40,7 @@ OM_uint32 GSSAPI_CALLCONV _gsskrb5_export_name
            )
 {
     krb5_context context;
-    krb5_const_principal princ = (krb5_const_principal)input_name;
+    krb5_const_principal princ = _gsskrb5_name2pname((gsskrb5_const_name)input_name);
     krb5_error_code kret;
     char *buf, *name;
     size_t len;

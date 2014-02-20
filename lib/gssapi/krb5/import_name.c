@@ -83,7 +83,7 @@ _gsskrb5_canon_name(OM_uint32 *minor_status, krb5_context context,
                     int use_dns, krb5_const_principal sourcename,
                     gss_const_name_t targetname, krb5_principal *out)
 {
-    krb5_const_principal p = (krb5_const_principal)targetname;
+    krb5_const_principal p = _gsskrb5_name2pname((gsskrb5_const_name)targetname);
     krb5_error_code ret;
     char *hostname = NULL, *service;
 
