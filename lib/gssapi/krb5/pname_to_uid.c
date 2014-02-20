@@ -40,7 +40,7 @@ _gsskrb5_localname(OM_uint32 *minor_status,
 {
     krb5_error_code ret;
     krb5_context context;
-    krb5_const_principal princ = (krb5_const_principal)pname;
+    krb5_const_principal princ = _gsskrb5_name2pname((gsskrb5_const_name)pname);
     char lnamebuf[256];
 
     GSSAPI_KRB5_INIT(&context);

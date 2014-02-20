@@ -34,7 +34,7 @@
 krb5_const_principal GSSAPI_CALLCONV
 _gsskrb5_name2pname(gsskrb5_const_name name)
 {
-    return ((gsskrb5_name)name)->princ;
+    return name->princ;
 }
 
 OM_uint32 GSSAPI_CALLCONV

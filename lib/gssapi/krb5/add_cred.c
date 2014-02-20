@@ -53,7 +53,7 @@ OM_uint32 GSSAPI_CALLCONV _gsskrb5_add_cred (
 
     handle = NULL;
     cred = (gsskrb5_cred)input_cred_handle;
-    dname = (krb5_const_principal)desired_name;
+    dname = _gsskrb5_name2pname((gsskrb5_const_name)desired_name);
 
     GSSAPI_KRB5_INIT (&context);
 
