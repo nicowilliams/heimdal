@@ -33,17 +33,16 @@
 
 #include "gsskrb5_locl.h"
 
-OM_uint32 GSSAPI_CALLCONV _gsskrb5_inquire_context (
-    OM_uint32 * minor_status,
-	gss_const_ctx_id_t context_handle,
-	gss_name_t * src_name,
-	gss_name_t * targ_name,
-	OM_uint32 * lifetime_rec,
-	gss_OID * mech_type,
-	OM_uint32 * ctx_flags,
-	int * locally_initiated,
-	int * open_context
-    )
+OM_uint32 GSSAPI_CALLCONV
+_gsskrb5_inquire_context(OM_uint32 *minor_status,
+                         gss_const_ctx_id_t context_handle,
+                         gss_name_t *src_name,
+                         gss_name_t *targ_name,
+                         OM_uint32 *lifetime_rec,
+                         gss_OID *mech_type,
+                         OM_uint32 *ctx_flags,
+                         int *locally_initiated,
+                         int *open_context)
 {
     krb5_context context;
     OM_uint32 ret;
@@ -55,29 +54,27 @@ OM_uint32 GSSAPI_CALLCONV _gsskrb5_inquire_context (
     if (targ_name)
 	*targ_name = GSS_C_NO_NAME;
 
-    GSSAPI_KRB5_INIT (&context);
+    GSSAPI_KRB5_INIT(&context);
 
     HEIMDAL_MUTEX_lock(&ctx->ctx_id_mutex);
 
     if (src_name) {
 	name = (gss_name_t)ctx->source;
-	ret = _gsskrb5_duplicate_name (minor_status, name, src_name);
+	ret = _gsskrb5_duplicate_name(minor_status, name, src_name);
 	if (ret)
 	    goto failed;
     }
 
     if (targ_name) {
 	name = (gss_name_t)ctx->target;
-	ret = _gsskrb5_duplicate_name (minor_status, name, targ_name);
+	ret = _gsskrb5_duplicate_name(minor_status, name, targ_name);
 	if (ret)
 	    goto failed;
     }
 
     if (lifetime_rec) {
-	ret = _gsskrb5_lifetime_left(minor_status,
-				     context,
-				     ctx->lifetime,
-				     lifetime_rec);
+        ret = _gsskrb5_lifetime_left(minor_status, context,
+                                     ctx->lifetime, lifetime_rec);
 	if (ret)
 	    goto failed;
     }

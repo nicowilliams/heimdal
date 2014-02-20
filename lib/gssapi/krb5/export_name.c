@@ -33,11 +33,10 @@
 
 #include "gsskrb5_locl.h"
 
-OM_uint32 GSSAPI_CALLCONV _gsskrb5_export_name
-           (OM_uint32  * minor_status,
-            gss_const_name_t input_name,
-            gss_buffer_t exported_name
-           )
+OM_uint32 GSSAPI_CALLCONV
+_gsskrb5_export_name (OM_uint32 *minor_status,
+                      gss_const_name_t input_name,
+                      gss_buffer_t exported_name)
 {
     krb5_context context;
     krb5_const_principal princ = _gsskrb5_name2pname((gsskrb5_const_name)input_name);
@@ -45,9 +44,9 @@ OM_uint32 GSSAPI_CALLCONV _gsskrb5_export_name
     char *buf, *name;
     size_t len;
 
-    GSSAPI_KRB5_INIT (&context);
+    GSSAPI_KRB5_INIT(&context);
 
-    kret = krb5_unparse_name (context, princ, &name);
+    kret = krb5_unparse_name(context, princ, &name);
     if (kret) {
 	*minor_status = kret;
 	return GSS_S_FAILURE;
@@ -83,10 +82,9 @@ OM_uint32 GSSAPI_CALLCONV _gsskrb5_export_name
     buf[3] = (len) & 0xff;
     buf += 4;
 
-    memcpy (buf, name, len);
+    memcpy(buf, name, len);
 
-    free (name);
-
+    free(name);
     *minor_status = 0;
     return GSS_S_COMPLETE;
 }

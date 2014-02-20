@@ -48,6 +48,7 @@ OM_uint32 GSSAPI_CALLCONV _gsskrb5_inquire_cred
     gss_cred_id_t aqcred_init = GSS_C_NO_CREDENTIAL;
     gss_cred_id_t aqcred_accept = GSS_C_NO_CREDENTIAL;
     gsskrb5_cred acred = NULL, icred = NULL;
+    krb5_principal princ;
     OM_uint32 ret;
 
     *minor_status = 0;
@@ -86,8 +87,10 @@ OM_uint32 GSSAPI_CALLCONV _gsskrb5_inquire_cred
 	    *minor_status = 0;
 	    return GSS_S_NO_CRED;
 	}
-    } else
+    } else {
+        /* This can also be an initiator credential, of course */
 	acred = (gsskrb5_cred)cred_handle;
+    }
 
     if (acred)
 	HEIMDAL_MUTEX_lock(&acred->cred_id_mutex);
@@ -95,36 +98,38 @@ OM_uint32 GSSAPI_CALLCONV _gsskrb5_inquire_cred
 	HEIMDAL_MUTEX_lock(&icred->cred_id_mutex);
 
     if (output_name != NULL) {
-	if (icred && icred->principal != NULL) {
-	    gss_name_t name;
-
-	    if (acred && acred->principal)
-		name = (gss_name_t)acred->principal;
-	    else
-		name = (gss_name_t)icred->principal;
-
-            ret = _gsskrb5_duplicate_name(minor_status, name, output_name);
+	if (acred && acred->principal != NULL) {
+            ret = _gsskrb5_make_name(minor_status, context,
+                                     acred->principal, output_name);
             if (ret)
-		goto out;
+                goto out;
+        } else if (icred && icred->principal != NULL) {
+            ret = _gsskrb5_make_name(minor_status, context,
+                                     icred->principal, output_name);
+            if (ret)
+                goto out;
 	} else if (acred && acred->usage == GSS_C_ACCEPT) {
-	    krb5_principal princ;
-	    *minor_status = krb5_sname_to_principal(context, NULL,
-						    NULL, KRB5_NT_SRV_HST,
-						    &princ);
+            *minor_status = krb5_sname_to_principal(context, NULL, NULL,
+                                                    KRB5_NT_SRV_HST, &princ);
 	    if (*minor_status) {
 		ret = GSS_S_FAILURE;
 		goto out;
 	    }
-	    *output_name = (gss_name_t)princ;
+            ret = _gsskrb5_make_name(minor_status, context, princ, output_name);
+            krb5_free_principal(context, princ);
+            if (ret)
+                goto out;
 	} else {
 	    krb5_principal princ;
-	    *minor_status = krb5_get_default_principal(context,
-						       &princ);
+	    *minor_status = krb5_get_default_principal(context, &princ);
 	    if (*minor_status) {
 		ret = GSS_S_FAILURE;
 		goto out;
 	    }
-	    *output_name = (gss_name_t)princ;
+            ret = _gsskrb5_make_name(minor_status, context, princ, output_name);
+            krb5_free_principal(context, princ);
+            if (ret)
+                goto out;
 	}
     }
     if (lifetime != NULL) {
