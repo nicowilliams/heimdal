@@ -78,7 +78,7 @@ heim_array_create(void)
 {
     heim_array_t array;
 
-    array = _heim_alloc_object(&array_object, sizeof(*array));
+    array = heim_alloc_object(&array_object, sizeof(*array));
     if (array == NULL)
 	return NULL;
 

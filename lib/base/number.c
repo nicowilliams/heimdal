@@ -93,7 +93,7 @@ heim_number_create(int number)
     if (number < 0xffffff && number >= 0)
 	return heim_base_make_tagged_object(number, HEIM_TID_NUMBER);
 
-    n = _heim_alloc_object(&_heim_number_object, sizeof(int));
+    n = heim_alloc_object(&_heim_number_object, sizeof(int));
     if (n)
 	*((int *)n) = number;
     return n;
