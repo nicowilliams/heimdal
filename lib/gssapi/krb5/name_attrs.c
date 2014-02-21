@@ -117,7 +117,8 @@ _gsskrb5_get_name_attribute(OM_uint32 *minor_status,
                             int *more)
 {
     krb5_context context;
-    krb5_const_principal name = (krb5_const_principal)input_name;
+    gsskrb5_const_name gname = (gsskrb5_const_name)input_name;
+    krb5_const_principal name = gname->princ;
     enum krb5_mech_name_attr attr_num;
     const char *nametype;
     gss_buffer_desc attr_tail;
