@@ -47,10 +47,10 @@ string_dealloc(void *ptr)
 	return;
 
     /* Possible string ref */
-    deallocp = _heim_get_isaextra(s, 0);
+    deallocp = heim_get_isaextra(s, 0);
     dealloc = *deallocp;
     if (dealloc != NULL) {
-	char **strp = _heim_get_isaextra(s, 1);
+	char **strp = heim_get_isaextra(s, 1);
 	dealloc(*strp);
     }
 }
@@ -59,13 +59,13 @@ static int
 string_cmp(void *a, void *b)
 {
     if (*(char *)a == '\0') {
-	char **strp = _heim_get_isaextra(a, 1);
+	char **strp = heim_get_isaextra(a, 1);
 
 	if (*strp != NULL)
 	    a = *strp; /* a is a string ref */
     }
     if (*(char *)b == '\0') {
-	char **strp = _heim_get_isaextra(b, 1);
+	char **strp = heim_get_isaextra(b, 1);
 
 	if (*strp != NULL)
 	    b = *strp; /* b is a string ref */
@@ -124,14 +124,14 @@ heim_string_ref_create(const char *string, heim_string_free_f_t dealloc)
     heim_string_t s;
     heim_string_free_f_t *deallocp;
 
-    s = _heim_alloc_object(&_heim_string_object, 1);
+    s = heim_alloc_object(&_heim_string_object, 1);
     if (s) {
 	const char **strp;
 
 	((char *)s)[0] = '\0';
-	deallocp = _heim_get_isaextra(s, 0);
+	deallocp = heim_get_isaextra(s, 0);
 	*deallocp = dealloc;
-	strp = _heim_get_isaextra(s, 1);
+	strp = heim_get_isaextra(s, 1);
 	*strp = string;
     }
     return s;
@@ -151,7 +151,7 @@ heim_string_create_with_bytes(const void *data, size_t len)
 {
     heim_string_t s;
 
-    s = _heim_alloc_object(&_heim_string_object, len + 1);
+    s = heim_alloc_object(&_heim_string_object, len + 1);
     if (s) {
 	memcpy(s, data, len);
 	((char *)s)[len] = '\0';
@@ -215,7 +215,7 @@ heim_string_get_utf8(heim_string_t string)
 	const char **strp;
 
 	/* String ref */
-	strp = _heim_get_isaextra(string, 1);
+	strp = heim_get_isaextra(string, 1);
 	if (*strp != NULL)
 	    return *strp;
     }
