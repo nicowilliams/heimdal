@@ -65,9 +65,9 @@ struct gsskrb5_name_attr {
 };
 
 typedef struct gsskrb5_name {
-  krb5_principal princ;              /* princ name */
-  Ticket *ticket;               /* acceptor-side, or imported composite name */
-  krb5_ticket *ticket_enc_part; /* ditto */
+  krb5_principal princ;         /* princ name */
+  krb5_authenticator authenticator;
+  krb5_ticket *ticket_enc_part; /* acceptor-side, or imported composite name */
   struct gsskrb5_name_attr **requested_attrs;   /* gss_set_name_atttribute() */
   struct gsskrb5_name_attr **cached_attrs;      /* cache for get */
 } *gsskrb5_name;

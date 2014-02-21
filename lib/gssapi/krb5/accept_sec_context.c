@@ -455,18 +455,28 @@ gsskrb5_acceptor_start(OM_uint32 *minor_status,
 	}
     }
 
-
-    /*
-     * We need to copy the principal names to the context and the
-     * calling layer.
-     */
     ret = _gsskrb5_make_name2(minor_status, context, ctx->ticket->client, &ctx->source);
     if (ret)
-        return ret; /* XXX cleanup */
+        return ret;
+
+    /* Setup initiator name attribute stuff */
+    kret = krb5_copy_ticket(context, ctx->ticket, &ctx->source->ticket_enc_part);
+    if (kret) {
+        ret = GSS_S_FAILURE;
+        *minor_status = kret;
+        return ret;
+    }
+    free_EncryptionKey(&ctx->source->ticket_enc_part->ticket.key);
+
+    /* Save the authenticator's authz-data too */
+    kret = krb5_auth_con_getauthenticator(context,
+                                          ctx->auth_context,
+                                          &ctx->source->authenticator);
+    free_EncryptionKey(ctx->source->authenticator->subkey);
 
     ret = _gsskrb5_make_name2(minor_status, context, ctx->ticket->server, &ctx->target);
     if (ret)
-        return ret; /* XXX cleanup */
+        return ret;
 
     /*
      * We need to setup some compat stuff, this assumes that
@@ -479,7 +489,7 @@ gsskrb5_acceptor_start(OM_uint32 *minor_status,
     if (src_name != NULL) {
         ret = _gsskrb5_make_name(minor_status, context, ctx->ticket->client, src_name);
 	if (ret != GSS_S_COMPLETE)
-	    return ret; /* XXX cleanup */
+	    return ret;
     }
 
     /*
@@ -763,7 +773,7 @@ acceptor_wait_for_dcestyle(OM_uint32 *minor_status,
     if (src_name) {
         ret = _gsskrb5_make_name(minor_status, context, ctx->ticket->client, src_name);
 	if (ret != GSS_S_COMPLETE)
-	    return ret; /* XXX cleanup */
+	    return ret;
     }
 
     /*

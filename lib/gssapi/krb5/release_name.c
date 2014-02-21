@@ -57,8 +57,8 @@ _gsskrb5_free_name2(OM_uint32 *minor_status,
     krb5_free_principal(context, name->princ);
     if (name->ticket_enc_part != NULL)
         krb5_free_ticket(context, name->ticket_enc_part);
-    if (name->ticket)
-        free_Ticket(name->ticket);
+    if (name->authenticator != NULL)
+        krb5_free_authenticator(context, &name->authenticator);
     free_name_attrs(minor_status, name->requested_attrs);
     free_name_attrs(minor_status, name->cached_attrs);
     free(name->requested_attrs);

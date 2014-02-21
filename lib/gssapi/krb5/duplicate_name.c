@@ -51,7 +51,7 @@ OM_uint32 GSSAPI_CALLCONV _gsskrb5_duplicate_name (
         *minor_status = krb5_enomem(context);
         return GSS_S_FAILURE;
     }
-    dest->ticket = NULL;
+    dest->authenticator = NULL;
     dest->ticket_enc_part = NULL;
     dest->requested_attrs = NULL;
     dest->cached_attrs = NULL;

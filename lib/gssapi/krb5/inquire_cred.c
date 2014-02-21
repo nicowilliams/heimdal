@@ -120,7 +120,6 @@ OM_uint32 GSSAPI_CALLCONV _gsskrb5_inquire_cred
             if (ret)
                 goto out;
 	} else {
-	    krb5_principal princ;
 	    *minor_status = krb5_get_default_principal(context, &princ);
 	    if (*minor_status) {
 		ret = GSS_S_FAILURE;

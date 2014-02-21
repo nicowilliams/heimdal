@@ -66,7 +66,7 @@ _gsskrb5_make_name(OM_uint32 *minor_status,
         return GSS_S_FAILURE;
     }
 
-    new_name->ticket = NULL;
+    new_name->authenticator = NULL;
     new_name->ticket_enc_part = NULL;
     new_name->requested_attrs = NULL;
     new_name->cached_attrs = NULL;
