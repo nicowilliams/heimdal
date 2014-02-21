@@ -377,7 +377,7 @@ heim_db_create(const char *dbtype, const char *dbname,
 	return NULL;
     }
 
-    db = _heim_alloc_object(&db_object, sizeof(*db));
+    db = heim_alloc_object(&db_object, sizeof(*db));
     if (db == NULL) {
 	heim_release(options);
 	return NULL;
@@ -453,7 +453,7 @@ heim_db_clone(heim_db_t db, heim_error_t *error)
 			      db->options, error);
     }
 
-    result = _heim_alloc_object(&db_object, sizeof(*result));
+    result = heim_alloc_object(&db_object, sizeof(*result));
     if (result == NULL) {
 	if (error)
 	    *error = heim_error_create_enomem();

@@ -127,7 +127,7 @@ heim_error_createv(int error_code, const char *fmt, va_list ap)
 	return NULL; /* XXX We should have a special heim_error_t for this */
     }
 
-    e = _heim_alloc_object(&_heim_error_object, sizeof(struct heim_error));
+    e = heim_alloc_object(&_heim_error_object, sizeof(struct heim_error));
     if (e) {
 	e->msg = heim_string_create(str);
 	e->error_code = error_code;

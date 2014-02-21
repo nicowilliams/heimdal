@@ -114,7 +114,7 @@ heim_dict_create(size_t size)
 {
     heim_dict_t dict;
 
-    dict = _heim_alloc_object(&dict_object, sizeof(*dict));
+    dict = heim_alloc_object(&dict_object, sizeof(*dict));
 
     dict->size = findprime(size);
     if (dict->size == 0) {

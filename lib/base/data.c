@@ -46,7 +46,7 @@ data_dealloc(void *ptr)
 	return;
 
     /* Possible string ref */
-    deallocp = _heim_get_isaextra(os, 0);
+    deallocp = heim_get_isaextra(os, 0);
     dealloc = *deallocp;
     if (dealloc != NULL)
 	dealloc(os->data);
@@ -97,7 +97,7 @@ heim_data_create(const void *data, size_t length)
 {
     heim_octet_string *os;
 
-    os = _heim_alloc_object(&_heim_data_object, sizeof(*os) + length);
+    os = heim_alloc_object(&_heim_data_object, sizeof(*os) + length);
     if (os) {
 	os->data = (uint8_t *)os + sizeof(*os);
 	os->length = length;
@@ -113,11 +113,11 @@ heim_data_ref_create(const void *data, size_t length,
     heim_octet_string *os;
     heim_data_free_f_t *deallocp;
 
-    os = _heim_alloc_object(&_heim_data_object, sizeof(*os) + length);
+    os = heim_alloc_object(&_heim_data_object, sizeof(*os) + length);
     if (os) {
 	os->data = (void *)data;
 	os->length = length;
-	deallocp = _heim_get_isaextra(os, 0);
+	deallocp = heim_get_isaextra(os, 0);
 	*deallocp = dealloc;
     }
     return (heim_data_t)os;

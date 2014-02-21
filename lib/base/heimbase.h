@@ -56,6 +56,7 @@ typedef void * heim_object_t;
 typedef unsigned int heim_tid_t;
 typedef heim_object_t heim_bool_t;
 typedef heim_object_t heim_null_t;
+typedef struct heim_type_data *heim_type_t;
 #define HEIM_BASE_ONCE_INIT 0
 typedef long heim_base_once_t; /* XXX arch dependant */
 
@@ -80,10 +81,29 @@ void	heim_release(heim_object_t);
 
 void	heim_show(heim_object_t);
 
+typedef struct heim_string_data *heim_string_t;
+
+typedef void (*heim_type_init)(void *);
+typedef heim_object_t (*heim_type_copy)(void *);
+typedef int (*heim_type_cmp)(void *, void *);
+typedef unsigned long (*heim_type_hash)(void *);
+typedef heim_string_t (*heim_type_description)(void *);
 typedef void (*heim_type_dealloc)(void *);
 
-void *
-heim_alloc(size_t size, const char *name, heim_type_dealloc dealloc);
+void *  heim_alloc(size_t, const char *, heim_type_dealloc);
+
+heim_type_t heim_create_type(const char *,
+                             heim_type_init,
+                             heim_type_dealloc,
+                             heim_type_copy,
+                             heim_type_cmp,
+                             heim_type_hash,
+                             heim_type_description);
+heim_tid_t heim_type_get_tid(heim_type_t);
+
+heim_object_t heim_alloc_object(heim_type_t, size_t);
+
+heim_type_t heim_get_isa(heim_object_t);
 
 heim_tid_t
 heim_get_tid(heim_object_t object);
@@ -182,7 +202,6 @@ void	heim_dict_delete_key(heim_dict_t, heim_object_t);
  * String
  */
 
-typedef struct heim_string_data *heim_string_t;
 typedef void (*heim_string_free_f_t)(void *);
 
 heim_string_t heim_string_create(const char *);

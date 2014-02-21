@@ -175,7 +175,7 @@ static heim_type_t tagged_isa[9] = {
 };
 
 heim_type_t
-_heim_get_isa(heim_object_t ptr)
+heim_get_isa(heim_object_t ptr)
 {
     struct heim_base *p;
     if (heim_base_is_tagged(ptr)) {
@@ -198,7 +198,7 @@ _heim_get_isa(heim_object_t ptr)
 heim_tid_t
 heim_get_tid(heim_object_t ptr)
 {
-    heim_type_t isa = _heim_get_isa(ptr);
+    heim_type_t isa = heim_get_isa(ptr);
     return isa->tid;
 }
 
@@ -213,7 +213,7 @@ heim_get_tid(heim_object_t ptr)
 unsigned long
 heim_get_hash(heim_object_t ptr)
 {
-    heim_type_t isa = _heim_get_isa(ptr);
+    heim_type_t isa = heim_get_isa(ptr);
     if (isa->hash)
 	return isa->hash(ptr);
     return (unsigned long)ptr;
@@ -241,7 +241,7 @@ heim_cmp(heim_object_t a, heim_object_t b)
     if (ta != tb)
 	return ta - tb;
 
-    isa = _heim_get_isa(a);
+    isa = heim_get_isa(a);
 
     if (isa->cmp)
 	return isa->cmp(a, b);
@@ -300,7 +300,7 @@ heim_alloc(size_t size, const char *name, heim_type_dealloc dealloc)
 }
 
 heim_type_t
-_heim_create_type(const char *name,
+heim_create_type(const char *name,
 		  heim_type_init init,
 		  heim_type_dealloc dealloc,
 		  heim_type_copy copy,
@@ -327,7 +327,7 @@ _heim_create_type(const char *name,
 }
 
 heim_object_t
-_heim_alloc_object(heim_type_t type, size_t size)
+heim_alloc_object(heim_type_t type, size_t size)
 {
     /* XXX should use posix_memalign */
     struct heim_base *p = calloc(1, size + sizeof(*p));
@@ -340,7 +340,7 @@ _heim_alloc_object(heim_type_t type, size_t size)
 }
 
 void *
-_heim_get_isaextra(heim_object_t ptr, size_t idx)
+heim_get_isaextra(heim_object_t ptr, size_t idx)
 {
     struct heim_base *p = (struct heim_base *)PTR2BASE(ptr);
 
@@ -352,7 +352,7 @@ _heim_get_isaextra(heim_object_t ptr, size_t idx)
 }
 
 heim_tid_t
-_heim_type_get_tid(heim_type_t type)
+heim_type_get_tid(heim_type_t type)
 {
     return type->tid;
 }
@@ -547,7 +547,7 @@ heim_auto_release_create(void)
     if (tls == NULL)
 	heim_abort("Failed to create/get autorelease head");
 
-    ar = _heim_alloc_object(&_heim_autorel_object, sizeof(struct heim_auto_release));
+    ar = heim_alloc_object(&_heim_autorel_object, sizeof(struct heim_auto_release));
     if (ar) {
 	HEIMDAL_MUTEX_lock(&tls->tls_mutex);
 	if (tls->head == NULL)
