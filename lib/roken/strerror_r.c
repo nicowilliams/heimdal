@@ -46,6 +46,7 @@ int ROKEN_LIB_FUNCTION
 rk_strerror_r(int eno, char * strerrbuf, size_t buflen)
 {
     errno_t err;
+    errno_t save_errno = errno;
 
     err = strerror_s(strerrbuf, buflen, eno);
     if (err != 0) {
@@ -54,6 +55,7 @@ rk_strerror_r(int eno, char * strerrbuf, size_t buflen)
         err = ((code != 0)? errno : 0);
     }
 
+    errno = save_errno;
     return err;
 }
 
@@ -62,19 +64,26 @@ rk_strerror_r(int eno, char * strerrbuf, size_t buflen)
 int ROKEN_LIB_FUNCTION
 rk_strerror_r(int eno, char *strerrbuf, size_t buflen)
 {
+    int save_errno = errno;
     /* Assume is the linux broken strerror_r (returns the a buffer (char *) if the input buffer wasn't use */
 #ifdef HAVE_STRERROR_R
     const char *str;
     str = strerror_r(eno, strerrbuf, buflen);
-    if (str != strerrbuf)
-	if (strlcpy(strerrbuf, str, buflen) >= buflen)
+    if (str != strerrbuf) {
+	if (strlcpy(strerrbuf, str, buflen) >= buflen) {
+            errno = ERANGE;
 	    return ERANGE;
+        }
+    }
+    errno = save_errno;
     return 0;
 #else
     int ret;
     ret = strlcpy(strerrbuf, strerror(eno), buflen);
+    errno = ERANGE
     if (ret > buflen)
 	return ERANGE;
+    errno = save_errno;
     return 0;
 #endif
 }
