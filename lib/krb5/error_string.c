@@ -81,6 +81,33 @@ krb5_set_error_message(krb5_context context, krb5_error_code ret,
     va_end(ap);
 }
 
+KRB5_LIB_FUNCTION krb5_error_code KRB5_LIB_CALL
+_krb5_setmsg(krb5_context context, krb5_error_code ret, const char *fmt, ...)
+    __attribute__ ((format (printf, 3, 4)))
+{
+    va_list ap;
+
+    krb5_clear_error_message(context);
+    if (ret != 0) {
+        va_start(ap, fmt);
+        krb5_vset_error_message(context, ret, fmt, ap);
+        va_end(ap);
+    }
+    return ret;
+}
+
+KRB5_LIB_FUNCTION krb5_error_code KRB5_LIB_CALL
+_krb5_prependmsg(krb5_context context, krb5_error_code ret, const char *fmt, ...)
+    __attribute__ ((format (printf, 3, 4)))
+{
+    va_list ap;
+
+    va_start(ap, fmt);
+    krb5_vprepend_error_message(context, ret, fmt, ap);
+    va_end(ap);
+    return ret;
+}
+
 /**
  * Set the context full error string for a specific error code.
  *
@@ -116,6 +143,29 @@ krb5_vset_error_message (krb5_context context, krb5_error_code ret,
     HEIMDAL_MUTEX_unlock(context->mutex);
     if (context->error_string)
 	_krb5_debug(context, 100, "error message: %s: %d", context->error_string, ret);
+}
+
+KRB5_LIB_FUNCTION krb5_error_code KRB5_LIB_CALL
+_krb5_vsetmsg(krb5_context context, krb5_error_code ret,
+			 const char *fmt, va_list args)
+    __attribute__ ((format (printf, 3, 0)))
+{
+    krb5_vset_error_message(context, ret, fmt, args);
+    return ret;
+}
+
+KRB5_LIB_FUNCTION krb5_error_code KRB5_LIB_CALL
+_krb5_set_error(krb5_context context, krb5_error_code ret)
+{
+    HEIMDAL_MUTEX_lock(context->mutex);
+    if (context->error_code != ret && context->error_string != NULL) {
+	free(context->error_string);
+	context->error_string = NULL;
+    }
+    context->error_code = ret;
+    _krb5_debug(context, 100, "error number: %d", ret);
+    HEIMDAL_MUTEX_unlock(context->mutex);
+    return ret;
 }
 
 /**
@@ -191,7 +241,7 @@ krb5_vprepend_error_message(krb5_context context, krb5_error_code ret,
     HEIMDAL_MUTEX_unlock(context->mutex);
 }
 
-static char *oom_msg = "Out of memory";
+static char *oom_msg = N_("Out of memory", "");
 
 /**
  * Return the error message for `code' in context. On memory
@@ -225,8 +275,7 @@ krb5_get_error_message(krb5_context context, krb5_error_code code)
      * might be provided is if the krb5_init_context() call itself
      * failed.
      */
-    if (context)
-    {
+    if (context) {
         HEIMDAL_MUTEX_lock(context->mutex);
         if (context->error_string &&
             (code == context->error_code || context->error_code == 0))
@@ -239,13 +288,14 @@ krb5_get_error_message(krb5_context context, krb5_error_code code)
 
         if (str)
             return str;
-    }
-    else
-    {
+    } else if (code == ENOMEM) {
+        return oom_msg;
+    } else {
         if (krb5_init_context(&context) == 0)
             free_context = 1;
     }
 
+    /* Why com_right_r() and not com_right()? */
     if (context)
         cstr = com_right_r(context->et_list, code, buf, sizeof(buf));
 
