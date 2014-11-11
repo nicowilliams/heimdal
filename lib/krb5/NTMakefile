@@ -387,6 +387,8 @@ librfc3961_OBJS=\
 	$(OBJ)\salt-des.obj		\
 	$(OBJ)\salt-des3.obj		\
 	$(OBJ)\store-int.obj		\
+	$(OBJ)\store-emem.obj		\
+	$(OBJ)\store.obj		\
 	$(OBJ)\warn.obj
 
 $(LIBRFC3961): $(librfc3961_OBJS)

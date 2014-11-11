@@ -34,6 +34,9 @@
 #include "krb5_locl.h"
 #include "store-int.h"
 
+#undef __attribute__
+#define __attribute__(x)
+
 #define BYTEORDER_IS(SP, V) (((SP)->flags & KRB5_STORAGE_BYTEORDER_MASK) == (V))
 #define BYTEORDER_IS_LE(SP) BYTEORDER_IS((SP), KRB5_STORAGE_BYTEORDER_LE)
 #define BYTEORDER_IS_BE(SP) BYTEORDER_IS((SP), KRB5_STORAGE_BYTEORDER_BE)
@@ -243,6 +246,58 @@ KRB5_LIB_FUNCTION krb5_ssize_t KRB5_LIB_CALL
 krb5_storage_write(krb5_storage *sp, const void *buf, size_t len)
 {
     return sp->store(sp, buf, len);
+}
+
+/**
+ * Write to the storage buffer.
+ *
+ * @param sp the storage buffer to write to
+ * @param buf the buffer to write to the storage buffer
+ * @param len the length to write
+ *
+ * @return The length of data written (can be shorter then len), or negative on error.
+ *
+ * @ingroup krb5_storage
+ */
+
+KRB5_LIB_FUNCTION krb5_ssize_t KRB5_LIB_CALL
+krb5_storage_printf(krb5_storage *sp, const char *fmt, ...)
+    __attribute__ ((format (printf, 2, 3)))
+{
+    krb5_ssize_t ret;
+    va_list ap;
+
+    va_start(ap, fmt);
+    ret = krb5_storage_vprintf(sp, fmt, ap);
+    va_end(ap);
+    return ret;
+}
+
+/**
+ * Write to the storage buffer.
+ *
+ * @param sp the storage buffer to write to
+ * @param buf the buffer to write to the storage buffer
+ * @param len the length to write
+ *
+ * @return The length of data written (can be shorter then len), or negative on error.
+ *
+ * @ingroup krb5_storage
+ */
+
+KRB5_LIB_FUNCTION krb5_ssize_t KRB5_LIB_CALL
+krb5_storage_vprintf(krb5_storage *sp, const char *fmt, va_list ap)
+    __attribute__ ((format (printf, 2, 0)))
+{
+    char *s;
+    krb5_ssize_t ret;
+
+    ret = vasprintf(&s, fmt, ap);
+    if (ret < 0 || s == NULL)
+        return -1;
+    ret = sp->store(sp, s, strlen(s));
+    free(s);
+    return ret;
 }
 
 /**
@@ -810,6 +865,7 @@ krb5_ret_stringz(krb5_storage *sp,
     char c;
     char *s = NULL;
     size_t len = 0;
+    size_t alen = 8;
     ssize_t ret;
 
     while((ret = sp->fetch(sp, &c, 1)) == 1){
@@ -822,7 +878,8 @@ krb5_ret_stringz(krb5_storage *sp,
 	    free(s);
 	    return eret;
 	}
-	tmp = realloc (s, len);
+        alen += (len > alen) ? (alen >> 1) : 0;
+	tmp = realloc(s, alen);
 	if (tmp == NULL) {
 	    free (s);
 	    return ENOMEM;

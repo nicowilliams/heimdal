@@ -294,6 +294,8 @@ librfc3961_la_SOURCES =				\
 	salt-des.c				\
 	salt-des3.c				\
 	store-int.c				\
+	store_emem.c				\
+	store.c					\
 	warn.c
 
 test_rfc3961_LDADD = 				\
