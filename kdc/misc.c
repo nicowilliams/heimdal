@@ -53,7 +53,7 @@ _kdc_db_fetch(krb5_context context,
 
     *h = NULL;
 
-    if (kvno_ptr) {
+    if (kvno_ptr && *kvno_ptr != 0) {
 	    kvno = *kvno_ptr;
 	    flags |= HDB_F_KVNO_SPECIFIED;
     }
