@@ -1208,7 +1208,7 @@ tgs_parse_request(krb5_context context,
 				       ap_req.ticket.sname,
 				       ap_req.ticket.realm);
 
-    krbtgt_kvno = ap_req.ticket.enc_part.kvno ? *ap_req.ticket.enc_part.kvno : 0;
+    krbtgt_kvno = 0;
     ret = _kdc_db_fetch(context, config, princ, HDB_F_GET_KRBTGT,
 			&krbtgt_kvno, NULL, krbtgt);
 
@@ -1556,6 +1556,7 @@ tgs_build_reply(krb5_context context,
     Key *tkey_sign;
     Key *tkey_krbtgt_check = NULL;
     int flags = HDB_F_FOR_TGS_REQ;
+    krb5uint32 krbtgt_kvno = 0;
 
     memset(&sessionkey, 0, sizeof(sessionkey));
     memset(&adtkt, 0, sizeof(adtkt));
@@ -1592,7 +1593,7 @@ tgs_build_reply(krb5_context context,
 	}
 	_krb5_principalname2krb5_principal(context, &p, t->sname, t->realm);
 	ret = _kdc_db_fetch(context, config, p,
-			    HDB_F_GET_KRBTGT, t->enc_part.kvno,
+			    HDB_F_GET_KRBTGT, &krbtgt_kvno,
 			    NULL, &uu);
 	krb5_free_principal(context, p);
 	if(ret){
