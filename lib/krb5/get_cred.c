@@ -940,6 +940,13 @@ get_cred_kdc_capath(krb5_context context,
     return ret;
 }
 
+/*
+ * Get a service ticket from a KDC by chasing referrals from a start realm.
+ *
+ * All referral TGTs produced in the process are thrown away when we're done.
+ * We don't store them, and we don't allow other search mechanisms (capaths) to
+ * use referral TGTs produced here.
+ */
 static krb5_error_code
 get_cred_kdc_referral(krb5_context context,
 		      krb5_kdc_flags flags,
@@ -947,14 +954,15 @@ get_cred_kdc_referral(krb5_context context,
 		      krb5_creds *in_creds,
 		      krb5_principal impersonate_principal,
 		      Ticket *second_ticket,
-		      krb5_creds **out_creds,
-		      krb5_creds ***ret_tgts)
+		      krb5_creds **out_creds)
 {
     krb5_const_realm client_realm;
     krb5_error_code ret;
     krb5_creds tgt, referral, ticket;
+    krb5_creds **referral_tgts = NULL;  /* used for loop detection */
     int loop = 0;
     int ok_as_delegate = 1;
+    size_t i;
 
     if (in_creds->server->name.name_string.len < 2 && !flags.b.canonicalize) {
 	krb5_set_error_message(context, KRB5KDC_ERR_PATH_NOT_ACCEPTED,
@@ -983,7 +991,7 @@ get_cred_kdc_referral(krb5_context context,
 	if(ret)
 	    return ret;
 
-	ret = find_cred(context, ccache, tgtname, *ret_tgts, &tgt);
+	ret = find_cred(context, ccache, tgtname, NULL, &tgt);
 	krb5_free_principal(context, tgtname);
 	if (ret)
 	    return ret;
@@ -1042,7 +1050,7 @@ get_cred_kdc_referral(krb5_context context,
 	referral_realm = ticket.server->name.name_string.val[1];
 
 	/* check that there are no referrals loops */
-	tickets = *ret_tgts;
+	tickets = referral_tgts;
 
 	krb5_cc_clear_mcred(&mcreds);
 	mcreds.server = ticket.server;
@@ -1074,7 +1082,7 @@ get_cred_kdc_referral(krb5_context context,
 	    ticket.flags.b.ok_as_delegate = 0;
 	}
 
-	ret = add_cred(context, &ticket, ret_tgts);
+	ret = add_cred(context, &ticket, &referral_tgts);
 	if (ret)
 	    goto out;
 
@@ -1092,6 +1100,9 @@ get_cred_kdc_referral(krb5_context context,
     ret = krb5_copy_creds(context, &ticket, out_creds);
 
 out:
+    for (i = 0; referral_tgts && referral_tgts[i]; i++)
+	krb5_free_creds(context, referral_tgts[i]);
+    free(referral_tgts);
     krb5_free_principal(context, referral.server);
     krb5_free_cred_contents(context, &tgt);
     krb5_free_cred_contents(context, &ticket);
@@ -1116,8 +1127,6 @@ _krb5_get_cred_kdc_any(krb5_context context,
 {
     krb5_error_code ret;
     krb5_deltat offset;
-    krb5_creds **referrals = NULL;  /* used for loop detection */
-    size_t i;
 
     ret = krb5_cc_get_kdc_offset(context, ccache, &offset);
     if (ret) {
@@ -1132,21 +1141,7 @@ _krb5_get_cred_kdc_any(krb5_context context,
 				in_creds,
 				impersonate_principal,
 				second_ticket,
-				out_creds,
-				&referrals);
-
-    /*
-     * Never store referral TGTs in the ccache.  Our callers may store
-     * ret_tgts in the ccache, so we just don't include referral TGTs in
-     * ret_tgts.
-     *
-     * Also, the capath code should not use referral TGTs either, but it
-     * will use TGTs found/accumulated in ret_tgts via find_cred() (XXX
-     * that's a bug; none will be found, so find_cred() is just wasting
-     * cycles).
-     */
-    for (i = 0; referrals && referrals[i]; i++)
-	krb5_free_creds(context, referrals[i]);
+				out_creds);
 
     if (ret == 0 || flags.b.canonicalize)
 	return ret;
@@ -1288,8 +1283,9 @@ next_rule:
     tgts = NULL;
     ret = _krb5_get_cred_kdc_any(context, flags, ccache,
 				 try_creds, NULL, NULL, out_creds, &tgts);
-    for(i = 0; tgts && tgts[i]; i++) {
-	krb5_cc_store_cred(context, ccache, tgts[i]);
+    for (i = 0; tgts && tgts[i]; i++) {
+        if ((options & KRB5_GC_NO_STORE) == 0)
+            krb5_cc_store_cred(context, ccache, tgts[i]);
 	krb5_free_creds(context, tgts[i]);
     }
     free(tgts);
@@ -1524,8 +1520,9 @@ next_rule:
 				 try_creds, opt ? opt->self : 0,
 				 opt ? opt->ticket : 0, out_creds,
 				 &tgts);
-    for(i = 0; tgts && tgts[i]; i++) {
-	krb5_cc_store_cred(context, ccache, tgts[i]);
+    for (i = 0; tgts && tgts[i]; i++) {
+        if ((options & KRB5_GC_NO_STORE) == 0)
+            krb5_cc_store_cred(context, ccache, tgts[i]);
 	krb5_free_creds(context, tgts[i]);
     }
     free(tgts);
