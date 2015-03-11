@@ -1095,6 +1095,8 @@ _krb5_get_cred_kdc_any(krb5_context context,
 {
     krb5_error_code ret;
     krb5_deltat offset;
+    krb5_creds **referrals = NULL;  /* used for loop detection */
+    size_t i;
 
     ret = krb5_cc_get_kdc_offset(context, ccache, &offset);
     if (ret) {
@@ -1102,6 +1104,7 @@ _krb5_get_cred_kdc_any(krb5_context context,
 	context->kdc_usec_offset = 0;
     }
 
+    /* Try referrals */
     ret = get_cred_kdc_referral(context,
 				flags,
 				ccache,
@@ -1109,9 +1112,25 @@ _krb5_get_cred_kdc_any(krb5_context context,
 				impersonate_principal,
 				second_ticket,
 				out_creds,
-				ret_tgts);
+				&referrals);
+
+    /*
+     * Never store referral TGTs in the ccache.  Our callers may store
+     * ret_tgts in the ccache, so we just don't include referral TGTs in
+     * ret_tgts.
+     *
+     * Also, the capath code should not use referral TGTs either, but it
+     * will use TGTs found/accumulated in ret_tgts via find_cred() (XXX
+     * that's a bug; none will be found, so find_cred() is just wasting
+     * cycles).
+     */
+    for (i = 0; referrals && referrals[i]; i++)
+	krb5_free_creds(context, referrals[i]);
+
     if (ret == 0 || flags.b.canonicalize)
 	return ret;
+
+    /* Try capaths */
     return get_cred_kdc_capath(context,
 				flags,
 				ccache,
