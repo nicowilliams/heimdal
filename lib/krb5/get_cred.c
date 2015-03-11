@@ -749,18 +749,25 @@ get_cred_kdc_capath_worker(krb5_context context,
                            krb5_creds ***ret_tgts)
 {
     krb5_error_code ret;
-    krb5_creds *tgt, tmp_creds;
+    krb5_creds *tgt = NULL;
+    krb5_creds tmp_creds;
     krb5_const_realm client_realm, server_realm;
     int ok_as_delegate = 1;
 
-    *out_creds = NULL;
+    memset(&tmp_creds, 0, sizeof(tmp_creds));
+    tmp_creds.client = NULL;
+    tmp_creds.server = NULL;
+
+    *out_creds = calloc(1, sizeof(**out_creds));
+    if (*out_creds == NULL) {
+        return krb5_enomem(context);
+    }
 
     client_realm = krb5_principal_get_realm(context, in_creds->client);
     server_realm = krb5_principal_get_realm(context, in_creds->server);
-    memset(&tmp_creds, 0, sizeof(tmp_creds));
     ret = krb5_copy_principal(context, in_creds->client, &tmp_creds.client);
     if(ret)
-	return ret;
+	goto out;
 
     ret = krb5_make_principal(context,
 			      &tmp_creds.server,
@@ -768,55 +775,65 @@ get_cred_kdc_capath_worker(krb5_context context,
 			      KRB5_TGS_NAME,
 			      server_realm,
 			      NULL);
-    if(ret){
+    if (ret) {
 	krb5_free_principal(context, tmp_creds.client);
-	return ret;
+	goto out;
     }
+
     {
 	krb5_creds tgts;
 
+        /*
+         * If we have krbtgt/server_realm@try_realm cached, use it and we're
+         * done.
+         */
 	ret = find_cred(context, ccache, tmp_creds.server,
 			*ret_tgts, &tgts);
-	if(ret == 0){
+	if (ret == 0) {
 	    /* only allow implicit ok_as_delegate if the realm is the clients realm */
 	    if (strcmp(try_realm, client_realm) != 0 || strcmp(try_realm, server_realm) != 0)
 		ok_as_delegate = tgts.flags.b.ok_as_delegate;
 
-	    *out_creds = calloc(1, sizeof(**out_creds));
-	    if(*out_creds == NULL) {
-		ret = krb5_enomem(context);
-	    } else {
-		ret = get_cred_kdc_address(context, ccache, flags, NULL,
-					   in_creds, &tgts,
-					   impersonate_principal,
-					   second_ticket,
-					   *out_creds);
-		if (ret) {
-		    free (*out_creds);
-		    *out_creds = NULL;
-		} else if (ok_as_delegate == 0)
-		    (*out_creds)->flags.b.ok_as_delegate = 0;
-	    }
+            ret = get_cred_kdc_address(context, ccache, flags, NULL,
+                                       in_creds, &tgts,
+                                       impersonate_principal,
+                                       second_ticket,
+                                       *out_creds);
+            if (ret == 0 &&
+                !krb5_principal_compare(context, in_creds->server,
+                                        (*out_creds)->server)) {
+                krb5_free_cred_contents(context, *out_creds);
+                ret = KRB5KDC_ERR_S_PRINCIPAL_UNKNOWN;
+            }
+            if (ret == 0 && ok_as_delegate == 0)
+                (*out_creds)->flags.b.ok_as_delegate = 0;
 	    krb5_free_cred_contents(context, &tgts);
-	    krb5_free_principal(context, tmp_creds.server);
-	    krb5_free_principal(context, tmp_creds.client);
-	    return ret;
+	    goto out;
 	}
     }
-    if(krb5_realm_compare(context, in_creds->client, in_creds->server))
-	return not_found(context, in_creds->server, KRB5_CC_NOTFOUND);
+    if (krb5_realm_compare(context, in_creds->client, in_creds->server)) {
+        ret = not_found(context, in_creds->server, KRB5_CC_NOTFOUND);
+	goto out;
+    }
 
-    /* XXX this can loop forever */
-    while(1){
+    /*
+     * XXX This can loop forever, plus we recurse, so we can't just keep a
+     * count here.  The count would have to get passed around by reference.
+     *
+     * The KDCs check for transit loops for us, and capath data is finite, so
+     * in fact we'll fall out of this loop at some point.  We should do our own
+     * transit loop checking (like get_cred_kdc_referral()), and we should
+     * impose a max number of iterations altogether.  But barring malicious or
+     * broken KDCs, this is good enough.
+     */
+    while (1) {
 	heim_general_string tgt_inst;
 
 	ret = get_cred_kdc_capath(context, flags, ccache, &tmp_creds,
 				  NULL, NULL, &tgt, ret_tgts);
-	if(ret) {
-	    krb5_free_principal(context, tmp_creds.server);
-	    krb5_free_principal(context, tmp_creds.client);
-	    return ret;
-	}
+	if (ret)
+            goto out;
+
 	/*
 	 * if either of the chain or the ok_as_delegate was stripped
 	 * by the kdc, make sure we strip it too.
@@ -827,45 +844,49 @@ get_cred_kdc_capath_worker(krb5_context context,
 	}
 
 	ret = add_cred(context, tgt, ret_tgts);
-	if(ret) {
-	    krb5_free_principal(context, tmp_creds.server);
-	    krb5_free_principal(context, tmp_creds.client);
-	    return ret;
-	}
+	if (ret)
+            goto out;
+
 	tgt_inst = tgt->server->name.name_string.val[1];
-	if(strcmp(tgt_inst, server_realm) == 0)
+	if (strcmp(tgt_inst, server_realm) == 0)
 	    break;
+
 	krb5_free_principal(context, tmp_creds.server);
 	ret = krb5_make_principal(context, &tmp_creds.server,
 				  tgt_inst, KRB5_TGS_NAME, server_realm, NULL);
-	if(ret) {
-	    krb5_free_principal(context, tmp_creds.server);
-	    krb5_free_principal(context, tmp_creds.client);
-	    return ret;
-	}
+	if (ret)
+            goto out;
+
 	ret = krb5_free_creds(context, tgt);
-	if(ret) {
-	    krb5_free_principal(context, tmp_creds.server);
-	    krb5_free_principal(context, tmp_creds.client);
-	    return ret;
-	}
+	if(ret)
+            goto out;
     }
 
+    ret = get_cred_kdc_address(context, ccache, flags, NULL, in_creds, tgt,
+                               impersonate_principal, second_ticket,
+                               *out_creds);
+    if (ret == 0 &&
+        !krb5_principal_compare(context, in_creds->server,
+                                (*out_creds)->server)) {
+        krb5_free_cred_contents(context, *out_creds);
+        ret = KRB5KDC_ERR_S_PRINCIPAL_UNKNOWN;
+    }
+    if (ret)
+        goto out;
+
+    if (ok_as_delegate == 0)
+        (*out_creds)->flags.b.ok_as_delegate = 0;
+
+out:
     krb5_free_principal(context, tmp_creds.server);
     krb5_free_principal(context, tmp_creds.client);
-    *out_creds = calloc(1, sizeof(**out_creds));
-    if(*out_creds == NULL) {
-	ret = krb5_enomem(context);
-    } else {
-	ret = get_cred_kdc_address (context, ccache, flags, NULL,
-				    in_creds, tgt, impersonate_principal,
-				    second_ticket, *out_creds);
-	if (ret) {
-	    free (*out_creds);
-	    *out_creds = NULL;
-	}
+    if (ret) {
+        if (*out_creds != NULL)
+            krb5_free_creds(context, *out_creds);
+        *out_creds = NULL;
     }
-    krb5_free_creds(context, tgt);
+    if (tgt != NULL)
+        krb5_free_creds(context, tgt);
     return ret;
 }
 
