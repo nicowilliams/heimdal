@@ -45,7 +45,6 @@ do_ext_keytab(krb5_principal principal, void *data)
     kadm5_principal_ent_rec princ;
     struct ext_keytab_data *e = data;
     krb5_keytab_entry *keys = NULL;
-    krb5_keyblock *k = NULL;
     char *unparsed = NULL;
     size_t i;
     int n_k = 0;
@@ -61,62 +60,60 @@ do_ext_keytab(krb5_principal principal, void *data)
 	return ret;
     }
 
-    if (princ.n_key_data) {
-	keys = calloc(sizeof(*keys), princ.n_key_data);
-	if (keys == NULL) {
-	    kadm5_free_principal_ent(kadm_handle, &princ);
-            free(unparsed);
-	    return krb5_enomem(context);
-	}
-	for (i = 0; i < princ.n_key_data; i++) {
-	    krb5_key_data *kd = &princ.key_data[i];
-            int warned = 0;
-
-            /*
-             * If the kadm5 client princ lacks get-keys then it may get
-             * bogus keys four bytes long.
-             */
-            if (kd->key_data_length[0] == sizeof (KADM5_BOGUS_KEY_DATA) - 1 &&
-                ct_memcmp(kd->key_data_contents[0], KADM5_BOGUS_KEY_DATA,
-                          kd->key_data_length[0]) == 0) {
-                if (!warned) {
-                    krb5_warnx(context, "user lacks get-keys privilege for %s",
-                               unparsed);
-                    warned = 1;
-                }
-                continue;
-            }
-
-	    keys[i].principal = princ.principal;
-	    keys[i].vno = kd->key_data_kvno;
-	    keys[i].keyblock.keytype = kd->key_data_type[0];
-	    keys[i].keyblock.keyvalue.length = kd->key_data_length[0];
-	    keys[i].keyblock.keyvalue.data = kd->key_data_contents[0];
-	    keys[i].timestamp = time(NULL);
-            n_k++;
-	}
+    if (princ.n_key_data == 0) {
+        /*
+         * If the client has lacks the get-keys privilege then we'll get
+         * bogus keys, so princ.n_key_data == 0 really does mean "no
+         * keys" and there's nothing to do here.
+         */
+        krb5_warnx(context, "principal has no keys: %s", unparsed);
+        free(unparsed);
+        kadm5_free_principal_ent(kadm_handle, &princ);
+        return 0;
     }
 
-    if (n_k == 0) {
-        /* Probably lack get-keys privilege, but we may be able to set keys */
-	ret = kadm5_randkey_principal(kadm_handle, principal, &k, &n_k);
-	if (ret) {
-	    kadm5_free_principal_ent(kadm_handle, &princ);
-	    return ret;
-	}
-	keys = calloc(sizeof(*keys), n_k);
-	if (keys == NULL) {
-	    kadm5_free_principal_ent(kadm_handle, &princ);
-	    krb5_clear_error_message(context);
-	    return ENOMEM;
-	}
-	for (i = 0; i < n_k; i++) {
-	    keys[i].principal = principal;
-	    keys[i].vno = princ.kvno + 1; /* XXX get entry again */
-	    keys[i].keyblock = k[i];
-	    keys[i].timestamp = time(NULL);
-	}
+    keys = calloc(sizeof(*keys), princ.n_key_data);
+    if (keys == NULL) {
+        kadm5_free_principal_ent(kadm_handle, &princ);
+        free(unparsed);
+        return krb5_enomem(context);
     }
+
+    if (kadm5_all_keys_are_bogus(princ.n_key_data, princ.key_data)) {
+        krb5_warnx(context, "user lacks get-keys privilege for %s",
+                   unparsed);
+        kadm5_free_principal_ent(kadm_handle, &princ);
+        free(unparsed);
+        free(keys);
+        return KADM5_AUTH_GET_KEYS;
+    }
+
+    if (kadm5_some_keys_are_bogus(princ.n_key_data, princ.key_data)) {
+        krb5_warnx(context, "some keys for %s have been corrupted",
+                   unparsed);
+    }
+
+    for (i = 0; i < princ.n_key_data; i++) {
+        krb5_key_data *kd = &princ.key_data[i];
+
+        if (kadm5_all_keys_are_bogus(1, kd))
+            continue;
+
+        keys[i].principal = princ.principal;
+        keys[i].vno = kd->key_data_kvno;
+        keys[i].keyblock.keytype = kd->key_data_type[0];
+        keys[i].keyblock.keyvalue.length = kd->key_data_length[0];
+        keys[i].keyblock.keyvalue.data = kd->key_data_contents[0];
+        keys[i].timestamp = time(NULL);
+        n_k++;
+    }
+
+    /*
+     * We used to fallback on randkey if the principal had no keys, but
+     * that was a common case between Heimdal 1.5 kadmin clients and
+     * servers, and falling back on randkey here is surprising and
+     * disruptive.
+     */
 
     for (i = 0; i < n_k; i++) {
 	ret = krb5_kt_add_entry(context, e->keytab, &keys[i]);
@@ -124,10 +121,6 @@ do_ext_keytab(krb5_principal principal, void *data)
 	    krb5_warn(context, ret, "krb5_kt_add_entry(%lu)", (unsigned long)i);
     }
 
-    if (k) {
-	memset(k, 0, n_k * sizeof(*k));
-	free(k);
-    }
     kadm5_free_principal_ent(kadm_handle, &princ);
     free(unparsed);
     free(keys);
