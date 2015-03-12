@@ -55,7 +55,7 @@ add_enctype(struct add_enctype_options*opt, int argc, char **argv)
 	return 0;
     }
 
-    memset (&princ, 0, sizeof(princ));
+    memset(&princ, 0, sizeof(princ));
     princ_name = argv[0];
     n_etypes   = argc - 1;
     etypes     = malloc (n_etypes * sizeof(*etypes));
@@ -65,7 +65,7 @@ add_enctype(struct add_enctype_options*opt, int argc, char **argv)
     }
     argv++;
     for (i = 0; i < n_etypes; ++i) {
-	ret = krb5_string_to_enctype (context, argv[i], &etypes[i]);
+	ret = krb5_string_to_enctype(context, argv[i], &etypes[i]);
 	if (ret) {
 	    krb5_warnx (context, "bad enctype \"%s\"", argv[i]);
 	    goto out2;
@@ -74,7 +74,7 @@ add_enctype(struct add_enctype_options*opt, int argc, char **argv)
 
     ret = krb5_parse_name(context, princ_name, &princ_ent);
     if (ret) {
-	krb5_warn (context, ret, "krb5_parse_name %s", princ_name);
+	krb5_warn(context, ret, "krb5_parse_name %s", princ_name);
 	goto out2;
     }
 
@@ -82,13 +82,19 @@ add_enctype(struct add_enctype_options*opt, int argc, char **argv)
     ret = kadm5_get_principal(kadm_handle, princ_ent, &princ,
 			      KADM5_KVNO | KADM5_PRINCIPAL | KADM5_KEY_DATA);
     if (ret) {
-	krb5_free_principal (context, princ_ent);
-	krb5_warnx (context, "no such principal: %s", princ_name);
+	krb5_free_principal(context, princ_ent);
+	krb5_warnx(context, "no such principal: %s", princ_name);
 	goto out2;
     }
 
-    new_key_data   = malloc((princ.n_key_data + n_etypes)
-			    * sizeof(*new_key_data));
+    /* Check that we got key data */
+    if (kadm5_all_keys_are_bogus(princ.n_key_data, princ.key_data)) {
+        krb5_warnx(context, "user lacks get-keys privilege");
+        goto out;
+    }
+
+    new_key_data = calloc(princ.n_key_data + n_etypes,
+                          sizeof(*new_key_data));
     if (new_key_data == NULL) {
 	krb5_warnx (context, "out of memory");
 	goto out;
