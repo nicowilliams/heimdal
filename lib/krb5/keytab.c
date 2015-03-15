@@ -674,23 +674,26 @@ krb5_kt_get_entry(krb5_context context,
 		  krb5_keytab_entry *entry)
 {
     krb5_error_code ret;
-    krb5_principal try_princ;
+    krb5_const_principal try_princ;
     krb5_name_canon_iterator name_canon_iter;
 
-    if (!principal || principal->name.name_type != KRB5_NT_SRV_HST_NEEDS_CANON)
+    if (!principal)
 	return krb5_kt_get_entry_wrapped(context, id, principal, kvno, enctype,
 					 entry);
 
-    ret = krb5_name_canon_iterator_start(context, principal, NULL,
-					 &name_canon_iter);
+    ret = krb5_name_canon_iterator_start(context, principal, &name_canon_iter);
     if (ret)
 	return ret;
 
     do {
-	ret = krb5_name_canon_iterate_princ(context, &name_canon_iter,
-					    &try_princ, NULL);
+	ret = krb5_name_canon_iterate(context, &name_canon_iter, &try_princ,
+                                      NULL);
 	if (ret)
 	    break;
+        if (try_princ == NULL) {
+            ret = KRB5_KT_NOTFOUND;
+            continue;
+        }
 	ret = krb5_kt_get_entry_wrapped(context, id, try_princ, kvno,
 					enctype, entry);
     } while (ret == KRB5_KT_NOTFOUND && name_canon_iter);
