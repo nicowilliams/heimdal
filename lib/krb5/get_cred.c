@@ -1164,9 +1164,8 @@ check_cc(krb5_context context, krb5_flags options, krb5_ccache ccache,
 {
     krb5_error_code ret;
     krb5_timestamp now;
-    krb5_times save_times;
-
-    save_times = in_creds->times;
+    krb5_times save_times = in_creds->times;
+    NAME_TYPE save_type = in_creds->server->name.name_type;
 
     krb5_timeofday(context, &now);
 
@@ -1176,12 +1175,20 @@ check_cc(krb5_context context, krb5_flags options, krb5_ccache ccache,
 	krb5_timeofday(context, &in_creds->times.endtime);
 	options |= KRB5_TC_MATCH_TIMES;
     }
+
+    if (save_type == KRB5_NT_SRV_HST_NEEDS_CANON) {
+        /* Avoid name canonicalization in krb5_cc_retrieve_cred() */
+        krb5_principal_set_type(context, in_creds->server, KRB5_NT_SRV_HST);
+    }
+
     ret = krb5_cc_retrieve_cred(context, ccache,
 				(options &
-				 (KRB5_TC_MATCH_KEYTYPE |
+				 (KRB5_TC_DONT_MATCH_REALM |
+                                  KRB5_TC_MATCH_KEYTYPE |
 				  KRB5_TC_MATCH_TIMES)),
 				in_creds, out_creds);
 
+    in_creds->server->name.name_type = save_type;
     in_creds->times = save_times;
     return ret;
 }
@@ -1192,21 +1199,18 @@ store_cred(krb5_context context, krb5_ccache ccache,
 {
     krb5_error_code ret;
     krb5_principal tmp_princ = creds->server;
-    krb5_principal p;
+
+    if (strcmp(server->princ->realm, "") == 0) {
+        /*
+         * Store the cred with the pre-canonicalization form so it can
+         * be found faster in the future.
+         */
+        creds->server = server_princ;
+        krb5_cc_store_cred(context, ccache, creds);
+        creds->server = tmp_princ;
+    }
 
     krb5_cc_store_cred(context, ccache, creds);
-    if (strcmp(server_princ->realm, "") != 0)
-	return;
-
-    ret = krb5_copy_principal(context, server_princ, &p);
-    if (ret)
-	return;
-    if (p->name.name_type == KRB5_NT_SRV_HST_NEEDS_CANON)
-	p->name.name_type = KRB5_NT_SRV_HST;
-    creds->server = p;
-    krb5_cc_store_cred(context, ccache, creds);
-    creds->server = tmp_princ;
-    krb5_free_principal(context, p);
 }
 
 
@@ -1238,12 +1242,11 @@ krb5_get_credentials_with_flags(krb5_context context,
     if (res_creds == NULL)
 	return krb5_enomem(context);
 
-    if (in_creds->server->name.name_type == KRB5_NT_SRV_HST_NEEDS_CANON) {
-	ret = check_cc(context, options, ccache, in_creds, res_creds);
-	if (ret == 0) {
-	    *out_creds = res_creds;
-	    return 0;
-	}
+    /* Preemptive search, before we do any canonicalization work */
+    ret = check_cc(context, options, ccache, in_creds, res_creds);
+    if (ret == 0) {
+        *out_creds = res_creds;
+        return 0;
     }
 
     ret = krb5_name_canon_iterator_start(context, NULL, in_creds,
@@ -1461,13 +1464,11 @@ krb5_get_creds(krb5_context context,
 	options |= KRB5_TC_MATCH_KEYTYPE;
     }
 
-    /* Check for entry in ccache */
-    if (inprinc->name.name_type == KRB5_NT_SRV_HST_NEEDS_CANON) {
-	ret = check_cc(context, options, ccache, &in_creds, res_creds);
-	if (ret == 0) {
-	    *out_creds = res_creds;
-	    goto out;
-	}
+    /* Preemptive search, before we do any canonicalization work */
+    ret = check_cc(context, options, ccache, &in_creds, res_creds);
+    if (ret == 0) {
+        *out_creds = res_creds;
+        goto out;
     }
 
     ret = krb5_name_canon_iterator_start(context, NULL, &in_creds,
