@@ -196,6 +196,8 @@ krb5_decrypt_ticket(krb5_context context,
 {
     EncTicketPart t;
     krb5_error_code ret;
+    krb5_data ad_element;
+
     ret = decrypt_tkt_enc_part (context, key, &ticket->enc_part, &t);
     if (ret)
 	return ret;
@@ -227,6 +229,16 @@ krb5_decrypt_ticket(krb5_context context,
 		return ret;
 	    }
 	}
+
+        /* Check for critical authz data */
+        ret = _krb5_get_ad(context, t.authorization_data, NULL,
+                           KRB5_PADATA_FX_FAST_ARMOR, &ad_element);
+        krb5_data_free(&ad_element);
+        if (ret == 0 && (flags & KRB5_VERIFY_AP_REQ_ACCEPT_FAST) == 0) {
+            krb5_set_error_message(context, EINVAL/*XXX*/,
+                                   N_("Unexpected FAST armor ticket", ""));
+            return EINVAL; /* XXX */
+        }
     }
 
     if(out)
