@@ -311,6 +311,72 @@ be allowed to run.
 .It Li fcache_strict_checking
 strict checking in FILE credential caches that owner, no symlink and
 permissions is correct.
+.It Li name_canon_rules = Va rules
+One or more service principal name canonicalization rules.  Each rule
+consists of one or more tokens separated by colon (':').  Currently
+these rules are used only for hostname canonicalization.  These rules
+can be used to implement DNS resolver-like search lists, without having
+to use DNS.
+.Pp
+The first token is a rule type, one of:
+.Va as-is
+,
+.Va qualify
+, or
+.Va nss.
+.Pp
+Any remaining tokens must be options tokens:
+.Va use_fast
+(use FAST to protect TGS exchanges; currently not supported),
+.Va use_dnssec
+(use DNSSEC to protect hostname lookups; currently not supported),
+.Va ccache_only
+,
+.Va use_referrals,
+.Va no_referrals,
+.Va lookup_realm,
+.Va mindots=N,
+.Va maxdots=N,
+.Va order=N,
+domain=
+.Va domain,
+realm=
+.Va realm,
+match_domain=
+.Va domain,
+and match_realm=
+.Va realm.
+.Pp
+Name canonicalization rules are applied to host-based service principal
+names in the order given until one rule succeeds or all fail.  For each
+rule the system checks that the hostname has at least
+.Va mindots
+periods (if given) in it, at most
+.Va maxdots
+periods (if given), that the hostname ends in the given
+.Va match_domain
+(if given),
+and that the realm of the principal matches the
+.Va match_realm
+(if given).  Empty realm and domain names may be given.  The empty realm
+denotes "ask the client's realm's TGS".
+.Pp
+.Va As-is
+rules leave the hostname unmodified but may set a realm.
+.Va Qualify
+rules qualify the hostname with the given
+.Va domain
+and also may set the realm.
+The
+.Va nss
+rule uses the system resolver to lookup the host's canonical name and is
+usually not secure.
+.Pp
+The order in which name rules are applied is as they appear in the
+configuration, unless specified via the
+.Va order=N
+token.  This can be useful where tools read and write the configuration
+file without preserving order.
 .El
 .It Li [domain_realm]
 This is a list of mappings from DNS domain to Kerberos realm.
@@ -651,6 +717,10 @@ configuration file for Kerberos 5.
 .Bd -literal -offset indent
 [libdefaults]
 	default_realm = FOO.SE
+	name_canon_rules = as-is:realm=FOO.SE
+	name_canon_rules = qualify:domain=foo.se:realm=FOO.SE
+	name_canon_rules = qualify:domain=bar.se:realm=FOO.SE
+	name_canon_rules = nss
 [domain_realm]
 	.foo.se = FOO.SE
 	.bar.se = FOO.SE
