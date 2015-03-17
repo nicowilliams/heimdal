@@ -75,6 +75,7 @@ libroken_la_SOURCES =		\
 	concat.c		\
 	cloexec.c		\
 	ct.c			\
+	detach.c		\
 	doxygen.c		\
 	dumpdata.c		\
 	environment.c		\

@@ -292,5 +292,7 @@ start_server(krb5_context contextp, const char *port_str)
     if(num_socks == 0)
 	krb5_errx(contextp, 1, "no sockets to listen to - exiting");
 
+    roken_detach_finish();
+
     wait_for_connection(contextp, socks, num_socks);
 }

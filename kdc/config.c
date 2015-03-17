@@ -94,19 +94,10 @@ static struct getargs args[] = {
     {	"ports",	'P', 	arg_string, rk_UNCONST(&port_str),
 	"ports to listen to", "portspec"
     },
-#ifdef SUPPORT_DETACH
-#if DETACH_IS_DEFAULT
-    {
-	"detach",       'D',      arg_negative_flag, &detach_from_console,
-	"don't detach from console", NULL
-    },
-#else
     {
 	"detach",       0 ,      arg_flag, &detach_from_console,
 	"detach from console", NULL
     },
-#endif
-#endif
     {	"addresses",	0,	arg_strings, &addresses_str,
 	"addresses to listen on", "list of addresses" },
     {	"disable-des",	0,	arg_flag, &disable_des,
@@ -158,10 +149,10 @@ configure(krb5_context context, int argc, char **argv, int *optidx)
 
     *optidx = 0;
 
-    while(getarg(args, num_args, argc, argv, optidx))
+    while (getarg(args, num_args, argc, argv, optidx))
 	warnx("error at argument `%s'", argv[*optidx]);
 
-    if(help_flag)
+    if (help_flag)
 	usage (0);
 
     if (version_flag) {
@@ -178,6 +169,15 @@ configure(krb5_context context, int argc, char **argv, int *optidx)
 	free(list);
 	exit(0);
     }
+
+    if(detach_from_console == -1)
+	detach_from_console = krb5_config_get_bool_default(context, NULL,
+							   FALSE,
+							   "kdc",
+							   "detach", NULL);
+
+    if (detach_from_console)
+        roken_detach_prep();
 
     {
 	char **files;
@@ -265,13 +265,11 @@ configure(krb5_context context, int argc, char **argv, int *optidx)
 	krb5_errx(context, 1, "enforce-transited-policy deprecated, "
 		  "use [kdc]transited-policy instead");
 
-#ifdef SUPPORT_DETACH
     if(detach_from_console == -1)
 	detach_from_console = krb5_config_get_bool_default(context, NULL,
-							   DETACH_IS_DEFAULT,
+							   FALSE,
 							   "kdc",
 							   "detach", NULL);
-#endif /* SUPPORT_DETACH */
 
     if(max_request_tcp == 0)
 	max_request_tcp = 64 * 1024;
