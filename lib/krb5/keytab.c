@@ -519,7 +519,7 @@ krb5_kt_destroy(krb5_context context,
  */
 
 static krb5_boolean
-compare_alisases(krb5_context context,
+compare_aliases(krb5_context context,
 		 krb5_keytab_entry *entry,
 		 krb5_const_principal principal)
 {
@@ -558,11 +558,11 @@ krb5_kt_compare(krb5_context context,
     /* krb5_principal_compare() does not special-case the referral realm */
     if (principal != NULL && strcmp(principal->realm, "") == 0 &&
         !(krb5_principal_compare_any_realm(context, entry->principal, principal) ||
-          compare_alisases(context, entry, principal))) {
+          compare_aliases(context, entry, principal))) {
         return FALSE;
     } else if (principal != NULL && strcmp(principal->realm, "") != 0 &&
         !(krb5_principal_compare(context, entry->principal, principal) ||
-          compare_alisases(context, entry, principal))) {
+          compare_aliases(context, entry, principal))) {
 	return FALSE;
     }
     if (vno && vno != entry->vno)
