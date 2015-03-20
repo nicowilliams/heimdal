@@ -186,7 +186,6 @@ AC_CHECK_FUNCS([				\
 	atexit					\
 	cgetent					\
 	getauxval				\
-	___getauxval				\
 	getconfattr				\
 	getprogname				\
 	getrlimit				\
