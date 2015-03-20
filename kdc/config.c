@@ -265,12 +265,6 @@ configure(krb5_context context, int argc, char **argv, int *optidx)
 	krb5_errx(context, 1, "enforce-transited-policy deprecated, "
 		  "use [kdc]transited-policy instead");
 
-    if(detach_from_console == -1)
-	detach_from_console = krb5_config_get_bool_default(context, NULL,
-							   FALSE,
-							   "kdc",
-							   "detach", NULL);
-
     if(max_request_tcp == 0)
 	max_request_tcp = 64 * 1024;
     if(max_request_udp == 0)
