@@ -1417,6 +1417,15 @@ krb5_sname_to_principal(krb5_context context,
     return ret;
 }
 
+static void
+tolower_str(char *s)
+{
+    for (; *s != '\0'; s++) {
+        if (isupper(*s))
+            *s = tolower(*s);
+    }
+}
+
 static krb5_error_code
 rule_parse_token(krb5_context context, krb5_name_canon_rule rule,
 		 const char *tok)
@@ -1463,6 +1472,7 @@ rule_parse_token(krb5_context context, krb5_name_canon_rule rule,
 	rule->domain = strdup(tok + strlen("domain="));
 	if (rule->domain == NULL)
 	    return krb5_enomem(context);
+        tolower_str(rule->domain);
     } else if (strncmp(tok, "realm=", strlen("realm=")) == 0) {
 	free(rule->realm);
 	rule->realm = strdup(tok + strlen("realm="));
@@ -1473,6 +1483,7 @@ rule_parse_token(krb5_context context, krb5_name_canon_rule rule,
 	rule->match_domain = strdup(tok + strlen("match_domain="));
 	if (rule->match_domain == NULL)
 	    return krb5_enomem(context);
+        tolower_str(rule->match_domain);
     } else if (strncmp(tok, "match_realm=", strlen("match_realm=")) == 0) {
 	free(rule->match_realm);
 	rule->match_realm = strdup(tok + strlen("match_realm="));
@@ -1702,7 +1713,7 @@ is_domain_suffix(const char *domain, const char *suffix)
         if (cp == NULL)
             return 0;
         cp++;
-        if (strcmp(cp, suffix) == 0)
+        if (strcasecmp(cp, suffix) == 0)
             return 1;
     } while (cp != NULL);
 
