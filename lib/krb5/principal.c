@@ -1507,6 +1507,7 @@ rule_parse_token(krb5_context context, krb5_name_canon_rule rule,
     } else {
         _krb5_debug(context, 5,
                     "Unrecognized name canonicalization rule token %s", tok);
+        return EINVAL;
     }
     return 0;
 }
@@ -1565,13 +1566,18 @@ parse_name_canon_rules(krb5_context context, char **rulestrs,
         r[k].explicit_order = MAXORDER; /* mark order, see below */
         r[k].maxdots = MAXDOTS;
         r[k].order = k;         /* default order */
-        /* Tokenize value */
+
+        /* Tokenize and parse value */
 	do {
 	    tok = cp;
 	    cp = strchr(cp, ':');   /* XXX use strtok_r() */
 	    if (cp)
 		*cp++ = '\0';       /* delimit token */
 	    ret = rule_parse_token(context, &r[k], tok);
+            if (ret == EINVAL) {
+                r[k].type = KRB5_NCRT_BOGUS;
+                break;
+            }
             if (ret) {
                 _krb5_free_name_canon_rules(context, r);
                 return ret;
@@ -1579,6 +1585,7 @@ parse_name_canon_rules(krb5_context context, char **rulestrs,
 	} while (cp && *cp);
         if (r[k].explicit_order != MAXORDER)
             do_sort = 1;
+
 	/* Validate parsed rule */
 	if (r[k].type == KRB5_NCRT_BOGUS ||
 	    (r[k].type == KRB5_NCRT_QUALIFY && !r[k].domain) ||
@@ -1674,7 +1681,7 @@ _krb5_get_name_canon_rules(krb5_context context, krb5_name_canon_rule *rules)
                 "internal error in parsing principal name "
                 "canonicalization rules");
 
-    /* Memoize (XXX also free them when we free the ctx) */
+    /* Memoize */
     context->name_canon_rules = *rules;
 
     return 0;
