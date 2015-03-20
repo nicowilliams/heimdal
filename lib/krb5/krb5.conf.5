@@ -363,8 +363,7 @@ periods (if given), that the hostname ends in the given
 (if given),
 and that the realm of the principal matches the
 .Va match_realm
-(if given).  Empty realm and domain names may be given.  The empty realm
-denotes "ask the client's realm's TGS".
+(if given).
 .Pp
 .Va As-is
 rules leave the hostname unmodified but may set a realm.
@@ -377,11 +376,20 @@ The
 rule uses the system resolver to lookup the host's canonical name and is
 usually not secure.
 .Pp
-The order in which name rules are applied is as they appear in the
-configuration, unless specified via the
-.Va order=N
-token.  This can be useful where tools read and write the configuration
-file without preserving order.
+The empty realm denotes "ask the client's realm's TGS".  The empty realm
+may be set as well as matched.
+.Pp
+The order in which rules are applied is as follows: first all the rules
+with explicit
+.Va order
+then all other rules in the order in which they appear.  If any two
+rules have the same explicit
+.Va order
+their order of appearance in krb5.conf breaks the tie.  Explicitly
+specifying order can be useful where tools read and write the
+configuration file without preserving parameter order.
+.Pp
+Malformed rules are ignored.
 .El
 .It Li [domain_realm]
 This is a list of mappings from DNS domain to Kerberos realm.
