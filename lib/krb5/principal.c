@@ -1400,12 +1400,13 @@ krb5_sname_to_principal(krb5_context context,
 	 * Hostname canonicalization is done elsewhere (in
 	 * krb5_get_credentials() and krb5_kt_get_entry()).
 	 *
-	 * We use special magic to indicate to those functions that
-	 * this principal name requires canonicalization.
+         * We overload the name type to indicate to those functions that
+         * this principal name requires canonicalization.
          *
-         * We could use the empty realm to denote the need to
-         * canonicalize the hostname too, not just the realm.  Perhaps
-         * we should!
+         * We can't use the empty realm to denote the need to
+         * canonicalize the hostname too: it would mean that users who
+         * want to assert knowledge of a service's realm must also know
+         * the canonical hostname, but in practice they don't.
 	 */
 	(*ret_princ)->name.name_type = KRB5_NT_SRV_HST_NEEDS_CANON;
 
