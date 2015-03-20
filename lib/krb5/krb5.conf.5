@@ -314,15 +314,15 @@ permissions is correct.
 .It Li name_canon_rules = Va rules
 One or more service principal name canonicalization rules.  Each rule
 consists of one or more tokens separated by colon (':').  Currently
-these rules are used only for hostname canonicalization.  These rules
-can be used to implement DNS resolver-like search lists, without having
-to use DNS.
+these rules are used only for hostname canonicalization (usually when
+getting a service ticket, from a ccache or a TGS, but also when
+acquiring GSS initiator credentials from a keytab).  These rules can be
+used to implement DNS resolver-like search lists without having to use
+DNS.
 .Pp
 The first token is a rule type, one of:
-.Va as-is
-,
-.Va qualify
-, or
+.Va as-is,
+.Va qualify, or
 .Va nss.
 .Pp
 Any remaining tokens must be options tokens:
@@ -347,9 +347,14 @@ match_domain=
 and match_realm=
 .Va realm.
 .Pp
-Name canonicalization rules are applied to host-based service principal
-names in the order given until one rule succeeds or all fail.  For each
-rule the system checks that the hostname has at least
+When trying to obtain a service ticket for a host-based service
+principal name, name canonicalization rules are applied to that name in
+the order given, one by one, until one succeds (a service ticket is
+obtained), or all fail.  Similarly when acquiring GSS initiator
+credentials from a keytab, and when comparing a non-canonical GSS name
+to a canonical one.
+.Pp
+For each rule the system checks that the hostname has at least
 .Va mindots
 periods (if given) in it, at most
 .Va maxdots
