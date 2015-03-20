@@ -50,7 +50,7 @@ _gsskrb5_store_cred(OM_uint32         *minor_status,
     krb5_ccache def_ccache = NULL;
     const char *def_type = NULL;
     time_t exp_current;
-    time_t now;
+    time_t exp_new;
 
     *minor_status = 0;
 
