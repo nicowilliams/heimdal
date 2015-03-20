@@ -49,7 +49,7 @@ _gsskrb5_store_cred(OM_uint32         *minor_status,
     krb5_ccache id = NULL;
     krb5_ccache def_ccache = NULL;
     const char *def_type = NULL;
-    time_t exp;
+    time_t exp_current;
     time_t now;
 
     *minor_status = 0;
@@ -74,6 +74,13 @@ _gsskrb5_store_cred(OM_uint32         *minor_status,
 	HEIMDAL_MUTEX_unlock(&cred->cred_id_mutex);
 	*minor_status = GSS_KRB5_S_G_BAD_USAGE;
 	return GSS_S_FAILURE;
+    }
+
+    ret = krb5_cc_get_lifetime(context, cred->ccache, &exp_new);
+    if (ret) {
+	HEIMDAL_MUTEX_unlock(&cred->cred_id_mutex);
+	*minor_status = ret;
+	return GSS_S_NO_CRED;
     }
 
     if (cred->principal == NULL) {
@@ -118,9 +125,8 @@ _gsskrb5_store_cred(OM_uint32         *minor_status,
 
     if (!overwrite_cred) {
         /* If current creds are expired or near it, overwrite */
-        now = time(NULL);
-        ret = krb5_cc_get_lifetime(context, id, &exp);
-        if (ret == 0 && (now + 5*60) >= ret)
+        ret = krb5_cc_get_lifetime(context, id, &exp_current);
+        if (ret != 0 || exp_new > exp_current)
             overwrite_cred = 1;
     }
 
