@@ -1237,13 +1237,6 @@ krb5_get_credentials_with_flags(krb5_context context,
     if (res_creds == NULL)
 	return krb5_enomem(context);
 
-    /* Preemptive search, before we do any canonicalization work */
-    ret = check_cc(context, options, ccache, in_creds, res_creds);
-    if (ret == 0) {
-        *out_creds = res_creds;
-        return 0;
-    }
-
     ret = krb5_name_canon_iterator_start(context, in_creds->server,
 					 &name_canon_iter);
     if (ret)
@@ -1257,6 +1250,7 @@ next_rule:
     in_creds->server = rk_UNCONST(try_princ);
     if (ret)
 	goto out;
+
     if (name_canon_iter == NULL) {
 	if (options & KRB5_GC_CACHED)
 	    ret = KRB5_CC_NOTFOUND;
@@ -1463,13 +1457,6 @@ krb5_get_creds(krb5_context context,
 	options |= KRB5_TC_MATCH_KEYTYPE;
     }
 
-    /* Preemptive search, before we do any canonicalization work */
-    ret = check_cc(context, options, ccache, &in_creds, res_creds);
-    if (ret == 0) {
-        *out_creds = res_creds;
-        goto out;
-    }
-
     ret = krb5_name_canon_iterator_start(context, in_creds.server,
 					 &name_canon_iter);
     if (ret)
@@ -1481,6 +1468,7 @@ next_rule:
     in_creds.server = rk_UNCONST(try_princ);
     if (ret)
 	goto out;
+
     if (name_canon_iter == NULL) {
 	if (options & KRB5_GC_CACHED)
 	    ret = KRB5_CC_NOTFOUND;
@@ -1488,6 +1476,7 @@ next_rule:
 	    ret = KRB5KDC_ERR_S_PRINCIPAL_UNKNOWN;
 	goto out;
     }
+
     ret = check_cc(context, options, ccache, &in_creds, res_creds);
     if (ret == 0) {
 	*out_creds = res_creds;
