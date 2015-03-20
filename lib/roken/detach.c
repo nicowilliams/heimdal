@@ -97,6 +97,10 @@ roken_detach_finish(void)
     if (setsid() == -1)
         err(1, "failed to detach from tty");
 
+    /*
+     * Hopefully we've written any pidfiles by now, if they had to be in
+     * the current directory...
+     */
     if (chdir("/"))
         err(1, "failed to chdir to /");
 
@@ -104,6 +108,7 @@ roken_detach_finish(void)
     do {
         bytes = write(pipefds[1], buf, sizeof(buf));
     } while (bytes == -1 && errno == EINTR);
+    (void) close(pipefds[1]);
     if (bytes == -1)
         err(1, "failed to signal parent while detaching");
     if (bytes != sizeof(buf))
