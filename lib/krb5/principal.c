@@ -1574,10 +1574,14 @@ parse_name_canon_rules(krb5_context context, char **rulestrs,
 	    (r[k].type == KRB5_NCRT_NSS && (r[k].domain || r[k].realm))) {
 	    /* Invalid rule; mark it so and clean up */
 	    r[k].type = KRB5_NCRT_BOGUS;
-	    free(r[k].realm);
+	    free(r[k].match_domain);
+	    free(r[k].match_realm);
 	    free(r[k].domain);
+	    free(r[k].realm);
 	    r[k].realm = NULL;
 	    r[k].domain = NULL;
+	    r[k].match_domain = NULL;
+	    r[k].match_realm = NULL;
             _krb5_debug(context, 5,
                         "Ignoring invalid name canonicalization rule %lu",
                         (unsigned long)i);
