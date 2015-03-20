@@ -667,11 +667,14 @@ krb5_principal_set_comp_string(krb5_context context,
 			       unsigned int k,
                                const char *component)
 {
+    char *s;
     if (k >= princ_num_comp(principal))
         return ERANGE;
-    princ_ncomp(principal, k) = strdup(component);
-    if (princ_ncomp(principal, k) == NULL)
+    s = strdup(component);
+    if (s == NULL)
         return krb5_enomem(context);
+    free(princ_ncomp(principal, k));
+    princ_ncomp(principal, k) = s;
     return 0;
 }
 
@@ -1267,20 +1270,28 @@ typedef enum krb5_name_canon_rule_type {
 	KRB5_NCRT_NSS
 } krb5_name_canon_rule_type;
 
-#define MAXDOTS 7
-#define MAXORDER 15
+#ifdef UINT8_MAX
+#define MAXDOTS UINT8_MAX
+#else
+#define MAXDOTS (255U)
+#endif
+#ifdef UINT16_MAX
+#define MAXORDER UINT16_MAX
+#else
+#define MAXORDER (65535U)
+#endif
 
 struct krb5_name_canon_rule_data {
-	krb5_name_canon_rule next;      /* to save a qsort when not needed */
 	krb5_name_canon_rule_type type;
 	krb5_name_canon_rule_options options;
-	unsigned int mindots:3;         /* match this many dots or more */
-	unsigned int maxdots:3;         /* match no more than this many dots */
-        unsigned int order:4;           /* rule order */
-	char *match_domain;             /* match this stem */
-	char *match_realm;              /* match this realm */
-	char *domain;                   /* qualify with this domain */
-	char *realm;                    /* qualify with this realm */
+	uint8_t mindots;          /* match this many dots or more */
+	uint8_t maxdots;          /* match no more than this many dots */
+        uint16_t explicit_order;    /* given order */
+        uint16_t order;             /* actual order */
+	char *match_domain;         /* match this stem */
+	char *match_realm;          /* match this realm */
+	char *domain;               /* qualify with this domain */
+	char *realm;                /* qualify with this realm */
 };
 
 /**
@@ -1358,9 +1369,9 @@ krb5_sname_to_principal(krb5_context context,
 			ret);
 	    return ret;
 	}
-	if (rules[0].type == KRB5_NCRT_NSS && rules[0].next == NULL) {
-	    _krb5_debug(context, 5, "Using nss for name canon immediately "
-			"(without reverse lookups)");
+	if (rules[0].type == KRB5_NCRT_NSS &&
+            rules[1].type == KRB5_NCRT_BOGUS) {
+	    _krb5_debug(context, 5, "Using nss for name canon immediately");
             ret = krb5_sname_to_principal_old(context, rules[0].realm,
                                               remote_host, sname,
                                               KRB5_NT_SRV_HST, ret_princ);
@@ -1481,7 +1492,7 @@ rule_parse_token(krb5_context context, krb5_name_canon_rule rule,
 	errno = 0;
 	n = strtol(tok + strlen("order="), NULL, 10);
 	if (errno == 0 && n > 0 && n <= MAXORDER)
-	    rule->order = n;
+	    rule->explicit_order = n;
     } else {
         _krb5_debug(context, 5,
                     "Unrecognized name canonicalization rule token %s", tok);
@@ -1495,10 +1506,17 @@ rule_cmp(const void *a, const void *b)
     krb5_const_name_canon_rule left = a;
     krb5_const_name_canon_rule right = b;
 
+    if (left->type == KRB5_NCRT_BOGUS &&
+        right->type == KRB5_NCRT_BOGUS)
+        return 0;
     if (left->type == KRB5_NCRT_BOGUS)
         return 1;
     if (right->type == KRB5_NCRT_BOGUS)
         return -1;
+    if (left->explicit_order < right->explicit_order)
+        return -1;
+    if (left->explicit_order > right->explicit_order)
+        return 1;
     return right->order - left->order;
 }
 
@@ -1524,17 +1542,18 @@ parse_name_canon_rules(krb5_context context, char **rulestrs,
 	return krb5_enomem(context);
 
     for (k = 0; k < n; k++) {
+        r[k].type = KRB5_NCRT_BOGUS;
         r[k].match_domain = NULL;
         r[k].match_realm = NULL;
         r[k].domain = NULL;
         r[k].realm = NULL;
-        r[k].next = NULL;
     }
 
     for (i = 0, k = 0; i < n && rulestrs != NULL && rulestrs[i] != NULL; i++) {
 	cp = rulestrs[i];
-        r[k].order = MAXORDER;      /* mark order, see below */
+        r[k].explicit_order = MAXORDER; /* mark order, see below */
         r[k].maxdots = MAXDOTS;
+        r[k].order = k;         /* default order */
         /* Tokenize value */
 	do {
 	    tok = cp;
@@ -1547,9 +1566,7 @@ parse_name_canon_rules(krb5_context context, char **rulestrs,
                 return ret;
             }
 	} while (cp && *cp);
-        if (r[k].order == MAXORDER)
-            r[k].order = k;         /* default order */
-        else
+        if (r[k].explicit_order != MAXORDER)
             do_sort = 1;
 	/* Validate parsed rule */
 	if (r[k].type == KRB5_NCRT_BOGUS ||
@@ -1569,21 +1586,17 @@ parse_name_canon_rules(krb5_context context, char **rulestrs,
 	k++; /* good rule */
     }
 
-    if (do_sort)
-        qsort(r, n, sizeof(r[0]), rule_cmp); /* XXX unstable sort */
-
-    /* Setup next pointers */
-    for (k = 0, i = 1; i < n; i++) {
-	if (r[i].type == KRB5_NCRT_BOGUS)
-	    continue;
-	r[k].next = &r[i];
-	k++;
+    if (do_sort) {
+        /*
+         * Note that we make make this a stable sort by using appareance
+         * and explicit order.
+         */
+        qsort(r, n, sizeof(r[0]), rule_cmp);
     }
 
     if (r[0].type == KRB5_NCRT_BOGUS) {
         /* No rules, or no valid rules */
         r[0].type = KRB5_NCRT_NSS;
-        r[0].next = NULL;
     }
 
     *rules = r;
@@ -1605,7 +1618,7 @@ make_rules_safe(krb5_context context, krb5_name_canon_rule rules)
      * conversion.  Better let the user get failures and make them think about
      * their naming rules.
      */
-    for (; rules != NULL; rules = rules->next) {
+    for (; rules != NULL && rules[0].type != KRB5_NCRT_BOGUS; rules++) {
         if (rules->type == KRB5_NCRT_NSS)
             rules->options |= KRB5_NCRO_USE_DNSSEC;
         else
@@ -1675,6 +1688,23 @@ get_host_realm(krb5_context context, const char *hostname, char **realm)
     return 0;
 }
 
+static int
+is_domain_suffix(const char *domain, const char *suffix)
+{
+    const char *cp;
+
+    do {
+        cp = strchr(domain, '.');
+        if (cp == NULL)
+            return 0;
+        cp++;
+        if (strcmp(cp, suffix) == 0)
+            return 1;
+    } while (cp != NULL);
+
+    return 0;
+}
+
 /*
  * Applies a name canonicalization rule to a principal.
  *
@@ -1682,10 +1712,12 @@ get_host_realm(krb5_context context, const char *hostname, char **realm)
  * Returns zero and an out_princ if the rule does match.
  */
 static krb5_error_code
-apply_name_canon_rule(krb5_context context, krb5_name_canon_rule rule,
-	krb5_const_principal in_princ, krb5_principal *out_princ,
-	krb5_name_canon_rule_options *rule_opts)
+apply_name_canon_rule(krb5_context context, krb5_name_canon_rule rules,
+                      size_t rule_idx, krb5_const_principal in_princ,
+                      krb5_principal *out_princ,
+                      krb5_name_canon_rule_options *rule_opts)
 {
+    krb5_name_canon_rule rule = &rules[rule_idx];
     krb5_error_code ret;
     unsigned int ndots = 0;
     krb5_principal nss = NULL;
@@ -1722,13 +1754,9 @@ apply_name_canon_rule(krb5_context context, krb5_name_canon_rule rule,
 
     ret = 0;
 
-    if (rule->match_domain != NULL) {
-        cp = strstr(orig_hostname, rule->match_domain);
-        if (cp == NULL)
-            return 0;
-        if (cp != orig_hostname && cp[-1] != '.')
-            return 0;
-    }
+    if (rule->match_domain != NULL &&
+        !is_domain_suffix(orig_hostname, rule->match_domain))
+        return 0;
 
     if (rule->match_realm != NULL &&
         strcmp(rule->match_realm, in_princ->realm) != 0)
@@ -1742,14 +1770,11 @@ apply_name_canon_rule(krb5_context context, krb5_name_canon_rule rule,
     case KRB5_NCRT_QUALIFY:
 	heim_assert(rule->domain != NULL,
 		    "missing domain for qualify name canon rule");
-	cp = strchr(orig_hostname, '.');
-	if (cp == NULL || (cp = strstr(cp, rule->domain)) == NULL) {
-	    asprintf(&tmp_hostname, "%s.%s", orig_hostname, rule->domain);
-	    if (tmp_hostname == NULL) {
-		ret = krb5_enomem(context);
-		goto out;
-	    }
-	}
+        if (asprintf(&tmp_hostname, "%s.%s", orig_hostname,
+                     rule->domain) == -1 || tmp_hostname == NULL) {
+            ret = krb5_enomem(context);
+            goto out;
+        }
         new_hostname = tmp_hostname;
 	break;
 
@@ -1765,7 +1790,7 @@ apply_name_canon_rule(krb5_context context, krb5_name_canon_rule rule,
 					  orig_hostname, sname,
 					  KRB5_NT_SRV_HST,
 					  &nss);
-	if (rule->next != NULL &&
+	if (rules[rule_idx + 1].type != KRB5_NCRT_BOGUS &&
             (ret == KRB5_ERR_BAD_HOSTNAME ||
 	     ret == KRB5_ERR_HOST_REALM_UNKNOWN)) {
 	    /*
@@ -1851,23 +1876,28 @@ out:
 KRB5_LIB_FUNCTION void
 _krb5_free_name_canon_rules(krb5_context context, krb5_name_canon_rule rules)
 {
-    krb5_name_canon_rule r;
+    size_t k;
 
-    for (r = rules; r != NULL; r = r->next) {
-	free(r->realm);
-	free(r->domain);
+    if (rules == NULL)
+        return;
+
+    for (k = 0; rules[k].type != KRB5_NCRT_BOGUS; k++) {
+	free(rules[k].match_domain);
+	free(rules[k].match_realm);
+	free(rules[k].domain);
+	free(rules[k].realm);
     }
     free(rules);
 }
 
 struct krb5_name_canon_iterator_data {
     krb5_name_canon_rule	rules;
-    krb5_name_canon_rule	rule;       /* next rule */
     krb5_const_principal	in_princ;   /* given princ */
     krb5_const_principal	out_princ;  /* princ to be output */
     krb5_principal		tmp_princ;  /* to be freed */
     int				is_trivial; /* no canon to be done */
     int				done;       /* no more rules to be applied */
+    size_t                      cursor;     /* current/next rule */
 };
 
 /**
@@ -1896,7 +1926,6 @@ krb5_name_canon_iterator_start(krb5_context context,
 	ret = _krb5_get_name_canon_rules(context, &state->rules);
 	if (ret)
 	    goto out;
-	state->rule = state->rules;
     } else {
 	/* Name needs no canon -> trivial iterator: in_princ is canonical */
 	state->is_trivial = 1;
@@ -1940,24 +1969,23 @@ name_canon_iterate(krb5_context context,
 
     do {
 	krb5_free_principal(context, state->tmp_princ);
-	ret = apply_name_canon_rule(context, state->rule,
+	ret = apply_name_canon_rule(context, state->rules, state->cursor,
 	    state->in_princ, &state->tmp_princ, rule_opts);
 	if (ret) {
             krb5_free_name_canon_iterator(context, state);
             *iter = NULL;
 	    return ret;
         }
-	state->rule = state->rule->next;
-    } while (state->rule != NULL && state->tmp_princ == NULL);
+	state->cursor++;
+    } while (state->tmp_princ == NULL &&
+             state->rules[state->cursor].type != KRB5_NCRT_BOGUS);
 
+    state->out_princ = state->tmp_princ;
     if (state->tmp_princ == NULL) {
 	krb5_free_name_canon_iterator(context, state);
 	*iter = NULL;
 	return 0;
     }
-    if (state->rule == NULL)
-	state->done = 1;
-    state->out_princ = state->tmp_princ;
     return 0;
 }
 
