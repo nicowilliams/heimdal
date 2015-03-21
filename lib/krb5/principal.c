@@ -1716,18 +1716,18 @@ get_host_realm(krb5_context context, const char *hostname, char **realm)
 static int
 is_domain_suffix(const char *domain, const char *suffix)
 {
-    const char *cp;
+    size_t dlen = strlen(domain);
+    size_t slen = strlen(suffix);
 
-    do {
-        cp = strchr(domain, '.');
-        if (cp == NULL)
-            return 0;
-        cp++;
-        if (strcasecmp(cp, suffix) == 0)
-            return 1;
-    } while (cp != NULL);
+    if (dlen < slen + 2)
+        return 0;
 
-    return 0;
+    if (strcasecmp(domain + (dlen - slen), suffix) != 0)
+        return 0;
+
+    if (domain[(dlen - slen) - 1] != '.')
+        return 0;
+    return 1;
 }
 
 /*
