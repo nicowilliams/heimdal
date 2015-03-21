@@ -2007,6 +2007,7 @@ name_canon_iterate(krb5_context context,
 
     if (state == NULL)
 	return 0;
+
     if (state->done) {
 	krb5_free_name_canon_iterator(context, state);
 	*iter = NULL;
@@ -2031,6 +2032,9 @@ name_canon_iterate(krb5_context context,
 	state->cursor++;
     } while (state->tmp_princ == NULL &&
              state->rules[state->cursor].type != KRB5_NCRT_BOGUS);
+
+    if (state->rules[state->cursor].type == KRB5_NCRT_BOGUS)
+        state->done = 1;
 
     state->out_princ = state->tmp_princ;
     if (state->tmp_princ == NULL) {
