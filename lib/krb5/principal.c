@@ -1530,7 +1530,7 @@ rule_cmp(const void *a, const void *b)
         return -1;
     if (left->explicit_order > right->explicit_order)
         return 1;
-    return right->order - left->order;
+    return left->order - right->order;
 }
 
 static krb5_error_code
