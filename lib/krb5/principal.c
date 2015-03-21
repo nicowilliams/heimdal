@@ -1641,7 +1641,9 @@ make_rules_safe(krb5_context context, krb5_name_canon_rule rules)
      * conversion.  Better let the user get failures and make them think about
      * their naming rules.
      */
-    for (; rules != NULL && rules[0].type != KRB5_NCRT_BOGUS; rules++) {
+    if (rules != NULL)
+        return;
+    for (; rules[0].type != KRB5_NCRT_BOGUS; rules++) {
         if (rules->type == KRB5_NCRT_NSS)
             rules->options |= KRB5_NCRO_USE_DNSSEC;
         else
