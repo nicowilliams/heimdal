@@ -2020,6 +2020,10 @@ name_canon_iterate(krb5_context context,
 	return 0;
     }
 
+    heim_assert(state->rules != NULL &&
+                state->rules[state->cursor].type != KRB5_NCRT_BOGUS,
+                "Internal error during name canonicalization");
+
     do {
 	krb5_free_principal(context, state->tmp_princ);
 	ret = apply_name_canon_rule(context, state->rules, state->cursor,
