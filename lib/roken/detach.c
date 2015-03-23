@@ -51,7 +51,7 @@ roken_detach_prep(int argc, char **argv)
     ssize_t bytes;
     int status;
 #ifdef WIN32
-    HANDLE child_handle;
+    intptr_t child_handle;
 #endif
 
 #ifndef HAVE_FORK
@@ -89,10 +89,10 @@ roken_detach_prep(int argc, char **argv)
     child = fork();
 #else
     child_handle = spawnvp(_P_NOWAIT, argv[0], argv);
-    if ((intptr_t)child_handle == -1)
+    if (child_handle == -1)
       child = (pid_t)-1;
     else
-      child = GetProcessId(child_handle);
+      child = GetProcessId((HANDLE)child_handle);
 #endif
     if (child == (pid_t)-1)
         err(1, "failed to setup to fork daemon (fork failed)");
