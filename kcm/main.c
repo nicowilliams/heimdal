@@ -87,7 +87,7 @@ main(int argc, char **argv)
     signal(SIGPIPE, SIG_IGN);
 #endif
     if (detach_from_console && !launchd_flag)
-        roken_detach_prep();
+        roken_detach_prep(argc, argv);
     pidfile(NULL);
 
     if (launchd_flag) {

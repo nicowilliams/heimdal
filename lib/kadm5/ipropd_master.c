@@ -985,7 +985,7 @@ main(int argc, char **argv)
     }
 
     if (detach_from_console)
-        roken_detach_prep();
+        roken_detach_prep(argc, argv);
     pidfile(NULL);
 
     ret = krb5_init_context(&context);

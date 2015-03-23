@@ -37,20 +37,41 @@
 static int pipefds[2] = {-1, -1};
 
 ROKEN_LIB_FUNCTION void ROKEN_LIB_CALL
-roken_detach_prep(void)
+roken_detach_prep(int argc, char **argv)
 {
     pid_t child;
     char buf[1];
     ssize_t bytes;
+    int status;
+
+#ifndef HAVE_FORK
+    /*
+     * To support Windows we'll need either:
+     *
+     * a) to make this code use CreatePipe() and CreateFile() instead of
+     * pipe() and dup2(),
+     *
+     * b) write libroken pipe() and a spawnvp() wrapper that sets
+     * stdin/out/err as desired (e.g., stdin /dev/null and stdout the
+     * write end of the pipe)
+     *
+     * c) write a pipe_execvp() variant of pipe_execv() that takes an
+     * argv.
+     *
+     * That's a fair bit of work.  We need it so we can use --detach
+     * from tests on Windows.
+     */
+    errx(1, "No support for daemon detach on Windows yet");
+#endif
 
     pipefds[0] = -1;
     pipefds[1] = -1;
     if (pipe(pipefds) == -1)
-        err(1, "failed to setup to detach daemon");
+        err(1, "failed to setup to detach daemon (pipe failed)");
 
     child = fork();
     if (child == -1)
-        err(1, "failed to setup to fork daemon");
+        err(1, "failed to setup to fork daemon (fork failed)");
 
     if (child == 0) {
         int fd;
@@ -76,11 +97,22 @@ roken_detach_prep(void)
         bytes = read(pipefds[0], buf, sizeof(buf));
     } while (bytes == -1 && errno == EINTR);
     if (bytes == -1) {
-        (void) kill(child, SIGQUIT);
-        err(1, "failed to setup daemon child");
+        /*
+         * No need to wait for the process.  We've killed it.  If it
+         * doesn't want to exit, we'd have to wait potentially forever,
+         * but we want to indicate failure to the user as soon as
+         * possible.  A wait with timeout would end the same way
+         * (attempting to kill the process).
+         */
+        err(1, "failed to setup daemon child (read from child pipe)");
     }
-    if (bytes == 0)
-        errx(1, "daemon child preparation failed");
+    if (bytes == 0) {
+        status = wait_for_process(child);
+        warnx("daemon child preparation failed, waiting for child");
+        if (SE_IS_ERROR(status) || SE_PROCSTATUS(status) != 0)
+            errx(SE_PROCSTATUS(status),
+                 "daemon child preparation failed (child exited)");
+    }
     _exit(0);
 }
 

@@ -177,7 +177,7 @@ configure(krb5_context context, int argc, char **argv, int *optidx)
 							   "detach", NULL);
 
     if (detach_from_console)
-        roken_detach_prep();
+        roken_detach_prep(argc, argv);
 
     {
 	char **files;

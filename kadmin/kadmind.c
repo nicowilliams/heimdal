@@ -118,7 +118,7 @@ main(int argc, char **argv)
     }
 
     if (detach_from_console > 0)
-        roken_detach_prep();
+        roken_detach_prep(argc, argv);
 
     ret = krb5_init_context(&context);
     if (ret)
