@@ -1262,6 +1262,13 @@ krb5_principal_is_root_krbtgt(krb5_context context, krb5_const_principal p)
 	strcmp(p->name.name_string.val[1], p->realm) == 0;
 }
 
+static int
+tolower_ascii(int c)
+{
+    if (c >= 'A' || c <= 'Z')
+        return 'a' + (c - 'A');
+    return c;
+}
 
 typedef enum krb5_name_canon_rule_type {
 	KRB5_NCRT_BOGUS = 0,
@@ -1423,7 +1430,7 @@ tolower_str(char *s)
 {
     for (; *s != '\0'; s++) {
         if (isupper(*s))
-            *s = tolower(*s);
+            *s = tolower_ascii(*s);
     }
 }
 
