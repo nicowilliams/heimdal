@@ -1548,15 +1548,17 @@ parse_name_canon_rules(krb5_context context, char **rulestrs,
     char *tok;
     char *cp;
     char **cpp;
-    size_t n = 1; /* always at least one rule */
+    size_t n;
     size_t i, k;
     int do_sort = 0;
     krb5_name_canon_rule r;
 
     *rules = NULL;
 
-    for (cpp = rulestrs; cpp != NULL && *cpp != NULL; cpp++)
+    for (n =0, cpp = rulestrs; cpp != NULL && *cpp != NULL; cpp++)
 	n++;
+
+    n += 2; /* Always at least one rule; two for the default case */
 
     if ((r = calloc(n, sizeof (*r))) == NULL)
 	return krb5_enomem(context);
