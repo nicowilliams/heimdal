@@ -49,11 +49,13 @@
 #define AT_GID AT_RGID
 #endif
 
-#ifdef GLIBC_PREREQ
+#ifdef __GLIBC__
+#ifdef __GLIBC_PREREQ
 #define HAVE_GLIBC_API_VERSION_SUPPORT(maj, min) __GLIBC_PREREQ(maj, min)
 #else
 #define HAVE_GLIBC_API_VERSION_SUPPORT(maj, min) \
     ((__GLIBC << 16) + GLIBC_MINOR >= ((maj) << 16) + (min))
+#endif
 #endif
 
 #if HAVE_GLIBC_API_VERSION_SUPPORT(2, 19)
