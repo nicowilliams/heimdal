@@ -33,6 +33,9 @@
 #include <unistd.h>
 #include "roken.h"
 
+#ifdef WIN32
+#define dup2 _dup2
+#endif
 
 static int pipefds[2] = {-1, -1};
 
@@ -66,8 +69,14 @@ roken_detach_prep(int argc, char **argv)
 
     pipefds[0] = -1;
     pipefds[1] = -1;
+
+#ifdef WIN32
+    if (_pipe(pipefds, 4, O_BINARY) == -1)
+        err(1, "failed to setup to detach daemon (_pipe failed)");
+#else
     if (pipe(pipefds) == -1)
         err(1, "failed to setup to detach daemon (pipe failed)");
+#endif
 
     child = fork();
     if (child == -1)
