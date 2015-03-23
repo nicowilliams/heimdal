@@ -30,7 +30,11 @@
 #include <config.h>
 #include <errno.h>
 #include <fcntl.h>
+#ifdef WIN32
+#include <io.h>
+#else
 #include <unistd.h>
+#endif
 #include "roken.h"
 
 #ifdef WIN32
@@ -46,6 +50,9 @@ roken_detach_prep(int argc, char **argv)
     char buf[1];
     ssize_t bytes;
     int status;
+#ifdef WIN32
+    HANDLE child_handle;
+#endif
 
 #ifndef HAVE_FORK
     /*
@@ -78,8 +85,16 @@ roken_detach_prep(int argc, char **argv)
         err(1, "failed to setup to detach daemon (pipe failed)");
 #endif
 
+#ifdef HAVE_FORK
     child = fork();
-    if (child == -1)
+#else
+    child_handle = spawnvp(_P_NOWAIT, argv[0], argv);
+    if ((intptr_t)child_handle == -1)
+      child = (pid_t)-1;
+    else
+      child = GetProcessId(child_handle);
+#endif
+    if (child == (pid_t)-1)
         err(1, "failed to setup to fork daemon (fork failed)");
 
     if (child == 0) {
@@ -125,6 +140,13 @@ roken_detach_prep(int argc, char **argv)
     _exit(0);
 }
 
+#ifdef WIN32
+#ifdef dup2
+#undef dup2
+#endif
+#define dup2 _dup2
+#endif
+
 ROKEN_LIB_FUNCTION void ROKEN_LIB_CALL
 roken_detach_finish(void)
 {
@@ -135,15 +157,19 @@ roken_detach_finish(void)
     if (pipefds[1] == -1)
         return;
 
+#ifdef HAVE_SETSID
     if (setsid() == -1)
         err(1, "failed to detach from tty");
+#endif
 
     /*
      * Hopefully we've written any pidfiles by now, if they had to be in
      * the current directory...
      */
+#ifndef WIN32
     if (chdir("/"))
         err(1, "failed to chdir to /");
+#endif
 
     buf[1] = 0;
     do {
