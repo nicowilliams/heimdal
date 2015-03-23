@@ -39,6 +39,7 @@ libroken_la_OBJS =			\
 	$(OBJ)\concat.obj		\
 	$(OBJ)\cloexec.obj		\
 	$(OBJ)\ct.obj			\
+	$(OBJ)\detach.obj		\
 	$(OBJ)\dirent.obj		\
 	$(OBJ)\dlfcn_w32.obj		\
 	$(OBJ)\dumpdata.obj		\
