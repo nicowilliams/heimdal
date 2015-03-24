@@ -44,7 +44,7 @@
 static int pipefds[2] = {-1, -1};
 
 ROKEN_LIB_FUNCTION void ROKEN_LIB_CALL
-roken_detach_prep(int argc, char **argv, const char *special_arg)
+roken_detach_prep(int argc, char **argv, char *special_arg)
 {
     pid_t child;
     char buf[1];
@@ -68,8 +68,8 @@ roken_detach_prep(int argc, char **argv, const char *special_arg)
     {
         intptr_t child_handle;
         int stdout_save = _dup(STDOUT_FILENO);
-        char **new_argv = calloc(argc + 1, sizeof(*new_argv));
         size_t i;
+        char **new_argv = calloc(argc + 1, sizeof(*new_argv));
 
         if (new_argv == NULL)
             err(1, "Out of memory");
@@ -78,6 +78,7 @@ roken_detach_prep(int argc, char **argv, const char *special_arg)
         new_argv[1] = special_arg;
         for (i = 1; argv[i] != NULL; i++)
             new_argv[i + 1] = argv[i];
+	new_argv[argc + 1] = NULL;
 
         /*
          * Gross hack: set the child's stdout to be the pipe so we don't
@@ -93,12 +94,12 @@ roken_detach_prep(int argc, char **argv, const char *special_arg)
             errno = errno_save;
             err(1, "Could not redirect child's stdout\n");
         }
+	child_handle = spawnvp(_P_NOWAIT, argv[0], new_argv);
+	if (child_handle == -1)
+	  child = (pid_t)-1;
+	else
+	  child = GetProcessId((HANDLE)child_handle);
     }
-    child_handle = spawnvp(_P_NOWAIT, argv[0], new_argv);
-    if (child_handle == -1)
-      child = (pid_t)-1;
-    else
-      child = GetProcessId((HANDLE)child_handle);
 #endif
     if (child == (pid_t)-1)
         err(1, "failed to setup to fork daemon (fork failed)");
