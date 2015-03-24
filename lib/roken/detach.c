@@ -52,26 +52,7 @@ roken_detach_prep(int argc, char **argv)
     int status;
 #ifdef WIN32
     intptr_t child_handle;
-#endif
-
-#ifndef HAVE_FORK
-    /*
-     * To support Windows we'll need either:
-     *
-     * a) to make this code use CreatePipe() and CreateFile() instead of
-     * pipe() and dup2(),
-     *
-     * b) write libroken pipe() and a spawnvp() wrapper that sets
-     * stdin/out/err as desired (e.g., stdin /dev/null and stdout the
-     * write end of the pipe)
-     *
-     * c) write a pipe_execvp() variant of pipe_execv() that takes an
-     * argv.
-     *
-     * That's a fair bit of work.  We need it so we can use --detach
-     * from tests on Windows.
-     */
-    errx(1, "No support for daemon detach on Windows yet");
+    int stdout_save = _dup(STDOUT_FILENO);
 #endif
 
     pipefds[0] = -1;
@@ -88,6 +69,17 @@ roken_detach_prep(int argc, char **argv)
 #ifdef HAVE_FORK
     child = fork();
 #else
+    /*
+     * Gross hack: set the child's stdout to be the pipe so we don't
+     * have to collect the argv into a command-line and call
+     * CreateProcess() to let the child inherit the pipe.
+     */
+    if (dup2(pipefds[1], STDOUT_FILENO) == -1) {
+	int errno_save = errno;
+	_dup2(stdout_save, STDOUT_FILENO);
+	errno = errno_save;
+	err(1, "Could not redirect child's stdout\n");
+    }
     child_handle = spawnvp(_P_NOWAIT, argv[0], argv);
     if (child_handle == -1)
       child = (pid_t)-1;
@@ -97,6 +89,7 @@ roken_detach_prep(int argc, char **argv)
     if (child == (pid_t)-1)
         err(1, "failed to setup to fork daemon (fork failed)");
 
+#ifndef WIN32
     if (child == 0) {
         int fd;
 
@@ -114,6 +107,7 @@ roken_detach_prep(int argc, char **argv)
             (void) close(fd);
         return;
     }
+#endif
 
     (void) close(pipefds[1]);
     pipefds[1] = -1;
@@ -154,6 +148,9 @@ roken_detach_finish(void)
     ssize_t bytes;
     int fd;
 
+#ifdef WIN32
+    pipefds[1] = STDOUT_FILENO; /* See gross hack above! */
+#endif
     if (pipefds[1] == -1)
         return;
 
