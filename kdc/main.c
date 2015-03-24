@@ -45,6 +45,7 @@
 sig_atomic_t exit_flag = 0;
 
 int detach_from_console = -1;
+int is_daemon_child = 0;
 
 static RETSIGTYPE
 sigterm(int sig)

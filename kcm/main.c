@@ -86,8 +86,8 @@ main(int argc, char **argv)
     signal(SIGUSR2, sigusr2);
     signal(SIGPIPE, SIG_IGN);
 #endif
-    if (detach_from_console && !launchd_flag)
-        roken_detach_prep(argc, argv);
+    if (detach_from_console && !launchd_flag && !is_daemon_child)
+        roken_detach_prep(argc, argv, "--daemon-child");
     pidfile(NULL);
 
     if (launchd_flag) {

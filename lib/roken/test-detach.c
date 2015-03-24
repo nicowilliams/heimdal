@@ -31,33 +31,36 @@
 
 #include <config.h>
 
+#include <sys/types.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <errno.h>
 #include <string.h>
+#ifdef WIN32
 #include <process.h>
+#ifdef getpid
+#undef getpid
+#endif
+#define getpid _getpid
+#else
+#include <unistd.h>
+#endif
 #include "roken.h"
 
 int main(int argc, char ** argv)
 {
-    char *args[3];
-
-    args[0] = argv[0];
-    args[1] = "child";
-    args[2] = NULL;
-
     if (argc > 1) {
 	fprintf(stderr, "Child started!\n");
     } else {
-	fprintf(stderr, "Parent started as %d\n", _getpid());
-	roken_detach_prep(argc, args);
+	fprintf(stderr, "Parent started as %ld\n", (long)getpid());
+	roken_detach_prep(argc, argv, "--daemon-child");
     }
-    fprintf(stderr, "Now should be the child: %d\n", _getpid());
+    fprintf(stderr, "Now should be the child: %ld\n", (long)getpid());
     roken_detach_finish();
     /* This printf won't appear because stderr will be set to /dev/null */
-    fprintf(stderr, "Now should be the child: %d, wrote to parent\n", _getpid());
+    fprintf(stderr, "Now should be the child: %ld, wrote to parent\n", (long)getpid());
     sleep(5);
     /* Ditto */
-    fprintf(stderr, "CHILD: done\n");
+    fprintf(stderr, "Daemon child done\n");
     return 0;
 }

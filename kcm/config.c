@@ -45,6 +45,7 @@ char *door_path = NULL;
 static char *max_request_str;	/* `max_request' as a string */
 
 int detach_from_console = -1;
+int is_daemon_child = 0;
 
 static const char *system_cache_name = NULL;
 static const char *system_keytab = NULL;
@@ -88,6 +89,10 @@ static struct getargs args[] = {
     {
 	"detach",       0 ,      arg_flag, &detach_from_console,
 	"detach from console", NULL
+    },
+    {
+        "daemon-child",       0 ,      arg_flag, &is_daemon_child,
+        "private argument, do not use", NULL
     },
     {	"help",		'h',	arg_flag,   &help_flag, NULL, NULL },
     {

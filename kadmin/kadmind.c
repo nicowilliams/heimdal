@@ -46,6 +46,7 @@ static char *port_str;
 char *realm;
 
 static int detach_from_console = -1;
+static int is_daemon_child = 0;
 
 static struct getargs args[] = {
     {
@@ -73,6 +74,10 @@ static struct getargs args[] = {
     {
         "detach",       0 ,      arg_flag, &detach_from_console,
         "detach from console", NULL
+    },
+    {
+        "daemon-child",       0 ,      arg_flag, &is_daemon_child,
+        "private argument, do not use", NULL
     },
     {	"ports",	'p',	arg_string, &port_str,
 	"ports to listen to", "port" },
@@ -117,8 +122,8 @@ main(int argc, char **argv)
 	exit(0);
     }
 
-    if (detach_from_console > 0)
-        roken_detach_prep(argc, argv);
+    if (detach_from_console > 0 && !is_daemon_child)
+        roken_detach_prep(argc, argv, "--daemon-child");
 
     ret = krb5_init_context(&context);
     if (ret)

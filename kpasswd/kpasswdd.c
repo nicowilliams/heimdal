@@ -755,6 +755,7 @@ static char *realm_str;
 static int version_flag;
 static int help_flag;
 static int detach_from_console;
+static int is_daemon_child;
 static char *port_str;
 static char *config_file;
 
@@ -771,6 +772,8 @@ struct getargs args[] = {
       "addresses to listen on", "list of addresses" },
     { "detach", 0, arg_flag, &detach_from_console,
       "detach from console", NULL },
+    { "daemon-child",       0 ,      arg_flag, &is_daemon_child,
+      "private argument, do not use", NULL },
     { "keytab", 'k', arg_string, &keytab_str,
       "keytab to get authentication key from", "kspec" },
     { "config-file", 'c', arg_string, &config_file, NULL, NULL },
@@ -800,8 +803,8 @@ main(int argc, char **argv)
 	exit(0);
     }
 
-    if (detach_from_console > 0)
-        roken_detach_prep(argc, argv);
+    if (detach_from_console > 0 && !is_daemon_child)
+        roken_detach_prep(argc, argv, "--daemon-child");
 
     if (config_file == NULL) {
 	aret = asprintf(&config_file, "%s/kdc.conf", hdb_db_dir(context));

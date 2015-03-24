@@ -170,6 +170,7 @@ extern size_t max_request;
 extern sig_atomic_t exit_flag;
 extern int name_constraints;
 extern int detach_from_console;
+extern int is_daemon_child;
 extern int launchd_flag;
 extern int disallow_getting_krbtgt;
 

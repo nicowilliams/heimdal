@@ -44,16 +44,12 @@
 static int pipefds[2] = {-1, -1};
 
 ROKEN_LIB_FUNCTION void ROKEN_LIB_CALL
-roken_detach_prep(int argc, char **argv)
+roken_detach_prep(int argc, char **argv, const char *special_arg)
 {
     pid_t child;
     char buf[1];
     ssize_t bytes;
     int status;
-#ifdef WIN32
-    intptr_t child_handle;
-    int stdout_save = _dup(STDOUT_FILENO);
-#endif
 
     pipefds[0] = -1;
     pipefds[1] = -1;
@@ -66,21 +62,39 @@ roken_detach_prep(int argc, char **argv)
         err(1, "failed to setup to detach daemon (pipe failed)");
 #endif
 
-#ifdef HAVE_FORK
+#ifndef WIN32
     child = fork();
 #else
-    /*
-     * Gross hack: set the child's stdout to be the pipe so we don't
-     * have to collect the argv into a command-line and call
-     * CreateProcess() to let the child inherit the pipe.
-     */
-    if (dup2(pipefds[1], STDOUT_FILENO) == -1) {
-	int errno_save = errno;
-	_dup2(stdout_save, STDOUT_FILENO);
-	errno = errno_save;
-	err(1, "Could not redirect child's stdout\n");
+    {
+        intptr_t child_handle;
+        int stdout_save = _dup(STDOUT_FILENO);
+        char **new_argv = calloc(argc + 1, sizeof(*new_argv));
+        size_t i;
+
+        if (new_argv == NULL)
+            err(1, "Out of memory");
+
+        new_argv[0] = argv[0];
+        new_argv[1] = special_arg;
+        for (i = 1; argv[i] != NULL; i++)
+            new_argv[i + 1] = argv[i];
+
+        /*
+         * Gross hack: set the child's stdout to be the pipe so we don't
+         * have to collect the argv into a command-line and call
+         * CreateProcess() to let the child inherit the pipe.
+         *
+         * This means that the daemon had better not print anything to
+         * stdout before calling roken_detach_finish()!
+         */
+        if (dup2(pipefds[1], STDOUT_FILENO) == -1) {
+            int errno_save = errno;
+            _dup2(stdout_save, STDOUT_FILENO);
+            errno = errno_save;
+            err(1, "Could not redirect child's stdout\n");
+        }
     }
-    child_handle = spawnvp(_P_NOWAIT, argv[0], argv);
+    child_handle = spawnvp(_P_NOWAIT, argv[0], new_argv);
     if (child_handle == -1)
       child = (pid_t)-1;
     else

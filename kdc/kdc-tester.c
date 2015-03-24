@@ -45,6 +45,7 @@ struct perf {
 } *ptop;
 
 int detach_from_console = -1;
+int is_daemon_child = 0;
 
 static krb5_kdc_configuration *kdc_config;
 static krb5_context kdc_context;

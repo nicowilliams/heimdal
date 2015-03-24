@@ -929,7 +929,8 @@ static char *keytab_str = sHDB;
 static char *database;
 static char *config_file;
 static char *port_str;
-static int detach_from_console = 0;
+static int detach_from_console;
+static int is_daemon_child;
 
 static struct getargs args[] = {
     { "config-file", 'c', arg_string, &config_file, NULL, NULL },
@@ -947,6 +948,8 @@ static struct getargs args[] = {
       "port ipropd will listen to", "port"},
     { "detach", 0, arg_flag, &detach_from_console,
       "detach from console", NULL },
+    { "daemon-child",       0 ,      arg_flag, &is_daemon_child,
+      "private argument, do not use", NULL },
     { "hostname", 0, arg_string, rk_UNCONST(&master_hostname),
       "hostname of master (if not same as hostname)", "hostname" },
     { "version", 0, arg_flag, &version_flag, NULL, NULL },
@@ -984,8 +987,8 @@ main(int argc, char **argv)
 	exit(0);
     }
 
-    if (detach_from_console)
-        roken_detach_prep(argc, argv);
+    if (detach_from_console && !is_daemon_child)
+        roken_detach_prep(argc, argv, "--daemon-child");
     pidfile(NULL);
 
     ret = krb5_init_context(&context);

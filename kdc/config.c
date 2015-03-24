@@ -98,6 +98,10 @@ static struct getargs args[] = {
 	"detach",       0 ,      arg_flag, &detach_from_console,
 	"detach from console", NULL
     },
+    {
+        "daemon-child",       0 ,      arg_flag, &is_daemon_child,
+        "private argument, do not use", NULL
+    },
     {	"addresses",	0,	arg_strings, &addresses_str,
 	"addresses to listen on", "list of addresses" },
     {	"disable-des",	0,	arg_flag, &disable_des,
@@ -176,8 +180,8 @@ configure(krb5_context context, int argc, char **argv, int *optidx)
 							   "kdc",
 							   "detach", NULL);
 
-    if (detach_from_console)
-        roken_detach_prep(argc, argv);
+    if (detach_from_console && !is_daemon_child)
+        roken_detach_prep(argc, argv, "--daemon-child");
 
     {
 	char **files;

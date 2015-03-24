@@ -100,6 +100,7 @@ extern krb5_addresses explicit_addresses;
 extern int enable_http;
 
 extern int detach_from_console;
+extern int is_daemon_child;
 
 extern const struct units _kdc_digestunits[];
 
