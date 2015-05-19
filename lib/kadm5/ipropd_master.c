@@ -453,8 +453,8 @@ write_dump (krb5_context context, krb5_storage *dump,
 }
 
 static int
-send_complete (krb5_context context, slave *s, const char *database,
-	       uint32_t current_version, uint32_t oldest_version)
+send_complete(krb5_context context, slave *s, const char *database,
+	      uint32_t current_version, uint32_t oldest_version)
 {
     krb5_error_code ret;
     krb5_storage *dump = NULL;
@@ -548,6 +548,10 @@ send_complete (krb5_context context, slave *s, const char *database,
 	}
 
 	/* check if someone wrote a better version for us */
+        /*
+         * XXX WAT?  We already checked while holding a shared lock!
+         * How could it have changed?
+         */
 	if (vno >= oldest_version)
 	    continue;
 
@@ -676,11 +680,11 @@ send_diffs (krb5_context context, slave *s, int log_fd,
 	return 0;
 
     flock(log_fd, LOCK_SH);
-    sp = kadm5_log_goto_end (log_fd);
+    sp = kadm5_log_goto_end(log_fd);
     flock(log_fd, LOCK_UN);
     right = krb5_storage_seek(sp, 0, SEEK_CUR);
     for (;;) {
-	ret = kadm5_log_previous (context, sp, &ver, &timestamp, &op, &len);
+	ret = kadm5_log_previous(context, sp, &ver, &timestamp, &op, &len);
 	if (ret)
 	    krb5_err(context, 1, ret,
 		     "send_diffs: failed to find previous entry");
@@ -695,7 +699,7 @@ send_diffs (krb5_context context, slave *s, int log_fd,
 		       "slave %s (version %lu) out of sync with master "
 		       "(first version in log %lu), sending complete database",
 		       s->name, (unsigned long)s->version, (unsigned long)ver);
-	    return send_complete (context, s, database, current_version, ver);
+	    return send_complete(context, s, database, current_version, ver);
 	}
     }
 
@@ -704,7 +708,11 @@ send_diffs (krb5_context context, slave *s, int log_fd,
 	       s->name, (unsigned long)s->version,
 	       (unsigned long)current_version);
 
-    ret = krb5_data_alloc (&data, right - left + 4);
+    /*
+     * XXX Er, right - left might be huge, and we might not be able to
+     * do this.  We should loop over writing.
+     */
+    ret = krb5_data_alloc(&data, right - left + 4);
     if (ret) {
 	krb5_storage_free(sp);
 	krb5_warn (context, ret, "send_diffs: krb5_data_alloc");
