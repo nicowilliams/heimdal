@@ -34,7 +34,7 @@
 #include "krb5_locl.h"
 
 KRB5_LIB_FUNCTION krb5_ssize_t KRB5_LIB_CALL
-_krb5_put_int(void *buffer, unsigned long value, size_t size)
+_krb5_put_int(void *buffer, uint64_t value, size_t size)
 {
     unsigned char *p = buffer;
     int i;
@@ -46,7 +46,7 @@ _krb5_put_int(void *buffer, unsigned long value, size_t size)
 }
 
 KRB5_LIB_FUNCTION krb5_ssize_t KRB5_LIB_CALL
-_krb5_get_int(void *buffer, unsigned long *value, size_t size)
+_krb5_get_int(void *buffer, uint64_t *value, size_t size)
 {
     unsigned char *p = buffer;
     unsigned long v = 0;
