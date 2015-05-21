@@ -127,23 +127,34 @@ kadm5_s_create_principal_with_key(void *server_handle,
     if(ret)
 	goto out;
 
+    if (!context->keep_open) {
+        ret = context->db->hdb_open(context->context, context->db, O_RDWR, 0);
+        if (ret)
+            goto out;
+    }
+
+    ret = kadm5_log_recover(context);
+    if (ret)
+        goto out;
+
+    ret = context->db->hdb_fetch_kvno(context->context, context->db,
+                                      princ->principal, 0, 0, &ent);
+    if (ret == 0) {
+        ret = HDB_ERR_EXISTS;
+        goto out;
+    }
+    context->db->hdb_close(context->context, context->db);
+
     ret = hdb_seal_keys(context->context, context->db, &ent.entry);
     if (ret)
 	goto out;
 
-    if (!context->keep_open) {
-	ret = context->db->hdb_open(context->context, context->db, O_RDWR, 0);
-	if(ret)
-	    goto out;
-    }
-    ret = context->db->hdb_store(context->context, context->db, 0, &ent);
-    if (!context->keep_open)
-	context->db->hdb_close(context->context, context->db);
-    if (ret)
-	goto out;
-    kadm5_log_create (context, &ent.entry);
+    /* This logs the change for iprop and writes to the HDB */
+    ret = kadm5_log_create(context, &ent.entry);
 
 out:
+    if (!context->keep_open)
+        context->db->hdb_close(context->context, context->db);
     hdb_free_entry(context->context, &ent);
     return _kadm5_error_code(ret);
 }
@@ -174,8 +185,25 @@ kadm5_s_create_principal(void *server_handle,
 			   | KADM5_AUX_ATTRIBUTES | KADM5_KEY_DATA
 			   | KADM5_POLICY_CLR | KADM5_LAST_SUCCESS
 			   | KADM5_LAST_FAILED | KADM5_FAIL_AUTH_COUNT);
-    if(ret)
+    if (ret)
 	goto out;
+
+    if (!context->keep_open) {
+        ret = context->db->hdb_open(context->context, context->db, O_RDWR, 0);
+        if (ret)
+            goto out;
+    }
+
+    ret = kadm5_log_recover(context);
+    if (ret)
+        goto out;
+
+    ret = context->db->hdb_fetch_kvno(context->context, context->db,
+                                      princ->principal, 0, 0, &ent);
+    if (ret == 0) {
+        ret = HDB_ERR_EXISTS;
+        goto out;
+    }
 
     ent.entry.keys.len = 0;
     ent.entry.keys.val = NULL;
@@ -188,20 +216,12 @@ kadm5_s_create_principal(void *server_handle,
     if (ret)
 	goto out;
 
-    if (!context->keep_open) {
-	ret = context->db->hdb_open(context->context, context->db, O_RDWR, 0);
-	if(ret)
-	    goto out;
-    }
-    ret = context->db->hdb_store(context->context, context->db, 0, &ent);
-    if (!context->keep_open)
-	context->db->hdb_close(context->context, context->db);
-    if (ret)
-	goto out;
-
-    kadm5_log_create (context, &ent.entry);
+    /* This logs the change for iprop and writes to the HDB */
+    ret = kadm5_log_create(context, &ent.entry);
 
  out:
+    if (!context->keep_open)
+        context->db->hdb_close(context->context, context->db);
     hdb_free_entry(context->context, &ent);
     return _kadm5_error_code(ret);
 }

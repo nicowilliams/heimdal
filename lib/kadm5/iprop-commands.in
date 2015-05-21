@@ -42,6 +42,12 @@ command = {
 		argument = "file"
 	}
 	option = {
+		long = "no-lock"
+		short = "n"
+		type = "flag"
+		help = "don't lock iprop log"
+	}
+	option = {
 		long = "realm"
 		short = "r"
 		type = "string"
@@ -113,12 +119,37 @@ command = {
 		argument = "file"
 	}
 	option = {
+		long = "no-lock"
+		short = "n"
+		type = "flag"
+		help = "don't lock iprop log"
+	}
+	option = {
 		long = "realm"
 		short = "r"
 		type = "string"
 		help = "realm"
 	}
 	function = "last_version"
+	help = "Print the last version of the log-file."
+	max_args = "0"
+}
+command = {
+	name = "signal"
+	option = {
+		long = "config-file"
+		short = "c"
+		type = "string"
+		help = "configuration file"
+		argument = "file"
+	}
+	option = {
+		long = "realm"
+		short = "r"
+		type = "string"
+		help = "realm"
+	}
+	function = "signal_master"
 	help = "Print the last version of the log-file."
 	max_args = "0"
 }

@@ -59,6 +59,11 @@ kadm5_s_randkey_principal(void *server_handle,
 	if(ret)
 	    return ret;
     }
+
+    ret = kadm5_log_recover(context);
+    if (ret)
+        goto out;
+
     ret = context->db->hdb_fetch_kvno(context->context, context->db, princ,
 				      HDB_F_GET_ANY|HDB_F_ADMIN_DATA, 0, &ent);
     if(ret)
@@ -70,12 +75,8 @@ kadm5_s_randkey_principal(void *server_handle,
 	    goto out2;
     }
 
-    ret = _kadm5_set_keys_randomly (context,
-				    &ent.entry,
-				    n_ks_tuple,
-				    ks_tuple,
-				    new_keys,
-				    n_keys);
+    ret = _kadm5_set_keys_randomly(context, &ent.entry, n_ks_tuple, ks_tuple,
+                                   new_keys, n_keys);
     if (ret)
 	goto out2;
     ent.entry.kvno++;
@@ -104,22 +105,19 @@ kadm5_s_randkey_principal(void *server_handle,
 	hdb_replace_extension(context->context, &ent.entry, &ext);
     }
 
-    ret = context->db->hdb_store(context->context, context->db,
-				 HDB_F_REPLACE, &ent);
-    if (ret)
-	goto out2;
-
-    kadm5_log_modify(context, &ent.entry,
-		     KADM5_ATTRIBUTES | KADM5_PRINCIPAL | KADM5_MOD_NAME |
-		     KADM5_MOD_TIME | KADM5_KEY_DATA | KADM5_KVNO |
-		     KADM5_PW_EXPIRATION | KADM5_TL_DATA);
+    /* This logs the change for iprop and writes to the HDB */
+    ret = kadm5_log_modify(context, &ent.entry,
+                           KADM5_ATTRIBUTES | KADM5_PRINCIPAL |
+                           KADM5_MOD_NAME | KADM5_MOD_TIME |
+                           KADM5_KEY_DATA | KADM5_KVNO |
+                           KADM5_PW_EXPIRATION | KADM5_TL_DATA);
 
 out3:
     if (ret) {
 	int i;
 
 	for (i = 0; i < *n_keys; ++i)
-	    krb5_free_keyblock_contents (context->context, &(*new_keys)[i]);
+	    krb5_free_keyblock_contents(context->context, &(*new_keys)[i]);
 	free (*new_keys);
 	*new_keys = NULL;
 	*n_keys = 0;
