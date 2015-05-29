@@ -214,6 +214,12 @@ ${EGREP} 'up-to-date with version' iprop-slave-status >/dev/null || { echo "slav
 echo "checking for replay problems"
 ${EGREP} 'Entry already exists in database' messages.log && exit 1
 
+echo "compare versions on master and slave logs (no lock)"
+KRB5_CONFIG=${objdir}/krb5-slave.conf \
+${iprop_log} last-version -n > slave-last.tmp
+${iprop_log} last-version -n > master-last.tmp
+cmp master-last.tmp slave-last.tmp || exit 1
+
 echo "kill slave and remove log and database"
 sh ${leaks_kill} ipropd-slave $ipds || exit 1
 sleep 2
