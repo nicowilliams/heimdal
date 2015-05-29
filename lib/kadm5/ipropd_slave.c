@@ -291,6 +291,7 @@ receive_loop (krb5_context context,
      */
 
     server_context->log_context.version = vers;
+    kadm5_log_update_ubber(server_context);
 }
 
 static void
@@ -314,20 +315,20 @@ receive (krb5_context context,
 }
 
 static void
-send_im_here (krb5_context context, int fd,
-	      krb5_auth_context auth_context)
+send_im_here(krb5_context context, int fd,
+	     krb5_auth_context auth_context)
 {
     krb5_storage *sp;
     krb5_data data;
-    int ret;
+    krb5_error_code ret;
 
-    ret = krb5_data_alloc (&data, 4);
+    ret = krb5_data_alloc(&data, 4);
     if (ret)
-	krb5_err (context, 1, ret, "send_im_here");
+	krb5_err(context, 1, ret, "send_im_here");
 
     sp = krb5_storage_from_data (&data);
     if (sp == NULL)
-	krb5_errx (context, 1, "krb5_storage_from_data");
+	krb5_errx(context, 1, "krb5_storage_from_data");
     krb5_store_int32(sp, I_AM_HERE);
     krb5_storage_free(sp);
 
@@ -335,7 +336,9 @@ send_im_here (krb5_context context, int fd,
     krb5_data_free(&data);
 
     if (ret)
-	krb5_err (context, 1, ret, "krb5_write_priv_message");
+	krb5_err(context, 1, ret, "krb5_write_priv_message");
+
+    return;
 }
 
 static void
@@ -763,21 +766,33 @@ main(int argc, char **argv)
 		    krb5_err (context, 1, errno, "select");
 	    }
 	    if (ret == 0) {
-		krb5_warn (context, 1, "server didn't send a message "
-			   "in %d seconds", time_before_lost);
+		krb5_warnx(context, "server didn't send a message "
+                           "in %d seconds", time_before_lost);
 		connected = FALSE;
 		continue;
 	    }
 
 	    ret = krb5_read_priv_message(context, auth_context, &master_fd, &out);
 	    if (ret) {
-		krb5_warn (context, ret, "krb5_read_priv_message");
+		krb5_warn(context, ret, "krb5_read_priv_message");
 		connected = FALSE;
 		continue;
 	    }
 
 	    sp = krb5_storage_from_mem (out.data, out.length);
-	    krb5_ret_int32(sp, &tmp);
+            if (sp == NULL)
+                krb5_err(context, 1, errno, "krb5_storage_from_mem");
+	    ret = krb5_ret_int32(sp, &tmp);
+            if (ret == HEIM_ERR_EOF) {
+                krb5_warn(context, ret, "master sent zero-length message");
+                connected = FALSE;
+                continue;
+            }
+            if (ret != 0) {
+                krb5_warn(context, ret, "couldn't read master's message");
+                connected = FALSE;
+                continue;
+            }
 	    switch (tmp) {
 	    case FOR_YOU :
 		receive(context, sp, server_context);
@@ -803,6 +818,11 @@ main(int argc, char **argv)
 		break;
 	    case ARE_YOU_THERE :
 		is_up_to_date(context, status_file, server_context);
+                ret = ihave(context, auth_context, master_fd,
+                            server_context->log_context.version);
+                if (ret)
+                    connected = FALSE;
+
 		send_im_here(context, master_fd, auth_context);
 		break;
 	    case YOU_HAVE_LAST_VERSION:

@@ -102,7 +102,7 @@ static const char *op_names[] = {
     "nop"
 };
 
-static void
+static kadm5_ret_t
 print_entry(kadm5_server_context *server_context,
 	    uint32_t ver,
 	    time_t timestamp,
@@ -112,7 +112,10 @@ print_entry(kadm5_server_context *server_context,
 	    void *ctx)
 {
     char t[256];
+    const char *entry_kind = ctx;
     int32_t mask;
+    int32_t nop_time;
+    uint32_t nop_ver;
     hdb_entry ent;
     krb5_principal source;
     char *name1, *name2;
@@ -130,11 +133,11 @@ print_entry(kadm5_server_context *server_context,
     if((int)op < (int)kadm_get || (int)op > (int)kadm_nop) {
 	printf("unknown op: %d\n", op);
 	krb5_storage_seek(sp, end, SEEK_SET);
-	return;
+	return 0;
     }
 
-    printf ("%s: ver = %u, timestamp = %s, len = %u\n",
-	    op_names[op], ver, t, len);
+    printf ("%s%s: ver = %u, timestamp = %s, len = %u\n",
+	    entry_kind, op_names[op], ver, t, len);
     switch(op) {
     case kadm_delete:
 	krb5_ret_principal(sp, &source);
@@ -261,12 +264,30 @@ print_entry(kadm5_server_context *server_context,
 	free_hdb_entry(&ent);
 	break;
     case kadm_nop :
+        if (len == 16) {
+            uint64_t off;
+            krb5_ret_uint64(sp, &off);
+            printf("ubberblock offset %llu ", (unsigned long long)off);
+        } else {
+            printf("nop");
+        }
+        if (len == 16 || len == 8) {
+            krb5_ret_int32(sp, &nop_time);
+            krb5_ret_uint32(sp, &nop_ver);
+
+            timestamp = nop_time;
+            strftime(t, sizeof(t), "%Y-%m-%d %H:%M:%S", localtime(&timestamp));
+            printf("timestamp %s version %u", t, nop_ver);
+        }
+        printf("\n");
 	break;
     default:
 	abort();
     }
     krb5_data_free(&data);
     krb5_storage_seek(sp, end, SEEK_SET);
+
+    return 0;
 }
 
 int
@@ -280,11 +301,17 @@ iprop_dump(struct dump_options *opt, int argc, char **argv)
 
     ret = kadm5_log_init (server_context);
     if (ret)
-	krb5_err (context, 1, ret, "kadm5_log_init");
+	krb5_err(context, 1, ret, "kadm5_log_init");
 
-    ret = kadm5_log_foreach (server_context, print_entry, NULL);
-    if(ret)
+    ret = kadm5_log_foreach(server_context,
+                            kadm_forward | kadm_confirmed,
+                            NULL, print_entry, "");
+    if (ret)
 	krb5_warn(context, ret, "kadm5_log_foreach");
+
+    ret = kadm5_log_foreach(server_context,
+                            kadm_forward | kadm_unconfirmed,
+                            NULL, print_entry, "unconfirmed ");
 
     ret = kadm5_log_end (server_context);
     if (ret)
@@ -301,9 +328,11 @@ iprop_truncate(struct truncate_options *opt, int argc, char **argv)
     server_context = get_kadmin_context(opt->config_file_string,
 					opt->realm_string);
 
-    ret = kadm5_log_truncate (server_context);
+    ret = kadm5_log_truncate(server_context);
     if (ret)
-	krb5_err (context, 1, ret, "kadm5_log_truncate");
+	krb5_err(context, 1, ret, "kadm5_log_truncate");
+
+    kadm5_log_signal_master(server_context);
 
     return 0;
 }
@@ -342,7 +371,7 @@ last_version(struct last_version_options *opt, int argc, char **argv)
 int start_version = -1;
 int end_version = -1;
 
-static void
+static kadm5_ret_t
 apply_entry(kadm5_server_context *server_context,
 	    uint32_t ver,
 	    time_t timestamp,
@@ -358,7 +387,7 @@ apply_entry(kadm5_server_context *server_context,
        (opt->end_version_integer != -1 && ver > (uint32_t)opt->end_version_integer)) {
 	/* XXX skip this entry */
 	krb5_storage_seek(sp, len, SEEK_CUR);
-	return;
+	return 0;
     }
     printf ("ver %u... ", ver);
     fflush (stdout);
@@ -369,6 +398,8 @@ apply_entry(kadm5_server_context *server_context,
 	krb5_warn (server_context->context, ret, "kadm5_log_replay");
 
     printf ("done\n");
+
+    return 0;
 }
 
 int
@@ -390,7 +421,9 @@ iprop_replay(struct replay_options *opt, int argc, char **argv)
     if (ret)
 	krb5_err (context, 1, ret, "kadm5_log_init");
 
-    ret = kadm5_log_foreach (server_context, apply_entry, opt);
+    ret = kadm5_log_foreach(server_context,
+                            kadm_forward | kadm_confirmed | kadm_unconfirmed,
+                            NULL, apply_entry, opt);
     if(ret)
 	krb5_warn(context, ret, "kadm5_log_foreach");
     ret = kadm5_log_end (server_context);
