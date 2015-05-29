@@ -135,6 +135,25 @@ command = {
 	max_args = "0"
 }
 command = {
+	name = "signal"
+	option = {
+		long = "config-file"
+		short = "c"
+		type = "string"
+		help = "configuration file"
+		argument = "file"
+	}
+	option = {
+		long = "realm"
+		short = "r"
+		type = "string"
+		help = "realm"
+	}
+	function = "signal_master"
+	help = "Print the last version of the log-file."
+	max_args = "0"
+}
+command = {
 	name = "help"
 	argument = "command"
 	max_args = "1"
