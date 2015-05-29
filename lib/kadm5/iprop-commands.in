@@ -42,6 +42,19 @@ command = {
 		argument = "file"
 	}
 	option = {
+		long = "log-file"
+		short = "f"
+		type = "string"
+		help = "iprop log file"
+		argument = "file"
+	}
+	option = {
+		long = "no-lock"
+		short = "n"
+		type = "flag"
+		help = "don't lock iprop log"
+	}
+	option = {
 		long = "realm"
 		short = "r"
 		type = "string"
@@ -65,6 +78,30 @@ command = {
 		short = "r"
 		type = "string"
 		help = "realm"
+	}
+	option = {
+		long = "log-file"
+		short = "f"
+		type = "string"
+		help = "iprop log file"
+		argument = "file"
+	}
+	option = {
+		long = "keep-entries"
+		short = "n"
+		type = "integer"
+		help = "number of entries to keep"
+	}
+	option = {
+		long = "from-version"
+		short = "v"
+		type = "integer"
+		help = "keep entries from the given version"
+	}
+	option = {
+		long = "recover"
+		type = "-flag"
+		help = "don't replay unconfirmed log entries"
 	}
 	function = "iprop_truncate"
 	help = "Truncate the log, preserve the version number."
@@ -113,12 +150,44 @@ command = {
 		argument = "file"
 	}
 	option = {
+		long = "log-file"
+		short = "f"
+		type = "string"
+		help = "iprop log file"
+		argument = "file"
+	}
+	option = {
+		long = "no-lock"
+		short = "n"
+		type = "flag"
+		help = "don't lock iprop log"
+	}
+	option = {
 		long = "realm"
 		short = "r"
 		type = "string"
 		help = "realm"
 	}
 	function = "last_version"
+	help = "Print the last version of the log-file."
+	max_args = "0"
+}
+command = {
+	name = "signal"
+	option = {
+		long = "config-file"
+		short = "c"
+		type = "string"
+		help = "configuration file"
+		argument = "file"
+	}
+	option = {
+		long = "realm"
+		short = "r"
+		type = "string"
+		help = "realm"
+	}
+	function = "signal_master"
 	help = "Print the last version of the log-file."
 	max_args = "0"
 }

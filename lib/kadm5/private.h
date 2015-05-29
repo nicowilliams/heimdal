@@ -82,7 +82,10 @@ typedef struct kadm5_log_peer {
 typedef struct kadm5_log_context {
     char *log_file;
     int log_fd;
+    int read_only;
+    int lock_mode;
     uint32_t version;
+    time_t last_time;
 #ifndef NO_UNIX_SOCKETS
     struct sockaddr_un socket_name;
 #else
@@ -148,6 +151,19 @@ enum kadm_ops {
     kadm_get_princs,
     kadm_chpass_with_key,
     kadm_nop
+};
+
+enum kadm_nop_type {
+    kadm_nop_plain, /* plain nop, not relevance except as ubberblock    */
+    kadm_nop_trunc, /* indicates that the master truncated the log      */
+    kadm_nop_close  /* indicates that the master closed this log        */
+};
+
+enum kadm_iter_opts {
+    kadm_forward        = 1,
+    kadm_backward       = 2,
+    kadm_confirmed      = 4,
+    kadm_unconfirmed    = 8
 };
 
 #define KADMIN_APPL_VERSION "KADM0.1"
