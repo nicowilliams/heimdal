@@ -62,6 +62,7 @@ HEIMDAL_KAMD5_SERVER_1.0 {
 		kadm5_s_init_with_creds;
 		kadm5_s_chpass_principal_cond;
 		kadm5_log_set_version;
+		kadm5_log_signal_master;
 		kadm5_log_signal_socket;
 		kadm5_log_previous;
 		kadm5_log_goto_end;
@@ -71,10 +72,13 @@ HEIMDAL_KAMD5_SERVER_1.0 {
 		kadm5_log_replay;
 		kadm5_log_end;
 		kadm5_log_reinit;
+		kadm5_log_recover;
 		kadm5_log_init;
+		kadm5_log_init_nolock;
 		kadm5_log_nop;
 		kadm5_log_truncate;
 		kadm5_log_modify;
+		kadm5_log_update_ubber;
 		_kadm5_acl_check_permission;
 		_kadm5_unmarshal_params;
 		_kadm5_s_get_db;
