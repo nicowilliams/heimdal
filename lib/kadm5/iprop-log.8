@@ -65,6 +65,10 @@
 .Fl Fl realm= Ns Ar string
 .Xc
 .Oc
+.Oo Fl n \*(Ba Xo
+.Fl Fl no-lock
+.Xc
+.Oc
 .Op Fl h | Fl Fl help
 .Pp
 .Nm iprop-log replay
@@ -79,6 +83,22 @@
 .Xc
 .Oc
 .Op Fl h | Fl Fl help
+.Pp
+.Nm iprop-log last-version
+.Oo Fl c Ar file \*(Ba Xo
+.Fl Fl config-file= Ns Ar file
+.Xc
+.Oc
+.Oo Fl r Ar string \*(Ba Xo
+.Fl Fl realm= Ns Ar string
+.Xc
+.Oc
+.Oo Fl n \*(Ba Xo
+.Fl Fl no-lock
+.Xc
+.Oc
+.Op Fl h | Fl Fl help
+.Pp
 .Sh DESCRIPTION
 Supported options:
 .Bl -tag -width Ds
@@ -108,9 +128,15 @@ configuration file
 .Fl Fl realm= Ns Ar string
 .Xc
 realm
+.It Xo
+.Fl n Ar string ,
+.Fl Fl no-lock
+.Xc
 .El
 .Pp
-Print out all entries in the log to standard output.
+Print out all entries in the log to standard output.  If the
+.Fl n
+option is used then don't lock the iprop log file.
 .It replay
 .Bl -tag -width Ds
 .It Fl Fl start-version= Ns Ar version-number
@@ -133,6 +159,10 @@ specified) in the transaction log to the database.
 configuration file
 .It Fl r Ar string , Fl Fl realm= Ns Ar string
 realm
+.It Xo
+.Fl n Ar string ,
+.Fl Fl no-lock
+.Xc
 .El
 .Pp
 prints the version of the last log entry.
