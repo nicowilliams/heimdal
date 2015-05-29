@@ -99,6 +99,17 @@
 .Oc
 .Op Fl h | Fl Fl help
 .Pp
+.Nm iprop-log signal
+.Oo Fl c Ar file \*(Ba Xo
+.Fl Fl config-file= Ns Ar file
+.Xc
+.Oc
+.Oo Fl r Ar string \*(Ba Xo
+.Fl Fl realm= Ns Ar string
+.Xc
+.Oc
+.Op Fl h | Fl Fl help
+.Pp
 .Sh DESCRIPTION
 Supported options:
 .Bl -tag -width Ds
@@ -166,6 +177,17 @@ realm
 .El
 .Pp
 prints the version of the last log entry.
+.It signal
+.Bl -tag -width Ds
+.It Fl c Ar file , Fl Fl config-file= Ns Ar file
+configuration file
+.It Fl r Ar string , Fl Fl realm= Ns Ar string
+realm
+.El
+.Pp
+signals the ipropd-master daemon to send updates to slaves.  Normally
+kadmin does this every time it writes to the database, so this should
+rarely be needed.
 .El
 .Sh SEE ALSO
 .Xr iprop 8

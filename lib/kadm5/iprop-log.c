@@ -370,6 +370,19 @@ last_version(struct last_version_options *opt, int argc, char **argv)
     return 0;
 }
 
+int
+signal_master(struct signal_options *opt, int argc, char **argv)
+{
+    kadm5_server_context *server_context;
+
+    server_context = get_kadmin_context(opt->config_file_string,
+					opt->realm_string);
+
+    kadm5_log_signal_master(server_context);
+
+    return 0;
+}
+
 /*
  * Replay log
  */
