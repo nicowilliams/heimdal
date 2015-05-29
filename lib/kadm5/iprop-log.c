@@ -301,7 +301,10 @@ iprop_dump(struct dump_options *opt, int argc, char **argv)
     server_context = get_kadmin_context(opt->config_file_string,
 					opt->realm_string);
 
-    ret = kadm5_log_init (server_context);
+    if (opt->no_lock_flag)
+        ret = kadm5_log_init_nolock(server_context);
+    else
+        ret = kadm5_log_init(server_context);
     if (ret)
 	krb5_err(context, 1, ret, "kadm5_log_init");
 
@@ -349,7 +352,10 @@ last_version(struct last_version_options *opt, int argc, char **argv)
     server_context = get_kadmin_context(opt->config_file_string,
 					opt->realm_string);
 
-    ret = kadm5_log_init (server_context);
+    if (opt->no_lock_flag)
+        ret = kadm5_log_init_nolock(server_context);
+    else
+        ret = kadm5_log_init(server_context);
     if (ret)
 	krb5_err (context, 1, ret, "kadm5_log_init");
 
