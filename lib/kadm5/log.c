@@ -1062,7 +1062,7 @@ kadm5_log_nop(kadm5_server_context *context)
     kadm5_log_context *log_context = &context->log_context;
     off_t off;
 
-    off = lseek(log_context->log_fd, 0, SEEK_END);
+    off = lseek(log_context->log_fd, 0, SEEK_CUR);
     if (off == (off_t)-1)
         return errno;
 
@@ -1112,7 +1112,7 @@ kadm5_log_nop(kadm5_server_context *context)
         goto out;
 
     /* Overwrite ubber-entry anyways */
-    kadm5_log_update_ubber(context);
+    ret = kadm5_log_update_ubber(context);
 
 out:
     krb5_storage_free(sp);
