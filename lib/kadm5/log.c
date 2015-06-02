@@ -1303,8 +1303,11 @@ kadm5_log_foreach(kadm5_server_context *context,
         }
         if (func != NULL) {
             ret = (*func)(context, ver, timestamp, op, len, sp, ctx);
-            if (ret)
+            if (ret) {
+                if (ret == -1)
+                    ret = 0;
                 break;
+            }
         }
 	ret = krb5_ret_uint32(sp, &len2);
         if (ret)
@@ -1334,7 +1337,7 @@ kadm5_log_foreach(kadm5_server_context *context,
                    next_entry > log_end ? "unconfirmed" : "confirmed");
     }
     krb5_storage_free(sp);
-    return 0;
+    return ret;
 }
 
 /*
