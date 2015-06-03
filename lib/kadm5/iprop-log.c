@@ -343,7 +343,8 @@ iprop_truncate(struct truncate_options *opt, int argc, char **argv)
         server_context->log_context.log_file = opt->log_file_string;
     }
 
-    ret = kadm5_log_truncate(server_context);
+    ret = kadm5_log_truncate(server_context, opt->keep_entries_integer,
+                             opt->from_version_integer, opt->recover_flag);
     if (ret)
 	krb5_err(context, 1, ret, "kadm5_log_truncate");
 

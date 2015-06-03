@@ -1514,15 +1514,167 @@ kadm5_log_replay(kadm5_server_context *context,
     }
 }
 
+struct load_entries_data {
+    krb5_data *entries;
+    unsigned char *p;
+    uint32_t from_vno;
+    size_t nentries;
+    size_t bytes;
+};
+
+static kadm5_ret_t
+load_entries_cb(kadm5_server_context *server_context,
+            uint32_t ver,
+            time_t timestamp,
+            enum kadm_ops op,
+            uint32_t len,
+            krb5_storage *sp,
+            void *ctx)
+{
+    struct load_entries_data *entries = ctx;
+    kadm5_ret_t ret;
+    off_t off;
+    ssize_t bytes;
+
+    if (entries->nentries-- == 0)
+        return -1; /* stop iteration */
+
+    if (ver < entries->from_vno)
+        return -1; /* stop iteration */
+    
+    if (entries->entries == NULL) {
+        /*
+         * First find the size of krb5_data buffer needed.
+         *
+         * If the log was huge we'd have to perhaps open a temp file for
+         * this.  For now KISS.
+         */
+        entries->bytes += len + 6 * 4;
+        return 0;
+    }
+
+    /* Now read all the entries into the allocated krb5_data */
+
+    if (entries->p == NULL)
+        entries->p = (unsigned char *)entries->entries->data + entries->bytes;
+
+    /*
+     * We'll read the header, payload, and trailer into the buffer we
+     * have, that many bytes before the previous entry we read.
+     */
+    entries->p -= len + 6 * 4;
+
+    if (entries->p < (unsigned char *)entries->entries->data) {
+        /*
+         * This can't happen normally: we stop the log entry iteration
+         * above before we get here.  This could happen if someone wrote
+         * garbage to the log while we were traversing it.  We return an
+         * error instead of asserting.
+         */
+        return KADM5_LOG_CORRUPT; }
+
+    /*
+     * sp here is a krb5_storage_from_fd() of the log file, and the
+     * offset pointer points at the current log entry payload.
+     *
+     * Seek back to the start of the entry.
+     */
+    off = krb5_storage_seek(sp, -4 * 4, SEEK_CUR);
+    if (off == -1)
+        return errno;
+
+    /* Read the whole entry (header, payload, trailer) */
+    errno = 0;
+    bytes = krb5_storage_read(sp, entries->entries->data, len + 6 * 4);
+    ret = errno;
+
+    /* Set the sp offset pointer to the end of the payload as expected */
+    off = krb5_storage_seek(sp, off + 4 * 4 + len, SEEK_CUR);
+    if (off == -1)
+        return errno;
+
+    if (bytes != len + 6 * 4)
+        return ret ? ret : EIO;
+    return 0;
+}
+
+static kadm5_ret_t
+load_entries(kadm5_server_context *context, krb5_data *p,
+             size_t nentries, uint32_t from_vno)
+{
+    struct load_entries_data entries;
+    kadm5_ret_t ret;
+
+    if (nentries == 0)
+        return 0;
+
+    entries.entries = NULL;
+    entries.p = NULL;
+    entries.nentries = nentries;
+    entries.bytes = 0;
+    entries.from_vno = from_vno;
+
+    /* Figure out how many bytes it will take */
+    ret = kadm5_log_foreach(context, kadm_backward | kadm_confirmed,
+                            NULL, load_entries_cb, &entries);
+    if (ret)
+        return ret;
+
+    entries.nentries = nentries;
+    entries.entries = p;
+
+    if (entries.bytes == 0)
+        return ENOENT;  /* XXX */
+
+    if (entries.bytes > INT_MAX)
+        return E2BIG;   /* XXX */
+
+    ret = krb5_data_alloc(p, entries.bytes);
+    if (ret)
+        return ret;
+
+    /* Now load */
+    ret = kadm5_log_foreach(context, kadm_backward | kadm_confirmed,
+                            NULL, load_entries_cb, &entries);
+    if (ret) {
+        krb5_data_free(p);
+        krb5_data_zero(p);
+    }
+    return ret;
+}
+
+static kadm5_ret_t
+write_entries(kadm5_server_context *context, krb5_data *entries)
+{
+    kadm5_ret_t ret;
+    krb5_storage *sp;
+
+    if (entries->length == 0)
+        return 0;
+
+    sp = krb5_storage_from_data(entries);
+    ret = kadm5_log_flush(context, sp);
+    krb5_storage_free(sp);
+    if (ret)
+        return ret;
+
+    ret = kadm5_log_update_ubber(context);
+    return ret;
+}
+
 /*
  * truncate the log - i.e. create an empty file with just (nop vno + 2)
  */
 
 kadm5_ret_t
-kadm5_log_truncate(kadm5_server_context *server_context)
+kadm5_log_truncate(kadm5_server_context *server_context,
+                   size_t keep, uint32_t from_vno, int recover)
 {
     kadm5_ret_t ret;
     uint32_t vno;
+    krb5_data entries;
+
+    krb5_data_zero(&entries);
 
     ret = kadm5_log_init(server_context);
     if (ret)
@@ -1532,11 +1684,28 @@ kadm5_log_truncate(kadm5_server_context *server_context)
     if (ret)
 	return ret;
 
-    if (ftruncate(server_context->log_context.log_fd, 0) == -1)
+    if (from_vno < vno)
+        from_vno = vno;
+
+    if (recover) {
+        ret = kadm5_log_recover(server_context);
+        if (ret)
+            return ret;
+    }
+
+    ret = load_entries(server_context, &entries, keep, vno);
+    if (ret)
         return ret;
 
-    if (lseek(server_context->log_context.log_fd, 0, SEEK_SET) == (off_t)-1)
+    if (ftruncate(server_context->log_context.log_fd, 0) == -1) {
+        krb5_data_free(&entries);
+        return ret;
+    }
+
+    if (lseek(server_context->log_context.log_fd, 0, SEEK_SET) == (off_t)-1) {
+        krb5_data_free(&entries);
         return errno;
+    }
 
     /*
      * kadm5_log_nop() will increment the version; we want to keep the
@@ -1544,16 +1713,28 @@ kadm5_log_truncate(kadm5_server_context *server_context)
      * fail.
      */
     ret = kadm5_log_set_version(server_context, --vno);
-    if (ret)
+    if (ret) {
+        krb5_data_free(&entries);
 	return ret;
+    }
 
     ret = kadm5_log_nop(server_context);
-    if (ret)
+    if (ret) {
+        krb5_data_free(&entries);
 	return ret;
+    }
+
+    ret = write_entries(server_context, &entries);
+    krb5_data_free(&entries);
+    if (ret) {
+        krb5_warn(server_context->context, ret, "Unable to keep entries");
+        return kadm5_log_truncate(server_context, 0, 0, 0);
+    }
 
     ret = kadm5_log_end(server_context);
     if (ret)
 	return ret;
+
     return 0;
 
 }
