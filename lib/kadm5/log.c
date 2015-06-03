@@ -1758,7 +1758,7 @@ kadm5_log_truncate(kadm5_server_context *server_context,
     if (ret)
 	return ret;
 
-    if (from_vno < vno)
+    if (from_vno > 0 && from_vno < vno)
         from_vno = vno;
 
     if (recover) {
@@ -1767,7 +1767,7 @@ kadm5_log_truncate(kadm5_server_context *server_context,
             return ret;
     }
 
-    ret = load_entries(server_context, &entries, keep, vno);
+    ret = load_entries(server_context, &entries, keep, from_vno);
     if (ret)
         return ret;
 
