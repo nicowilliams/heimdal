@@ -1205,7 +1205,7 @@ kadm5_log_foreach(kadm5_server_context *context,
     kadm5_ret_t ret = 0;
     int fd = context->log_context.log_fd;
     krb5_storage *sp;
-    off_t next_entry = 0;
+    off_t this_entry = 0;
     off_t log_end = 0;
 
     if (off_last != NULL)
@@ -1216,17 +1216,19 @@ kadm5_log_foreach(kadm5_server_context *context,
         return EINVAL;
 
     if ((iter_opts & kadm_forward) && (iter_opts & kadm_confirmed) && (iter_opts & kadm_unconfirmed)) {
-        sp = krb5_storage_from_fd(fd);
-
         /*
          * If we want to traverse all log entries, confirmed or not,
          * from the start, then there's no need to kadm5_log_goto_end()
          * -- no reason to try to find the end.
          */
+        sp = krb5_storage_from_fd(fd);
         if (sp == NULL)
             return errno;
 
-        /* We then use the end of the file as the log's end */
+        /*
+         * We then use the end of the file as the log's end, and start
+         * at offset 0.
+         */
         log_end = krb5_storage_seek(sp, 0, SEEK_END);
         if (log_end == (off_t)-1 ||
             krb5_storage_seek(sp, 0, SEEK_SET) == (off_t)-1) {
@@ -1246,13 +1248,17 @@ kadm5_log_foreach(kadm5_server_context *context,
         *off_last = log_end;
 
     if ((iter_opts & kadm_forward) && (iter_opts & kadm_confirmed)) {
+        /* Start at the beginning */
         if (krb5_storage_seek(sp, 0, SEEK_SET) == (off_t)-1) {
             ret = errno;
             krb5_storage_free(sp);
             return ret;
         }
     } else if ((iter_opts & kadm_backward) && (iter_opts & kadm_unconfirmed)) {
-        /* Skip forward to the real end, re-entering to do it */
+        /*
+         * We're at the confirmed end but need to be at the unconfirmed
+         * end.  Skip forward to the real end, re-entering to do it.
+         */
         ret = kadm5_log_foreach(context, kadm_forward | kadm_unconfirmed,
                                 &log_end, NULL, NULL);
         if (ret)
@@ -1269,9 +1275,8 @@ kadm5_log_foreach(kadm5_server_context *context,
 	int32_t tstamp, op;
         time_t timestamp;
 
-        next_entry = krb5_storage_seek(sp, 0, SEEK_CUR);
-
         if ((iter_opts & kadm_backward)) {
+            off_t o;
             enum kadm_ops op2;
 
             if (krb5_storage_seek(sp, 0, SEEK_CUR) == 0)
@@ -1280,8 +1285,23 @@ kadm5_log_foreach(kadm5_server_context *context,
             if (ret)
                 break;
             op = op2;
+
+            /* Offset is now at payload of current entry */
+
+            o = krb5_storage_seek(sp, 0, SEEK_CUR);
+            if (o == -1) {
+                ret = errno;
+                break;
+            }
+            this_entry = o - 16;
+            if (this_entry < 0) {
+                ret = KADM5_LOG_CORRUPT;
+                break;
+            }
         } else {
-            if (!(iter_opts & kadm_unconfirmed) && next_entry == log_end)
+            /* Offset is now at start of current entry, read header */
+            this_entry = krb5_storage_seek(sp, 0, SEEK_CUR);
+            if (!(iter_opts & kadm_unconfirmed) && this_entry == log_end)
                 break;
             ret = krb5_ret_uint32(sp, &ver);
             if (ret == HEIM_ERR_EOF) {
@@ -1300,15 +1320,16 @@ kadm5_log_foreach(kadm5_server_context *context,
             ret = krb5_ret_uint32(sp, &len);
             if (ret)
                 break;
+
+            /* Offset is now at payload of current entry */
         }
-        if (func != NULL) {
-            ret = (*func)(context, ver, timestamp, op, len, sp, ctx);
-            if (ret) {
-                if (ret == -1)
-                    ret = 0;
-                break;
-            }
+
+        /* Validate trailer before calling the callback */
+        if (krb5_storage_seek(sp, len, SEEK_CUR) == -1) {
+            ret = errno;
+            break;
         }
+
 	ret = krb5_ret_uint32(sp, &len2);
         if (ret)
             break;
@@ -1319,22 +1340,70 @@ kadm5_log_foreach(kadm5_server_context *context,
             ret = KADM5_LOG_CORRUPT;
 	    break;
         }
+
+        /* Rewind to start of payload and call callback if we have one */
+        if (krb5_storage_seek(sp, this_entry + 16, SEEK_SET) == -1) {
+            ret = errno;
+            break;
+        }
+
+        if (func != NULL) {
+            off_t o;
+            ret = (*func)(context, ver, timestamp, op, len, sp, ctx);
+            if (ret) {
+                if (ret == -1)
+                    ret = 0;
+                break;
+            }
+            o = krb5_storage_seek(sp, 0, SEEK_CUR);
+            heim_assert(o == this_entry + 16 + len, "kadm5_log_foreach() "
+                        "callback did not consume log entry");
+        } else {
+            /* No callback -> skip len bytes */
+            if (krb5_storage_seek(sp, len, SEEK_CUR) == 0) {
+                ret = errno;
+                break;
+            }
+        }
         if ((iter_opts & kadm_forward) && (iter_opts & kadm_unconfirmed) &&
-            off_last != NULL)
+            off_last != NULL) {
             *off_last = krb5_storage_seek(sp, 0, SEEK_CUR);
+        }
+        if ((iter_opts & kadm_forward)) {
+            off_t o;
+
+            o = krb5_storage_seek(sp, 8, SEEK_CUR);
+            if (o == -1) {
+                ret = errno;
+                break;
+            }
+            if (off_last != NULL && o > log_end)
+                *off_last = o;
+        } else if ((iter_opts & kadm_backward)) {
+            /*
+             * Rewind to the start of this entry so kadm5_log_previous()
+             * can find the previous one.
+             */
+            if (krb5_storage_seek(sp, this_entry, SEEK_SET) == -1) {
+                ret = errno;
+                break;
+            }
+        }
     }
     if ((ret == HEIM_ERR_EOF || ret == KADM5_LOG_CORRUPT) &&
-        (iter_opts & kadm_forward)) {
+        (iter_opts & kadm_forward) &&
+        context->log_context.lock_mode != LOCK_EX) {
         /*
          * Truncate partially written last log entry so we can write
          * again.
          */
-        if (krb5_storage_seek(sp, next_entry, SEEK_SET) == (off_t)-1)
+        ret = krb5_storage_truncate(sp, this_entry);
+        if (ret == 0 &&
+            krb5_storage_seek(sp, this_entry, SEEK_SET) == (off_t)-1)
             ret = errno;
-        ret = krb5_storage_truncate(sp, next_entry);
         krb5_warnx(context->context, "Truncating iprop log at partial or "
                    "corrupt %s entry",
-                   next_entry > log_end ? "unconfirmed" : "confirmed");
+                   this_entry > log_end ? "unconfirmed" : "confirmed");
     }
     krb5_storage_free(sp);
     return ret;
