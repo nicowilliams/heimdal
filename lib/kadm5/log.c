@@ -156,7 +156,7 @@ log_init(kadm5_server_context *context, int lock_mode)
         if (fd < 0) {
             ret = errno;
             krb5_set_error_message(context->context, ret, "kadm5_log_init: open %s",
-                                  log_context->log_file);
+                                   log_context->log_file);
             return ret;
         }
         if (lock_mode == LOCK_UN)
