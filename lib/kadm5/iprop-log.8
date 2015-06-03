@@ -54,6 +54,15 @@
 .Fl Fl realm= Ns Ar string
 .Xc
 .Oc
+.Oo Xo Fl Fl keep-entries= Ns Ar integer
+.Xc
+.Oc
+.Oo Xo Fl Fl from-version= Ns Ar integer
+.Xc
+.Oc
+.Oo Xo Fl Fl no-recover
+.Xc
+.Oc
 .Op Fl h | Fl Fl help
 .Pp
 .Nm iprop-log dump
@@ -125,11 +134,25 @@ command can be one of the following:
 configuration file
 .It Fl r Ar string , Fl Fl realm= Ns Ar string
 realm
+.It Fl Fl keep-entries= Ns Ar integer
+.It Fl Fl from-version= Ns Ar integer
+.It Fl Fl no-recover
 .El
 .Pp
 Truncates the log. Sets the new logs version number for the to the
 last entry of the old log.  If the log is truncted by emptying the
 file, the log will start over at the first version (0).
+.Pp
+If
+.Fl Fl keep-entries
+is given, then the given number of entries will be kept.
+If
+.Fl Fl from-version
+is given, then entries from that version are kept.
+If
+.Fl Fl no-recover
+is given, then unconfirmed entries in the log will not be replayed prior
+to truncation.
 .It dump
 .Bl -tag -width Ds
 .It Fl c Ar file , Fl Fl config-file= Ns Ar file
