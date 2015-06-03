@@ -1602,11 +1602,15 @@ load_entries_cb(kadm5_server_context *server_context,
 {
     struct load_entries_data *entries = ctx;
     kadm5_ret_t ret;
-    off_t off;
     ssize_t bytes;
 
-    if (entries->nentries-- == 0)
+    /* Offset is at start of payload */
+
+    if (entries->from_vno == 0 && entries->nentries == 0)
         return -1; /* stop iteration */
+
+    if (entries->nentries > 0)
+        entries->nentries--;
 
     if (ver < entries->from_vno)
         return -1; /* stop iteration */
@@ -1618,11 +1622,11 @@ load_entries_cb(kadm5_server_context *server_context,
          * If the log was huge we'd have to perhaps open a temp file for
          * this.  For now KISS.
          */
+        if (krb5_storage_seek(sp, len, SEEK_CUR) == -1)
+            return errno;
         entries->bytes += len + 6 * 4;
         return 0;
     }
-
-    /* Now read all the entries into the allocated krb5_data */
 
     if (entries->p == NULL)
         entries->p = (unsigned char *)entries->entries->data + entries->bytes;
@@ -1648,8 +1652,7 @@ load_entries_cb(kadm5_server_context *server_context,
      *
      * Seek back to the start of the entry.
      */
-    off = krb5_storage_seek(sp, -4 * 4, SEEK_CUR);
-    if (off == -1)
+    if (krb5_storage_seek(sp, -4 * 4, SEEK_CUR) == -1)
         return errno;
 
     /* Read the whole entry (header, payload, trailer) */
@@ -1657,13 +1660,15 @@ load_entries_cb(kadm5_server_context *server_context,
     bytes = krb5_storage_read(sp, entries->entries->data, len + 6 * 4);
     ret = errno;
 
-    /* Set the sp offset pointer to the end of the payload as expected */
-    off = krb5_storage_seek(sp, off + 4 * 4 + len, SEEK_CUR);
-    if (off == -1)
-        return errno;
-
     if (bytes != len + 6 * 4)
         return ret ? ret : EIO;
+
+    /*
+     * Now the offset is at the end of the entry, but it needs to be at
+     * the end of the entry's payload.
+     */
+    if (krb5_storage_seek(sp, -2 * 4, SEEK_CUR) == -1)
+        ret = errno;
     return 0;
 }
 
@@ -1674,7 +1679,7 @@ load_entries(kadm5_server_context *context, krb5_data *p,
     struct load_entries_data entries;
     kadm5_ret_t ret;
 
-    if (nentries == 0)
+    if (nentries == 0 && from_vno == 0)
         return 0;
 
     entries.entries = NULL;
