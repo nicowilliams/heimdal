@@ -42,6 +42,13 @@ command = {
 		argument = "file"
 	}
 	option = {
+		long = "log-file"
+		short = "f"
+		type = "string"
+		help = "iprop log file"
+		argument = "file"
+	}
+	option = {
 		long = "no-lock"
 		short = "n"
 		type = "flag"
@@ -71,6 +78,13 @@ command = {
 		short = "r"
 		type = "string"
 		help = "realm"
+	}
+	option = {
+		long = "log-file"
+		short = "f"
+		type = "string"
+		help = "iprop log file"
+		argument = "file"
 	}
 	function = "iprop_truncate"
 	help = "Truncate the log, preserve the version number."
@@ -116,6 +130,13 @@ command = {
 		short = "c"
 		type = "string"
 		help = "configuration file"
+		argument = "file"
+	}
+	option = {
+		long = "log-file"
+		short = "f"
+		type = "string"
+		help = "iprop log file"
 		argument = "file"
 	}
 	option = {
