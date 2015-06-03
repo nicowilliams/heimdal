@@ -1454,7 +1454,7 @@ kadm5_log_goto_end(krb5_context context, int fd)
     ret = krb5_ret_uint32(sp, &len);
     if (ret)
         goto truncate;
-    if (op == kadm_nop && ret == 16) {
+    if (op == kadm_nop && len == 16) {
         /* New style log */
         ret = krb5_ret_uint64(sp, &off);
         if (ret)
