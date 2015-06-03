@@ -86,6 +86,23 @@ command = {
 		help = "iprop log file"
 		argument = "file"
 	}
+	option = {
+		long = "keep-entries"
+		short = "n"
+		type = "integer"
+		help = "number of entries to keep"
+	}
+	option = {
+		long = "from-version"
+		short = "v"
+		type = "integer"
+		help = "keep entries from the given version"
+	}
+	option = {
+		long = "recover"
+		type = "-flag"
+		help = "don't replay unconfirmed log entries"
+	}
 	function = "iprop_truncate"
 	help = "Truncate the log, preserve the version number."
 	max_args = "0"
