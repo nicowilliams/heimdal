@@ -54,6 +54,10 @@
 .Fl Fl realm= Ns Ar string
 .Xc
 .Oc
+.Oo Fl f Ar file \*(Ba Xo
+.Fl Fl log-file= Ns Ar file
+.Xc
+.Oc
 .Oo Xo Fl Fl keep-entries= Ns Ar integer
 .Xc
 .Oc
@@ -72,6 +76,10 @@
 .Oc
 .Oo Fl r Ar string \*(Ba Xo
 .Fl Fl realm= Ns Ar string
+.Xc
+.Oc
+.Oo Fl f Ar file \*(Ba Xo
+.Fl Fl log-file= Ns Ar file
 .Xc
 .Oc
 .Oo Fl n \*(Ba Xo
@@ -100,6 +108,10 @@
 .Oc
 .Oo Fl r Ar string \*(Ba Xo
 .Fl Fl realm= Ns Ar string
+.Xc
+.Oc
+.Oo Fl f Ar file \*(Ba Xo
+.Fl Fl log-file= Ns Ar file
 .Xc
 .Oc
 .Oo Fl n \*(Ba Xo
@@ -134,6 +146,7 @@ command can be one of the following:
 configuration file
 .It Fl r Ar string , Fl Fl realm= Ns Ar string
 realm
+.It Fl f Ar file , Fl Fl log-file= Ns Ar file
 .It Fl Fl keep-entries= Ns Ar integer
 .It Fl Fl from-version= Ns Ar integer
 .It Fl Fl no-recover
@@ -162,6 +175,7 @@ configuration file
 .Fl Fl realm= Ns Ar string
 .Xc
 realm
+.It Fl f Ar file , Fl Fl log-file= Ns Ar file
 .It Xo
 .Fl n Ar string ,
 .Fl Fl no-lock
@@ -193,6 +207,7 @@ specified) in the transaction log to the database.
 configuration file
 .It Fl r Ar string , Fl Fl realm= Ns Ar string
 realm
+.It Fl f Ar file , Fl Fl log-file= Ns Ar file
 .It Xo
 .Fl n Ar string ,
 .Fl Fl no-lock
