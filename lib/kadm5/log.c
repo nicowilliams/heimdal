@@ -1146,7 +1146,7 @@ recover_replay(kadm5_server_context *context,
     struct replay_cb_data *data = ctx;
 
     /* Replaying can fail, but depending on the error it's OK */
-    kadm5_log_replay(context, ver, len, op, sp);
+    kadm5_log_replay(context, op, ver, len, sp);
     data->count++;
     data->ver = ver;
     return 0;
@@ -1579,6 +1579,7 @@ kadm5_log_replay(kadm5_server_context *context,
     default :
 	krb5_set_error_message(context->context, KADM5_FAILURE,
 			       "Unsupported replay op %d", (int)op);
+        krb5_storage_seek(sp, len, SEEK_CUR);
 	return KADM5_FAILURE;
     }
 }
