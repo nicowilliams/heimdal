@@ -1789,7 +1789,7 @@ kadm5_log_truncate(kadm5_server_context *server_context,
             return ret;
     }
 
-    ret = load_entries(server_context, &entries, keep, from_vno);
+    ret = load_entries(server_context, &entries, keep, from_vno + 1);
     if (ret)
         return ret;
 
