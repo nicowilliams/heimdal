@@ -108,6 +108,9 @@ kadm5_log_get_version_fd(krb5_context context, int fd, uint32_t *ver)
 {
     krb5_storage *sp;
 
+    if (fd == -1)
+        return 0;
+
     sp = kadm5_log_goto_end(context, fd);
     if(sp == NULL) {
 	*ver = 0;
@@ -137,20 +140,23 @@ kadm5_log_set_version(kadm5_server_context *context, uint32_t vno)
 static kadm5_ret_t
 log_init(kadm5_server_context *context, int lock_mode)
 {
-    int fd;
-    int lock_it = 1;
+    int fd = -1;
+    int lock_it = 0;
     kadm5_ret_t ret;
     kadm5_log_context *log_context = &context->log_context;
 
-    if (lock_mode == log_context->lock_mode && log_context->log_fd != -1)
+    if (lock_mode == log_context->lock_mode && log_context->log_fd != -1) {
+        log_context->version = 1;
         return 0;
+    }
 
     if (log_context->log_fd != -1) {
         /* Lock or change lock */
         fd = log_context->log_fd;
         if (lseek(fd, 0, SEEK_SET) == (off_t)-1)
             return errno;
-    } else {
+        lock_it = 1;
+    } else if (strcmp(log_context->log_file, "/dev/null") != 0) {
         /* Open and lock */
         fd = open(log_context->log_file, O_RDWR | O_CREAT, 0600);
         if (fd < 0) {
@@ -159,8 +165,7 @@ log_init(kadm5_server_context *context, int lock_mode)
                                    log_context->log_file);
             return ret;
         }
-        if (lock_mode == LOCK_UN)
-            lock_it = 0;
+        lock_it = (lock_mode != LOCK_UN);
     }
     if (lock_it && flock(fd, lock_mode) < 0) {
 	ret = errno;
@@ -171,14 +176,13 @@ log_init(kadm5_server_context *context, int lock_mode)
     }
 
     log_context->lock_mode = lock_mode;
-    if (lock_mode == LOCK_SH || lock_mode == LOCK_UN)
-        log_context->read_only = 1;
+    log_context->read_only = (lock_mode == LOCK_EX);
 
     ret = kadm5_log_get_version_fd(context->context, fd, &log_context->version);
     if (ret)
 	return ret;
 
-    log_context->log_fd  = fd;
+    log_context->log_fd = fd;
     return 0;
 }
 
@@ -197,33 +201,29 @@ kadm5_log_init_nolock(kadm5_server_context *context)
 kadm5_ret_t
 kadm5_log_reinit(kadm5_server_context *context)
 {
-    int fd;
     int ret;
     kadm5_log_context *log_context = &context->log_context;
 
+    ret = log_init(context, LOCK_EX);
+    if (ret)
+	return ret;
     if (log_context->log_fd != -1) {
-	flock (log_context->log_fd, LOCK_UN);
-	close (log_context->log_fd);
-	log_context->log_fd = -1;
-    }
-    fd = open(log_context->log_file, O_RDWR | O_CREAT, 0600);
-    if (fd < 0)
-	return errno;
-    if (flock(fd, LOCK_EX) < 0) {
-	ret = errno;
-	close(fd);
-	return ret;
-    }
-    if (ftruncate(fd, 0) < 0) {
-	ret = errno;
-	close(fd);
-	return ret;
+        if (ftruncate(log_context->log_fd, 0) < 0) {
+            ret = errno;
+            close(log_context->log_fd);
+            log_context->log_fd = -1;
+            return ret;
+        }
+        if (lseek(log_context->log_fd, 0, SEEK_SET) < 0) {
+            ret = errno;
+            close(log_context->log_fd);
+            log_context->log_fd = -1;
+            return ret;
+        }
     }
 
     ret = kadm5_log_nop(context);
-
     log_context->version = 0;
-    log_context->log_fd  = fd;
     return 0;
 }
 
@@ -234,8 +234,11 @@ kadm5_log_end(kadm5_server_context *context)
     kadm5_log_context *log_context = &context->log_context;
     int fd = log_context->log_fd;
 
-    flock(fd, LOCK_UN);
-    close(fd);
+    if (fd != -1) {
+        if (log_context->lock_mode != LOCK_UN)
+            flock(fd, LOCK_UN);
+        close(fd);
+    }
     log_context->log_fd = -1;
     log_context->lock_mode = LOCK_UN;
     return 0;
@@ -308,6 +311,9 @@ kadm5_log_flush(kadm5_server_context *context, krb5_storage *sp)
     size_t len;
     ssize_t ret;
     off_t off, end;
+
+    if (strcmp(log_context->log_file, "/dev/null") == 0)
+        return 0;
 
     ret = krb5_storage_to_data(sp, &data);
     if (ret)
@@ -964,10 +970,13 @@ kadm5_log_update_ubber(kadm5_server_context *context)
     if (log_context->read_only)
         abort();
 
+    if (strcmp(log_context->log_file, "/dev/null") == 0)
+        return 0;
+
     krb5_data_zero(&data);
 
     /* We'll leave log_fd offset where it was */
-    off = lseek(log_context->log_fd, 0, SEEK_END);
+    off = lseek(log_context->log_fd, 0, SEEK_CUR);
     if (off == (off_t)-1)
         return errno;
 
@@ -1061,6 +1070,9 @@ kadm5_log_nop(kadm5_server_context *context)
     kadm5_ret_t ret;
     kadm5_log_context *log_context = &context->log_context;
     off_t off;
+
+    if (strcmp(log_context->log_file, "/dev/null") == 0)
+        return 0;
 
     off = lseek(log_context->log_fd, 0, SEEK_CUR);
     if (off == (off_t)-1)
@@ -1159,6 +1171,9 @@ kadm5_log_recover(kadm5_server_context *context)
     krb5_storage *sp;
     struct replay_cb_data replay_data;
 
+    if (strcmp(context->log_context.log_file, "/dev/null") == 0)
+        return 0;
+
     replay_data.count = 0;
     replay_data.ver = 0;
 
@@ -1207,6 +1222,9 @@ kadm5_log_foreach(kadm5_server_context *context,
     krb5_storage *sp;
     off_t this_entry = 0;
     off_t log_end = 0;
+
+    if (strcmp(context->log_context.log_file, "/dev/null") == 0)
+        return 0;
 
     if (off_last != NULL)
         *off_last = (off_t)-1;
@@ -1755,6 +1773,9 @@ kadm5_log_truncate(kadm5_server_context *server_context,
     if (ret)
 	return ret;
 
+    if (strcmp(server_context->log_context.log_file, "/dev/null") == 0)
+        return 0;
+
     ret = kadm5_log_get_version(server_context, &vno);
     if (ret)
 	return ret;
@@ -1772,16 +1793,6 @@ kadm5_log_truncate(kadm5_server_context *server_context,
     if (ret)
         return ret;
 
-    if (ftruncate(server_context->log_context.log_fd, 0) == -1) {
-        krb5_data_free(&entries);
-        return ret;
-    }
-
-    if (lseek(server_context->log_context.log_fd, 0, SEEK_SET) == (off_t)-1) {
-        krb5_data_free(&entries);
-        return errno;
-    }
-
     /*
      * kadm5_log_nop() will increment the version; we want to keep the
      * same version for now, as otherwise the check-iprop test will
@@ -1792,6 +1803,10 @@ kadm5_log_truncate(kadm5_server_context *server_context,
         krb5_data_free(&entries);
 	return ret;
     }
+
+    ret = kadm5_log_reinit(server_context);
+    if (ret)
+	return ret;
 
     ret = kadm5_log_nop(server_context);
     if (ret) {
