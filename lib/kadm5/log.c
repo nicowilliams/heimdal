@@ -160,7 +160,7 @@ log_init(kadm5_server_context *context, int lock_mode)
     if (log_context->log_fd != -1) {
         /* Lock or change lock */
         fd = log_context->log_fd;
-        if (lseek(fd, 0, SEEK_SET) == (off_t)-1)
+        if (lseek(fd, 0, SEEK_SET) == -1)
             return errno;
         lock_it = 1;
     } else if (strcmp(log_context->log_file, "/dev/null") != 0) {
@@ -340,13 +340,13 @@ kadm5_log_flush(kadm5_server_context *context, krb5_storage *sp)
 
     /* Check that we are at the end of the log and fail if not */
     off = krb5_storage_seek(sp, 0, SEEK_CUR);
-    if (off == (off_t)-1) {
+    if (off == -1) {
         krb5_data_free(&data);
         krb5_storage_free(sp);
         return errno;
     }
     end = krb5_storage_seek(sp, 0, SEEK_END);
-    if (end == (off_t)-1) {
+    if (end == -1) {
         krb5_data_free(&data);
         krb5_storage_free(sp);
         return errno;
@@ -986,7 +986,7 @@ kadm5_log_update_ubber(kadm5_server_context *context)
 
     /* We'll leave log_fd offset where it was */
     off = lseek(log_context->log_fd, 0, SEEK_CUR);
-    if (off == (off_t)-1)
+    if (off == -1)
         return errno;
 
     mem_sp = krb5_storage_emem();
@@ -1052,7 +1052,7 @@ out:
     krb5_data_free(&data);
     krb5_storage_free(sp);
     krb5_storage_free(mem_sp);
-    if (lseek(log_context->log_fd, off, SEEK_SET) == (off_t)-1) {
+    if (lseek(log_context->log_fd, off, SEEK_SET) == -1) {
         ret = ret ? ret : errno;
         /*
          * log_fd is not back where it should be, so we can't continue.
@@ -1084,7 +1084,7 @@ kadm5_log_nop(kadm5_server_context *context)
         return 0;
 
     off = lseek(log_context->log_fd, 0, SEEK_CUR);
-    if (off == (off_t)-1)
+    if (off == -1)
         return errno;
 
     // size of nop = 4 (bytes in int) * (3 (preamble) + 1 (postamble) + 2 (lengths) + 2 (offset) + 1 (version) + 1 (time))
@@ -1236,7 +1236,7 @@ kadm5_log_foreach(kadm5_server_context *context,
         return 0;
 
     if (off_last != NULL)
-        *off_last = (off_t)-1;
+        *off_last = -1;
 
     if (((iter_opts & kadm_forward) && (iter_opts & kadm_backward)) ||
         (!(iter_opts & kadm_confirmed) && !(iter_opts & kadm_unconfirmed)))
@@ -1257,8 +1257,8 @@ kadm5_log_foreach(kadm5_server_context *context,
          * at offset 0.
          */
         log_end = krb5_storage_seek(sp, 0, SEEK_END);
-        if (log_end == (off_t)-1 ||
-            krb5_storage_seek(sp, 0, SEEK_SET) == (off_t)-1) {
+        if (log_end == -1 ||
+            krb5_storage_seek(sp, 0, SEEK_SET) == -1) {
             ret = errno;
             krb5_storage_free(sp);
             return ret;
@@ -1276,7 +1276,7 @@ kadm5_log_foreach(kadm5_server_context *context,
 
     if ((iter_opts & kadm_forward) && (iter_opts & kadm_confirmed)) {
         /* Start at the beginning */
-        if (krb5_storage_seek(sp, 0, SEEK_SET) == (off_t)-1) {
+        if (krb5_storage_seek(sp, 0, SEEK_SET) == -1) {
             ret = errno;
             krb5_storage_free(sp);
             return ret;
@@ -1423,7 +1423,7 @@ kadm5_log_foreach(kadm5_server_context *context,
          */
         ret = krb5_storage_truncate(sp, this_entry);
         if (ret == 0 &&
-            krb5_storage_seek(sp, this_entry, SEEK_SET) == (off_t)-1)
+            krb5_storage_seek(sp, this_entry, SEEK_SET) == -1)
             ret = errno;
         krb5_warnx(context->context, "Truncating iprop log at partial or "
                    "corrupt %s entry",
@@ -1454,11 +1454,11 @@ kadm5_log_goto_end(krb5_context context, int fd)
         return NULL;
 
     end = krb5_storage_seek(sp, 0, SEEK_END);
-    if (end == (off_t)-1) {
+    if (end == -1) {
         ret = errno;
         goto fail;
     }
-    if (krb5_storage_seek(sp, 0, SEEK_SET) == (off_t)-1) {
+    if (krb5_storage_seek(sp, 0, SEEK_SET) == -1) {
         ret = errno;
         goto fail;
     }
@@ -1483,11 +1483,11 @@ kadm5_log_goto_end(krb5_context context, int fd)
         ret = krb5_ret_uint64(sp, &off);
         if (ret)
             goto truncate;
-        if (krb5_storage_seek(sp, off, SEEK_SET) == (off_t)-1)
+        if (krb5_storage_seek(sp, off, SEEK_SET) == -1)
             goto fail;
     } else {
         /* Old log */
-        if (krb5_storage_seek(sp, 0, SEEK_END) == (off_t)-1) {
+        if (krb5_storage_seek(sp, 0, SEEK_END) == -1) {
             krb5_warnx(context, "Old iprop log found; truncate it to upgrade");
             return sp;
         }
