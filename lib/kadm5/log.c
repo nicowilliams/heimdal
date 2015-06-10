@@ -437,8 +437,11 @@ kadm5_log_create(kadm5_server_context *context,
     if (ret)
         return ret;
     
+    /*
+     * We ignore errors updating the ubber entry because, after all, the HDB
+     * entry got written successfully above.
+     */
     kadm5_log_update_ubber(context);
-    ret = kadm5_log_end(context);
     return ret;
 }
 
@@ -531,7 +534,6 @@ kadm5_log_delete(kadm5_server_context *context,
         goto out;
 
     kadm5_log_update_ubber(context);
-    ret = kadm5_log_end(context);
 
 out:
     krb5_storage_free(sp);
@@ -629,10 +631,6 @@ kadm5_log_rename(kadm5_server_context *context,
     if (ret)
         goto failed;
     kadm5_log_update_ubber(context);
-    krb5_data_free(&value);
-    krb5_storage_free(sp);
-
-    return kadm5_log_end (context);
 
 failed:
     krb5_data_free(&value);
@@ -757,10 +755,7 @@ kadm5_log_modify(kadm5_server_context *context,
     if (ret)
         goto failed;
 
-    krb5_data_free(&value);
-    krb5_storage_free(sp);
     kadm5_log_update_ubber(context);
-    return kadm5_log_end (context);
 
 failed:
     krb5_data_free(&value);
@@ -1796,6 +1791,9 @@ write_entries(kadm5_server_context *context, krb5_data *entries)
 
 /*
  * truncate the log - i.e. create an empty file with just (nop vno + 2)
+ *
+ * Does not require that the caller have called kadm5_log_init().
+ * Calls kadm5_log_end().
  */
 
 kadm5_ret_t
