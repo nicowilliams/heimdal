@@ -1054,18 +1054,8 @@ out:
     krb5_data_free(&data);
     krb5_storage_free(sp);
     krb5_storage_free(mem_sp);
-    if (lseek(log_context->log_fd, off, SEEK_SET) == -1) {
+    if (lseek(log_context->log_fd, off, SEEK_SET) == -1)
         ret = ret ? ret : errno;
-        /*
-         * log_fd is not back where it should be, so we can't continue.
-         * By closing log_fd and setting it to -1 this exceptional
-         * situation will be noticed elsewhere where log_fd is expected
-         * to not be -1.  This is probably better than panicing.
-         */
-        (void) close(log_context->log_fd);
-        log_context->log_fd = -1;
-        return ret;
-    }
 
     return ret;
 }
@@ -1174,6 +1164,7 @@ recover_replay(kadm5_server_context *context,
     data->ver = ver;
     return 0;
 }
+
 
 kadm5_ret_t
 kadm5_log_recover(kadm5_server_context *context)
@@ -1783,8 +1774,7 @@ write_entries(kadm5_server_context *context, krb5_data *entries)
     if (ret)
         return ret;
 
-    ret = kadm5_log_update_ubber(context);
-    return ret;
+    return kadm5_log_update_ubber(context);
 }
 
 /*
