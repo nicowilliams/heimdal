@@ -75,6 +75,7 @@ HEIMDAL_KAMD5_SERVER_1.0 {
 		kadm5_log_recover;
 		kadm5_log_init;
 		kadm5_log_init_nolock;
+		kadm5_log_init_sharedlock;
 		kadm5_log_nop;
 		kadm5_log_truncate;
 		kadm5_log_modify;

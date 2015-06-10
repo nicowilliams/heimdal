@@ -207,6 +207,12 @@ kadm5_log_init_nolock(kadm5_server_context *context)
 }
 
 kadm5_ret_t
+kadm5_log_init_sharedlock(kadm5_server_context *context)
+{
+    return log_init(context, LOCK_SH);
+}
+
+kadm5_ret_t
 kadm5_log_reinit(kadm5_server_context *context)
 {
     int ret;
