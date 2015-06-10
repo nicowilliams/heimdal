@@ -111,14 +111,15 @@ RCSID("$Id$");
  */
 
 kadm5_ret_t
-kadm5_log_get_version_fd(krb5_context context, int fd, uint32_t *ver)
+kadm5_log_get_version_fd(kadm5_server_context *server_context,
+                         int fd, uint32_t *ver)
 {
     krb5_storage *sp;
 
     if (fd == -1)
         return 0;
 
-    sp = kadm5_log_goto_end(context, fd);
+    sp = kadm5_log_goto_end(server_context, fd);
     if(sp == NULL) {
 	*ver = 0;
 	return 0;
@@ -130,9 +131,10 @@ kadm5_log_get_version_fd(krb5_context context, int fd, uint32_t *ver)
 }
 
 kadm5_ret_t
-kadm5_log_get_version(kadm5_server_context *context, uint32_t *ver)
+kadm5_log_get_version(kadm5_server_context *server_context, uint32_t *ver)
 {
-    return kadm5_log_get_version_fd(context->context, context->log_context.log_fd, ver);
+    return kadm5_log_get_version_fd(server_context,
+                                    server_context->log_context.log_fd, ver);
 }
 
 kadm5_ret_t
@@ -145,17 +147,15 @@ kadm5_log_set_version(kadm5_server_context *context, uint32_t vno)
 }
 
 static kadm5_ret_t
-log_init(kadm5_server_context *context, int lock_mode)
+log_init(kadm5_server_context *server_context, int lock_mode)
 {
     int fd = -1;
     int lock_it = 0;
     kadm5_ret_t ret;
-    kadm5_log_context *log_context = &context->log_context;
+    kadm5_log_context *log_context = &server_context->log_context;
 
-    if (lock_mode == log_context->lock_mode && log_context->log_fd != -1) {
-        log_context->version = 1;
+    if (lock_mode == log_context->lock_mode && log_context->log_fd != -1)
         return 0;
-    }
 
     if (log_context->log_fd != -1) {
         /* Lock or change lock */
@@ -168,7 +168,8 @@ log_init(kadm5_server_context *context, int lock_mode)
         fd = open(log_context->log_file, O_RDWR | O_CREAT, 0600);
         if (fd < 0) {
             ret = errno;
-            krb5_set_error_message(context->context, ret, "kadm5_log_init: open %s",
+            krb5_set_error_message(server_context->context, ret,
+                                   "kadm5_log_init: open %s",
                                    log_context->log_file);
             return ret;
         }
@@ -176,7 +177,8 @@ log_init(kadm5_server_context *context, int lock_mode)
     }
     if (lock_it && flock(fd, lock_mode) < 0) {
 	ret = errno;
-	krb5_set_error_message(context->context, ret, "kadm5_log_init: flock %s",
+	krb5_set_error_message(server_context->context, ret,
+                               "kadm5_log_init: flock %s",
 			       log_context->log_file);
         if (fd != log_context->log_fd)
             close(fd);
@@ -186,7 +188,7 @@ log_init(kadm5_server_context *context, int lock_mode)
     log_context->lock_mode = lock_mode;
     log_context->read_only = (lock_mode != LOCK_EX);
 
-    ret = kadm5_log_get_version_fd(context->context, fd, &log_context->version);
+    ret = kadm5_log_get_version_fd(server_context, fd, &log_context->version);
     if (ret)
 	return ret;
 
@@ -195,30 +197,30 @@ log_init(kadm5_server_context *context, int lock_mode)
 }
 
 kadm5_ret_t
-kadm5_log_init(kadm5_server_context *context)
+kadm5_log_init(kadm5_server_context *server_context)
 {
-    return log_init(context, LOCK_EX);
+    return log_init(server_context, LOCK_EX);
 }
 
 kadm5_ret_t
-kadm5_log_init_nolock(kadm5_server_context *context)
+kadm5_log_init_nolock(kadm5_server_context *server_context)
 {
-    return log_init(context, LOCK_UN);
+    return log_init(server_context, LOCK_UN);
 }
 
 kadm5_ret_t
-kadm5_log_init_sharedlock(kadm5_server_context *context)
+kadm5_log_init_sharedlock(kadm5_server_context *server_context)
 {
-    return log_init(context, LOCK_SH);
+    return log_init(server_context, LOCK_SH);
 }
 
 kadm5_ret_t
-kadm5_log_reinit(kadm5_server_context *context)
+kadm5_log_reinit(kadm5_server_context *server_context)
 {
     int ret;
-    kadm5_log_context *log_context = &context->log_context;
+    kadm5_log_context *log_context = &server_context->log_context;
 
-    ret = log_init(context, LOCK_EX);
+    ret = log_init(server_context, LOCK_EX);
     if (ret)
 	return ret;
     if (log_context->log_fd != -1) {
@@ -236,16 +238,16 @@ kadm5_log_reinit(kadm5_server_context *context)
         }
     }
 
-    ret = kadm5_log_nop(context);
+    ret = kadm5_log_nop(server_context);
     log_context->version = 0;
     return 0;
 }
 
 
 kadm5_ret_t
-kadm5_log_end(kadm5_server_context *context)
+kadm5_log_end(kadm5_server_context *server_context)
 {
-    kadm5_log_context *log_context = &context->log_context;
+    kadm5_log_context *log_context = &server_context->log_context;
     int fd = log_context->log_fd;
 
     if (fd != -1) {
@@ -1190,7 +1192,7 @@ kadm5_log_recover(kadm5_server_context *context)
     if (ret)
         return ret;
 
-    sp = kadm5_log_goto_end(context->context, context->log_context.log_fd);
+    sp = kadm5_log_goto_end(context, context->log_context.log_fd);
     if (sp == NULL)
         return errno ? errno : EIO;
 
@@ -1265,7 +1267,7 @@ kadm5_log_foreach(kadm5_server_context *context,
         }
     } else {
         /* Get the end of the log based on the ubber entry */
-        sp = kadm5_log_goto_end(context->context, fd);
+        sp = kadm5_log_goto_end(context, fd);
         if (sp == NULL)
             return errno;
         log_end = krb5_storage_seek(sp, 0, SEEK_CUR);
@@ -1441,13 +1443,19 @@ kadm5_log_foreach(kadm5_server_context *context,
  */
 
 krb5_storage *
-kadm5_log_goto_end(krb5_context context, int fd)
+kadm5_log_goto_end(kadm5_server_context *server_context, int fd)
 {
     krb5_error_code ret = 0;
     krb5_storage *sp;
     uint32_t ver, op, len;
     int32_t tstamp;
     uint64_t off;
+
+    if (fd == -1) {
+        /* XXX Or maybe return an empty krb5_storage *? */
+        errno = EINVAL;
+        return NULL;
+    }
 
     sp = krb5_storage_from_fd(fd);
     if (sp == NULL)
@@ -1495,19 +1503,26 @@ kadm5_log_goto_end(krb5_context context, int fd)
 
     /* Old log or invalid offset in ubber entry */
     if (krb5_storage_seek(sp, 0, SEEK_END) == -1) {
-        krb5_warnx(context, "Old iprop log found; truncate it to upgrade");
+        krb5_warnx(server_context->context,
+                   "Old iprop log found; truncate it to upgrade");
         return sp;
     }
     return sp;
 
 truncate:
-    /*
-     * XXX In order to recover automatically here (by truncating and
-     * reinitializing the log) we'd need the log_context so we can tell if we
-     * have the file locked with LOCK_EX.  This requires rippling function
-     * prototypes, so we'll leave this for another day.
-     */
-    krb5_warn(context, ret, "Invalid iprop log; truncate to recover");
+    /* If we can, truncate */
+    if (server_context->log_context.lock_mode == LOCK_EX) {
+        ret = kadm5_log_reinit(server_context);
+        if (ret == 0) {
+            krb5_warn(server_context->context, ret,
+                      "Invalid iprop log; truncating to recover");
+            if (krb5_storage_seek(sp, 0, SEEK_END) == -1)
+                return NULL;
+            return sp;
+        }
+    }
+    krb5_warn(server_context->context, ret,
+              "Invalid iprop log; truncate to recover");
 
 fail:
     errno = ret;

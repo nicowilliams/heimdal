@@ -676,7 +676,7 @@ send_diffs (kadm5_server_context *server_context, slave *s, int log_fd,
 	return 0;
 
     flock(log_fd, LOCK_SH);
-    sp = kadm5_log_goto_end(context, log_fd);
+    sp = kadm5_log_goto_end(server_context, log_fd);
     flock(log_fd, LOCK_UN);
     right = krb5_storage_seek(sp, 0, SEEK_CUR);
     for (;;) {
@@ -1056,7 +1056,7 @@ main(int argc, char **argv)
     listen_fd = make_listen_socket (context, port_str);
 
     flock(log_fd, LOCK_SH);
-    kadm5_log_get_version_fd(context, log_fd, &current_version);
+    kadm5_log_get_version_fd(server_context, log_fd, &current_version);
     flock(log_fd, LOCK_UN);
 
     krb5_warnx(context, "ipropd-master started at version: %lu",
@@ -1101,7 +1101,7 @@ main(int argc, char **argv)
 	if (ret == 0) {
 	    old_version = current_version;
 	    flock(log_fd, LOCK_SH);
-	    kadm5_log_get_version_fd(context, log_fd, &current_version);
+	    kadm5_log_get_version_fd(server_context, log_fd, &current_version);
 	    flock(log_fd, LOCK_UN);
 
 	    if (current_version > old_version) {
@@ -1135,7 +1135,7 @@ main(int argc, char **argv)
 	    assert(ret >= 0);
 	    old_version = current_version;
 	    flock(log_fd, LOCK_SH);
-	    kadm5_log_get_version_fd(context, log_fd, &current_version);
+	    kadm5_log_get_version_fd(server_context, log_fd, &current_version);
 	    flock(log_fd, LOCK_UN);
 	    if (current_version > old_version) {
 		krb5_warnx(context,
