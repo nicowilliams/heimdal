@@ -1397,13 +1397,10 @@ kadm5_log_foreach(kadm5_server_context *context,
                 break;
             }
         }
-        if ((iter_opts & kadm_forward) && (iter_opts & kadm_unconfirmed) &&
-            off_last != NULL) {
-            *off_last = krb5_storage_seek(sp, 0, SEEK_CUR);
-        }
         if ((iter_opts & kadm_forward)) {
             off_t o;
 
+            /* Forward past the trailer */
             o = krb5_storage_seek(sp, 8, SEEK_CUR);
             if (o == -1) {
                 ret = errno;
