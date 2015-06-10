@@ -1171,8 +1171,8 @@ recover_replay(kadm5_server_context *context,
 {
     struct replay_cb_data *data = ctx;
 
-    /* Replaying can fail, but depending on the error it's OK */
-    kadm5_log_replay(context, op, ver, len, sp);
+    /* Replaying can fail, but in this context we have to ignore errors */
+    (void) kadm5_log_replay(context, op, ver, len, sp);
     data->count++;
     data->ver = ver;
     return 0;
