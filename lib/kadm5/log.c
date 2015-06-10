@@ -1455,17 +1455,12 @@ kadm5_log_goto_end(krb5_context context, int fd)
     krb5_storage *sp;
     uint32_t ver, op, len;
     int32_t tstamp;
-    uint64_t off, end;
+    uint64_t off;
 
     sp = krb5_storage_from_fd(fd);
     if (sp == NULL)
         return NULL;
 
-    end = krb5_storage_seek(sp, 0, SEEK_END);
-    if (end == -1) {
-        ret = errno;
-        goto fail;
-    }
     if (krb5_storage_seek(sp, 0, SEEK_SET) == -1) {
         ret = errno;
         goto fail;
@@ -1486,19 +1481,30 @@ kadm5_log_goto_end(krb5_context context, int fd)
     ret = krb5_ret_uint32(sp, &len);
     if (ret)
         goto truncate;
+
     if (op == kadm_nop && len == 16) {
+        off_t cur;
+
         /* New style log */
         ret = krb5_ret_uint64(sp, &off);
         if (ret)
             goto truncate;
+        
+        cur = krb5_storage_seek(sp, 0, SEEK_CUR);
+        if (cur == -1)
+            goto fail;
+
         if (krb5_storage_seek(sp, off, SEEK_SET) == -1)
             goto fail;
-    } else {
-        /* Old log */
-        if (krb5_storage_seek(sp, 0, SEEK_END) == -1) {
-            krb5_warnx(context, "Old iprop log found; truncate it to upgrade");
+
+        if (off >= cur)
             return sp;
-        }
+    }
+
+    /* Old log or invalid offset in ubber entry */
+    if (krb5_storage_seek(sp, 0, SEEK_END) == -1) {
+        krb5_warnx(context, "Old iprop log found; truncate it to upgrade");
+        return sp;
     }
     return sp;
 
