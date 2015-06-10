@@ -37,31 +37,32 @@
 RCSID("$Id$");
 
 /*
- * A log record consists of:
+ * A log record consists of a sequence of entries of this form:
  *
  * version number		4 bytes
  * time in seconds		4 bytes
  * operation (enum kadm_ops)	4 bytes
- * n, length of record		4 bytes
- *      data...			n bytes
- * n, length of record		4 bytes
+ * n, length of payload		4 bytes
+ *      payload data...		n bytes
+ * n, length of payload		4 bytes
  * version number		4 bytes
  *
- * The log can be traversed forwards or backwards.  We generally go
- * backwards and assume no writes got truncated, but this assumption is
- * incorrect and we should instead always traverse forwards (from
- * bookmarked positions).
+ * The log can be traversed forwards or backwards.
  *
  * The log always starts with a nop entry.  The first nop entry contains
- * the offset (8 bytes) where the next entry should be written after the
- * last one, and the version number and timestamp of the last entry:
+ * the offset (8 bytes) where the next entry should start after the last
+ * one, and the version number and timestamp of the last entry:
  *
  * offset of next new entry     8 bytes
  * last entry time              4 bytes
  * last entry version number    4 bytes
  *
- * All log entry additions are followed by replaying the additions to
- * perform the actual HDB updates, then by updating of this ubber-entry.
+ * kadm5 write operations are done in this order:
+ *
+ *  - replay unconfirmed iprop log entries
+ *  - write the iprop log entry for the kadm5 update
+ *  - replay the log entry so as to update the HDB
+ *  - update the iprop log ubber entry
  *
  * This is used to make it possible and safe to seek to the end of the
  * log without traversing it forward.  It is also used to replay the
@@ -69,20 +70,26 @@ RCSID("$Id$");
  * transactions always start by first replaying any unconfirmed log
  * entries.
  *
+ * Errors occurring during replay of unconfirmed entries are ignored.
+ * This is because the corresponding HDB update might have completed.
+ * But also because a change to add aliases to a principal can fail
+ * because we don't check for alias conflicts before going ahead with
+ * the write operation.
+ *
  * This is almost a proper two-phase commit: we log, update the DB,
  * confirm the update.  There's no rollback, only rolling forward.
- * Recovery (by rolling forward) is lazy and at the next update, not at
- * the next read.  This means that a rename could fail in between the
- * store and the delete, and recovery might not be possible until the
- * next write operation.
+ * Recovery (by rolling forward) occurs at the next write, not at the
+ * next read.  This means that, e.g., a principal rename could fail in
+ * between the store and the delete, and recovery might not take place
+ * until the next write operation.
  *
  * All entries are written as a single krb5_storage_write(), meaning a
  * single write() if at all possible.  A single write() need not be
  * atomic, but generally when a write() falls completely within a
- * filesystem block (which will always be the case for the ubber entry)
- * then it will be atomic.
+ * filesystem block (which should always be the case for the ubber
+ * entry) then it will be atomic.
  *
- * XXX Make sure we find and truncate away partial log entries.
+ * Partial log entries found during roll-forward are truncated.
  *
  * The log entry format for create is:
  *
