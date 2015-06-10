@@ -314,7 +314,7 @@ receive (krb5_context context,
 	krb5_err (context, 1, ret, "db->close");
 }
 
-static krb5_error_code
+static void
 send_im_here(krb5_context context, int fd,
 	     krb5_auth_context auth_context)
 {
@@ -338,7 +338,7 @@ send_im_here(krb5_context context, int fd,
     if (ret)
 	krb5_err(context, 1, ret, "krb5_write_priv_message");
 
-    return ret;
+    return;
 }
 
 static void
@@ -823,9 +823,7 @@ main(int argc, char **argv)
                 if (ret)
                     connected = FALSE;
 
-		ret = send_im_here(context, master_fd, auth_context);
-                if (ret)
-                    connected = FALSE;
+		send_im_here(context, master_fd, auth_context);
 		break;
 	    case YOU_HAVE_LAST_VERSION:
 		is_up_to_date(context, status_file, server_context);
