@@ -1727,14 +1727,14 @@ load_entries(kadm5_server_context *context, krb5_data *p,
     entries.nentries = nentries;
     entries.entries = p;
 
-    if (entries.bytes == 0)
-        return ENOENT;  /* XXX */
-
     if (entries.bytes > INT_MAX)
         return E2BIG;   /* XXX */
 
     ret = krb5_data_alloc(p, entries.bytes);
     if (ret)
+        return ret;
+
+    if (entries.bytes == 0)
         return ret;
 
     /* Now load */
