@@ -178,7 +178,8 @@ log_init(kadm5_server_context *context, int lock_mode)
 	ret = errno;
 	krb5_set_error_message(context->context, ret, "kadm5_log_init: flock %s",
 			       log_context->log_file);
-	close(fd);
+        if (fd != log_context->log_fd)
+            close(fd);
 	return errno;
     }
 
