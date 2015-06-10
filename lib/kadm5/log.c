@@ -1506,8 +1506,13 @@ kadm5_log_goto_end(krb5_context context, int fd)
     return sp;
 
 truncate:
-    krb5_warn(context, ret, "Invalid iprop log; truncating");
-    krb5_storage_truncate(sp, 0);
+    /*
+     * XXX In order to recover automatically here (by truncating and
+     * reinitializing the log) we'd need the log_context so we can tell if we
+     * have the file locked with LOCK_EX.  This requires rippling function
+     * prototypes, so we'll leave this for another day.
+     */
+    krb5_warn(context, ret, "Invalid iprop log; truncate to recover");
 
 fail:
     errno = ret;
