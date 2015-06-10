@@ -643,9 +643,10 @@ send_are_you_there (krb5_context context, slave *s)
 }
 
 static int
-send_diffs (krb5_context context, slave *s, int log_fd,
+send_diffs (kadm5_server_context *server_context, slave *s, int log_fd,
 	    const char *database, uint32_t current_version)
 {
+    krb5_context context = server_context->context;
     krb5_storage *sp;
     uint32_t ver;
     time_t timestamp;
@@ -738,9 +739,10 @@ send_diffs (krb5_context context, slave *s, int log_fd,
 }
 
 static int
-process_msg (krb5_context context, slave *s, int log_fd,
+process_msg (kadm5_server_context *server_context, slave *s, int log_fd,
 	     const char *database, uint32_t current_version)
 {
+    krb5_context context = server_context->context;
     int ret = 0;
     krb5_data out;
     krb5_storage *sp;
@@ -785,7 +787,7 @@ process_msg (krb5_context context, slave *s, int log_fd,
                        "version we already sent to it");
             s->version = tmp;
 	}
-        ret = send_diffs(context, s, log_fd, database, current_version);
+        ret = send_diffs(server_context, s, log_fd, database, current_version);
 	break;
     case I_AM_HERE :
 	break;
@@ -1110,7 +1112,8 @@ main(int argc, char **argv)
 		for (p = slaves; p != NULL; p = p->next) {
 		    if (p->flags & SLAVE_F_DEAD)
 			continue;
-		    send_diffs (context, p, log_fd, database, current_version);
+		    send_diffs (server_context, p, log_fd, database,
+                                current_version);
 		}
 	    }
 	}
@@ -1142,7 +1145,8 @@ main(int argc, char **argv)
 		for (p = slaves; p != NULL; p = p->next) {
 		    if (p->flags & SLAVE_F_DEAD)
 			continue;
-		    send_diffs (context, p, log_fd, database, current_version);
+		    send_diffs (server_context, p, log_fd, database,
+                                current_version);
 		}
 	    } else {
 		krb5_warnx(context,
@@ -1157,7 +1161,7 @@ main(int argc, char **argv)
 	    if (ret && FD_ISSET(p->fd, &readset)) {
 		--ret;
 		assert(ret >= 0);
-		if(process_msg (context, p, log_fd, database, current_version))
+		if(process_msg (server_context, p, log_fd, database, current_version))
 		    slave_dead(context, p);
 	    } else if (slave_gone_p (p))
 		slave_dead(context, p);
