@@ -30,8 +30,8 @@
 
 /* PKCS#11 provider */
 
-#include "config.h"
-
+#include <config.h>
+#include <roken.h>
 #include <assert.h>
 #ifdef HAVE_DLFCN_H
 #include <dlfcn.h>
@@ -51,7 +51,6 @@
 #error PKCS11 support requires dlfcn.h
 #endif
 
-#include <roken.h>
 #include <heimbase.h>
 
 #include <evp.h>
