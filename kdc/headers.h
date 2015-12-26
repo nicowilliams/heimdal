@@ -39,18 +39,9 @@
 #define __HEADERS_H__
 
 #include <config.h>
-
-#include <limits.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
+#include <roken.h>
 #include <errno.h>
 #include <signal.h>
-#include <stdarg.h>
-#include <unistd.h>
-#ifdef HAVE_SYS_TYPES_H
-#include <sys/types.h>
-#endif
 #ifdef HAVE_FCNTL_H
 #include <fcntl.h>
 #endif

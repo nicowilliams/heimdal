@@ -829,17 +829,6 @@ handle_tcp(krb5_context context,
     }
 }
 
-static void
-handle_islive(int fd)
-{
-    char buf[2];
-    int ret;
-
-    ret = read(fd, buf, 2);
-    if (ret == 0)
-	exit_flag = -1;
-}
-
 krb5_boolean
 realloc_descrs(struct descr **d, unsigned int *ndescr)
 {
@@ -882,21 +871,103 @@ next_min_free(krb5_context context, struct descr **d, unsigned int *ndescr)
     return min_free;
 }
 
+#if defined(WIN32)
+void
+start_kdc(krb5_context context,
+	  krb5_kdc_configuration *config)
+{
+    struct descr *d;
+    unsigned int ndescr;
+    int ret;
+
+    ndescr = init_sockets(context, config, &d);
+    if(ndescr <= 0)
+	krb5_errx(context, 1, "No sockets!");
+    kdc_log(context, config, 0, "KDC started");
+    roken_detach_finish(NULL, daemon_child);
+    while(exit_flag == 0){
+	struct timeval tmout;
+	fd_set fds;
+	int min_free = -1;
+	size_t i;
+
+	FD_ZERO(&fds);
+	for(i = 0; i < ndescr; i++) {
+	    if(!rk_IS_BAD_SOCKET(d[i].s)){
+		if(d[i].type == SOCK_STREAM &&
+		   d[i].timeout && d[i].timeout < time(NULL)) {
+		    kdc_log(context, config, 1,
+			    "TCP-connection from %s expired after %lu bytes",
+			    d[i].addr_string, (unsigned long)d[i].len);
+		    clear_descr(&d[i]);
+		    continue;
+		}
+		FD_SET(d[i].s, &fds);
+	    }
+	}
+
+	tmout.tv_sec = TCP_TIMEOUT;
+	tmout.tv_usec = 0;
+	switch(select(0, &fds, 0, 0, &tmout)){
+	case 0:
+	    break;
+	case -1:
+	    if (errno != EINTR)
+		krb5_warn(context, rk_SOCK_ERRNO, "select");
+	    break;
+	default:
+	    for(i = 0; i < ndescr; i++)
+		if(!rk_IS_BAD_SOCKET(d[i].s) && FD_ISSET(d[i].s, &fds)) {
+	    min_free = next_min_free(context, &d, &ndescr);
+
+	    if(d[i].type == SOCK_DGRAM)
+		handle_udp(context, config, &d[i]);
+	    else if(d[i].type == SOCK_STREAM)
+		handle_tcp(context, config, d, i, min_free);
+		}
+	}
+    }
+    if (0);
+#ifdef SIGXCPU
+    else if(exit_flag == SIGXCPU)
+	kdc_log(context, config, 0, "CPU time limit exceeded");
+#endif
+    else if(exit_flag == SIGINT || exit_flag == SIGTERM)
+	kdc_log(context, config, 0, "Terminated");
+    else
+	kdc_log(context, config, 0, "Unexpected exit reason: %d", exit_flag);
+    free (d);
+}
+#else /* WIN32 */
+static void
+handle_islive(rk_socket_t fd)
+{
+    char buf[2];
+    int ret;
+
+    ret = net_read(fd, buf, 2);
+    if (ret == 0)
+	exit_flag = -1;
+}
+
 static void
 loop(krb5_context context, krb5_kdc_configuration *config,
-     struct descr *d, unsigned int ndescr, int islive)
+     struct descr *d, unsigned int ndescr, rk_socket_t islive)
 {
 
     while (exit_flag == 0) {
 	struct timeval tmout;
 	fd_set fds;
 	int min_free = -1;
-	int max_fd;
 	size_t i;
+#if !defined(WIN32)
+	rk_socket_t max_fd = islive;
+#endif
+	rk_socket_t setsize;
 
 	FD_ZERO(&fds);
 	FD_SET(islive, &fds);
-	max_fd = islive;
+
 	for (i = 0; i < ndescr; i++) {
 	    if (!rk_IS_BAD_SOCKET(d[i].s)) {
 		if (d[i].type == SOCK_STREAM &&
@@ -907,13 +978,13 @@ loop(krb5_context context, krb5_kdc_configuration *config,
 		    clear_descr(&d[i]);
 		    continue;
 		}
-#ifndef NO_LIMIT_FD_SETSIZE
+#if !defined(NO_LIMIT_FD_SETSIZE) && !defined(WIN32)
 		if (max_fd < d[i].s)
 		    max_fd = d[i].s;
-#ifdef FD_SETSIZE
+# ifdef FD_SETSIZE
 		if (max_fd >= FD_SETSIZE)
 		    krb5_errx(context, 1, "fd too large");
-#endif
+# endif
 #endif
 		FD_SET(d[i].s, &fds);
 	    }
@@ -921,7 +992,12 @@ loop(krb5_context context, krb5_kdc_configuration *config,
 
 	tmout.tv_sec = TCP_TIMEOUT;
 	tmout.tv_usec = 0;
-	switch(select(max_fd + 1, &fds, 0, 0, &tmout)){
+#if defined(WIN32)
+	setsize = 0;
+#else
+	setsize = max_fd + 1;
+#endif
+	switch(select(setsize, &fds, 0, 0, &tmout)){
 	case 0:
 	    break;
 	case -1:
@@ -1175,3 +1251,4 @@ start_kdc(krb5_context context,
 
     free (d);
 }
+#endif

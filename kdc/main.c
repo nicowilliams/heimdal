@@ -47,10 +47,12 @@ sig_atomic_t exit_flag = 0;
 int detach_from_console = -1;
 int daemon_child = -1;
 
+#ifdef SIGCHLD
 static RETSIGTYPE
 sigchld(int sig)
 {
 }
+#endif
 
 static RETSIGTYPE
 sigterm(int sig)
@@ -156,7 +158,9 @@ main(int argc, char **argv)
 #else
     signal(SIGINT, sigterm);
     signal(SIGTERM, sigterm);
+#ifdef SIGCHLD
     signal(SIGCHLD, sigchld);
+#endif
 #ifdef SIGXCPU
     signal(SIGXCPU, sigterm);
 #endif
