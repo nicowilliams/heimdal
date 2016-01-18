@@ -829,6 +829,7 @@ handle_tcp(krb5_context context,
     }
 }
 
+#ifdef HAVE_FORK
 static void
 handle_islive(int fd)
 {
@@ -839,6 +840,7 @@ handle_islive(int fd)
     if (ret == 0)
 	exit_flag = -1;
 }
+#endif
 
 krb5_boolean
 realloc_descrs(struct descr **d, unsigned int *ndescr)
@@ -891,12 +893,14 @@ loop(krb5_context context, krb5_kdc_configuration *config,
 	struct timeval tmout;
 	fd_set fds;
 	int min_free = -1;
-	int max_fd;
+	int max_fd = 0;
 	size_t i;
 
 	FD_ZERO(&fds);
-	FD_SET(islive, &fds);
-	max_fd = islive;
+        if (islive > -1) {
+            FD_SET(islive, &fds);
+            max_fd = islive;
+        }
 	for (i = 0; i < ndescr; i++) {
 	    if (!rk_IS_BAD_SOCKET(d[i].s)) {
 		if (d[i].type == SOCK_STREAM &&
@@ -929,8 +933,10 @@ loop(krb5_context context, krb5_kdc_configuration *config,
 		krb5_warn(context, rk_SOCK_ERRNO, "select");
 	    break;
 	default:
-	    if (FD_ISSET(islive, &fds))
+#ifdef HAVE_FORK
+	    if (islive > -1 && FD_ISSET(islive, &fds))
 		handle_islive(islive);
+#endif
 	    for (i = 0; i < ndescr; i++)
 		if (!rk_IS_BAD_SOCKET(d[i].s) && FD_ISSET(d[i].s, &fds)) {
 		    min_free = next_min_free(context, &d, &ndescr);
@@ -945,8 +951,8 @@ loop(krb5_context context, krb5_kdc_configuration *config,
 
     switch (exit_flag) {
     case -1:
-	kdc_log(context, config, 0, "sub-KDC exiting because Master KDC "
-		"exited.");
+	kdc_log(context, config, 0,
+                "KDC worker process exiting because Master KDC exited.");
 	break;
 #ifdef SIGXCPU
     case SIGXCPU:
@@ -979,6 +985,7 @@ bonjour_kid(krb5_context context, krb5_kdc_configuration *config, int islive)
 }
 #endif
 
+#ifdef HAVE_FORK
 static void
 kill_kids(pid_t *pids, int max_kids, int sig)
 {
@@ -998,21 +1005,22 @@ reap_kid(krb5_context context, krb5_kdc_configuration *config,
     int i;
 
     pid = waitpid(-1, &status, options);
-
     if (pid < 1)
 	return 0;
 
-    for (i=0; i < max_kids; i++)
+    for (i=0; i < max_kids; i++) {
 	if (pids[i] == pid)
 	    break;
+    }
 
-    if (i == max_kids)
+    if (i == max_kids) {
 	/* XXXrcd: this should not happen, have to do something, though */
 	return 0;
+    }
 
     /* XXXrcd: should likely log exit code and the like */
-    kdc_log(context, config, 0, "sub-KDC reaped: %d", pid);
-    pids[i] = 0;
+    kdc_log(context, config, 0, "KDC worker process reaped: %d", pid);
+    pids[i] = (pid_t)-1;
 
     return 1;
 }
@@ -1041,6 +1049,7 @@ select_sleep(int microseconds)
     tv.tv_usec = microseconds % 1000000;
     select(0, NULL, NULL, NULL, &tv);
 }
+#endif
 
 void
 start_kdc(krb5_context context,
@@ -1051,12 +1060,15 @@ start_kdc(krb5_context context,
     struct descr *d;
     unsigned int ndescr;
     pid_t pid;
+#ifdef HAVE_FORK
     pid_t *pids;
     int max_kdcs = config->num_kdc_processes;
     int num_kdcs = 0;
     int i;
     int islive[2];
+#endif
 
+#ifdef HAVE_FORK
 #ifdef _SC_NPROCESSORS_ONLN
     if (max_kdcs == -1)
 	max_kdcs = sysconf(_SC_NPROCESSORS_ONLN);
@@ -1064,10 +1076,6 @@ start_kdc(krb5_context context,
 
     if (max_kdcs == -1)
 	max_kdcs = 1;
-
-    ndescr = init_sockets(context, config, &d);
-    if(ndescr <= 0)
-	krb5_errx(context, 1, "No sockets!");
 
     pids = malloc(max_kdcs * sizeof(*pids));
     if (!pids)
@@ -1083,17 +1091,29 @@ start_kdc(krb5_context context,
     if (socketpair(PF_LOCAL, SOCK_STREAM, 0, islive) == -1)
 	krb5_errx(context, 1, "socketpair");
     socket_set_nonblocking(islive[1], 1);
-
-#ifdef __APPLE__
-    bonjour_kid(context, config, islive[1]);
 #endif
 
-    kdc_log(context, config, 0, "Master KDC started pid=%d", getpid());
+    ndescr = init_sockets(context, config, &d);
+    if(ndescr <= 0)
+	krb5_errx(context, 1, "No sockets!");
+
+#ifdef HAVE_FORK
+
+#ifdef __APPLE__
+    bonjour_kid(context, config, islive[1]); /* fork()s */
+#endif
+
+    kdc_log(context, config, 0, "KDC master process started pid=%d", getpid());
+#else
+    kdc_log(context, config, 0, "KDC started pid=%d", getpid());
+#endif
+
     roken_detach_finish(NULL, daemon_child);
 
     tv1.tv_sec  = 0;
     tv1.tv_usec = 0;
 
+#ifdef HAVE_FORK
     while (exit_flag == 0) {
 
 	/* Slow down the creation of KDCs... */
@@ -1124,6 +1144,8 @@ start_kdc(krb5_context context,
 	    exit(0);
 	case -1:
 	    /* XXXrcd: hmmm, do something useful?? */
+            kdc_log(context, config, 0,
+                    "KDC master process could not fork worker process");
 	    sleep(10);
 	    break;
 	default:
@@ -1131,7 +1153,7 @@ start_kdc(krb5_context context,
 		if (pids[i] == 0)
 		    break;
 	    pids[i] = pid;
-	    kdc_log(context, config, 0, "sub-KDC started: %d", pid);
+	    kdc_log(context, config, 0, "KDC worker process started: %d", pid);
 	    num_kdcs++;
 	    gettimeofday(&tv1, NULL);
 	    break;
@@ -1171,7 +1193,11 @@ start_kdc(krb5_context context,
 	    break;
     }
 
-    kdc_log(context, config, 0, "master KDC exiting", pid);
+    kdc_log(context, config, 0, "KDC master process exiting", pid);
+#else
+    loop(context, config, d, ndescr, -1);
+    kdc_log(context, config, 0, "KDC exiting", pid);
+#endif
 
     free (d);
 }
