@@ -960,9 +960,7 @@ loop(krb5_context context, krb5_kdc_configuration *config,
 	fd_set fds;
 	int min_free = -1;
 	size_t i;
-#if !defined(WIN32)
 	rk_socket_t max_fd = islive;
-#endif
 	rk_socket_t setsize;
 
 	FD_ZERO(&fds);
@@ -978,13 +976,13 @@ loop(krb5_context context, krb5_kdc_configuration *config,
 		    clear_descr(&d[i]);
 		    continue;
 		}
-#if !defined(NO_LIMIT_FD_SETSIZE) && !defined(WIN32)
+#if !defined(NO_LIMIT_FD_SETSIZE)
 		if (max_fd < d[i].s)
 		    max_fd = d[i].s;
-# ifdef FD_SETSIZE
+#ifdef FD_SETSIZE
 		if (max_fd >= FD_SETSIZE)
 		    krb5_errx(context, 1, "fd too large");
-# endif
+#endif
 #endif
 		FD_SET(d[i].s, &fds);
 	    }
@@ -992,11 +990,7 @@ loop(krb5_context context, krb5_kdc_configuration *config,
 
 	tmout.tv_sec = TCP_TIMEOUT;
 	tmout.tv_usec = 0;
-#if defined(WIN32)
-	setsize = 0;
-#else
 	setsize = max_fd + 1;
-#endif
 	switch(select(setsize, &fds, 0, 0, &tmout)){
 	case 0:
 	    break;
