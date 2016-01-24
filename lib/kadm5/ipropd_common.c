@@ -53,6 +53,10 @@ setup_signal(void)
 	sa.sa_handler = sigterm;
 	sigemptyset(&sa.sa_mask);
 
+#ifdef SA_RESTART
+        sa.sa_flags |= SA_RESTART;
+#endif
+
 	sigaction(SIGINT, &sa, NULL);
 	sigaction(SIGTERM, &sa, NULL);
 	sigaction(SIGXCPU, &sa, NULL);
