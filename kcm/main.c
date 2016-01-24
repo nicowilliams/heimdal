@@ -73,6 +73,10 @@ main(int argc, char **argv)
 	sa.sa_handler = sigusr1;
 	sigemptyset(&sa.sa_mask);
 
+#ifdef SA_RESTART
+        sa.sa_flags |= SA_RESTART;
+#endif
+
 	sigaction(SIGUSR1, &sa, NULL);
 
 	sa.sa_handler = sigusr2;
