@@ -544,7 +544,7 @@ kadm5_log_init_nolock(kadm5_server_context *server_context)
 kadm5_ret_t
 kadm5_log_init_sharedlock(kadm5_server_context *server_context)
 {
-    return log_init(server_context, 0, LOCK_SH);
+    return log_init(server_context, 0, LOCK_SH | lock_flags);
 }
 
 /* Reinitialize the log and open it */

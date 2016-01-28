@@ -310,9 +310,9 @@ iprop_dump(struct dump_options *opt, int argc, char **argv)
     if (opt->no_lock_flag)
         ret = kadm5_log_init_nolock(server_context);
     else
-        ret = kadm5_log_init(server_context);
+        ret = kadm5_log_init_sharedlock(server_context);
     if (ret)
-	krb5_err(context, 1, ret, "kadm5_log_init");
+	krb5_err(context, 1, ret, "kadm5_log_init_sharedlock");
 
     ret = kadm5_log_foreach(server_context,
                             kadm_forward | kadm_confirmed,
@@ -380,9 +380,9 @@ last_version(struct last_version_options *opt, int argc, char **argv)
     if (opt->no_lock_flag)
         ret = kadm5_log_init_nolock(server_context);
     else
-        ret = kadm5_log_init(server_context);
+        ret = kadm5_log_init_sharedlock(server_context);
     if (ret)
-	krb5_err (context, 1, ret, "kadm5_log_init");
+	krb5_err (context, 1, ret, "kadm5_log_init_sharedlock");
 
     ret = kadm5_log_get_version (server_context, &version);
     if (ret)
