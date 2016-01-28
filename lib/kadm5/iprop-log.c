@@ -46,11 +46,11 @@ get_kadmin_context(const char *config_file, char *realm)
     kadm5_config_params conf;
     krb5_error_code ret;
     void *kadm_handle;
+    char *file = NULL;
     char **files;
     int aret;
 
     if (config_file == NULL) {
-	char *file;
 	aret = asprintf(&file, "%s/kdc.conf", hdb_db_dir(context));
 	if (aret == -1 || file == NULL)
 	    errx(1, "out of memory");
@@ -58,6 +58,7 @@ get_kadmin_context(const char *config_file, char *realm)
     }
 
     ret = krb5_prepend_config_files_default(config_file, &files);
+    free(file);
     if (ret)
 	krb5_err(context, 1, ret, "getting configuration files");
 
@@ -327,6 +328,10 @@ iprop_dump(struct dump_options *opt, int argc, char **argv)
     ret = kadm5_log_end (server_context);
     if (ret)
 	krb5_warn(context, ret, "kadm5_log_end");
+
+    if (opt->log_file_string != NULL)
+        server_context->log_context.log_file = NULL;
+    kadm5_destroy(server_context);
     return 0;
 }
 
@@ -353,6 +358,9 @@ iprop_truncate(struct truncate_options *opt, int argc, char **argv)
 
     kadm5_log_signal_master(server_context);
 
+    if (opt->log_file_string != NULL)
+        server_context->log_context.log_file = NULL;
+    kadm5_destroy(server_context);
     return 0;
 }
 
@@ -390,6 +398,9 @@ last_version(struct last_version_options *opt, int argc, char **argv)
 
     printf("version: %lu\n", (unsigned long)version);
 
+    if (opt->log_file_string != NULL)
+        server_context->log_context.log_file = NULL;
+    kadm5_destroy(server_context);
     return 0;
 }
 
@@ -403,6 +414,7 @@ signal_master(struct signal_options *opt, int argc, char **argv)
 
     kadm5_log_signal_master(server_context);
 
+    kadm5_destroy(server_context);
     return 0;
 }
 
@@ -475,6 +487,7 @@ iprop_replay(struct replay_options *opt, int argc, char **argv)
     if (ret)
 	krb5_err (context, 1, ret, "db->close");
 
+    kadm5_destroy(server_context);
     return 0;
 }
 
