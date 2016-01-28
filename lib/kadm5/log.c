@@ -110,33 +110,223 @@ RCSID("$Id$");
  * DER-encoded HDB_entry        n-m bytes (new record)
  */
 
+/*
+ * Get the version of the entry starting at the current offset into sp.
+ *
+ * Preserves sp's offset.
+ */
+static kadm5_ret_t
+get_version(krb5_storage *sp, uint32_t *ver, int32_t *tstamp)
+{
+    krb5_error_code ret;
+    off_t off;
+
+    *ver = 0;
+    *tstamp = 0;
+
+    off = krb5_storage_seek(sp, 0, SEEK_CUR);
+    if (off < 0)
+        return errno;
+    ret = krb5_ret_uint32(sp, ver);
+    if (ret == HEIM_ERR_EOF) {
+        krb5_storage_seek(sp, off, SEEK_SET);
+        return HEIM_ERR_EOF;
+    }
+    if (ret)
+        goto log_corrupt;
+    ret = krb5_ret_int32(sp, tstamp);
+    if (ret)
+        goto log_corrupt;
+    /* Restore offset */
+    if (krb5_storage_seek(sp, -8, SEEK_CUR) != off)
+        goto log_corrupt;
+    return 0;
+
+log_corrupt:
+    krb5_storage_seek(sp, off, SEEK_SET);
+    return KADM5_LOG_CORRUPT;
+}
+
+/*
+ * Seek to the start of the preceding entry.
+ *
+ * On error returns -1 and preserves sp's offset.
+ */
+static off_t
+seek_prev(krb5_storage *sp, uint32_t *ver)
+{
+    krb5_error_code ret;
+    uint32_t len;
+    off_t off_len;
+    off_t off, new_off;
+
+    *ver = 0;
+    off = krb5_storage_seek(sp, 0, SEEK_CUR);
+    if (off < 0)
+        return off;
+    if (off == 0)
+        return 0;
+
+    /* Get the previous entry's length and version from its trailer */
+    if (krb5_storage_seek(sp, -8, SEEK_CUR) != off - 8)
+        return -1;
+    ret = krb5_ret_uint32(sp, &len);
+    if (ret)
+        goto log_corrupt;
+
+    /* Check for overflow */
+    off_len = (off_t)len;
+    if (off_len < 0)
+        goto log_corrupt;
+    ret = krb5_ret_uint32(sp, ver);
+    if (ret)
+        goto log_corrupt;
+
+    /* Seek backwards to the entry's start */
+    new_off = krb5_storage_seek(sp, -(24 + off_len), SEEK_CUR);
+    if (new_off != off - (24 + off_len))
+        goto log_corrupt;
+    return new_off;
+
+log_corrupt:
+    krb5_storage_seek(sp, off, SEEK_SET);
+    errno = KADM5_LOG_CORRUPT;
+    return -1;
+}
+
+/*
+ * Seek to the start of the next entry.
+ *
+ * On error returns -1 and preserves sp's offset.
+ */
+static off_t
+seek_next(krb5_storage *sp)
+{
+    krb5_error_code ret;
+    uint32_t len, len2;
+    off_t off, off_len;
+
+    off = krb5_storage_seek(sp, 0, SEEK_CUR);
+    if (off < 0)
+        return off;
+    if (off == 0)
+        return 0;
+
+    if (krb5_storage_seek(sp, 12, SEEK_CUR) != off - 8)
+        return -1;
+    ret = krb5_ret_uint32(sp, &len);
+    if (ret)
+        goto log_corrupt;
+
+    /* Check for overflow */
+    off_len = (off_t)len;
+    if (off_len < 0)
+        goto log_corrupt;
+    if (krb5_storage_seek(sp, len, SEEK_CUR) != off + off_len + 16)
+        return -1;
+    ret = krb5_ret_uint32(sp, &len2);
+    if (ret || len2 != len || off_len < 0)
+        goto log_corrupt;
+    if (krb5_storage_seek(sp, 4, SEEK_CUR) != off + off_len + 24)
+        goto log_corrupt;
+
+    return off + len + 24;
+
+log_corrupt:
+    krb5_storage_seek(sp, off, SEEK_SET);
+    errno = KADM5_LOG_CORRUPT;
+    return -1;
+}
+
+/*
+ * Get the version of the entry ending at the current offset into sp.
+ *
+ * Preserves sp's offset.
+ */
+static kadm5_ret_t
+get_version_prev(krb5_storage *sp, off_t *prev_off,
+                 uint32_t *ver, int32_t *tstamp)
+{
+    krb5_error_code ret;
+    uint32_t ver2;
+    off_t off, tmp;
+
+    if (prev_off == NULL)
+        prev_off = &tmp;
+
+    *prev_off = -1;
+    *ver = 0;
+    *tstamp = 0;
+
+    off = krb5_storage_seek(sp, 0, SEEK_CUR);
+    if (off < 0)
+        return errno;
+    if (off == 0)
+        return HEIM_ERR_EOF;
+
+    *prev_off = seek_prev(sp, ver);
+    if (*prev_off == -1)
+        return KADM5_LOG_CORRUPT;
+
+    ret = get_version(sp, &ver2, tstamp);
+    if (ret || *ver != ver2)
+        goto log_corrupt;
+
+    krb5_storage_seek(sp, off, SEEK_SET);
+    return 0;
+
+log_corrupt:
+    krb5_storage_seek(sp, off, SEEK_SET);
+    return KADM5_LOG_CORRUPT;
+}
+
+/* Get the version of the latest entry in the log */
 kadm5_ret_t
 kadm5_log_get_version_fd(kadm5_server_context *server_context,
-                         int fd, uint32_t *ver)
+                         int fd, int which,
+                         uint32_t *ver, int32_t *tstamp)
 {
+    kadm5_ret_t ret;
     krb5_storage *sp;
+    int32_t tmp;
 
     if (fd == -1)
         return 0;
 
-    sp = kadm5_log_goto_end(server_context, fd);
-    if(sp == NULL) {
-	*ver = 0;
+    if (tstamp == NULL)
+        tstamp = &tmp;
+
+    *ver = 0;
+    *tstamp = 0;
+
+    if (which == -1)
+        sp = kadm5_log_goto_end(server_context, fd);
+    else if (which == 0 || which == 1)
+        sp = kadm5_log_goto_first(server_context, fd);
+    else
+        return ENOTSUP;
+
+    if (sp == NULL)
 	return 0;
-    }
-    krb5_storage_seek(sp, -4, SEEK_CUR);
-    krb5_ret_uint32 (sp, ver);
+
+    if (which == -1 || which == 0)
+        ret = get_version_prev(sp, NULL, ver, tstamp);
+    else
+        ret = get_version(sp, ver, tstamp);
     krb5_storage_free(sp);
-    return 0;
+    return ret;
 }
 
+/* Get the version of the last entry in the log */
 kadm5_ret_t
 kadm5_log_get_version(kadm5_server_context *server_context, uint32_t *ver)
 {
     return kadm5_log_get_version_fd(server_context,
-                                    server_context->log_context.log_fd, ver);
+                                    server_context->log_context.log_fd,
+                                    -1, ver, NULL);
 }
 
+/* Sets the version in the context, but NOT in the log */
 kadm5_ret_t
 kadm5_log_set_version(kadm5_server_context *context, uint32_t vno)
 {
@@ -151,6 +341,7 @@ log_init(kadm5_server_context *server_context, int lock_mode)
 {
     int fd = -1;
     int lock_it = 0;
+    struct stat st;
     kadm5_ret_t ret;
     kadm5_log_context *log_context = &server_context->log_context;
 
@@ -160,7 +351,7 @@ log_init(kadm5_server_context *server_context, int lock_mode)
     if (log_context->log_fd != -1) {
         /* Lock or change lock */
         fd = log_context->log_fd;
-        if (lseek(fd, 0, SEEK_SET) == -1)
+        if (lseek(fd, 0, SEEK_SET) == (off_t)-1)
             return errno;
         lock_it = 1;
     } else if (strcmp(log_context->log_file, "/dev/null") != 0) {
@@ -185,14 +376,26 @@ log_init(kadm5_server_context *server_context, int lock_mode)
 	return errno;
     }
 
+    log_context->log_fd = fd;
     log_context->lock_mode = lock_mode;
     log_context->read_only = (lock_mode != LOCK_EX);
 
-    ret = kadm5_log_get_version_fd(server_context, fd, &log_context->version);
-    if (ret)
+    ret = kadm5_log_get_version_fd(server_context, fd, -1,
+                                   &log_context->version, NULL);
+    if (ret && ret != HEIM_ERR_EOF)
 	return ret;
 
-    log_context->log_fd = fd;
+    if (ret == HEIM_ERR_EOF) {
+        if (fstat(fd, &st) == -1)
+            return errno;
+        if (st.st_size == 0) {
+            /* Write first entry */
+            ret = kadm5_log_nop(server_context);
+            if (ret)
+                return ret;
+        }
+    }
+
     return 0;
 }
 
@@ -244,6 +447,7 @@ kadm5_log_reinit(kadm5_server_context *server_context)
 }
 
 
+/* Close the server_context->log_context. */
 kadm5_ret_t
 kadm5_log_end(kadm5_server_context *server_context)
 {
@@ -1002,7 +1206,7 @@ kadm5_log_update_ubber(kadm5_server_context *context)
     }
 
     /* Skip first entry's version and timestamp */
-    if (krb5_storage_seek(sp, 8, SEEK_SET) == -1) {
+    if (krb5_storage_seek(sp, 8, SEEK_SET) == (off_t)-1) {
         ret = errno;
         goto out;
     }
@@ -1054,7 +1258,7 @@ out:
     krb5_data_free(&data);
     krb5_storage_free(sp);
     krb5_storage_free(mem_sp);
-    if (lseek(log_context->log_fd, off, SEEK_SET) == -1)
+    if (lseek(log_context->log_fd, off, SEEK_SET) == (off_t)-1)
         ret = ret ? ret : errno;
 
     return ret;
@@ -1207,6 +1411,9 @@ out:
 
 /*
  * Call `func' for each log record in the log in `context'
+ *
+ * XXX Change to use new get_version(), get_version_prev(), and
+ * seek_prev() utility functions.
  */
 
 kadm5_ret_t
@@ -1251,7 +1458,7 @@ kadm5_log_foreach(kadm5_server_context *context,
          */
         log_end = krb5_storage_seek(sp, 0, SEEK_END);
         if (log_end == -1 ||
-            krb5_storage_seek(sp, 0, SEEK_SET) == -1) {
+            krb5_storage_seek(sp, 0, SEEK_SET) == (off_t)-1) {
             ret = errno;
             krb5_storage_free(sp);
             return ret;
@@ -1269,7 +1476,7 @@ kadm5_log_foreach(kadm5_server_context *context,
 
     if ((iter_opts & kadm_forward) && (iter_opts & kadm_confirmed)) {
         /* Start at the beginning */
-        if (krb5_storage_seek(sp, 0, SEEK_SET) == -1) {
+        if (krb5_storage_seek(sp, 0, SEEK_SET) == (off_t)-1) {
             ret = errno;
             krb5_storage_free(sp);
             return ret;
@@ -1283,7 +1490,7 @@ kadm5_log_foreach(kadm5_server_context *context,
                                 &log_end, NULL, NULL);
         if (ret)
             return ret;
-        if (krb5_storage_seek(sp, log_end, SEEK_SET) == -1) {
+        if (krb5_storage_seek(sp, log_end, SEEK_SET) == (off_t)-1) {
             ret = errno;
             krb5_storage_free(sp);
             return ret;
@@ -1345,7 +1552,7 @@ kadm5_log_foreach(kadm5_server_context *context,
         }
 
         /* Validate trailer before calling the callback */
-        if (krb5_storage_seek(sp, len, SEEK_CUR) == -1) {
+        if (krb5_storage_seek(sp, len, SEEK_CUR) == (off_t)-1) {
             ret = errno;
             break;
         }
@@ -1362,7 +1569,7 @@ kadm5_log_foreach(kadm5_server_context *context,
         }
 
         /* Rewind to start of payload and call callback if we have one */
-        if (krb5_storage_seek(sp, this_entry + 16, SEEK_SET) == -1) {
+        if (krb5_storage_seek(sp, this_entry + 16, SEEK_SET) == (off_t)-1) {
             ret = errno;
             break;
         }
@@ -1401,7 +1608,7 @@ kadm5_log_foreach(kadm5_server_context *context,
              * Rewind to the start of this entry so kadm5_log_previous()
              * can find the previous one.
              */
-            if (krb5_storage_seek(sp, this_entry, SEEK_SET) == -1) {
+            if (krb5_storage_seek(sp, this_entry, SEEK_SET) == (off_t)-1) {
                 ret = errno;
                 break;
             }
@@ -1416,7 +1623,7 @@ kadm5_log_foreach(kadm5_server_context *context,
          */
         ret = krb5_storage_truncate(sp, this_entry);
         if (ret == 0 &&
-            krb5_storage_seek(sp, this_entry, SEEK_SET) == -1)
+            krb5_storage_seek(sp, this_entry, SEEK_SET) == (off_t)-1)
             ret = errno;
         krb5_warnx(context->context, "Truncating iprop log at partial or "
                    "corrupt %s entry",
@@ -1424,6 +1631,30 @@ kadm5_log_foreach(kadm5_server_context *context,
     }
     krb5_storage_free(sp);
     return ret;
+}
+
+krb5_storage *
+kadm5_log_goto_first(kadm5_server_context *server_context, int fd)
+{
+    krb5_storage *sp;
+
+    if (fd == -1) {
+        errno = EINVAL;
+        return NULL;
+    }
+
+    sp = krb5_storage_from_fd(fd);
+    if (sp == NULL)
+        return NULL;
+
+    if (krb5_storage_seek(sp, 0, SEEK_SET) == (off_t)-1)
+        return NULL;
+
+    if (seek_next(sp) == (off_t)-1) {
+        krb5_storage_free(sp);
+        return NULL;
+    }
+    return sp;
 }
 
 /*
@@ -1443,7 +1674,6 @@ kadm5_log_goto_end(kadm5_server_context *server_context, int fd)
     uint64_t off;
 
     if (fd == -1) {
-        /* XXX Or maybe return an empty krb5_storage *? */
         errno = EINVAL;
         return NULL;
     }
@@ -1540,59 +1770,52 @@ kadm5_log_previous(krb5_context context,
 {
     krb5_error_code ret;
     off_t off, oldoff;
+    uint32_t tmpu;
     int32_t tmp;
 
     oldoff = krb5_storage_seek(sp, 0, SEEK_CUR);
 
-    krb5_storage_seek(sp, -8, SEEK_CUR);
-    ret = krb5_ret_int32 (sp, &tmp);
+    off = krb5_storage_seek(sp, -8, SEEK_CUR);
+    if (off != oldoff - 8)
+        goto log_corrupt;
+    ret = krb5_ret_uint32 (sp, len);
     if (ret)
-	goto end_of_storage;
-    *len = tmp;
-    ret = krb5_ret_int32 (sp, &tmp);
+	goto log_corrupt;
+    ret = krb5_ret_uint32 (sp, ver);
     if (ret)
-	goto end_of_storage;
-    *ver = tmp;
+	goto log_corrupt;
     off = 24 + *len;
-    krb5_storage_seek(sp, -off, SEEK_CUR);
+    off = krb5_storage_seek(sp, -off, SEEK_CUR);
+    if (off + 24 + *len != oldoff)
+        goto log_corrupt;
+    ret = krb5_ret_uint32(sp, &tmpu);
+    if (ret || tmpu != *ver)
+        goto log_corrupt;
     ret = krb5_ret_int32 (sp, &tmp);
     if (ret)
-	goto end_of_storage;
-    if ((uint32_t)tmp != *ver) {
-	krb5_storage_seek(sp, oldoff, SEEK_SET);
-	krb5_set_error_message(context, KADM5_BAD_DB,
-			       "kadm5_log_previous: log entry "
-			       "have consistency failure, version number wrong "
-			       "(tmp %lu ver %lu)",
-			       (unsigned long)tmp,
-			       (unsigned long)*ver);
-	return KADM5_BAD_DB;
-    }
-    ret = krb5_ret_int32 (sp, &tmp);
-    if (ret)
-	goto end_of_storage;
+	goto log_corrupt;
     *timestamp = tmp;
     ret = krb5_ret_int32 (sp, &tmp);
     if (ret)
-	goto end_of_storage;
+	goto log_corrupt;
     *op = tmp;
-    ret = krb5_ret_int32 (sp, &tmp);
+    ret = krb5_ret_uint32 (sp, &tmpu);
     if (ret)
-	goto end_of_storage;
-    if ((uint32_t)tmp != *len) {
-	krb5_storage_seek(sp, oldoff, SEEK_SET);
-	krb5_set_error_message(context, KADM5_BAD_DB,
-			       "kadm5_log_previous: log entry "
-			       "have consistency failure, length wrong");
-	return KADM5_BAD_DB;
-    }
+	goto log_corrupt;
+    if (tmpu != *len)
+        goto log_corrupt;
+
     return 0;
 
- end_of_storage:
+log_corrupt:
     krb5_storage_seek(sp, oldoff, SEEK_SET);
-    krb5_set_error_message(context, ret, "kadm5_log_previous: end of storage "
-			   "reached before end");
-    return ret;
+    krb5_set_error_message(context, KADM5_LOG_CORRUPT,
+                           "kadm5_log_previous: log entry "
+                           "have consistency failure, version number wrong "
+                           "(tmp %lu ver %lu)",
+                           (unsigned long)tmp,
+                           (unsigned long)*ver);
+    return KADM5_LOG_CORRUPT;
 }
 
 /*
@@ -1807,8 +2030,6 @@ kadm5_log_truncate(kadm5_server_context *server_context,
 
     if (from_vno > 0 && from_vno < vno)
         from_vno = vno;
-    if (from_vno > 0)
-        from_vno++;
 
     if (recover) {
         ret = kadm5_log_recover(server_context);
@@ -1816,24 +2037,20 @@ kadm5_log_truncate(kadm5_server_context *server_context,
             return ret;
     }
 
-    ret = load_entries(server_context, &entries, keep, from_vno);
+    ret = load_entries(server_context, &entries, keep,
+                       from_vno ? from_vno + 1 : 0);
     if (ret)
         return ret;
-
-    /*
-     * kadm5_log_nop() will increment the version; we want to keep the
-     * same version for now, as otherwise the check-iprop test will
-     * fail.
-     */
-    ret = kadm5_log_set_version(server_context, --vno);
-    if (ret) {
-        krb5_data_free(&entries);
-	return ret;
-    }
 
     ret = kadm5_log_reinit(server_context);
     if (ret)
 	return ret;
+
+    ret = kadm5_log_set_version(server_context, vno);
+    if (ret) {
+        krb5_data_free(&entries);
+	return ret;
+    }
 
     ret = kadm5_log_nop(server_context);
     if (ret) {
