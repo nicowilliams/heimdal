@@ -354,6 +354,9 @@ write_dump(krb5_context context, krb5_storage *dump,
     if (ret)
         return ret;
 
+    if (krb5_storage_seek(dump, 0, SEEK_SET) != 0)
+        return errno;
+
     /*
      * First we store zero as the HDB version, this will indicate to a
      * later reader that the dumpfile is invalid.  We later write the
