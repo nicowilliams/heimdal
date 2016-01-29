@@ -341,9 +341,15 @@ log_init(kadm5_server_context *server_context, int lock_mode)
 {
     int fd = -1;
     int lock_it = 0;
+    int lock_nb = 0;
     struct stat st;
     kadm5_ret_t ret;
     kadm5_log_context *log_context = &server_context->log_context;
+
+    if (lock_mode & LOCK_NB) {
+        lock_mode &= ~LOCK_NB;
+        lock_nb = LOCK_NB;
+    }
 
     if (lock_mode == log_context->lock_mode && log_context->log_fd != -1)
         return 0;
@@ -366,7 +372,7 @@ log_init(kadm5_server_context *server_context, int lock_mode)
         }
         lock_it = (lock_mode != LOCK_UN);
     }
-    if (lock_it && flock(fd, lock_mode) < 0) {
+    if (lock_it && flock(fd, lock_mode | lock_nb) < 0) {
 	ret = errno;
 	krb5_set_error_message(server_context->context, ret,
                                "kadm5_log_init: flock %s",
@@ -412,9 +418,11 @@ kadm5_log_init_nolock(kadm5_server_context *server_context)
 }
 
 kadm5_ret_t
-kadm5_log_init_sharedlock(kadm5_server_context *server_context)
+kadm5_log_init_sharedlock(kadm5_server_context *server_context, int lock_flags)
 {
-    return log_init(server_context, LOCK_SH);
+    if (lock_flags != 0 && lock_flags != LOCK_NB)
+        return EINVAL;
+    return log_init(server_context, LOCK_SH | lock_flags);
 }
 
 kadm5_ret_t
