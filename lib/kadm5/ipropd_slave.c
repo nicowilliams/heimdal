@@ -446,17 +446,9 @@ reinit_log(krb5_context context,
 {
     krb5_error_code ret;
 
-    ret = kadm5_log_reinit(server_context);
+    ret = kadm5_log_truncate(server_context, 0, 0, 1);
     if (ret)
-        krb5_err(context, 1, ret, "kadm5_log_reinit");
-
-    ret = kadm5_log_set_version(server_context, vno - 1);
-    if (ret)
-        krb5_err(context, 1, ret, "kadm5_log_set_version");
-
-    ret = kadm5_log_nop(server_context);
-    if (ret)
-        krb5_err(context, 1, ret, "kadm5_log_nop");
+        krb5_err(context, 1, ret, "kadm5_log_truncate");
 }
 
 

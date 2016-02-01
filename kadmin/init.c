@@ -161,7 +161,7 @@ init(struct init_options *opt, int argc, char **argv)
     ret = kadm5_log_init(kadm_handle);
     if (ret)
         krb5_err(context, 1, ret, "Failed iprop log initialization");
-    ret = kadm5_log_nop(kadm_handle);
+    ret = kadm5_log_nop(kadm_handle, kadm_nop_plain);
     if (ret)
         krb5_err(context, 1, ret, "Failed iprop log initialization");
     kadm5_log_end(kadm_handle);

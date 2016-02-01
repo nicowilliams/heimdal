@@ -669,7 +669,6 @@ send_diffs(kadm5_server_context *server_context, slave *s, int log_fd,
     krb5_storage *sp;
     uint32_t ver, initial_version, initial_version2;
     int32_t initial_tstamp, initial_tstamp2;
-    time_t timestamp;
     enum kadm_ops op;
     uint32_t len;
     off_t right, left;
@@ -741,7 +740,7 @@ send_diffs(kadm5_server_context *server_context, slave *s, int log_fd,
         return errno;
     }
     for (;;) {
-        ret = kadm5_log_previous(context, sp, &ver, &timestamp, &op, &len);
+        ret = kadm5_log_previous(context, sp, &ver, NULL, &op, &len);
         if (ret)
             krb5_err(context, 1, ret,
                      "send_diffs: failed to find previous entry");
