@@ -875,7 +875,9 @@ kadm5_log_delete(kadm5_server_context *context,
         ret = KADM5_LOG_CORRUPT;
         goto out;
     }
-    if (krb5_storage_seek(sp, off + sizeof(uint32_t), SEEK_SET) == -1) {
+
+    /* Go back and write the payload length */
+    if (krb5_storage_seek(sp, off - sizeof(uint32_t), SEEK_SET) == -1) {
         ret = errno;
         goto out;
     }
@@ -896,6 +898,14 @@ kadm5_log_delete(kadm5_server_context *context,
     if (ret)
 	goto out;
 
+    /*
+     * Lastly, kadm5_log_replay_delete() needs sp's offset to be at the
+     * record's payload.
+     */
+    if (krb5_storage_seek(sp, off, SEEK_SET) == -1) {
+        ret = errno;
+        goto out;
+    }
     ret = kadm5_log_replay_delete(context, context->log_context.version,
                                   end_off - off, sp);
     if (ret)
