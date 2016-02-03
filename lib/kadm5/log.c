@@ -2260,18 +2260,6 @@ kadm5_log_truncate(kadm5_server_context *server_context,
         return kadm5_log_truncate(server_context, 0, 0, 0);
     }
 
-}
-
-static kadm5_ret_t
-check_nentries(kadm5_server_context *server_context, uint32_t ver,
-               time_t timestamp, enum kadm_ops op, uint32_t len,
-               krb5_storage *sp, void *ctx)
-{
-    uint32_t *maxp = ctx;
-
-    krb5_storage_seek(sp, len, SEEK_CUR);
-    if ((*maxp)-- == 0)
-        return -1;
     return 0;
 }
 
@@ -2280,7 +2268,7 @@ truncate_if_needed(kadm5_server_context *context)
 {
     kadm5_log_context *log_context = &context->log_context;
     off_t curr, end, max_sz;
-    uint32_t max_nentries;
+    uint32_t ver1, verN, max_nentries;
     kadm5_ret_t ret = 0;
 
     if (log_context->log_fd == -1)
@@ -2306,15 +2294,18 @@ truncate_if_needed(kadm5_server_context *context)
          * when kadm5_log_foreach() returns if we have at least
          * max_nentries entries.
          */
-        ret = kadm5_log_foreach(context, kadm_forward | kadm_unconfirmed,
-                                NULL, check_nentries, &max_nentries);
-        if (ret)
-            return ret;
-    } else {
-        max_nentries = 1;
+        (void) kadm5_log_get_version_fd(context, log_context->log_fd, 1,
+                                        &ver1, NULL);
+        (void) kadm5_log_get_version_fd(context, log_context->log_fd, -1,
+                                        &verN, NULL);
+        if (verN < ver1)
+            verN = ver1;
+        if (ver1 == 0 || verN == 0)
+            max_nentries = UINT_MAX;
     }
 
-    if ((max_sz > 0 && end > max_sz) || max_nentries == 0)
+    if ((max_sz > 0 && end > max_sz) ||
+        (max_nentries > 0 && verN - ver1 > max_nentries))
         ret = kadm5_log_truncate(context, get_keep_nentries(context->context),
                                  0, 1);
     return ret;
