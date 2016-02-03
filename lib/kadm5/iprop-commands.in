@@ -136,6 +136,13 @@ command = {
 		type = "string"
 		help = "realm"
 	}
+	option = {
+		long = "log-file"
+		short = "f"
+		type = "string"
+		help = "iprop log file"
+		argument = "file"
+	}
 	function = "iprop_replay"
 	help = "Replay the log on the database."
 	max_args = "0"

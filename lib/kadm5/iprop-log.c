@@ -475,6 +475,11 @@ iprop_replay(struct replay_options *opt, int argc, char **argv)
     server_context = get_kadmin_context(opt->config_file_string,
 					opt->realm_string);
 
+    if (opt->log_file_string != NULL) {
+        free(server_context->log_context.log_file);
+        server_context->log_context.log_file = opt->log_file_string;
+    }
+
     ret = server_context->db->hdb_open(context,
 				       server_context->db,
 				       O_RDWR | O_CREAT, 0600);
@@ -497,6 +502,8 @@ iprop_replay(struct replay_options *opt, int argc, char **argv)
     if (ret)
 	krb5_err (context, 1, ret, "db->close");
 
+    if (opt->log_file_string != NULL)
+        server_context->log_context.log_file = NULL;
     kadm5_destroy(server_context);
     return 0;
 }
