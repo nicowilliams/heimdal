@@ -122,7 +122,9 @@ RCSID("$Id$");
 /*
  * Read the header of the entry starting at the current offset into sp.
  *
- * Preserves sp's offset on success and failure where possible.
+ * Preserves sp's offset on success if `rewind', else skips the header.
+ *
+ * Preserves sp's offset on failure where possible.
  */
 static kadm5_ret_t
 get_header(krb5_storage *sp, int rewind, uint32_t *verp, int32_t *tstampp,
