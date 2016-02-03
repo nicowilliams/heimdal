@@ -177,16 +177,108 @@ ihave(krb5_context context, krb5_auth_context auth_context,
 }
 
 static int
+append_to_log_file(krb5_context context,
+                   kadm5_server_context *server_context,
+                   krb5_storage *sp, off_t start, ssize_t slen)
+{
+    size_t len;
+    ssize_t sret;
+    off_t log_off;
+    int ret, ret2;
+    void *buf;
+
+    if (slen == 0)
+        return 0;
+    if (slen < 0)
+        return EINVAL;
+    len = slen;
+    if (len != slen)
+        return EOVERFLOW;
+
+    buf = malloc(len);
+    if (buf == NULL && len != 0) {
+        krb5_warn(context, errno, "malloc: no memory");
+        return ENOMEM;
+    }
+
+    if (krb5_storage_seek(sp, start, SEEK_SET) != start)
+        krb5_errx(context, 1, "krb5_storage_seek() failed"); /* can't happen */
+    sret = krb5_storage_read(sp, buf, len);
+    if (sret < 0)
+        return errno;
+    if (len != (size_t)sret) {
+        /* Can't happen */
+        krb5_errx(context, 1, "short krb5_storage_read() from memory buffer");
+    }
+    log_off = lseek(server_context->log_context.log_fd, 0, SEEK_CUR);
+    sret = net_write(server_context->log_context.log_fd, buf, len);
+    free(buf);
+    if (sret != slen)
+        ret = errno;
+    else
+        ret = fsync(server_context->log_context.log_fd);
+    if (ret == 0)
+        return 0;
+
+    /*
+     * Attempt to recover from this.  First, truncate the log file
+     * and reset the fd offset.  Failure to do this -> unlink the
+     * log file and re-create it.
+     */
+    if (ftruncate(server_context->log_context.log_fd, log_off) == -1 ||
+        lseek(server_context->log_context.log_fd, log_off, SEEK_SET) == -1) {
+        (void) kadm5_log_end(server_context);
+        if (unlink(server_context->log_context.log_file) == -1) {
+            krb5_err(context, ret, errno,
+                     "Failed to recover from failure to write log "
+                     "entries from master to disk");
+        }
+        ret2 = kadm5_log_init(server_context);
+        if (ret2) {
+            krb5_err(context, ret, ret2,
+                     "Failed to initialize log to recover from "
+                     "failure to write log entries from master to disk");
+        }
+    }
+    if (ret == ENOSPC || ret == EDQUOT || ret == EFBIG) {
+        /* Unlink the file in these cases. */
+        krb5_warn(context, ret,
+                  "Failed to write log entries from master to disk");
+        (void) kadm5_log_end(server_context);
+        if (unlink(server_context->log_context.log_file) == -1) {
+            krb5_err(context, ret, errno,
+                     "Failed to recover from failure to write log "
+                     "entries from master to disk");
+        }
+        ret2 = kadm5_log_init(server_context);
+        if (ret2) {
+            krb5_err(context, ret, ret2,
+                     "Failed to initialize log to recover from "
+                     "failure to write log entries from master to disk");
+        }
+        /*
+         * The caller should keep track of the number of consecutive
+         * failures and sleep a while if two or more failures occur
+         * back to back.
+         */
+        return ret;
+    }
+    /*
+     * All other errors we treat as fatal here.  This includes EIO,
+     * EPIPE (sorry, can't log to pipes nor sockets).
+     */
+    krb5_err(context, ret, ret,
+             "Failed to write log entries from master to disk");
+}
+
+static int
 receive_loop(krb5_context context,
              krb5_storage *sp,
              kadm5_server_context *server_context)
 {
     int ret;
     off_t left, right, off;
-    size_t mlen;
-    void *buf;
-    int32_t len, vers, vers2;
-    ssize_t sret, smlen;
+    int32_t len, vers;
 
     /*
      * Seek to the first entry in the message from the master that is
@@ -195,6 +287,14 @@ receive_loop(krb5_context context,
     do {
         int32_t timestamp, tmp;
 
+        /*
+         * TODO We could do more to validate the entries from the master
+         * here.  And we could use/reuse more kadm5_log_*() code here.
+         *
+         * Alternatively we should trust that the master sent us exactly
+         * what we needed and just write this to the log file and let
+         * kadm5_log_recover() do the rest.
+         */
         if (krb5_ret_int32(sp, &vers) != 0 ||
             krb5_ret_int32(sp, &timestamp) != 0 ||
             krb5_ret_int32(sp, &tmp) != 0 ||
@@ -233,156 +333,22 @@ receive_loop(krb5_context context,
         return EINVAL;
     }
 
-    mlen = (size_t)(right - left);
-    smlen = right - left;
-    buf = malloc(mlen);
-    if (buf == NULL && mlen != 0) {
-        krb5_warn(context, errno, "malloc: no memory");
-        return ENOMEM;
-    }
-
     /*
      * ...and then write them out to the on-disk log.
      */
-    /* NOTE: We haven't validated the entries yet */
-    if (krb5_storage_seek(sp, left, SEEK_SET) != left)
-        krb5_errx(context, 1, "krb5_storage_seek() failed");
-    sret = krb5_storage_read(sp, buf, mlen);
-    if (sret < 0)
-        return errno;
-    if (mlen != (size_t)sret)
-        krb5_errx(context, 1, "short krb5_storage_read() from memory buffer");
-    sret = write(server_context->log_context.log_fd, buf, mlen);
-    if (sret != smlen) {
-        /* This is probably ENOSPC.  We can't recover. */
-        krb5_err(context, 1, errno, "Failed to write log to disk");
-    }
-    ret = fsync(server_context->log_context.log_fd);
-    if (ret) {
-        /* This is also probably ENOSPC.  We can't recover. */
-        krb5_err(context, 1, errno, "Failed to sync log to disk");
-    }
-    free(buf);
+
+    ret = append_to_log_file(context, server_context, sp, left, right - left);
+    if (ret)
+        return ret;
 
     /*
-     * Go back to the startpoint and commit the entries to the HDB.
+     * Replay the new entries.
      */
-    krb5_storage_seek(sp, left, SEEK_SET);
-
-    for (;;) {
-        int32_t len2, timestamp, tmp;
-        off_t cur, cur2;
-        enum kadm_ops op;
-
-        if (krb5_ret_int32(sp, &vers) != 0)
-            break;
-        ret = krb5_ret_int32(sp, &timestamp);
-        if (ret) {
-            krb5_warnx(context, "entry %ld: too short", (long)vers);
-            return EINVAL;
-        }
-        ret = krb5_ret_int32(sp, &tmp);
-        if (ret) {
-            krb5_warnx(context, "entry %ld: too short", (long)vers);
-            return EINVAL;
-        }
-        op = tmp;
-        ret = krb5_ret_int32(sp, &len);
-        if (ret) {
-            krb5_warnx(context, "entry %ld: too short", (long)vers);
-            return EINVAL;
-        }
-        if (len < 0) {
-            krb5_warnx(context, "entry %ld: negative length (%ld); "
-                       "master is confused", (long)vers, (long)len);
-            return EINVAL;
-        }
-        cur = krb5_storage_seek(sp, 0, SEEK_CUR);
-
-        krb5_warnx(context, "replaying entry %d", (int)vers);
-
-        /*
-         * kadm5_log_replay() returns errors from among others, the HDB
-         * layer, which can return errors from the actual DBs, some of
-         * which return -1 and set errno, and some of which return
-         * system error codes.
-         */
-        ret = kadm5_log_replay(server_context,
-                               op, vers, len, sp);
-        if (ret == -1 && errno != 0)
-            ret = errno;
-        if (ret) {
-            const char *s = krb5_get_error_message(server_context->context, ret);
-
-            /*
-             * XXX We don't really know here whether the error is
-             * recoverable or not.  Some HDB errors might be safe to
-             * ignore, and others will not be (e.g., any resulting from
-             * ENOSPC), but we can't tell which is which, particularly
-             * as errors from the databases are not mapped to HDB_ERR_*.
-             *
-             * We do our best to die if the error is not recoverable.
-             */
-            switch (ret) {
-#ifdef EDQUOT
-            case EDQUOT:
-#endif
-            case ENOSPC:
-            case EPIPE:
-            case EINTR:
-            case EFBIG:
-            case EIO:
-                krb5_err(context, 1, ret, "kadm5_log_replay: %ld. Fatal write "
-                         "error: %s (%d)", (long)vers,
-                         s ? s : "unknown error", ret);
-            }
-
-            krb5_warnx(context,
-                       "kadm5_log_replay: %ld. Replay failed. "
-                       "Database out of sync?: %s (%d)",
-                       (long)vers, s ? s : "unknown error", ret);
-            krb5_free_error_message(context, s);
-        }
-
-        {
-            /*
-             * Make sure that kadm5_log_replay() read the whole entry
-             * from sp and left the sp offset at the start of the
-             * trailer.
-             */
-            cur2 = krb5_storage_seek(sp, 0, SEEK_CUR);
-            if (cur + len != cur2)
-                krb5_errx(context, 1,
-                          "kadm5_log_reply version: %ld didn't read the whole entry",
-                          (long)vers);
-        }
-
-        if (krb5_ret_int32(sp, &len2) != 0) {
-            krb5_warnx(context, "entry %ld: postamble too short; "
-                       "master is confused", (long)vers);
-            return EINVAL;
-        }
-        if (krb5_ret_int32(sp, &vers2) != 0) {
-            krb5_warnx(context, "entry %ld: postamble too short; "
-                       "master is confused", (long)vers);
-            return EINVAL;
-        }
-        if (len != len2) {
-            krb5_warnx(context, "entry %ld: len != len2; master is "
-                       "confused", (long)vers);
-            return EINVAL;
-        }
-        if (vers != vers2) {
-            krb5_warnx(context, "entry %ld: vers != vers2; master is "
-                       "confused", (long)vers);
-            return EINVAL;
-        }
-
-        /*
-         * Update version after each replay.
-         */
-        server_context->log_context.version = vers;
-        kadm5_log_update_ubber(server_context);
+    ret = kadm5_log_recover(server_context);
+    if (ret) {
+        (void) kadm5_log_end(server_context);
+        (void) kadm5_log_end(server_context);
+        return ret;
     }
 
     return 0;
