@@ -1887,7 +1887,8 @@ kadm5_log_goto_end(kadm5_server_context *server_context, int fd)
 {
     krb5_error_code ret = 0;
     krb5_storage *sp;
-    uint32_t ver, op, len;
+    enum kadm_ops op;
+    uint32_t ver, len;
     int32_t tstamp;
     uint64_t off;
 
@@ -1904,22 +1905,15 @@ kadm5_log_goto_end(kadm5_server_context *server_context, int fd)
         ret = errno;
         goto fail;
     }
-    ret = krb5_ret_uint32(sp, &ver);
+    ret = get_header(sp, 0, &ver, &tstamp, &op, &len);
     if (ret == HEIM_ERR_EOF) {
         krb5_storage_seek(sp, 0, SEEK_SET);
         return sp;
     }
+    if (ret == KADM5_LOG_CORRUPT)
+        goto truncate;
     if (ret)
         goto fail;
-    ret = krb5_ret_int32(sp, &tstamp);
-    if (ret)
-        goto truncate;
-    ret = krb5_ret_uint32(sp, &op);
-    if (ret)
-        goto truncate;
-    ret = krb5_ret_uint32(sp, &len);
-    if (ret)
-        goto truncate;
 
     if (op == kadm_nop && len == LOG_UBBER_SZ) {
         off_t cur;
