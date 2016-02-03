@@ -86,6 +86,10 @@
 .Fl Fl no-lock
 .Xc
 .Oc
+.Oo Fl R \*(Ba Xo
+.Fl Fl reverse
+.Xc
+.Oc
 .Op Fl h | Fl Fl help
 .Pp
 .Nm iprop-log replay
@@ -184,11 +188,18 @@ realm
 .Fl n Ar string ,
 .Fl Fl no-lock
 .Xc
+.It Xo
+.Fl R Ar string ,
+.Fl Fl reverse
+.Xc
 .El
 .Pp
 Print out all entries in the log to standard output.  If the
 .Fl n
-option is used then don't lock the iprop log file.
+option is used then don't lock the iprop log file.  If the
+.Fl R
+option is used, then print the entries in reverse order
+(this can be useful when the log is very large).
 .It replay
 .Bl -tag -width Ds
 .It Fl Fl start-version= Ns Ar version-number
