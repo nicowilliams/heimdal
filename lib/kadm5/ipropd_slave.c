@@ -883,6 +883,12 @@ main(int argc, char **argv)
                 connected = FALSE;
                 continue;
             }
+
+            ret = kadm5_log_init(server_context);
+            if (ret) {
+                krb5_err(context, 1, ret, "kadm5_log_init while handling a "
+                         "message from the master");
+            }
             switch (tmp) {
             case FOR_YOU :
                 ret2 = receive(context, sp, server_context);
