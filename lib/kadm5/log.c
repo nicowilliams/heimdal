@@ -579,16 +579,18 @@ kadm5_ret_t
 kadm5_log_end(kadm5_server_context *server_context)
 {
     kadm5_log_context *log_context = &server_context->log_context;
+    kadm5_ret_t ret = 0;
     int fd = log_context->log_fd;
 
     if (fd != -1) {
         if (log_context->lock_mode != LOCK_UN)
             flock(fd, LOCK_UN);
-        close(fd);
+        if (close(fd) == -1)
+            ret = errno;
     }
     log_context->log_fd = -1;
     log_context->lock_mode = LOCK_UN;
-    return 0;
+    return ret;
 }
 
 /*
