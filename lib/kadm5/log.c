@@ -506,6 +506,7 @@ log_init(kadm5_server_context *server_context, uint32_t vno, int lock_mode)
             if (ret)
                 return ret;
         }
+        return 0;
     }
 
     return truncate_if_needed(server_context);
