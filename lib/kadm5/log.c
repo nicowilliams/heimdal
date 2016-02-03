@@ -90,7 +90,12 @@ RCSID("$Id$");
  *
  * This is "almost" a two-phase commit because transient failures during
  * two-phase commit can result in transactions being successfully rolled
- * forward after having failed in the first place.  Also, failed
+ * forward (or applied to slaves but not the master) after having failed
+ * in the first place.  For example, if the HDB store gets ENOSPC but
+ * the log doesn't (e.g., they are on different filesystems, or there
+ * was room for the log entry but not the HDB store), then a transaction
+ * can appear in the log and thus propagate to slaves where it may
+ * successfully apply yet never be applied on the master.  Also, failed
  * transactions will appear in the log, thus the log is not a faithful
  * representation of what transpired.  In the future we may add new
  * kadm_ops by which to mark transactions' play/replay status.
