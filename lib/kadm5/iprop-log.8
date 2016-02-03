@@ -38,7 +38,7 @@
 .Os Heimdal
 .Sh NAME
 .Nm iprop-log
-.Nd maintain the iprop log file
+.Nd examine and maintain the iprop log file
 .Sh SYNOPSIS
 .Nm
 .Op Fl Fl version
@@ -160,9 +160,8 @@ realm
 .It Fl Fl no-recover
 .El
 .Pp
-Truncates the log. Sets the new logs version number for the to the
-last entry of the old log.  If the log is truncted by emptying the
-file, the log will start over at the first version (0).
+Truncates the log. Sets the new log's version number for the to the
+last entry of the old log.
 .Pp
 If
 .Fl Fl keep-entries
@@ -238,7 +237,7 @@ configuration file
 realm
 .El
 .Pp
-signals the ipropd-master daemon to send updates to slaves.  Normally
+Signals the ipropd-master daemon to send updates to slaves.  Normally
 kadmin does this every time it writes to the database, so this should
 rarely be needed.
 .El
