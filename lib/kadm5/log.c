@@ -2199,7 +2199,6 @@ write_entries(kadm5_server_context *context, krb5_data *entries)
  * truncate the log - i.e. create an empty file with just (nop vno + 2)
  *
  * Does not require that the caller have called kadm5_log_init().
- * Calls kadm5_log_end().
  */
 
 kadm5_ret_t
@@ -2260,12 +2259,6 @@ kadm5_log_truncate(kadm5_server_context *server_context,
         krb5_warn(server_context->context, ret, "Unable to keep entries");
         return kadm5_log_truncate(server_context, 0, 0, 0);
     }
-
-    ret = kadm5_log_end(server_context);
-    if (ret)
-	return ret;
-
-    return 0;
 
 }
 
