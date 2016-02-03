@@ -55,6 +55,12 @@ command = {
 		help = "don't lock iprop log"
 	}
 	option = {
+		long = "reverse"
+		short = "R"
+		type = "flag"
+		help = "dump the log in reverse order"
+	}
+	option = {
 		long = "realm"
 		short = "r"
 		type = "string"

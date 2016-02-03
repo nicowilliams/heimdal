@@ -1671,7 +1671,7 @@ out:
 kadm5_ret_t
 kadm5_log_foreach(kadm5_server_context *context,
                   enum kadm_iter_opts iter_opts,
-                  off_t *off_last,
+                  off_t *off_lastp,
 		  kadm5_ret_t (*func)(kadm5_server_context *server_context,
                                       uint32_t ver, time_t timestamp,
                                       enum kadm_ops op, uint32_t len,
@@ -1681,14 +1681,16 @@ kadm5_log_foreach(kadm5_server_context *context,
     kadm5_ret_t ret = 0;
     int fd = context->log_context.log_fd;
     krb5_storage *sp;
+    off_t off_last;
     off_t this_entry = 0;
     off_t log_end = 0;
 
     if (strcmp(context->log_context.log_file, "/dev/null") == 0)
         return 0;
 
-    if (off_last != NULL)
-        *off_last = -1;
+    if (off_lastp == NULL)
+        off_lastp = &off_last;
+    *off_lastp = -1;
 
     if (((iter_opts & kadm_forward) && (iter_opts & kadm_backward)) ||
         (!(iter_opts & kadm_confirmed) && !(iter_opts & kadm_unconfirmed)))
@@ -1719,8 +1721,7 @@ kadm5_log_foreach(kadm5_server_context *context,
         log_end = krb5_storage_seek(sp, 0, SEEK_CUR);
     }
 
-    if (off_last != NULL)
-        *off_last = log_end;
+    *off_lastp = log_end;
 
     if ((iter_opts & kadm_forward) && (iter_opts & kadm_confirmed)) {
         /* Start at the beginning */
@@ -1730,11 +1731,6 @@ kadm5_log_foreach(kadm5_server_context *context,
             return ret;
         }
     } else if ((iter_opts & kadm_backward) && (iter_opts & kadm_unconfirmed)) {
-        /*
-         * XXX This codepath is not used, therefore not tested.  Kill
-         * it?  Or make iprop-log's dump support backward scanning?
-         * That might be useful for very large logs.
-         */
         /*
          * We're at the confirmed end but need to be at the unconfirmed
          * end.  Skip forward to the real end, re-entering to do it.
@@ -1759,7 +1755,9 @@ kadm5_log_foreach(kadm5_server_context *context,
         if ((iter_opts & kadm_backward)) {
             off_t o;
 
-            if (krb5_storage_seek(sp, 0, SEEK_CUR) == 0)
+            o = krb5_storage_seek(sp, 0, SEEK_CUR);
+            if (o == 0 ||
+                ((iter_opts & kadm_unconfirmed) && o <= *off_lastp))
                 break;
             ret = kadm5_log_previous(context->context, sp, &ver, &timestamp, &op, &len);
             if (ret)
@@ -1851,8 +1849,8 @@ kadm5_log_foreach(kadm5_server_context *context,
                 ret = errno;
                 break;
             }
-            if (off_last != NULL && o > log_end)
-                *off_last = o;
+            if (o > log_end)
+                *off_lastp = o;
         } else if ((iter_opts & kadm_backward)) {
             /*
              * Rewind to the start of this entry so kadm5_log_previous()

@@ -296,6 +296,10 @@ iprop_dump(struct dump_options *opt, int argc, char **argv)
 {
     kadm5_server_context *server_context;
     krb5_error_code ret;
+    enum kadm_iter_opts iter_opts_1st = 0;
+    enum kadm_iter_opts iter_opts_2nd = 0;
+    char *desc_1st = "";
+    char *desc_2nd = "";
 
     server_context = get_kadmin_context(opt->config_file_string,
 					opt->realm_string);
@@ -305,6 +309,16 @@ iprop_dump(struct dump_options *opt, int argc, char **argv)
         server_context->log_context.log_file = strdup(opt->log_file_string);
         if (server_context->log_context.log_file == NULL)
             krb5_err(context, 1, errno, "strdup");
+    }
+
+    if (opt->reverse_flag) {
+        iter_opts_1st = kadm_backward | kadm_unconfirmed;
+        iter_opts_2nd = kadm_backward | kadm_confirmed;
+        desc_1st = "unconfirmed ";
+    } else {
+        iter_opts_1st = kadm_forward | kadm_confirmed;
+        iter_opts_2nd = kadm_forward | kadm_unconfirmed;
+        desc_2nd = "unconfirmed";
     }
 
     if (opt->no_lock_flag) {
@@ -322,16 +336,15 @@ iprop_dump(struct dump_options *opt, int argc, char **argv)
             krb5_err(context, 1, ret, "kadm5_log_init_sharedlock");
     }
 
-    ret = kadm5_log_foreach(server_context,
-                            kadm_forward | kadm_confirmed,
-                            NULL, print_entry, "");
+    ret = kadm5_log_foreach(server_context, iter_opts_1st,
+                            NULL, print_entry, desc_1st);
     if (ret)
 	krb5_warn(context, ret, "kadm5_log_foreach");
 
-    /* We're not interested in errors while traversing unconfirmed records */
-    (void) kadm5_log_foreach(server_context,
-                             kadm_forward | kadm_unconfirmed,
-                             NULL, print_entry, "unconfirmed ");
+    ret = kadm5_log_foreach(server_context, iter_opts_2nd,
+                            NULL, print_entry, desc_2nd);
+    if (ret)
+	krb5_warn(context, ret, "kadm5_log_foreach");
 
     ret = kadm5_log_end (server_context);
     if (ret)
