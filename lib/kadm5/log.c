@@ -2008,9 +2008,6 @@ kadm5_log_previous(krb5_context context,
     if (ver2 != *verp || len2 != *lenp)
         goto log_corrupt;
 
-    if (krb5_storage_seek(sp, LOG_HEADER_SZ, SEEK_CUR) == -1)
-        goto log_corrupt;
-
     return 0;
 
 log_corrupt:
