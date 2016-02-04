@@ -1087,6 +1087,7 @@ main(int argc, char **argv)
     char **files;
     int aret;
     int optidx = 0;
+    int restarter_fd = -1;
 
     setprogname(argv[0]);
 
@@ -1177,6 +1178,7 @@ main(int argc, char **argv)
 	       (unsigned long)current_version);
 
     roken_detach_finish(NULL, daemon_child);
+    restarter_fd = restarter(context);
 
     while (exit_flag == 0){
 	slave *p;
@@ -1186,7 +1188,8 @@ main(int argc, char **argv)
 	uint32_t vers;
 
 #ifndef NO_LIMIT_FD_SETSIZE
-	if (signal_fd >= FD_SETSIZE || listen_fd >= FD_SETSIZE)
+	if (signal_fd >= FD_SETSIZE || listen_fd >= FD_SETSIZE ||
+            restarter_fd >= FD_SETSIZE)
 	    krb5_errx (context, 1, "fd too large");
 #endif
 
@@ -1195,6 +1198,10 @@ main(int argc, char **argv)
 	max_fd = max(max_fd, signal_fd);
 	FD_SET(listen_fd, &readset);
 	max_fd = max(max_fd, listen_fd);
+        if (restarter_fd > -1) {
+            FD_SET(restarter_fd, &readset);
+            max_fd = max(max_fd, restarter_fd);
+        }
 
 	for (p = slaves; p != NULL; p = p->next) {
 	    if (p->flags & SLAVE_F_DEAD)
@@ -1232,6 +1239,11 @@ main(int argc, char **argv)
 		}
 	    }
 	}
+
+        if (ret && FD_ISSET(restarter_fd, &readset)) {
+            exit_flag = SIGTERM;
+            break;
+        }
 
 	if (ret && FD_ISSET(signal_fd, &readset)) {
 #ifndef NO_UNIX_SOCKETS
