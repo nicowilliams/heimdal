@@ -372,14 +372,14 @@ write_dump (krb5_context context, krb5_storage *dump,
 
     ret = hdb_create (context, &db, database);
     if (ret)
-	krb5_err (context, 1, ret, "hdb_create: %s", database);
+	krb5_err (context, IPROPD_RESTART, ret, "hdb_create: %s", database);
     ret = db->hdb_open (context, db, O_RDONLY, 0);
     if (ret)
-	krb5_err (context, 1, ret, "db->open");
+	krb5_err (context, IPROPD_RESTART, ret, "db->open");
 
     sp = krb5_storage_from_mem (buf, 4);
     if (sp == NULL)
-	krb5_errx (context, 1, "krb5_storage_from_mem");
+	krb5_errx (context, IPROPD_RESTART, "krb5_storage_from_mem");
     krb5_store_int32 (sp, TELL_YOU_EVERYTHING);
     krb5_storage_free (sp);
 
@@ -403,7 +403,7 @@ write_dump (krb5_context context, krb5_storage *dump,
 
     sp = krb5_storage_from_mem (buf, 8);
     if (sp == NULL)
-	krb5_errx (context, 1, "krb5_storage_from_mem");
+	krb5_errx (context, IPROPD_RESTART, "krb5_storage_from_mem");
     krb5_store_int32 (sp, NOW_YOU_HAVE);
     krb5_store_int32 (sp, current_version);
     krb5_storage_free (sp);
@@ -688,7 +688,7 @@ send_diffs (kadm5_server_context *server_context, slave *s, int log_fd,
 
 	sp = krb5_storage_from_mem(buf, 4);
 	if (sp == NULL)
-	    krb5_errx(context, 1, "krb5_storage_from_mem");
+	    krb5_errx(context, IPROPD_RESTART, "krb5_storage_from_mem");
 	krb5_store_int32(sp, YOU_HAVE_LAST_VERSION);
 	krb5_storage_free(sp);
 	data.data   = buf;
@@ -744,7 +744,7 @@ send_diffs (kadm5_server_context *server_context, slave *s, int log_fd,
     for (;;) {
 	ret = kadm5_log_previous (context, sp, &ver, NULL, &op, &len);
 	if (ret)
-	    krb5_err(context, 1, ret,
+	    krb5_err(context, IPROPD_RESTART, ret,
 		     "send_diffs: failed to find previous entry");
 	left = krb5_storage_seek(sp, -16, SEEK_CUR);
         if (left == (off_t)-1) {
@@ -1190,7 +1190,7 @@ main(int argc, char **argv)
 #ifndef NO_LIMIT_FD_SETSIZE
 	if (signal_fd >= FD_SETSIZE || listen_fd >= FD_SETSIZE ||
             restarter_fd >= FD_SETSIZE)
-	    krb5_errx (context, 1, "fd too large");
+	    krb5_errx (context, IPROPD_RESTART, "fd too large");
 #endif
 
 	FD_ZERO(&readset);
@@ -1216,7 +1216,7 @@ main(int argc, char **argv)
 	    if (errno == EINTR)
 		continue;
 	    else
-		krb5_err (context, 1, errno, "select");
+		krb5_err (context, IPROPD_RESTART, errno, "select");
 	}
 
 	if (ret == 0) {
