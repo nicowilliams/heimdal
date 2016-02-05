@@ -383,6 +383,47 @@ log_corrupt:
     return KADM5_LOG_CORRUPT;
 }
 
+static uint32_t
+get_max_log_nentries(krb5_context context)
+{
+    int n;
+
+    n = krb5_config_get_int_default(context, NULL, -1,
+                                    "kdc",
+                                    "log-max-entries",
+                                    NULL);
+    if (n < 0)
+        return 0;
+    if (n >= INT_MAX)
+        INT_MAX;
+    return n;
+}
+
+static off_t
+get_max_log_size(krb5_context context)
+{
+    off_t n;
+
+    n = krb5_config_get_int_default(context, NULL, -1,
+                                    "kdc",
+                                    "log-max-size",
+                                    NULL);
+    return (n <= 0) ? -1 : n;
+}
+
+static int
+get_keep_nentries(krb5_context context)
+{
+    int n;
+
+    n = krb5_config_get_int_default(context, NULL, 10000,
+                                    "kdc",
+                                    "log-keep-nentries",
+                                    NULL);
+    return (n <= 0) ? 0 : n;
+}
+
+static kadm5_ret_t truncate_if_needed(kadm5_server_context *);
 
 /*
  * Get the version and timestamp metadata of either the uberblock,
@@ -451,6 +492,7 @@ kadm5_log_set_version(kadm5_server_context *context, uint32_t vno)
 }
 
 /* Open the log and setup server_context->log_context */
+/* XXX This and its callers should be named after "open", not "init" */
 static kadm5_ret_t
 log_init(kadm5_server_context *server_context, uint32_t vno, int lock_mode)
 {
@@ -529,7 +571,7 @@ log_init(kadm5_server_context *server_context, uint32_t vno, int lock_mode)
         return 0;
     }
 
-    return 0;
+    return truncate_if_needed(server_context);
 }
 
 /* Open the log with an exclusive lock */
@@ -2291,7 +2333,54 @@ kadm5_log_truncate(kadm5_server_context *server_context,
     }
 
     return 0;
+}
 
+static kadm5_ret_t
+truncate_if_needed(kadm5_server_context *context)
+{
+    kadm5_log_context *log_context = &context->log_context;
+    off_t curr, end, max_sz;
+    uint32_t ver1, verN, max_nentries;
+    kadm5_ret_t ret = 0;
+
+    if (log_context->log_fd == -1)
+        return 0;
+
+    if (strcmp(context->log_context.log_file, "/dev/null") == 0)
+        return 0;
+
+    curr = lseek(log_context->log_fd, 0, SEEK_CUR);
+    if (curr == -1)
+        return 0; /* errors here will be handled elsewhere */
+    end = lseek(log_context->log_fd, 0, SEEK_END);
+    if (curr == -1)
+        return 0; /* errors here will be handled elsewhere */
+    if (lseek(log_context->log_fd, 0, SEEK_CUR) == -1)
+        return errno;
+
+    max_sz = get_max_log_size(context->context);
+    max_nentries = get_max_log_nentries(context->context);
+    if (max_nentries > 0) {
+        /*
+         * Check if we have max_nentries entries, which will be zero
+         * when kadm5_log_foreach() returns if we have at least
+         * max_nentries entries.
+         */
+        (void) kadm5_log_get_version_fd(context, log_context->log_fd, 1,
+                                        &ver1, NULL);
+        (void) kadm5_log_get_version_fd(context, log_context->log_fd, -1,
+                                        &verN, NULL);
+        if (verN < ver1)
+            verN = ver1;
+        if (ver1 == 0 || verN == 0)
+            max_nentries = UINT_MAX;
+    }
+
+    if ((max_sz > 0 && end > max_sz) ||
+        (max_nentries > 0 && verN - ver1 > max_nentries))
+        ret = kadm5_log_truncate(context, get_keep_nentries(context->context),
+                                 0, 1);
+    return ret;
 }
 
 #ifndef NO_UNIX_SOCKETS
