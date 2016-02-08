@@ -37,7 +37,7 @@
 RCSID("$Id$");
 
 /*
- * A log record consists of a sequence of entries of this form:
+ * A log consists of a sequence of records of this form:
  *
  * version number		4 bytes
  * time in seconds		4 bytes
@@ -47,73 +47,62 @@ RCSID("$Id$");
  * n, length of payload		4 bytes
  * version number		4 bytes
  *
- * I.e., entries have a header and a trailer so that knowing the offset
- * of an entry's start or end one can traverse the log forwards and
+ * I.e., records have a header and a trailer so that knowing the offset
+ * of an record's start or end one can traverse the log forwards and
  * backwards.
  *
- * The log always starts with a nop entry that contains the offset (8
- * bytes) where the next entry should start after the last one, and the
- * version number and timestamp of the last entry:
+ * The log always starts with a nop record that contains the offset (8
+ * bytes) where the next record should start after the last one, and the
+ * version number and timestamp of the last record:
  *
- * offset of next new entry     8 bytes
- * last entry time              4 bytes
- * last entry version number    4 bytes
+ * offset of next new record    8 bytes
+ * last record time             4 bytes
+ * last record version number   4 bytes
  *
  * kadm5 write operations are done in this order:
  *
- *  - replay unconfirmed log entries (there should be at most one)
- *  - write (append) the log entry for the kadm5 update
+ *  - replay unconfirmed log records (there should be at most one)
+ *  - write (append) the log record for the kadm5 update
  *  - update the HDB
- *  - update the log ubber entry to mark the log entry written as
+ *  - update the log uber record to mark the log record written as
  *    confirmed
  *
  * This makes it possibble and safe to seek to the logical end of the
  * log without traversing it forward.  The trailers then make it
  * possible to traverse the log backwards from the end.
  *
- * This also makes the log + the HDB almost (see below) a two-phase
- * commit with roll-forward system.
+ * This also makes the log + the HDB a two-phase commit with
+ * roll-forward system.
  *
- * Errors occurring during replay of unconfirmed entries are ignored.
- * This is because the corresponding HDB update might have completed.
- * But also because a change to add aliases to a principal can fail
- * because we don't check for alias conflicts before going ahead with
- * the write operation.
+ * HDB entry exists and HDB entry does not exist errors occurring during
+ * replay of unconfirmed records are ignored.  This is because the
+ * corresponding HDB update might have completed.  But also because a
+ * change to add aliases to a principal can fail because we don't check
+ * for alias conflicts before going ahead with the write operation.
+ *
+ * Non-sensical and incomplete log records found during roll-forward are
+ * truncated.  A log record is non-sensical if its header and trailer
+ * don't match.
  *
  * Recovery (by rolling forward) occurs at the next write, not at the
  * next read.  This means that, e.g., a principal rename could fail in
  * between the store and the delete, and recovery might not take place
  * until the next write operation.
  *
- * Non-sensical and incomplete log entries found during roll-forward are
- * truncated.
- *
- * This is "almost" a two-phase commit because transient failures during
- * two-phase commit can result in transactions being successfully rolled
- * forward (or applied to slaves but not the master) after having failed
- * in the first place.  For example, if the HDB store gets ENOSPC but
- * the log doesn't (e.g., they are on different filesystems, or there
- * was room for the log entry but not the HDB store), then a transaction
- * can appear in the log and thus propagate to slaves where it may
- * successfully apply yet never be applied on the master.  Also, failed
- * transactions will appear in the log, thus the log is not a faithful
- * representation of what transpired.  In the future we may add new
- * kadm_ops by which to mark transactions' play/replay status.
- *
- * The log entry format for create is:
+ * The log record payload format for create is:
  *
  * DER-encoded HDB_entry        n bytes
  *
- * The log entry format for update is:
+ * The log record payload format for update is:
  *
  * mask                         4 bytes
  * DER-encoded HDB_entry        n-4 bytes
  *
- * The log entry format for delete is:
+ * The log record payload format for delete is:
  *
  * krb5_store_principal         n bytes
  *
- * The log entry format for rename is:
+ * The log record payload format for rename is:
  *
  * krb5_store_principal         m bytes (old principal name)
  * DER-encoded HDB_entry        n-m bytes (new record)
@@ -122,10 +111,10 @@ RCSID("$Id$");
 #define LOG_HEADER_SZ   (sizeof(uint32_t) * 4)
 #define LOG_TRAILER_SZ  (sizeof(uint32_t) * 2)
 #define LOG_WRAPPER_SZ  (LOG_HEADER_SZ + LOG_TRAILER_SZ)
-#define LOG_UBBER_SZ    (sizeof(uint64_t) + sizeof(uint32_t) * 2)
+#define LOG_UBER_SZ    (sizeof(uint64_t) + sizeof(uint32_t) * 2)
 
 /*
- * Read the header of the entry starting at the current offset into sp.
+ * Read the header of the record starting at the current offset into sp.
  *
  * Preserves sp's offset on success if `rewind', else skips the header.
  *
@@ -184,7 +173,7 @@ log_corrupt:
 }
 
 /*
- * Seek to the start of the preceding entry's header and returns its
+ * Seek to the start of the preceding record's header and returns its
  * offset.  If sp is at offset zero this sets *verp = 0 and returns 0.
  *
  * Does not verify the header of the previous entry.
@@ -1387,7 +1376,7 @@ kadm5_log_update_ubber(kadm5_server_context *context)
 
     /* If the first entry is not a 16-byte nop, ditto */
     ret = krb5_ret_uint32(sp, &len);
-    if (ret || len != LOG_UBBER_SZ)
+    if (ret || len != LOG_UBER_SZ)
         goto out;
 
     /*
@@ -1464,11 +1453,11 @@ kadm5_log_nop(kadm5_server_context *context, enum kadm_nop_type nop_type)
          * First entry (ubber-entry) gets room for offset of next new
          * entry and time and version of last entry.
          */
-        ret = krb5_store_uint32(sp, LOG_UBBER_SZ);
+        ret = krb5_store_uint32(sp, LOG_UBER_SZ);
         if (ret)
             goto out;
         /* These get overwritten with the same values below */
-        ret = krb5_store_uint64(sp, LOG_WRAPPER_SZ + LOG_UBBER_SZ);
+        ret = krb5_store_uint64(sp, LOG_WRAPPER_SZ + LOG_UBER_SZ);
         if (ret)
             goto out;
         ret = krb5_store_int32(sp, log_context->last_time); /* This is now here */
@@ -1477,11 +1466,11 @@ kadm5_log_nop(kadm5_server_context *context, enum kadm_nop_type nop_type)
         ret = krb5_store_uint32(sp, log_context->version);
         if (ret)
             goto out;
-        ret = krb5_store_uint32(sp, LOG_UBBER_SZ);
+        ret = krb5_store_uint32(sp, LOG_UBER_SZ);
         if (ret)
             goto out;
         assert(krb5_storage_seek(sp, 0, SEEK_CUR) ==
-               LOG_WRAPPER_SZ + LOG_UBBER_SZ - sizeof(uint32_t) /* version */);
+               LOG_WRAPPER_SZ + LOG_UBER_SZ - sizeof(uint32_t) /* version */);
     } else if (nop_type == kadm_nop_plain) {
         ret = krb5_store_uint32(sp, 0);
         if (ret)
@@ -1546,9 +1535,14 @@ recover_replay(kadm5_server_context *context,
                uint32_t len, krb5_storage *sp, void *ctx)
 {
     struct replay_cb_data *data = ctx;
+    kadm5_ret_t ret;
 
     /* Replaying can fail, but in this context we have to ignore errors */
-    (void) kadm5_log_replay(context, op, ver, len, sp);
+    ret = kadm5_log_replay(context, op, ver, len, sp);
+    if (ret == KADM5_LOG_CORRUPT)
+        return -1;
+    if (ret != HDB_ERR_NOENTRY && ret != HDB_ERR_EXISTS)
+        return ret;
     data->count++;
     data->ver = ver;
     return 0;
@@ -1595,7 +1589,13 @@ out:
 }
 
 /*
- * Call `func' for each log record in the log in `context'
+ * Call `func' for each log record in the log in `context'.
+ *
+ * `func' is optional.
+ *
+ * If `func' returns -1 then log traversal terminates and this returns
+ * 0.  Otherwise `func''s return is returned if there are no other
+ * errors.
  */
 
 kadm5_ret_t
@@ -1877,7 +1877,7 @@ kadm5_log_goto_end(kadm5_server_context *server_context, int fd)
     if (ret)
         goto fail;
 
-    if (op == kadm_nop && len == LOG_UBBER_SZ) {
+    if (op == kadm_nop && len == LOG_UBER_SZ) {
         off_t cur;
 
         /* New style log */
