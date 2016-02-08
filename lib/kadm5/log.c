@@ -116,21 +116,23 @@ RCSID("$Id$");
 /*
  * Read the header of the record starting at the current offset into sp.
  *
- * Preserves sp's offset on success if `rewind', else skips the header.
+ * Preserves sp's offset on success if `peek', else skips the header.
  *
  * Preserves sp's offset on failure where possible.
  */
 static kadm5_ret_t
-get_header(krb5_storage *sp, int rewind, uint32_t *verp, int32_t *tstampp,
+get_header(krb5_storage *sp, int peek, uint32_t *verp, int32_t *tstampp,
            enum kadm_ops *opp, uint32_t *lenp)
 {
     krb5_error_code ret;
-    uint32_t op;
+    uint32_t op, len;
     int32_t tstamp;
-    off_t off;
+    off_t off, new_off;
 
     if (tstampp == NULL)
         tstampp = &tstamp;
+    if (lenp == NULL)
+        lenp = &len;
 
     *verp = 0;
     *tstampp = 0;
@@ -156,15 +158,19 @@ get_header(krb5_storage *sp, int rewind, uint32_t *verp, int32_t *tstampp,
     if (opp != NULL)
         *opp = op;
 
-    if (lenp != NULL) {
-        ret = krb5_ret_uint32(sp, lenp);
-        if (ret)
-            goto log_corrupt;
-    }
+    ret = krb5_ret_uint32(sp, lenp);
+    if (ret)
+        goto log_corrupt;
 
     /* Restore offset if requested */
-    if (rewind && krb5_storage_seek(sp, off, SEEK_SET) != off)
-        goto log_corrupt;
+    if (peek) {
+        new_off = krb5_storage_seek(sp, off, SEEK_SET);
+        if (new_off == -1)
+            return errno;
+        if (new_off != off)
+            return EIO;
+    }
+
     return 0;
 
 log_corrupt:
