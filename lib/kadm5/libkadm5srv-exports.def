@@ -67,6 +67,7 @@ EXPORTS
 	kadm5_log_foreach
 	kadm5_log_get_version_fd
 	kadm5_log_get_version
+	kadm5_log_recover
 	kadm5_log_replay
 	kadm5_log_end
 	kadm5_log_reinit

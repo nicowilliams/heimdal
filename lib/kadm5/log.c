@@ -450,8 +450,6 @@ kadm5_log_set_version(kadm5_server_context *context, uint32_t vno)
     return 0;
 }
 
-static kadm5_ret_t log_recover(kadm5_server_context *);
-
 /* Open the log and setup server_context->log_context */
 static kadm5_ret_t
 log_init(kadm5_server_context *server_context, uint32_t vno, int lock_mode)
@@ -503,7 +501,7 @@ log_init(kadm5_server_context *server_context, uint32_t vno, int lock_mode)
     log_context->read_only = (lock_mode != LOCK_EX);
 
     if (!log_context->read_only)
-        ret = log_recover(server_context);
+        ret = kadm5_log_recover(server_context);
 
     ret = kadm5_log_get_version_fd(server_context, fd, -1,
                                    &log_context->version, NULL);
@@ -1622,8 +1620,8 @@ recover_replay(kadm5_server_context *context,
 }
 
 
-static kadm5_ret_t
-log_recover(kadm5_server_context *context)
+kadm5_ret_t
+kadm5_log_recover(kadm5_server_context *context)
 {
     kadm5_ret_t ret;
     krb5_storage *sp;
@@ -2254,7 +2252,7 @@ kadm5_log_truncate(kadm5_server_context *server_context,
         from_vno = vno;
 
     if (recover) {
-        ret = log_recover(server_context);
+        ret = kadm5_log_recover(server_context);
         if (ret)
             return ret;
     }
