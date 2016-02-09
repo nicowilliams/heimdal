@@ -267,7 +267,7 @@ print_entry(kadm5_server_context *server_context,
         if (len == 16) {
             uint64_t off;
             krb5_ret_uint64(sp, &off);
-            printf("ubberblock offset %llu ", (unsigned long long)off);
+            printf("uberblock offset %llu ", (unsigned long long)off);
         } else {
             printf("nop");
         }

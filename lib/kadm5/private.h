@@ -155,9 +155,9 @@ enum kadm_ops {
 
 /* FIXME nop types are currently not implemented */
 enum kadm_nop_type {
-    kadm_nop_plain, /* plain nop, not relevance except as ubberblock    */
-    kadm_nop_trunc, /* indicates that the master truncated the log      */
-    kadm_nop_close  /* indicates that the master closed this log        */
+    kadm_nop_plain, /* plain nop, not relevance except as uberblock */
+    kadm_nop_trunc, /* indicates that the master truncated the log  */
+    kadm_nop_close  /* indicates that the master closed this log    */
 };
 
 enum kadm_iter_opts {
