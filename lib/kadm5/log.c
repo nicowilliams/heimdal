@@ -61,7 +61,7 @@ RCSID("$Id$");
  *
  * kadm5 write operations are done in this order:
  *
- *  - replay unconfirmed log records (there should be at most one)
+ *  - replay unconfirmed log records
  *  - write (append) and fsync() the log record for the kadm5 update
  *  - update the HDB (which includes fsync() or moral equivalent)
  *  - update the log uber record to mark the log record written as
