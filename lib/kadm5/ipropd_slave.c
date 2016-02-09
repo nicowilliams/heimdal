@@ -382,7 +382,7 @@ receive_loop (krb5_context context,
          * Update version after each replay.
          */
         server_context->log_context.version = vers;
-        kadm5_log_update_ubber(server_context);
+        kadm5_log_update_uber(server_context);
     }
 
     return 0;

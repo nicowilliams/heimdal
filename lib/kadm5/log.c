@@ -62,10 +62,10 @@ RCSID("$Id$");
  * kadm5 write operations are done in this order:
  *
  *  - replay unconfirmed log records (there should be at most one)
- *  - write (append) the log record for the kadm5 update
- *  - update the HDB
+ *  - write (append) and fsync() the log record for the kadm5 update
+ *  - update the HDB (which includes fsync() or moral equivalent)
  *  - update the log uber record to mark the log record written as
- *    confirmed
+ *    confirmed (not fsync()ed)
  *
  * This makes it possibble and safe to seek to the logical end of the
  * log without traversing it forward.  The trailers then make it
@@ -106,6 +106,23 @@ RCSID("$Id$");
  *
  * krb5_store_principal         m bytes (old principal name)
  * DER-encoded HDB_entry        n-m bytes (new record)
+ *
+ * The log record payload format for nop varies:
+ *
+ *  - The zeroth record in new logs is a nop with a 16 byte payload:
+ *
+ *    offset of end of last confirmed record        8 bytes
+ *    version number of last confirmed record       4 bytes
+ *    timestamp of last confirmed record            4 bytes
+ *
+ *  - New non-zeroth nop records:
+ *
+ *    nop type                                      4 bytes
+ *
+ *  - Old nop records:
+ *
+ *    version number                                4 bytes
+ *    timestamp                                     4 bytes
  */
 
 #define LOG_HEADER_SZ   (sizeof(uint32_t) * 4)
@@ -364,11 +381,11 @@ log_corrupt:
 
 
 /*
- * Get the version and timestamp metadata of either the ubberblock,
+ * Get the version and timestamp metadata of either the uberblock,
  * first, or last confirmed entry in the log.
  *
- * If `which' is 0, then gets the ubberblock's metadata.  If `which' is
- * 1, then gets the metadata afor the first entry past the ubberblock.
+ * If `which' is 0, then gets the uberblock's metadata.  If `which' is
+ * 1, then gets the metadata afor the first entry past the uberblock.
  * If `which' is -1, then gets metadata for the last confirmed entry's
  * version and timestpamp.
  *
@@ -545,7 +562,7 @@ kadm5_log_reinit(kadm5_server_context *server_context)
         }
     }
 
-    /* Write ubber entry */
+    /* Write uber entry */
     ret = kadm5_log_nop(server_context, kadm_nop_trunc);
     log_context->version = 0;
     return 0;
@@ -774,10 +791,10 @@ kadm5_log_create(kadm5_server_context *context,
     }
     
     /*
-     * We ignore errors updating the ubber entry because, after all, the HDB
+     * We ignore errors updating the uber entry because, after all, the HDB
      * entry got written successfully above.
      */
-    (void) kadm5_log_update_ubber(context);
+    (void) kadm5_log_update_uber(context);
     return ret;
 }
 
@@ -899,7 +916,7 @@ kadm5_log_delete(kadm5_server_context *context,
     if (ret)
         goto out;
 
-    (void) kadm5_log_update_ubber(context);
+    (void) kadm5_log_update_uber(context);
 
 out:
     krb5_storage_free(sp);
@@ -1016,7 +1033,7 @@ kadm5_log_rename(kadm5_server_context *context,
                                   len, sp);
     if (ret)
         goto failed;
-    (void) kadm5_log_update_ubber(context);
+    (void) kadm5_log_update_uber(context);
 
 failed:
     krb5_data_free(&value);
@@ -1148,7 +1165,7 @@ kadm5_log_modify(kadm5_server_context *context,
     if (ret)
         goto failed;
 
-    (void) kadm5_log_update_ubber(context);
+    (void) kadm5_log_update_uber(context);
 
 failed:
     krb5_data_free(&value);
@@ -1363,11 +1380,11 @@ kadm5_log_replay_modify(kadm5_server_context *context,
 }
 
 /*
- * Update the first entry (which should be a `nop'), the "ubber-entry".
+ * Update the first entry (which should be a `nop'), the "uber-entry".
  */
 
 kadm5_ret_t
-kadm5_log_update_ubber(kadm5_server_context *context)
+kadm5_log_update_uber(kadm5_server_context *context)
 {
     kadm5_log_context *log_context = &context->log_context;
     kadm5_ret_t ret = 0;
@@ -1487,7 +1504,7 @@ kadm5_log_nop(kadm5_server_context *context, enum kadm_nop_type nop_type)
 
     if (off == 0) {
         /*
-         * First entry (ubber-entry) gets room for offset of next new
+         * First entry (uber-entry) gets room for offset of next new
          * entry and time and version of last entry.
          */
         ret = krb5_store_uint32(sp, LOG_UBER_SZ);
@@ -1535,8 +1552,8 @@ kadm5_log_nop(kadm5_server_context *context, enum kadm_nop_type nop_type)
     if (ret)
         goto out;
 
-    /* Overwrite ubber-entry anyways */
-    ret = kadm5_log_update_ubber(context);
+    /* Overwrite uber-entry anyways */
+    ret = kadm5_log_update_uber(context);
 
     if (off == 0 && nop_type != kadm_nop_plain)
         (void) kadm5_log_nop(context, nop_type); /* shouldn't happen */
@@ -1627,7 +1644,7 @@ kadm5_log_recover(kadm5_server_context *context)
 
         /* Update the log to note the latest version */
         kadm5_log_set_version(context, replay_data.ver);
-        ret = kadm5_log_update_ubber(context);
+        ret = kadm5_log_update_uber(context);
     }
 
 out:
@@ -1689,7 +1706,7 @@ kadm5_log_foreach(kadm5_server_context *context,
             return ret;
         }
     } else {
-        /* Get the end of the log based on the ubber entry */
+        /* Get the end of the log based on the uber entry */
         sp = kadm5_log_goto_end(context, fd);
         if (sp == NULL)
             return errno;
@@ -1941,10 +1958,10 @@ kadm5_log_goto_end(kadm5_server_context *server_context, int fd)
 
         if (off >= cur + LOG_TRAILER_SZ)
             return sp;
-        /* Invalid offset in ubber entry */
+        /* Invalid offset in uber entry */
     }
 
-    /* Old log or invalid offset in ubber entry */
+    /* Old log or invalid offset in uber entry */
     if (krb5_storage_seek(sp, 0, SEEK_END) == -1) {
         krb5_warnx(server_context->context,
                    "Old log found; truncate it to upgrade");
@@ -2201,7 +2218,7 @@ write_entries(kadm5_server_context *context, krb5_data *entries)
     if (ret)
         return ret;
 
-    return kadm5_log_update_ubber(context);
+    return kadm5_log_update_uber(context);
 }
 
 /*
