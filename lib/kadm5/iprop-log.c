@@ -319,9 +319,10 @@ iprop_dump(struct dump_options *opt, int argc, char **argv)
     if (ret)
 	krb5_warn(context, ret, "kadm5_log_foreach");
 
-    ret = kadm5_log_foreach(server_context,
-                            kadm_forward | kadm_unconfirmed,
-                            NULL, print_entry, "unconfirmed ");
+    /* We're not interested in errors while traversing unconfirmed records */
+    (void) kadm5_log_foreach(server_context,
+                             kadm_forward | kadm_unconfirmed,
+                             NULL, print_entry, "unconfirmed ");
 
     ret = kadm5_log_end (server_context);
     if (ret)
