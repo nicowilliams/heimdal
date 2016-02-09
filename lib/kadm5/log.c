@@ -67,9 +67,13 @@ RCSID("$Id$");
  *  - update the log uber record to mark the log record written as
  *    confirmed (not fsync()ed)
  *
- * This makes it possibble and safe to seek to the logical end of the
- * log without traversing it forward.  The trailers then make it
- * possible to traverse the log backwards from the end.
+ * This makes it possible and safe to seek to the logical end of the log
+ * (that is, the end of the last confirmed record) without traversing
+ * the whole log forward from offset zero.  Unconfirmed records (which
+ * -currently- should never be more than one) can then be found (and
+ * rolled forward) by traversing forward from the logical end of the
+ * log.  The trailers make it possible to traverse the log backwards
+ * from the logical end.
  *
  * This also makes the log + the HDB a two-phase commit with
  * roll-forward system.
