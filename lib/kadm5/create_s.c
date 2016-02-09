@@ -133,7 +133,7 @@ kadm5_s_create_principal_with_key(void *server_handle,
             goto out;
     }
 
-    ret = kadm5_log_recover(context);
+    ret = kadm5_log_init(context);
     if (ret)
         goto out;
 
@@ -201,7 +201,7 @@ kadm5_s_create_principal(void *server_handle,
             goto out;
     }
 
-    ret = kadm5_log_recover(context);
+    ret = kadm5_log_init(context);
     if (ret)
         goto out;
 

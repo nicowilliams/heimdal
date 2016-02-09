@@ -51,7 +51,7 @@ kadm5_s_delete_principal(void *server_handle, krb5_principal princ)
 	}
     }
 
-    ret = kadm5_log_recover(context);
+    ret = kadm5_log_init(context);
     if (ret)
         goto out;
 

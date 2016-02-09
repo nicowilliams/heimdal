@@ -39,13 +39,13 @@ RCSID("$Id$");
 /*
  * A log consists of a sequence of records of this form:
  *
- * version number		4 bytes
- * time in seconds		4 bytes
- * operation (enum kadm_ops)	4 bytes
- * n, length of payload		4 bytes
- *      payload data...		n bytes
- * n, length of payload		4 bytes
- * version number		4 bytes
+ * version number		4 bytes -\
+ * time in seconds		4 bytes   +> preamble --+> header
+ * operation (enum kadm_ops)	4 bytes -/             /
+ * n, length of payload		4 bytes --------------+
+ *      PAYLOAD DATA...		n bytes
+ * n, length of payload		4 bytes ----------------+> trailer
+ * version number		4 bytes ->postamble ---/
  *
  * I.e., records have a header and a trailer so that knowing the offset
  * of an record's start or end one can traverse the log forwards and
@@ -405,7 +405,7 @@ kadm5_log_get_version_fd(kadm5_server_context *server_context, int fd,
     int32_t tmp;
 
     if (fd == -1)
-        return 0;
+        return 0; /* /dev/null */
 
     if (tstamp == NULL)
         tstamp = &tmp;
@@ -450,6 +450,8 @@ kadm5_log_set_version(kadm5_server_context *context, uint32_t vno)
     return 0;
 }
 
+static kadm5_ret_t log_recover(kadm5_server_context *);
+
 /* Open the log and setup server_context->log_context */
 static kadm5_ret_t
 log_init(kadm5_server_context *server_context, uint32_t vno, int lock_mode)
@@ -463,13 +465,18 @@ log_init(kadm5_server_context *server_context, uint32_t vno, int lock_mode)
     if (lock_mode == log_context->lock_mode && log_context->log_fd != -1)
         return 0;
 
+    if (strcmp(log_context->log_file, "/dev/null") == 0) {
+        /* log_context->log_fd should be -1 here */
+        return 0;
+    }
+
     if (log_context->log_fd != -1) {
         /* Lock or change lock */
         fd = log_context->log_fd;
         if (lseek(fd, 0, SEEK_SET) == -1)
             return errno;
-        lock_it = 1;
-    } else if (strcmp(log_context->log_file, "/dev/null") != 0) {
+        lock_it = (lock_mode != log_context->lock_mode);
+    } else {
         /* Open and lock */
         fd = open(log_context->log_file, O_RDWR | O_CREAT, 0600);
         if (fd < 0) {
@@ -479,7 +486,7 @@ log_init(kadm5_server_context *server_context, uint32_t vno, int lock_mode)
                                    log_context->log_file);
             return ret;
         }
-        lock_it = (lock_mode != LOCK_UN);
+        lock_it = (lock_mode != log_context->lock_mode);
     }
     if (lock_it && flock(fd, lock_mode) < 0) {
 	ret = errno;
@@ -494,6 +501,9 @@ log_init(kadm5_server_context *server_context, uint32_t vno, int lock_mode)
     log_context->log_fd = fd;
     log_context->lock_mode = lock_mode;
     log_context->read_only = (lock_mode != LOCK_EX);
+
+    if (!log_context->read_only)
+        ret = log_recover(server_context);
 
     ret = kadm5_log_get_version_fd(server_context, fd, -1,
                                    &log_context->version, NULL);
@@ -536,9 +546,7 @@ kadm5_log_init_nolock(kadm5_server_context *server_context)
 kadm5_ret_t
 kadm5_log_init_sharedlock(kadm5_server_context *server_context)
 {
-    if (lock_flags != 0 && lock_flags != LOCK_NB)
-        return EINVAL;
-    return log_init(server_context, 0, LOCK_SH | lock_flags);
+    return log_init(server_context, 0, LOCK_SH);
 }
 
 /* Reinitialize the log and open it */
@@ -582,9 +590,11 @@ kadm5_log_end(kadm5_server_context *server_context)
     int fd = log_context->log_fd;
 
     if (fd != -1) {
-        if (log_context->lock_mode != LOCK_UN)
-            flock(fd, LOCK_UN);
-        if (close(fd) == -1)
+        if (log_context->lock_mode != LOCK_UN) {
+            if (flock(fd, LOCK_UN) == -1 && errno == EBADF)
+                ret = errno;
+        }
+        if (ret != EBADF && close(fd) == -1)
             ret = errno;
     }
     log_context->log_fd = -1;
@@ -595,11 +605,10 @@ kadm5_log_end(kadm5_server_context *server_context)
 /*
  * Write the version, timestamp, and op for a new entry.
  *
- * If the log was not already opened, it will be.  But note that the sp
- * is generally a krb5_storage_emem(), not a file.
+ * Note that the sp should be a krb5_storage_emem(), not a file.
  *
- * On success the open log's offset will be where the length of the
- * payload should be written.
+ * On success the sp's offset will be where the length of the payload
+ * should be written.
  */
 static kadm5_ret_t
 kadm5_log_preamble(kadm5_server_context *context,
@@ -608,13 +617,6 @@ kadm5_log_preamble(kadm5_server_context *context,
 {
     kadm5_log_context *log_context = &context->log_context;
     kadm5_ret_t ret;
-
-    if (log_context->read_only)
-        return EROFS; /* XXX Internal error */
-
-    ret = kadm5_log_init(context);
-    if (ret)
-	return ret;
 
     log_context->last_time = time(NULL);
     ret = krb5_store_uint32(sp, ++log_context->version);
@@ -1398,11 +1400,11 @@ kadm5_log_update_uber(kadm5_server_context *context)
     ssize_t bytes;
     off_t off;
 
-    if (log_context->read_only)
-        return EROFS;
-
     if (strcmp(log_context->log_file, "/dev/null") == 0)
         return 0;
+
+    if (log_context->read_only)
+        return EROFS;
 
     krb5_data_zero(&data);
 
@@ -1492,9 +1494,6 @@ kadm5_log_nop(kadm5_server_context *context, enum kadm_nop_type nop_type)
     kadm5_log_context *log_context = &context->log_context;
     off_t off;
 
-    if (strcmp(log_context->log_file, "/dev/null") == 0)
-        return 0;
-
     off = lseek(log_context->log_fd, 0, SEEK_CUR);
     if (off == -1)
         return errno;
@@ -1568,7 +1567,13 @@ out:
 }
 
 /*
- * Read a `nop' log operation from `sp' and apply it.
+ * Read a `nop' log operation from `sp' and "apply" it (there's nothing
+ * to do).
+ *
+ * FIXME Actually, if the nop payload is 4 bytes and contains an enum
+ * kadm_nop_type value of kadm_nop_trunc then we should truncate the
+ * log, and if it contains a kadm_nop_close then we should rename a new
+ * log into place.  However, this is not implemented yet.
  */
 
 static kadm5_ret_t
@@ -1617,22 +1622,15 @@ recover_replay(kadm5_server_context *context,
 }
 
 
-kadm5_ret_t
-kadm5_log_recover(kadm5_server_context *context)
+static kadm5_ret_t
+log_recover(kadm5_server_context *context)
 {
     kadm5_ret_t ret;
     krb5_storage *sp;
     struct replay_cb_data replay_data;
 
-    if (strcmp(context->log_context.log_file, "/dev/null") == 0)
-        return 0;
-
     replay_data.count = 0;
     replay_data.ver = 0;
-
-    ret = kadm5_log_init(context);
-    if (ret)
-        return ret;
 
     sp = kadm5_log_goto_end(context, context->log_context.log_fd);
     if (sp == NULL)
@@ -2256,7 +2254,7 @@ kadm5_log_truncate(kadm5_server_context *server_context,
         from_vno = vno;
 
     if (recover) {
-        ret = kadm5_log_recover(server_context);
+        ret = log_recover(server_context);
         if (ret)
             return ret;
     }

@@ -58,7 +58,7 @@ change(void *server_handle,
 	    return ret;
     }
 
-    ret = kadm5_log_recover(context);
+    ret = kadm5_log_init(context);
     if (ret)
         goto out;
 
@@ -217,7 +217,7 @@ kadm5_s_chpass_principal_with_key(void *server_handle,
 	    return ret;
     }
 
-    ret = kadm5_log_recover(context);
+    ret = kadm5_log_init(context);
     if (ret)
         goto out;
 

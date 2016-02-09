@@ -70,14 +70,13 @@ EXPORTS
 	kadm5_log_replay
 	kadm5_log_end
 	kadm5_log_reinit
-	kadm5_log_recover
 	kadm5_log_init
 	kadm5_log_init_nolock
 	kadm5_log_init_sharedlock
 	kadm5_log_nop
 	kadm5_log_truncate
 	kadm5_log_modify
-	kadm5_log_update_ubber
+	kadm5_log_update_uber
 	_kadm5_acl_check_permission
 	_kadm5_unmarshal_params
 	_kadm5_s_get_db

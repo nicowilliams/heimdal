@@ -60,7 +60,7 @@ kadm5_s_randkey_principal(void *server_handle,
 	    return ret;
     }
 
-    ret = kadm5_log_recover(context);
+    ret = kadm5_log_init(context);
     if (ret)
         goto out;
 

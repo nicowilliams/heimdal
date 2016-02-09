@@ -153,6 +153,7 @@ enum kadm_ops {
     kadm_nop
 };
 
+/* FIXME nop types are currently not implemented */
 enum kadm_nop_type {
     kadm_nop_plain, /* plain nop, not relevance except as ubberblock    */
     kadm_nop_trunc, /* indicates that the master truncated the log      */
