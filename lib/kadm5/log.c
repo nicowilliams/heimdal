@@ -1539,12 +1539,22 @@ recover_replay(kadm5_server_context *context,
 
     /* Replaying can fail, but in this context we have to ignore errors */
     ret = kadm5_log_replay(context, op, ver, len, sp);
+    data->count++;
+    data->ver = ver;
+    switch (ret) {
+    case KADM5_LOG_CORRUPT:
+    case HDB_ERR_NOENTRY:
+    case HDB_ERR_EXISTS:
+    case 0:
+        break;
+    default:
+        krb5_warn(context->context, ret, "unexpected error while replaying");
+        break;
+    }
     if (ret == KADM5_LOG_CORRUPT)
         return -1;
     if (ret != HDB_ERR_NOENTRY && ret != HDB_ERR_EXISTS)
         return ret;
-    data->count++;
-    data->ver = ver;
     return 0;
 }
 
