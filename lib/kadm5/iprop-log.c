@@ -301,7 +301,9 @@ iprop_dump(struct dump_options *opt, int argc, char **argv)
 
     if (opt->log_file_string != NULL) {
         free(server_context->log_context.log_file);
-        server_context->log_context.log_file = opt->log_file_string;
+        server_context->log_context.log_file = strdup(opt->log_file_string);
+        if (server_context->log_context.log_file == NULL)
+            krb5_err(context, 1, errno, "strdup");
     }
 
     if (opt->no_lock_flag)
@@ -338,7 +340,9 @@ iprop_truncate(struct truncate_options *opt, int argc, char **argv)
 
     if (opt->log_file_string != NULL) {
         free(server_context->log_context.log_file);
-        server_context->log_context.log_file = opt->log_file_string;
+        server_context->log_context.log_file = strdup(opt->log_file_string);
+        if (server_context->log_context.log_file == NULL)
+            krb5_err(context, 1, errno, "strdup");
     }
 
     ret = kadm5_log_truncate(server_context, opt->keep_entries_integer,
@@ -363,7 +367,9 @@ last_version(struct last_version_options *opt, int argc, char **argv)
 
     if (opt->log_file_string != NULL) {
         free(server_context->log_context.log_file);
-        server_context->log_context.log_file = opt->log_file_string;
+        server_context->log_context.log_file = strdup(opt->log_file_string);
+        if (server_context->log_context.log_file == NULL)
+            krb5_err(context, 1, errno, "strdup");
     }
 
     if (opt->no_lock_flag)
