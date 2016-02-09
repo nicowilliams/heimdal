@@ -477,7 +477,9 @@ iprop_replay(struct replay_options *opt, int argc, char **argv)
 
     if (opt->log_file_string != NULL) {
         free(server_context->log_context.log_file);
-        server_context->log_context.log_file = opt->log_file_string;
+        server_context->log_context.log_file = strdup(opt->log_file_string);
+        if (server_context->log_context.log_file == NULL)
+            krb5_err(context, 1, errno, "strdup");
     }
 
     ret = server_context->db->hdb_open(context,
@@ -502,8 +504,6 @@ iprop_replay(struct replay_options *opt, int argc, char **argv)
     if (ret)
 	krb5_err (context, 1, ret, "db->close");
 
-    if (opt->log_file_string != NULL)
-        server_context->log_context.log_file = NULL;
     kadm5_destroy(server_context);
     return 0;
 }
