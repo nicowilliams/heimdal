@@ -329,8 +329,6 @@ iprop_dump(struct dump_options *opt, int argc, char **argv)
     if (ret)
 	krb5_warn(context, ret, "kadm5_log_end");
 
-    if (opt->log_file_string != NULL)
-        server_context->log_context.log_file = NULL;
     kadm5_destroy(server_context);
     return 0;
 }
@@ -358,8 +356,6 @@ iprop_truncate(struct truncate_options *opt, int argc, char **argv)
 
     kadm5_log_signal_master(server_context);
 
-    if (opt->log_file_string != NULL)
-        server_context->log_context.log_file = NULL;
     kadm5_destroy(server_context);
     return 0;
 }
@@ -398,8 +394,6 @@ last_version(struct last_version_options *opt, int argc, char **argv)
 
     printf("version: %lu\n", (unsigned long)version);
 
-    if (opt->log_file_string != NULL)
-        server_context->log_context.log_file = NULL;
     kadm5_destroy(server_context);
     return 0;
 }
