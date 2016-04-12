@@ -92,8 +92,8 @@
 #define HEIMDAL_MUTEX_unlock(m) pthread_mutex_unlock(m)
 #define HEIMDAL_MUTEX_destroy(m) pthread_mutex_destroy(m)
 
-#define HEIMDAL_RWLOCK rwlock_t
-#define HEIMDAL_RWLOCK_INITIALIZER RWLOCK_INITIALIZER
+#define HEIMDAL_RWLOCK pthread_rwlock_t
+#define HEIMDAL_RWLOCK_INITIALIZER PTHREAD_RWLOCK_INITIALIZER
 #define	HEIMDAL_RWLOCK_init(l) pthread_rwlock_init(l, NULL)
 #define	HEIMDAL_RWLOCK_rdlock(l) pthread_rwlock_rdlock(l)
 #define	HEIMDAL_RWLOCK_wrlock(l) pthread_rwlock_wrlock(l)
