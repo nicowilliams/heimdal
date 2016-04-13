@@ -626,6 +626,11 @@ OSSL_CIPHER_ALGORITHM(aes_192_cfb8, hc_EVP_CIPH_CFB8_MODE)
  */
 OSSL_CIPHER_ALGORITHM(aes_256_cfb8, hc_EVP_CIPH_CFB8_MODE)
 
+/*
+ * RC2 is only needed for tests of PKCS#12 support, which currently uses
+ * the RC2 PBE.  So no RC2 -> tests fail.
+ */
+
 /**
  * The RC2 cipher type - OpenSSL
  *
