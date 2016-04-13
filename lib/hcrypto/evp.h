@@ -154,7 +154,7 @@ struct hc_CIPHER {
      * cipher is used in (use EVP_CIPHER.._mode() to extract the
      * mode). The rest of the flag field is a bitfield.
      */
-#define hc_EVP_CIPH_STREAM_CIPHER               1
+#define hc_EVP_CIPH_STREAM_CIPHER               0
 #define hc_EVP_CIPH_CBC_MODE                    2
 #define hc_EVP_CIPH_CFB8_MODE                   4
 #define hc_EVP_CIPH_MODE                        0x7
