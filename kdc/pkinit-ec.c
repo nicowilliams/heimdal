@@ -153,7 +153,7 @@ generate_ecdh_keyblock(krb5_context context,
     len = ECDH_compute_key(p, size,
                            EC_KEY_get0_public_key(ec_key_pk),
                            ephemeral, NULL);
-    if (len < 0) {
+    if (len <= 0) {
         free(p);
         EC_KEY_free(ephemeral);
         ret = KRB5KRB_ERR_GENERIC;

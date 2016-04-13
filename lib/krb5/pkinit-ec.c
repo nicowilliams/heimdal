@@ -210,7 +210,7 @@ _krb5_pk_rd_pa_reply_ecdh_compute_key(krb5_context context,
                                      EC_KEY_get0_public_key(public),
                                      ctx->u.eckey, NULL);
     EC_KEY_free(public);
-    if (dh_gen_keylen == -1) {
+    if (dh_gen_keylen <= 0) {
         ret = KRB5KRB_ERR_GENERIC;
         dh_gen_keylen = 0;
         krb5_set_error_message(context, ret,
@@ -219,8 +219,7 @@ _krb5_pk_rd_pa_reply_ecdh_compute_key(krb5_context context,
         *out = NULL;
         *out_sz = 0;
     }
-
-    /* XXX Er, must we do something with dh_gen_keylen? */
+    *out_sz = dh_gen_keylen;
 
     return ret;
 #else
