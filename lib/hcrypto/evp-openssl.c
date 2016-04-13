@@ -1,5 +1,6 @@
 /*
- * Copyright (c) 2015, Secure Endpoints Inc.
+ * Copyright (c) 2016, Kungliga Tekniska Högskolan
+ * (Royal Institute of Technology, Stockholm, Sweden).
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
