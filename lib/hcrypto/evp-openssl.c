@@ -308,11 +308,9 @@ cipher_do_cipher(hc_EVP_CIPHER_CTX *ctx, unsigned char *out,
                  const unsigned char *in, unsigned int len)
 {
     struct ossl_cipher_ctx *ossl_ctx = ctx->cipher_data;
-    int ret;
 
     assert(ossl_ctx != NULL);
-    ret = EVP_Cipher(ossl_ctx->ossl_cipher_ctx, out, in, len);
-    return ret;
+    return EVP_Cipher(ossl_ctx->ossl_cipher_ctx, out, in, len);
 }
 
 static int
