@@ -2,8 +2,11 @@
 
 include $(top_srcdir)/Makefile.am.common
 
-AM_CPPFLAGS += $(INCLUDE_openssl_crypto) \
-	       -I$(top_srcdir)/lib/hx509 \
+if HAVE_HCRYPTO_W_OPENSSL
+AM_CPPFLAGS += -I$(INCLUDE_openssl_crypto)
+endif
+
+AM_CPPFLAGS += -I$(top_srcdir)/lib/hx509 \
 	       -I$(srcdir)/libtommath -DUSE_HCRYPTO_LTM=1
 
 lib_LTLIBRARIES = libhcrypto.la
