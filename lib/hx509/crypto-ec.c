@@ -66,7 +66,7 @@ heim_oid2ecnid(heim_oid *oid)
     else if (der_heim_oid_cmp(oid, ASN1_OID_ID_EC_GROUP_SECP160R2) == 0)
 	return NID_secp160r2;
 
-    return -1;
+    return NID_undef;
 }
 
 static int
@@ -101,7 +101,7 @@ parse_ECParameters(hx509_context context,
 
     *nid = heim_oid2ecnid(&ecparam.u.namedCurve);
     free_ECParameters(&ecparam);
-    if (*nid == -1) {
+    if (*nid == NID_under) {
 	hx509_set_error_string(context, 0, ret,
 			       "Failed to find matcing NID for EC curve");
 	return HX509_CRYPTO_SIG_INVALID_FORMAT;
