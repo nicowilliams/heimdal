@@ -58,6 +58,7 @@ dist_libhx509_la_SOURCES = \
 	cms.c \
 	collector.c \
 	crypto.c \
+	crypto-ec.c \
 	doxygen.c \
 	error.c \
 	env.c \
@@ -92,6 +93,7 @@ libhx509_la_DEPENDENCIES = version-script.map
 libhx509_la_LIBADD = \
 	$(LIB_com_err) \
 	$(LIB_hcrypto) \
+	$(LIB_openssl_crypto) \
 	$(top_builddir)/lib/asn1/libasn1.la \
 	$(top_builddir)/lib/wind/libwind.la \
 	$(top_builddir)/lib/base/libheimbase.la \

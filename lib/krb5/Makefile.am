@@ -71,6 +71,7 @@ libkrb5_la_LIBADD = \
 	$(top_builddir)/lib/wind/libwind.la \
 	$(top_builddir)/lib/base/libheimbase.la \
 	$(LIB_pkinit) \
+	$(LIB_openssl_crypto) \
 	$(use_sqlite) \
 	$(LIB_com_err) \
 	$(LIB_hcrypto) \
@@ -200,6 +201,7 @@ dist_libkrb5_la_SOURCES =			\
 	padata.c				\
 	pcache.c				\
 	pkinit.c				\
+	pkinit-ec.c				\
 	principal.c				\
 	prog_setup.c				\
 	prompter_posix.c			\

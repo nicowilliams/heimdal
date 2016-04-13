@@ -35,10 +35,6 @@
 #include <err.h>
 #include <assert.h>
 
-#ifdef HAVE_OPENSSL
-#include <openssl/evp.h>
-#endif
-
 static int verbose = 0;
 
 static void

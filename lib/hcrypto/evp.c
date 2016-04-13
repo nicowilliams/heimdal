@@ -46,6 +46,7 @@
 #include <evp-cc.h>
 #include <evp-w32.h>
 #include <evp-pkcs11.h>
+#include <evp-openssl.h>
 
 #include <krb5-types.h>
 
@@ -54,6 +55,8 @@
 #  define HCRYPTO_DEF_PROVIDER cc
 # elif __sun
 #  define HCRYPTO_DEF_PROVIDER pkcs11_hcrypto
+# elif HAVE_HCRYPTO_W_OPENSSL
+#  define HCRYPTO_DEF_PROVIDER ossl
 # else
 #  define HCRYPTO_DEF_PROVIDER hcrypto
 # endif

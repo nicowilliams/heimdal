@@ -274,6 +274,10 @@ hash_test (struct hash_foo *hash, struct test *tests)
 	char buf[1000];
 
 	ectx = EVP_MD_CTX_create();
+        if (hash->evp() == NULL) {
+            printf("unavailable\n");
+            continue;
+        }
 	EVP_DigestInit_ex(ectx, hash->evp(), NULL);
 
 	(*hash->init)(ctx);
