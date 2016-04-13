@@ -101,7 +101,7 @@ parse_ECParameters(hx509_context context,
 
     *nid = heim_oid2ecnid(&ecparam.u.namedCurve);
     free_ECParameters(&ecparam);
-    if (*nid == NID_under) {
+    if (*nid == NID_undef) {
 	hx509_set_error_string(context, 0, ret,
 			       "Failed to find matcing NID for EC curve");
 	return HX509_CRYPTO_SIG_INVALID_FORMAT;
