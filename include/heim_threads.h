@@ -215,7 +215,7 @@ heim_rwlock_trywrlock(heim_rwlock_t *l)
     return EBUSY;
 }
 
-static inline vint
+static inline int
 heim_rwlock_unlock(heim_rwlock_t *l)
 {
     if (l->exclusive) {
