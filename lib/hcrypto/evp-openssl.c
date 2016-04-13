@@ -238,7 +238,8 @@ struct once_init_cipher_ctx {
     hc_EVP_CIPHER **hc_memoizep;    /* ptr to static ptr to hc_EVP_CIPHER */
     hc_EVP_CIPHER *hc_memoize;      /* ptr to static hc_EVP_CIPHER */
     unsigned long flags;
-    const EVP_CIPHER *(*f)(void);
+    unsigned char *initialized;
+    int nid;
 };
 
 /* Our wrapper for OpenSSL EVP_CIPHER_CTXs */
@@ -350,20 +351,15 @@ get_EVP_CIPHER_once_cb(void *d)
     hc_evp = arg->hc_memoize;
 
     /*
-     * XXX This can cause dynamic linking to fail when using LD_LIBRARY_PATH/
-     * LD_PRELOAD, or on update, when the libcrypto chosen at run-time does not
-     * have a given EVP_CIPHER.
-     *
-     * XXX Use an EVP lookup by name/OID/NID with EVP_get_cipherbyname(),
-     * EVP_get_cipherbyobj(), or EVP_get_cipherbynid().  NIDs and OIDs seem to
-     * be the most stable interfaces to EVPs.  (Even though internally these
-     * may get mapped to names then to EVP_CIPHERs.)
+     * We lookup EVP_CIPHER *s by NID so that we don't fail to find a
+     * symbol such as EVP_aes...() when libcrypto changes after build
+     * time (e.g., updates, LD_LIBRARY_PATH/LD_PRELOAD).
      */
-    ossl_evp = arg->f();
-
+    ossl_evp = EVP_get_cipherbynid(arg->nid);
     if (ossl_evp == NULL) {
         (void) memset(hc_evp, 0, sizeof(*hc_evp));
         *arg->hc_memoizep = NULL;
+        *arg->initialized = 1;
         return;
     }
 
@@ -396,40 +392,36 @@ get_EVP_CIPHER_once_cb(void *d)
 
     /* Finally, set the static hc_EVP_CIPHER * to the one we just built */
     *arg->hc_memoizep = hc_evp;
+    *arg->initialized = 1;
 }
 
 static hc_EVP_CIPHER *
 get_EVP_CIPHER(heim_base_once_t *once, hc_EVP_CIPHER *hc_memoize,
                hc_EVP_CIPHER **hc_memoizep, unsigned long flags,
-               const EVP_CIPHER *(*f)(void))
+               unsigned char *initialized, int nid)
 {
     struct once_init_cipher_ctx arg;
 
     arg.flags = flags;
     arg.hc_memoizep = hc_memoizep;
     arg.hc_memoize = hc_memoize;
-    arg.f = f;
+    arg.initialized = initialized;
+    arg.nid = nid;
     heim_base_once_f(once, &arg, get_EVP_CIPHER_once_cb);
     return *hc_memoizep; /* May be NULL */
 }
 
-/* XXX Pass in the NID or construct it via token pasting */
 #define OSSL_CIPHER_ALGORITHM(name, flags)                              \
     const hc_EVP_CIPHER *hc_EVP_ossl_##name(void)                       \
     {                                                                   \
         static hc_EVP_CIPHER ossl_##name##_st;                          \
         static hc_EVP_CIPHER *ossl_##name;                              \
         static heim_base_once_t once = HEIM_BASE_ONCE_INIT;             \
-        if (ossl_##name != NULL)                                        \
+        static unsigned char initialized;                               \
+        if (initialized)                                                \
             return ossl_##name;                                         \
         return get_EVP_CIPHER(&once, &ossl_##name##_st, &ossl_##name,   \
-                              flags, EVP_##name);                       \
-    }
-
-#define OSSL_CIPHER_ALGORITHM_UNAVAILABLE(name)                         \
-    const hc_EVP_CIPHER *hc_EVP_ossl_##name(void)                       \
-    {                                                                   \
-        return NULL;                                                    \
+                              flags, &initialized, NID_##name);         \
     }
 
 /* As above, but for EVP_MDs */
@@ -494,47 +486,42 @@ struct once_init_md_ctx {
     hc_EVP_MD **hc_memoizep;
     hc_EVP_MD *hc_memoize;
     hc_evp_md_init md_init;
-    int block_size;
-    int hash_size;
-    const EVP_MD *(*f)(void);
+    int nid;
+    unsigned char *initialized;
 };
 
 static void
 get_EVP_MD_once_cb(void *d)
 {
-    struct once_init_md_ctx *ctx = d;
+    struct once_init_md_ctx *arg = d;
     const EVP_MD *ossl_evp;
     hc_EVP_MD *hc_evp;
 
-    hc_evp = ctx->hc_memoize;
-    *ctx->ossl_memoizep = ossl_evp = ctx->f();
+    hc_evp = arg->hc_memoize;
+    *arg->ossl_memoizep = ossl_evp = EVP_get_digestbynid(arg->nid);
 
     if (ossl_evp == NULL) {
         (void) memset(hc_evp, 0, sizeof(*hc_evp));
-        *ctx->hc_memoizep = NULL;
+        *arg->hc_memoizep = NULL;
+        *arg->initialized = 1;
         return;
     }
 
-    assert(ctx->block_size == EVP_MD_block_size(ossl_evp));
-    assert(ctx->hash_size == EVP_MD_size(ossl_evp));
-
     /* Build the hc_EVP_MD */
-    hc_evp->block_size = ctx->block_size;
-    hc_evp->hash_size = ctx->hash_size;
     hc_evp->ctx_size = sizeof(struct ossl_md_ctx);
-    hc_evp->init = ctx->md_init;
+    hc_evp->init = arg->md_init;
     hc_evp->update = ossl_md_update;
     hc_evp->final = ossl_md_final;
     hc_evp->cleanup = ossl_md_cleanup;
 
-    *ctx->hc_memoizep = hc_evp;
+    *arg->hc_memoizep = hc_evp;
+    *arg->initialized = 1;
 }
 
 static hc_EVP_MD *
 get_EVP_MD(heim_base_once_t *once, hc_EVP_MD *hc_memoize,
            hc_EVP_MD **hc_memoizep, const EVP_MD **ossl_memoizep,
-           hc_evp_md_init md_init, int hash_size, int block_size,
-           const EVP_MD *(*f)(void))
+           hc_evp_md_init md_init, unsigned char *initialized, int nid)
 {
     struct once_init_md_ctx ctx;
 
@@ -542,14 +529,13 @@ get_EVP_MD(heim_base_once_t *once, hc_EVP_MD *hc_memoize,
     ctx.hc_memoizep = hc_memoizep;
     ctx.hc_memoize = hc_memoize;
     ctx.md_init = md_init;
-    ctx.block_size = block_size;
-    ctx.hash_size = hash_size;
-    ctx.f = f;
+    ctx.initialized = initialized;
+    ctx.nid = nid;
     heim_base_once_f(once, &ctx, get_EVP_MD_once_cb);
     return *hc_memoizep; /* May be NULL */
 }
 
-#define OSSL_MD_ALGORITHM(name, hs, bs)                                 \
+#define OSSL_MD_ALGORITHM(name)                                         \
     static const EVP_MD *ossl_EVP_##name;                               \
     static hc_EVP_MD *ossl_##name;                                      \
     static int ossl_init_##name(hc_EVP_MD_CTX *d)                       \
@@ -560,15 +546,12 @@ get_EVP_MD(heim_base_once_t *once, hc_EVP_MD *hc_memoize,
     {                                                                   \
         static hc_EVP_MD ossl_##name##_st;                              \
         static heim_base_once_t once = HEIM_BASE_ONCE_INIT;             \
+        static unsigned char initialized;                               \
+        if (initialized)                                                \
+            return ossl_##name;                                         \
         return get_EVP_MD(&once, &ossl_##name##_st, &ossl_##name,       \
-                          &ossl_EVP_##name, ossl_init_##name, hs, bs,   \
-                          EVP_##name);                                  \
-    }
-
-#define OSSL_MD_ALGORITHM_UNAVAILABLE(name)                             \
-    const hc_EVP_MD *hc_EVP_ossl_##name(void)                           \
-    {                                                                   \
-        return NULL;                                                    \
+                          &ossl_EVP_##name, ossl_init_##name,           \
+                          &initialized, NID_##name);                    \
     }
 
 /**
@@ -578,11 +561,7 @@ get_EVP_MD(heim_base_once_t *once, hc_EVP_MD *hc_memoize,
  *
  * @ingroup hcrypto_evp
  */
-#ifdef OPENSSL_NO_DES
-OSSL_CIPHER_ALGORITHM_UNAVAILABLE(des_ede3_cbc)
-#else
 OSSL_CIPHER_ALGORITHM(des_ede3_cbc, hc_EVP_CIPH_CBC_MODE)
-#endif
 
 /**
  * The DES cipher type (OpenSSL provider)
@@ -591,11 +570,7 @@ OSSL_CIPHER_ALGORITHM(des_ede3_cbc, hc_EVP_CIPH_CBC_MODE)
  *
  * @ingroup hcrypto_evp
  */
-#ifdef OPENSSL_NO_DES
-OSSL_CIPHER_ALGORITHM_UNAVAILABLE(des_cbc)
-#else
 OSSL_CIPHER_ALGORITHM(des_cbc, hc_EVP_CIPH_CBC_MODE)
-#endif
 
 /**
  * The AES-128 cipher type (OpenSSL provider)
@@ -604,11 +579,7 @@ OSSL_CIPHER_ALGORITHM(des_cbc, hc_EVP_CIPH_CBC_MODE)
  *
  * @ingroup hcrypto_evp
  */
-#ifdef OPENSSL_NO_AES
-OSSL_CIPHER_ALGORITHM_UNAVAILABLE(aes_128_cbc)
-#else
 OSSL_CIPHER_ALGORITHM(aes_128_cbc, hc_EVP_CIPH_CBC_MODE)
-#endif
 
 /**
  * The AES-192 cipher type (OpenSSL provider)
@@ -617,11 +588,7 @@ OSSL_CIPHER_ALGORITHM(aes_128_cbc, hc_EVP_CIPH_CBC_MODE)
  *
  * @ingroup hcrypto_evp
  */
-#ifdef OPENSSL_NO_AES
-OSSL_CIPHER_ALGORITHM_UNAVAILABLE(aes_192_cbc)
-#else
 OSSL_CIPHER_ALGORITHM(aes_192_cbc, hc_EVP_CIPH_CBC_MODE)
-#endif
 
 /**
  * The AES-256 cipher type (OpenSSL provider)
@@ -630,11 +597,7 @@ OSSL_CIPHER_ALGORITHM(aes_192_cbc, hc_EVP_CIPH_CBC_MODE)
  *
  * @ingroup hcrypto_evp
  */
-#ifdef OPENSSL_NO_AES
-OSSL_CIPHER_ALGORITHM_UNAVAILABLE(aes_256_cbc)
-#else
 OSSL_CIPHER_ALGORITHM(aes_256_cbc, hc_EVP_CIPH_CBC_MODE)
-#endif
 
 /**
  * The AES-128 CFB8 cipher type (OpenSSL provider)
@@ -643,11 +606,7 @@ OSSL_CIPHER_ALGORITHM(aes_256_cbc, hc_EVP_CIPH_CBC_MODE)
  *
  * @ingroup hcrypto_evp
  */
-#ifdef OPENSSL_NO_AES
-OSSL_CIPHER_ALGORITHM_UNAVAILABLE(aes_128_cfb8)
-#else
 OSSL_CIPHER_ALGORITHM(aes_128_cfb8, hc_EVP_CIPH_CFB8_MODE)
-#endif
 
 /**
  * The AES-192 CFB8 cipher type (OpenSSL provider)
@@ -656,11 +615,7 @@ OSSL_CIPHER_ALGORITHM(aes_128_cfb8, hc_EVP_CIPH_CFB8_MODE)
  *
  * @ingroup hcrypto_evp
  */
-#ifdef OPENSSL_NO_AES
-OSSL_CIPHER_ALGORITHM_UNAVAILABLE(aes_192_cfb8)
-#else
 OSSL_CIPHER_ALGORITHM(aes_192_cfb8, hc_EVP_CIPH_CFB8_MODE)
-#endif
 
 /**
  * The AES-256 CFB8 cipher type (OpenSSL provider)
@@ -669,11 +624,7 @@ OSSL_CIPHER_ALGORITHM(aes_192_cfb8, hc_EVP_CIPH_CFB8_MODE)
  *
  * @ingroup hcrypto_evp
  */
-#ifdef OPENSSL_NO_AES
-OSSL_CIPHER_ALGORITHM_UNAVAILABLE(aes_256_cfb8)
-#else
 OSSL_CIPHER_ALGORITHM(aes_256_cfb8, hc_EVP_CIPH_CFB8_MODE)
-#endif
 
 /**
  * The RC2 cipher type - OpenSSL
@@ -682,13 +633,9 @@ OSSL_CIPHER_ALGORITHM(aes_256_cfb8, hc_EVP_CIPH_CFB8_MODE)
  *
  * @ingroup hcrypto_evp
  */
-#ifdef OPENSSL_NO_RC2
-OSSL_CIPHER_ALGORITHM_UNAVAILABLE(rc2_cbc)
-#else
 OSSL_CIPHER_ALGORITHM(rc2_cbc,
                       hc_EVP_CIPH_CBC_MODE |
                       hc_EVP_CIPH_VARIABLE_LENGTH)
-#endif
 
 /**
  * The RC2-40 cipher type - OpenSSL
@@ -697,12 +644,8 @@ OSSL_CIPHER_ALGORITHM(rc2_cbc,
  *
  * @ingroup hcrypto_evp
  */
-#ifdef OPENSSL_NO_RC2
-OSSL_CIPHER_ALGORITHM_UNAVAILABLE(rc2_40_cbc)
-#else
 OSSL_CIPHER_ALGORITHM(rc2_40_cbc,
                       hc_EVP_CIPH_CBC_MODE)
-#endif
 
 /**
  * The RC2-64 cipher type - OpenSSL
@@ -711,13 +654,9 @@ OSSL_CIPHER_ALGORITHM(rc2_40_cbc,
  *
  * @ingroup hcrypto_evp
  */
-#ifdef OPENSSL_NO_RC2
-OSSL_CIPHER_ALGORITHM_UNAVAILABLE(rc2_64_cbc)
-#else
 OSSL_CIPHER_ALGORITHM(rc2_64_cbc,
                       hc_EVP_CIPH_CBC_MODE |
                       hc_EVP_CIPH_VARIABLE_LENGTH)
-#endif
 
 /**
  * The Camellia-128 cipher type - OpenSSL
@@ -726,11 +665,7 @@ OSSL_CIPHER_ALGORITHM(rc2_64_cbc,
  *
  * @ingroup hcrypto_evp
  */
-#ifdef OPENSSL_NO_CAMELLIA
-OSSL_CIPHER_ALGORITHM_UNAVAILABLE(camellia_128_cbc)
-#else
 OSSL_CIPHER_ALGORITHM(camellia_128_cbc, hc_EVP_CIPH_CBC_MODE)
-#endif
 
 /**
  * The Camellia-198 cipher type - OpenSSL
@@ -739,11 +674,7 @@ OSSL_CIPHER_ALGORITHM(camellia_128_cbc, hc_EVP_CIPH_CBC_MODE)
  *
  * @ingroup hcrypto_evp
  */
-#ifdef OPENSSL_NO_CAMELLIA
-OSSL_CIPHER_ALGORITHM_UNAVAILABLE(camellia_192_cbc)
-#else
 OSSL_CIPHER_ALGORITHM(camellia_192_cbc, hc_EVP_CIPH_CBC_MODE)
-#endif
 
 /**
  * The Camellia-256 cipher type - OpenSSL
@@ -752,11 +683,7 @@ OSSL_CIPHER_ALGORITHM(camellia_192_cbc, hc_EVP_CIPH_CBC_MODE)
  *
  * @ingroup hcrypto_evp
  */
-#ifdef OPENSSL_NO_CAMELLIA
-OSSL_CIPHER_ALGORITHM_UNAVAILABLE(camellia_256_cbc)
-#else
 OSSL_CIPHER_ALGORITHM(camellia_256_cbc, hc_EVP_CIPH_CBC_MODE)
-#endif
 
 /**
  * The RC4 cipher type (OpenSSL provider)
@@ -765,13 +692,9 @@ OSSL_CIPHER_ALGORITHM(camellia_256_cbc, hc_EVP_CIPH_CBC_MODE)
  *
  * @ingroup hcrypto_evp
  */
-#ifdef OPENSSL_NO_RC4
-OSSL_CIPHER_ALGORITHM_UNAVAILABLE(rc4)
-#else
 OSSL_CIPHER_ALGORITHM(rc4,
                       hc_EVP_CIPH_STREAM_CIPHER |
                       hc_EVP_CIPH_VARIABLE_LENGTH)
-#endif
 
 /**
  * The RC4-40 cipher type (OpenSSL provider)
@@ -780,13 +703,9 @@ OSSL_CIPHER_ALGORITHM(rc4,
  *
  * @ingroup hcrypto_evp
  */
-#ifdef OPENSSL_NO_RC4
-OSSL_CIPHER_ALGORITHM_UNAVAILABLE(rc4_40)
-#else
 OSSL_CIPHER_ALGORITHM(rc4_40,
                       hc_EVP_CIPH_STREAM_CIPHER |
                       hc_EVP_CIPH_VARIABLE_LENGTH)
-#endif
 
 /**
  * The MD2 hash algorithm (OpenSSL provider)
@@ -795,11 +714,7 @@ OSSL_CIPHER_ALGORITHM(rc4_40,
  *
  * @ingroup hcrypto_evp
  */
-#ifdef OPENSSL_NO_MD2
-OSSL_MD_ALGORITHM_UNAVAILABLE(md2)
-#else
-OSSL_MD_ALGORITHM(md2, 16, 16)
-#endif
+OSSL_MD_ALGORITHM(md2)
 
 /**
  * The MD4 hash algorithm (OpenSSL provider)
@@ -808,11 +723,7 @@ OSSL_MD_ALGORITHM(md2, 16, 16)
  *
  * @ingroup hcrypto_evp
  */
-#ifdef OPENSSL_NO_MD4
-OSSL_MD_ALGORITHM_UNAVAILABLE(md4)
-#else
-OSSL_MD_ALGORITHM(md4, 16, 64)
-#endif
+OSSL_MD_ALGORITHM(md4)
 
 /**
  * The MD5 hash algorithm (OpenSSL provider)
@@ -821,11 +732,7 @@ OSSL_MD_ALGORITHM(md4, 16, 64)
  *
  * @ingroup hcrypto_evp
  */
-#ifdef OPENSSL_NO_MD5
-OSSL_MD_ALGORITHM_UNAVAILABLE(md5)
-#else
-OSSL_MD_ALGORITHM(md5, 16, 64)
-#endif
+OSSL_MD_ALGORITHM(md5)
 
 /**
  * The SHA-1 hash algorithm (OpenSSL provider)
@@ -834,11 +741,7 @@ OSSL_MD_ALGORITHM(md5, 16, 64)
  *
  * @ingroup hcrypto_evp
  */
-#ifdef OPENSSL_NO_SHA1
-OSSL_MD_ALGORITHM_UNAVAILABLE(sha1)
-#else
-OSSL_MD_ALGORITHM(sha1, 20, 64)
-#endif
+OSSL_MD_ALGORITHM(sha1)
 
 /**
  * The SHA-256 hash algorithm (OpenSSL provider)
@@ -847,11 +750,7 @@ OSSL_MD_ALGORITHM(sha1, 20, 64)
  *
  * @ingroup hcrypto_evp
  */
-#ifdef OPENSSL_NO_SHA
-OSSL_MD_ALGORITHM_UNAVAILABLE(sha256)
-#else
-OSSL_MD_ALGORITHM(sha256, 32, 64)
-#endif
+OSSL_MD_ALGORITHM(sha256)
 
 /**
  * The SHA-384 hash algorithm (OpenSSL provider)
@@ -860,11 +759,7 @@ OSSL_MD_ALGORITHM(sha256, 32, 64)
  *
  * @ingroup hcrypto_evp
  */
-#ifdef OPENSSL_NO_SHA
-OSSL_MD_ALGORITHM_UNAVAILABLE(sha384)
-#else
-OSSL_MD_ALGORITHM(sha384, 48, 128)
-#endif
+OSSL_MD_ALGORITHM(sha384)
 
 /**
  * The SHA-512 hash algorithm (OpenSSL provider)
@@ -873,11 +768,7 @@ OSSL_MD_ALGORITHM(sha384, 48, 128)
  *
  * @ingroup hcrypto_evp
  */
-#ifdef OPENSSL_NO_SHA
-OSSL_MD_ALGORITHM_UNAVAILABLE(sha512)
-#else
-OSSL_MD_ALGORITHM(sha512, 64, 128)
-#endif
+OSSL_MD_ALGORITHM(sha512)
 
 #else /* HAVE_HCRYPTO_W_OPENSSL */
 static char dummy;
