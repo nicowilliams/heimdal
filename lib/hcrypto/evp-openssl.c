@@ -334,14 +334,8 @@ static int
 cipher_ctrl(hc_EVP_CIPHER_CTX *ctx, int type, int arg, void *ptr)
 {
     struct ossl_cipher_ctx *ossl_ctx = ctx->cipher_data;
-    const EVP_CIPHER *c;
 
     assert(ossl_ctx != NULL);
-    assert(ctx->cipher != NULL);
-    assert(ctx->cipher->app_data != NULL);
-
-    c = ctx->cipher->app_data;
-
     return EVP_CIPHER_CTX_ctrl(ossl_ctx->ossl_cipher_ctx, type, arg, ptr);
 }
 
