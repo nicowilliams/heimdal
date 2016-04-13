@@ -73,8 +73,8 @@
 /*
  * This being an OpenSSL backend for hcrypto... we need to be able to
  * refer to types and objects (functions) from both, OpenSSL and
- * hcrypto.  
- * 
+ * hcrypto.
+ *
  * The hcrypto API is *very* similar to the OpenSSL 1.0.x API, with the
  * same type and symbol names in many cases, except that the hcrypto
  * names are prefixed with hc_*.  hcrypto has convenience macros that
