@@ -158,13 +158,12 @@ struct sockaddr_dl;
 #include <wind.h>
 
 /*
- * XXX We use OpenSSL for EC, but to do this we need to disable
- * cross-references between OpenSSL and hcrypto bn.h and such.  Source
- * files that use OpenSSL EC define USE_OPENSSL_EC before including this
- * file.
+ * We use OpenSSL for EC, but to do this we need to disable cross-references
+ * between OpenSSL and hcrypto bn.h and such.  Source files that use OpenSSL EC
+ * must define HEIM_NO_CRYPTO_HDRS before including this file.
  */
 #define HC_DEPRECATED_CRYPTO
-#ifndef USE_OPENSSL_EC
+#ifndef HEIM_NO_CRYPTO_HDRS
 #include "crypto-headers.h"
 #endif
 

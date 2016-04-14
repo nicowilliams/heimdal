@@ -55,7 +55,7 @@
 #include <openssl/ecdh.h>
 #include <openssl/evp.h>
 #include <openssl/bn.h>
-#define USE_OPENSSL_EC
+#define HEIM_NO_CRYPTO_HDRS
 #endif
 
 #include <config.h>

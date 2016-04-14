@@ -39,7 +39,7 @@
 #include <openssl/rsa.h>
 #include <openssl/bn.h>
 #include <openssl/objects.h>
-#define USE_OPENSSL_EC
+#define HEIM_NO_CRYPTO_HDRS
 #endif /* HAVE_HCRYPTO_W_OPENSSL */
 
 #include "hx_locl.h"
