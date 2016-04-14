@@ -75,27 +75,30 @@
 
 #include <hx509.h>
 
+#ifdef HAVE_HCRYPTO_W_OPENSSL
 static void
 free_client_ec_param(krb5_context context,
                      EC_KEY *ec_key_pk,
                      EC_KEY *ec_key_key)
 {
-#ifdef HAVE_HCRYPTO_W_OPENSSL
     if (ec_key_pk != NULL)
         EC_KEY_free(ec_key_pk);
     if (ec_key_key != NULL)
         EC_KEY_free(ec_key_key);
-#endif
 }
+#endif
 
 void
 _kdc_pk_free_client_ec_param(krb5_context context,
                              void *ec_key_pk,
                              void *ec_key_key)
 {
+#ifdef HAVE_HCRYPTO_W_OPENSSL
     free_client_ec_param(context, ec_key_pk, ec_key_key);
+#endif
 }
 
+#ifdef HAVE_HCRYPTO_W_OPENSSL
 static krb5_error_code
 generate_ecdh_keyblock(krb5_context context,
                        EC_KEY *ec_key_pk,    /* the client's public key */
@@ -103,7 +106,6 @@ generate_ecdh_keyblock(krb5_context context,
                        unsigned char **dh_gen_key, /* shared secret */
                        size_t *dh_gen_keylen)
 {
-#ifdef HAVE_HCRYPTO_W_OPENSSL
     const EC_GROUP *group;
     EC_KEY *ephemeral;
     krb5_keyblock key;
@@ -167,10 +169,8 @@ generate_ecdh_keyblock(krb5_context context,
     *dh_gen_keylen = len;
 
     return 0;
-#else
-    return ENOTSUP;
-#endif /* HAVE_HCRYPTO_W_OPENSSL */
 }
+#endif /* HAVE_HCRYPTO_W_OPENSSL */
 
 krb5_error_code
 _kdc_generate_ecdh_keyblock(krb5_context context,
@@ -179,18 +179,22 @@ _kdc_generate_ecdh_keyblock(krb5_context context,
                             unsigned char **dh_gen_key, /* shared secret */
                             size_t *dh_gen_keylen)
 {
+#ifdef HAVE_HCRYPTO_W_OPENSSL
     return generate_ecdh_keyblock(context, ec_key_pk,
                                   (EC_KEY **)ec_key_key,
                                   dh_gen_key, dh_gen_keylen);
+#else
+    return ENOTSUP;
+#endif /* HAVE_HCRYPTO_W_OPENSSL */
 }
 
+#ifdef HAVE_HCRYPTO_W_OPENSSL
 static krb5_error_code
 get_ecdh_param(krb5_context context,
                krb5_kdc_configuration *config,
                SubjectPublicKeyInfo *dh_key_info,
                EC_KEY **out)
 {
-#ifdef HAVE_HCRYPTO_W_OPENSSL
     ECParameters ecp;
     EC_KEY *public = NULL;
     krb5_error_code ret;
@@ -244,10 +248,8 @@ get_ecdh_param(krb5_context context,
 	EC_KEY_free(public);
     free_ECParameters(&ecp);
     return ret;
-#else
-    return ENOTSUP;
-#endif /* HAVE_HCRYPTO_W_OPENSSL */
 }
+#endif /* HAVE_HCRYPTO_W_OPENSSL */
 
 krb5_error_code
 _kdc_get_ecdh_param(krb5_context context,
@@ -255,7 +257,11 @@ _kdc_get_ecdh_param(krb5_context context,
                     SubjectPublicKeyInfo *dh_key_info,
                     void **out)
 {
+#ifdef HAVE_HCRYPTO_W_OPENSSL
     return get_ecdh_param(context, config, dh_key_info, (EC_KEY **)out);
+#else
+    return ENOTSUP;
+#endif /* HAVE_HCRYPTO_W_OPENSSL */
 }
 
 
@@ -263,13 +269,13 @@ _kdc_get_ecdh_param(krb5_context context,
  *
  */
 
+#ifdef HAVE_HCRYPTO_W_OPENSSL
 static krb5_error_code
 serialize_ecdh_key(krb5_context context,
                    EC_KEY *key,
                    unsigned char **out,
                    size_t *out_len)
 {
-#ifdef HAVE_HCRYPTO_W_OPENSSL
     krb5_error_code ret = 0;
     unsigned char *p;
     int len;
@@ -298,8 +304,6 @@ serialize_ecdh_key(krb5_context context,
 
     *out_len = len * 8;
     return ret;
-#else
-    return ENOTSUP;
 #endif
 }
 
@@ -309,9 +313,11 @@ _kdc_serialize_ecdh_key(krb5_context context,
                         unsigned char **out,
                         size_t *out_len)
 {
+#ifdef HAVE_HCRYPTO_W_OPENSSL
     return serialize_ecdh_key(context, key, out, out_len);
+#else
+    return ENOTSUP;
+#endif
 }
 
-#else
-static char kdc_pkinit_ec_c = '\0';
 #endif
