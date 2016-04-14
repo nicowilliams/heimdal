@@ -124,12 +124,8 @@ if test "$openssl" = "yes"; then
 fi
 AM_CONDITIONAL(HAVE_HCRYPTO_W_OPENSSL, test "$openssl" = yes)dnl
 
-dnl XXX Remove INCLUDE_hcrypto; no longer used
-INCLUDE_hcrypto=
-
 AC_SUBST(INCLUDE_openssl_crypto)
 AC_SUBST(LIB_openssl_crypto)
-AC_SUBST(INCLUDE_hcrypto)
 AC_SUBST(LIB_hcrypto)
 AC_SUBST(LIB_hcrypto_a)
 AC_SUBST(LIB_hcrypto_so)
