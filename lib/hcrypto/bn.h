@@ -72,6 +72,8 @@
 #define BN_GENCB hc_BN_GENCB
 #define BN_CTX hc_BN_CTX
 #define BN_BLINDING hc_BN_BLINDING
+#define BN_MONT_CTX hc_BN_MONT_CTX
+
 
 /*
  *

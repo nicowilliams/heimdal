@@ -51,7 +51,8 @@ hcryptoinclude_HEADERS =	\
 	rc4.h			\
 	rsa.h			\
 	sha.h			\
-	ui.h
+	ui.h			\
+	undef.h
 
 install-build-headers:: $(hcryptoinclude_HEADERS)
 	@foo='$(hcryptoinclude_HEADERS)'; \
@@ -164,7 +165,8 @@ libhcrypto_la_SOURCES =	\
 	sha512.c	\
 	validate.c	\
 	ui.c		\
-	ui.h
+	ui.h		\
+	undef.h
 
 ltmsources = \
 	libtommath/tommath.h \
