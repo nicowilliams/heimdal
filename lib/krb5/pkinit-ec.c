@@ -230,7 +230,9 @@ _krb5_pk_rd_pa_reply_ecdh_compute_key(krb5_context context,
 void
 _krb5_pk_eckey_free(void *eckey)
 {
+#ifdef HAVE_HCRYPTO_W_OPENSSL
     EC_KEY_free(eckey);
+#endif
 }
 
 #else

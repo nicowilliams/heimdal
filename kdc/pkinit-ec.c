@@ -56,7 +56,7 @@
 #include <openssl/evp.h>
 #include <openssl/bn.h>
 #define USE_OPENSSL_EC
-#endif
+#endif /* HAVE_HCRYPTO_W_OPENSSL */
 
 #ifdef HAVE_STDINT_H
 #include <stdint.h>

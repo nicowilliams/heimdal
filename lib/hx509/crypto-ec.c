@@ -40,6 +40,7 @@
 #include <openssl/bn.h>
 #include <openssl/objects.h>
 #define USE_OPENSSL_EC
+#endif /* HAVE_HCRYPTO_W_OPENSSL */
 
 #include "hx_locl.h"
 
@@ -49,9 +50,12 @@ extern const AlgorithmIdentifier _hx509_signature_sha1_data;
 void
 _hx509_private_eckey_free(void *eckey)
 {
+#ifdef HAVE_HCRYPTO_W_OPENSSL
     EC_KEY_free(eckey);
+#endif
 }
 
+#ifdef HAVE_HCRYPTO_W_OPENSSL
 static int
 heim_oid2ecnid(heim_oid *oid)
 {
@@ -410,14 +414,6 @@ const AlgorithmIdentifier _hx509_signature_ecdsa_with_sha1_data = {
 
 
 const AlgorithmIdentifier *
-hx509_signature_ecPublicKey(void)
-{ return &_hx509_signature_ecPublicKey; }
-
-const AlgorithmIdentifier *
-hx509_signature_ecdsa_with_sha256(void)
-{ return &_hx509_signature_ecdsa_with_sha256_data; }
-
-const AlgorithmIdentifier *
 hx509_signature_ecdsa_with_sha1(void)
 { return &_hx509_signature_ecdsa_with_sha1_data; }
 
@@ -463,6 +459,24 @@ const struct signature_alg ecdsa_with_sha1_alg = {
     20
 };
 
-#else
-static char lib_hx509_crypto_ec_c = '\0';
 #endif /* HAVE_HCRYPTO_W_OPENSSL */
+
+const AlgorithmIdentifier *
+hx509_signature_ecPublicKey(void)
+{
+#ifdef HAVE_HCRYPTO_W_OPENSSL
+    return &_hx509_signature_ecPublicKey;
+#else
+    return NULL;
+#endif /* HAVE_HCRYPTO_W_OPENSSL */
+}
+
+const AlgorithmIdentifier *
+hx509_signature_ecdsa_with_sha256(void)
+{
+#ifdef HAVE_HCRYPTO_W_OPENSSL
+    return &_hx509_signature_ecdsa_with_sha256_data;
+#else
+    return NULL;
+#endif /* HAVE_HCRYPTO_W_OPENSSL */
+}
