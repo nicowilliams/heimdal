@@ -304,8 +304,8 @@ serialize_ecdh_key(krb5_context context,
 
     *out_len = len * 8;
     return ret;
-#endif
 }
+#endif
 
 krb5_error_code
 _kdc_serialize_ecdh_key(krb5_context context,
