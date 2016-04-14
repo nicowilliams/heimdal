@@ -161,7 +161,9 @@ _krb5_build_authpack_subjectPK_EC(krb5_context context,
 
     /* XXX verify that this is right with RFC3279 */
 #else
-    return EINVAL;
+    krb5_set_error_message(context, ENOTSUP,
+                           N_("PKINIT: ECDH not supported", ""));
+    return ENOTSUP;
 #endif
 }
 
@@ -223,7 +225,9 @@ _krb5_pk_rd_pa_reply_ecdh_compute_key(krb5_context context,
 
     return ret;
 #else
-    return EINVAL;
+    krb5_set_error_message(context, ENOTSUP,
+                           N_("PKINIT: ECDH not supported", ""));
+    return ENOTSUP;
 #endif
 }
 

@@ -516,6 +516,8 @@ build_auth_pack(krb5_context context,
             a->clientPublicValue->subjectPublicKey.data = dhbuf.data;
 	} else if (ctx->keyex == USE_ECDH) {
             ret = _krb5_build_authpack_subjectPK_EC(context, ctx, a);
+            if (ret)
+                return ret;
 	} else
 	    krb5_abortx(context, "internal error");
     }
@@ -1363,6 +1365,8 @@ pk_rd_pa_reply_dh(krb5_context context,
         ret = _krb5_pk_rd_pa_reply_ecdh_compute_key(context, ctx, p,
                                                     size, &dh_gen_key,
                                                     &dh_gen_keylen);
+        if (ret)
+          goto out;
     }
 
     if (dh_gen_keylen <= 0) {
