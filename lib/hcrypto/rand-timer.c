@@ -183,6 +183,7 @@ timer_status(void)
 #endif
 }
 
+#if defined(__GUNC__) || (defined(__STDC_VERSION__) && __STDC_VERSION__ >= 199901)
 const RAND_METHOD hc_rand_timer_method = {
     timer_seed,
     timer_bytes,
@@ -191,6 +192,16 @@ const RAND_METHOD hc_rand_timer_method = {
     timer_pseudorand,
     timer_status
 };
+#else
+const RAND_METHOD hc_rand_timer_method = {
+    timer_seed,
+    timer_bytes,
+    timer_cleanup,
+    timer_add,
+    timer_pseudorand,
+    timer_status
+};
+#endif
 
 const RAND_METHOD *
 RAND_timer_method(void)
