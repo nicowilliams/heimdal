@@ -90,6 +90,9 @@ static struct hdb_method methods[] = {
 #if defined(OPENLDAP) && !defined(OPENLDAP_MODULE)
     { HDB_INTERFACE_VERSION, NULL, NULL, "ldap:",	hdb_ldap_create},
     { HDB_INTERFACE_VERSION, NULL, NULL, "ldapi:",	hdb_ldapi_create},
+#elif defined(OPENLDAP)
+    { HDB_INTERFACE_VERSION, NULL, NULL, "ldap:",	NULL},
+    { HDB_INTERFACE_VERSION, NULL, NULL, "ldapi:",	NULL},
 #endif
 #ifdef HAVE_SQLITE3
     { HDB_INTERFACE_VERSION, NULL, NULL, "sqlite:", hdb_sqlite_create},
@@ -349,6 +352,26 @@ find_method (const char *filename, const char **rest)
     return NULL;
 }
 
+struct cb_s {
+    const char *residual;
+    const char *filename;
+    const struct hdb_method *h;
+};
+
+static krb5_error_code KRB5_LIB_CALL
+callback(krb5_context context, const void *plug, void *plugctx, void *userctx)
+{
+    const struct hdb_method *h = (const struct hdb_method *)plug;
+    struct cb_s *cb_ctx = (struct cb_s *)userctx;
+
+    if (strncmp(cb_ctx->filename, h->prefix, strlen(h->prefix)) == 0) {
+	cb_ctx->residual = cb_ctx->filename + strlen(h->prefix);
+	cb_ctx->h = h;
+	return 0;
+    }
+   return KRB5_PLUGIN_NO_HANDLE;
+}
+
 krb5_error_code
 hdb_list_builtin(krb5_context context, char **list)
 {
@@ -371,6 +394,23 @@ hdb_list_builtin(krb5_context context, char **list)
     buf[0] = '\0';
 
     for (h = methods; h->prefix != NULL; ++h) {
+        if (h->create == NULL) {
+            struct cb_s cb_ctx;
+            char *f;
+
+            /* Try loading the plugin */
+            if (asprintf(&f, "%sfoo", h->prefix) == -1 || f == NULL)
+                continue;
+            cb_ctx.filename = f;
+            cb_ctx.residual = NULL;
+            cb_ctx.h = NULL;
+            (void)_krb5_plugin_run_f(context, "krb5", "hdb",
+                                     HDB_INTERFACE_VERSION, 0, &cb_ctx,
+                                     callback);
+            free(f);
+            if (cb_ctx.h == NULL || cb_ctx.h->create == NULL)
+                continue;
+        }
 	if (h != methods)
 	    strlcat(buf, ", ", len);
 	strlcat(buf, h->prefix, len);
@@ -408,26 +448,6 @@ _hdb_keytab2hdb_entry(krb5_context context,
  * use O_CREAT to tell the backend to create the file.
  */
 
-struct cb_s {
-    const char *residual;
-    const char *filename;
-    const struct hdb_method *h;
-};
-
-static krb5_error_code KRB5_LIB_CALL
-callback(krb5_context context, const void *plug, void *plugctx, void *userctx)
-{
-    const struct hdb_method *h = (const struct hdb_method *)plug;
-    struct cb_s *cb_ctx = (struct cb_s *)userctx;
-
-    if (strncmp(cb_ctx->filename, h->prefix, strlen(h->prefix)) == 0) {
-	cb_ctx->residual = cb_ctx->filename + strlen(h->prefix);
-	cb_ctx->h = h;
-	return 0;
-    }
-   return KRB5_PLUGIN_NO_HANDLE;
-}
-
 krb5_error_code
 hdb_create(krb5_context context, HDB **db, const char *filename)
 {
@@ -438,9 +458,10 @@ hdb_create(krb5_context context, HDB **db, const char *filename)
     cb_ctx.h = find_method (filename, &cb_ctx.residual);
     cb_ctx.filename = filename;
 
-    if (cb_ctx.h == NULL) {
-	    (void)_krb5_plugin_run_f(context, "krb5", "hdb",
-			     HDB_INTERFACE_VERSION, 0, &cb_ctx, callback);
+    if (cb_ctx.h == NULL || cb_ctx.h->create == NULL) {
+        (void)_krb5_plugin_run_f(context, "krb5", "hdb",
+                                 HDB_INTERFACE_VERSION, 0, &cb_ctx,
+                                 callback);
     }
     if (cb_ctx.h == NULL)
 	krb5_errx(context, 1, "No database support for %s", cb_ctx.filename);
