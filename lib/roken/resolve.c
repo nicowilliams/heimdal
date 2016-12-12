@@ -46,8 +46,6 @@
 #endif
 #include "resolve.h"
 
-#include <assert.h>
-
 #ifdef _AIX /* AIX have broken res_nsearch() in 5.1 (5.0 also ?) */
 #undef HAVE_RES_NSEARCH
 #endif
@@ -628,7 +626,7 @@ rk_dns_srv_order(struct rk_dns_reply *r)
 {
     struct rk_resource_record **srvs, **ss, **headp;
     struct rk_resource_record *rr;
-    int num_srv = 0;
+    size_t num_srv = 0;
 
     rk_random_init();
 
@@ -660,49 +658,58 @@ rk_dns_srv_order(struct rk_dns_reply *r)
     headp = &r->head;
 
     for(ss = srvs; ss < srvs + num_srv; ) {
-	int sum, zeros, rnd, count;
+	size_t sum, zeros, rnd, count; /* zeros -> weight scaling */
 	struct rk_resource_record **ee, **tt;
 	/* find the last record with the same priority and count the
            sum of all weights */
 	for(sum = 0, zeros = 0, tt = ss; tt < srvs + num_srv; tt++) {
-	    assert(*tt != NULL);
+            if (*tt == NULL)
+                continue;       /* shouldn't happen, but just in case */
 	    if((*tt)->u.srv->priority != (*ss)->u.srv->priority)
 		break;
-	    sum += (*tt)->u.srv->weight;
+            sum += (*tt)->u.srv->weight;
 	    if ((*tt)->u.srv->weight == 0)
 		zeros++;
 	}
-	/* With no zeros, add 0 and scale * 1 */
-	sum += zeros ? zeros : zeros++;
-	sum *= zeros;
+        /* make sure scale (`zeros') is > 0 then scale out */
+        sum += zeros ? 1 : zeros++;
+        sum *= zeros;
 	ee = tt;
 	/* ss is now the first record of this priority and ee is the
-           first of the next */
+           first of the next or the first past the end of srvs */
 	while(ss < ee) {
 	    rnd = rk_random() % sum + 1;
-	    for(count = 0, tt = ss; ; tt++) {
+	    for(count = 0, tt = ss; tt < ee; tt++) {
 		if(*tt == NULL)
-		    continue;
-		count += (*tt)->u.srv->weight * zeros;
+		    continue;   /* this one's already been picked */
+                count += (*tt)->u.srv->weight * zeros;
 		if ((*tt)->u.srv->weight == 0)
 		    count++;
 		if(count >= rnd)
 		    break;
 	    }
 
-	    assert(tt < ee);
+            if (tt == ee) {
+                ss = tt;
+                break;
+            }
 
-	    /* insert the selected record at the tail (of the head) of
-               the list */
-	    (*tt)->next = *headp;
-	    *headp = *tt;
-	    headp = &(*tt)->next;
-	    sum -= (*tt)->u.srv->weight * zeros;
-	    if ((*tt)->u.srv->weight == 0)
-		sum--;
-	    *tt = NULL;
-	    while(ss < ee && *ss == NULL)
-		ss++;
+            if (*tt != NULL) {
+                /* push the selected record */
+                (*tt)->next = *headp;
+                *headp = *tt;
+                headp = &(*tt)->next;
+                /* reduce the sum so the next rnd is fair */
+                if (sum - (*tt)->u.srv->weight * zeros > 0)
+                    sum -= (*tt)->u.srv->weight * zeros;
+                if ((*tt)->u.srv->weight == 0)
+                    sum--;
+                if (sum == 0)
+                    sum = 1; /* paranoia: avoid mod 0 above */
+                *tt = NULL;
+            }
+            while(ss < ee && *ss == NULL)
+                ss++;
 	}
     }
 
