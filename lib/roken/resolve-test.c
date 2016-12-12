@@ -36,6 +36,7 @@
 
 #include "roken.h"
 #include "getarg.h"
+#include <assert.h>
 #ifdef HAVE_ARPA_NAMESER_H
 #include <arpa/nameser.h>
 #endif
@@ -44,11 +45,15 @@
 #endif
 #include "resolve.h"
 
+static int srv_rr_order = 1;
 static int loop_integer = 1;
 static int version_flag = 0;
 static int help_flag	= 0;
 
 static struct getargs args[] = {
+    {"srv-rr-order", 0,
+     arg_negative_flag,                 &srv_rr_order,
+     "do not test SRV RR ordering", NULL },
     {"loop",	0,	arg_integer,	&loop_integer,
      "loop resolving", NULL },
     {"version",	0,	arg_flag,	&version_flag,
@@ -67,6 +72,86 @@ usage (int ret)
     exit (ret);
 }
 
+static
+int
+test_rk_dns_srv_order(size_t run)
+{
+    struct rk_dns_reply reply;
+    struct rk_resource_record rrs[16];
+    struct rk_resource_record *rr;
+    struct rk_srv_record srvs[16];
+    size_t i, prio0;
+    int fail = 0;
+
+    (void) memset(&reply, 0, sizeof(reply));
+    (void) memset(srvs, 0, sizeof(srvs));
+    (void) memset(rrs, 0, sizeof(rrs));
+
+    rrs[0].type = rk_ns_t_srv;
+    rrs[0].u.srv = &srvs[0];
+    rrs[0].next = &rrs[1];
+    srvs[0].priority = 10;
+    srvs[0].weight = 0;
+    rrs[1].type = rk_ns_t_srv;
+    rrs[1].u.srv = &srvs[1];
+    rrs[0].next = NULL;
+    srvs[0].priority = 10;
+    srvs[0].weight = 0;
+    reply.head = &rrs[0];
+    rk_dns_srv_order(&reply);
+    assert(reply.head != NULL);
+    printf("%p %p\n", &rrs[0], rrs[0].next);
+
+    for (i = 0; i < sizeof(rrs)/sizeof(rrs[0]); i++) {
+        rrs[i].type = rk_ns_t_srv;
+        rrs[i].u.srv = &srvs[i];
+        srvs[i].priority = 1 + i / 4;
+        srvs[i].weight = i % 4;
+    }
+    for (i = 1; i < sizeof(rrs)/sizeof(rrs[0]); i++) {
+        struct rk_resource_record tmp;
+
+        if (i < rk_random() % sizeof(rrs)/sizeof(rrs[0])) {
+            tmp = rrs[i];
+            rrs[i] = rrs[i - 1];
+            rrs[i - 1] = tmp;
+        }
+    }
+    for (i = 0; i < sizeof(rrs)/sizeof(rrs[0]); i++)
+        rrs[i].next = &rrs[i + 1];
+    rrs[i - 1].next = NULL;
+    reply.head = &rrs[0];
+
+    for (i = 0, rr = reply.head; i < sizeof(rrs)/sizeof(rrs[0]); i++) {
+        if (rr == NULL)
+            break;
+        printf("SRV RR order run %lu input: prio %lu weight %lu\n",
+               (unsigned long)run, (unsigned long)rr->u.srv->priority,
+               (unsigned long)rr->u.srv->weight);
+        rr = rr->next;
+    }
+
+    rk_dns_srv_order(&reply);
+    assert(reply.head != NULL);
+
+    prio0 = 1;
+    for (i = 0, rr = reply.head; i < sizeof(rrs)/sizeof(rrs[0]); i++) {
+        if (rr->u.srv->priority < prio0) {
+            printf("SRV RR order run %lu failed\n", run);
+            fail = 1;
+        }
+        if (rr == NULL)
+            break;
+        printf("SRV RR order run %lu output: prio %lu weight %lu\n",
+               (unsigned long)run, (unsigned long)rr->u.srv->priority,
+               (unsigned long)rr->u.srv->weight);
+        rr = rr->next;
+    }
+    assert(i == sizeof(rrs)/sizeof(rrs[0]));
+
+    return fail;
+}
+
 int
 main(int argc, char **argv)
 {
@@ -75,6 +160,7 @@ main(int argc, char **argv)
     int optidx = 0, i, exit_code = 0;
 
     setprogname (argv[0]);
+    rk_random_init();
 
     if(getarg(args, sizeof(args) / sizeof(args[0]), argc, argv, &optidx))
 	usage(1);
@@ -90,8 +176,23 @@ main(int argc, char **argv)
     argc -= optidx;
     argv += optidx;
 
-    if (argc != 2)
+    if (argc != 2 && argc != 0 && !srv_rr_order)
 	usage(1);
+
+    if (srv_rr_order) {
+        exit_code += test_rk_dns_srv_order(0);
+        exit_code += test_rk_dns_srv_order(1);
+        exit_code += test_rk_dns_srv_order(2);
+        exit_code += test_rk_dns_srv_order(3);
+        exit_code += test_rk_dns_srv_order(4);
+        exit_code += test_rk_dns_srv_order(5);
+    }
+
+    if (srv_rr_order && argc == 0)
+        exit(exit_code ? 1 : 0);
+
+    if (argc != 2)
+        usage(1);
 
     for (i = 0; i < loop_integer; i++) {
 
@@ -181,5 +282,5 @@ main(int argc, char **argv)
 	rk_dns_free_data(r);
     }
 
-    return exit_code;
+    return exit_code ? 1 : 0;
 }
