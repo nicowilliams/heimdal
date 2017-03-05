@@ -218,6 +218,15 @@ gss_krb5_set_allowable_enctypes(OM_uint32 *minor_status,
 				OM_uint32 num_enctypes,
 				int32_t *enctypes);
 
+/*
+ * Credential store extension
+ */
+
+#define GSS_KRB5_C_CS_CLI_KEYTAB_URN "client_keytab"
+#define GSS_KRB5_C_CS_KEYTAB_URN "keytab"
+#define GSS_KRB5_C_CS_CCACHE_URN "ccache"
+#define GSS_KRB5_C_CS_RCACHE_URN "rcache"
+
 GSSAPI_CPP_END
 
 #endif /* GSSAPI_SPNEGO_H_ */
