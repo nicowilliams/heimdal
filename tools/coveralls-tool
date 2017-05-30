@@ -1,0 +1,159 @@
+#!/bin/bash
+
+set -euo pipefail
+set +o noglob
+
+PROG=${0##*/}
+
+job=${CI_JOB_ID:-}
+out=
+repo=
+srcdir=$PWD
+objdir=$PWD
+token=${COVERALLS_REPO_TOKEN:-}
+verbose=0
+
+function usage {
+    cat <<EOF
+Usage: $PROG [OPTIONS]
+Usage: $PROG [-o FILE] [-S SRCDIR] [-O OBJDIR] [-R URI] [-t TOKEN] [-v] [-x]
+    Options:
+
+     -v         Verbose (on stderr).
+     -x         Trace $PROG
+     -o FILE    Output to FILE instead of stdout.
+     -t TOKEN   Token for Coveralls         (defaults to
+                                             \$COVERALLS_REPO_TOKEN)
+     -J ID      Job ID (e.g., Travis-CI job ID)
+     -S SRCDIR  Path to clone               (defaults to \$PWD)
+     -O OBJDIR  Path to object directory    (defaults to SRCDIR)
+     -R URI     Repository URI              (defaults to origin URI
+                                             for SRCDIR)
+
+    $PROG will look for .gcda files in OBJDIR for source files
+    in the clone at SRCDIR and will run gcov on them, and produce
+    a request body as JSON in FILE (or stdout if -o FILE not given)
+    for Coveralls.
+
+    Only C and C++ source files are reported on.  E.g., Yacc/Bison/Flex
+    source files are not reported.
+EOF
+}
+
+while getopts +:J:O:R:S:ho:t:vx opt; do
+case "$opt" in
+J) job=$OPTARG;;
+O) cd "$OPTARG"; objdir=$PWD; cd "$OLDPWD";;
+R) repo=$OPTARG;;
+S) cd "$OPTARG"; srcdir=$PWD; cd "$OLDPWD";;
+h) usage 0;;
+o) out=$OPTARG;;
+t) token=$OPTARG;;
+v) ((verbose++)) || true;;
+x) set -vx;;
+*) usage 1;;
+esac
+done
+
+# Note: we don't cd to $srcdir or $objdir or anywhere, so if $out is a relative
+# path, we do the right thing.
+
+: ${repo:=$(cd "$srcdir"; git remote get-url origin)}
+
+if ((verbose > 1)); then
+    exec 3>&2
+else
+    exec 3>/dev/null
+fi
+
+d=
+function cleanup {
+    [[ -n $d ]] && rm -rf "$d"
+}
+
+trap cleanup EXIT
+d=$(mktemp -d)
+touch "${d}/f"
+
+function find_and_mv_gcda {
+    local dir=${1%/*}
+    local base=${1##*/}
+    local best_gcda=${srcdir}/${dir}/${base%.*}.gcda
+    local gcda
+    local -a gcdas=(
+        $best_gcda
+        ${objdir}/${dir}/${base%.*}.gcda
+        ${objdir}/${dir}/.libs/${base%.*}.gcda
+    )
+    for gcda in "${gcdas[@]}"; do
+        [[ -f $gcda ]] || continue
+        [[ $gcda = $best_gcda ]] && continue
+        if [[ -f $best_gdca && $gcda != $best_gcda && $gcda -nt $best_gcda ]]; then
+            mv "$gcda" "$best_gcda"
+        elif [[ ! -f $best_gdca ]]; then
+            mv -f "$gcda" "$best_gcda"
+        elif [[ $gcda -nt $best_gcda ]]; then
+            mv -f "$gcda" "$best_gcda"
+        else
+            rm -f "$gcda"
+        fi
+    done
+    [[ -f ${gcdas[0]} ]] || return 1
+}
+
+declare -a gcov
+
+(cd "$srcdir" && git ls-files -- '*.c' '*.cpp') |
+while read f; do
+    # Remember to be careful to refer to ${srcdir}/${f}
+    ((verbose)) && printf 'Processing: %s\n' "$f" 1>&2
+
+    # If we don't have a gcda file, we don't have coverage.
+    find_and_mv_gcda "$f" || continue
+
+    # Run gcov, which will produce not-always-correctly-named .gcov files (see
+    # below).
+    if (cd "${srcdir}/${f%/*}"; ((verbose > 1)) && set -vx; gcov "${f##*/}") 1>&3; then
+        true
+    else
+        printf 'Warning: gcov failed for %s\n' "$f" 1>&2
+        continue
+    fi
+    md5=$(md5sum "${srcdir}/${f}")
+
+    # Glob to find the gcov file.  Unfortunately because of the recursive
+    # makefile design of Heimdal's build gcov often ends up using the wrong
+    # path to construct the .gcov files, so we just glob for them.
+    #
+    # We could read all gcov files we can find and extract the path to the
+    # source from the .gcno/.gcda files named therein, and for each file pick
+    # the latest.
+    gcov=()
+    gcov=(${srcdir}/${f%.*}.gcno*gcov)
+    if ((${#gcov[@]} == 0)); then
+        printf 'Warning: no gcov file found for %s\n' "$f" 1>&2
+        continue
+    fi
+
+    jq -Rn --arg sum "$md5" --arg f "$f" '
+        {
+            name: $f,
+            source_digest: $sum,
+            coverage: [
+                inputs
+              | split(":")
+              | (.[1] |= tonumber)
+              | select(.[1] > 0)
+              | if .[0]|endswith("#")
+                then 0
+                elif .[0]|endswith("-")
+                then null
+                else .[0]|tonumber
+                end
+            ]
+        }
+    ' "${gcov[0]}" >> "${d}/f"
+done
+
+[[ -n $out ]] && exec 1>"$out"
+jq --arg job "$job" -s '{service_job_id: $job, service_name: "travis-ci", source_files: .}' "${d}/f"
