@@ -118,7 +118,7 @@ _gss_alloc_call_context(_gss_call_context *cc)
 	    (void) AO_fetch_and_sub1_full(&p->cc_refs);
 	    continue;
 	}
-	memset(p, 0, sizeof (p));
+	memset(p, 0, sizeof (*p));
 	p->cc_gss_mechsp = &p->cc_gss_mechs;
 	*cc = p;
 	return GSS_S_COMPLETE;
