@@ -98,6 +98,11 @@ krb5_free_data(krb5_context context,
 KRB5_LIB_FUNCTION krb5_error_code KRB5_LIB_CALL
 krb5_data_alloc(krb5_data *p, int len)
 {
+    p->length = 0;
+    if (len < 0) {
+        p->data = NULL;
+        return EINVAL;
+    }
     p->data = malloc(len);
     if(len && p->data == NULL)
 	return ENOMEM;
@@ -122,6 +127,8 @@ krb5_data_realloc(krb5_data *p, int len)
 {
     void *tmp;
     tmp = realloc(p->data, len);
+    if (len < 0)
+        return EINVAL;
     if(len && !tmp)
 	return ENOMEM;
     p->data = tmp;

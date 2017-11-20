@@ -1506,6 +1506,31 @@ krb5_ret_creds(krb5_storage *sp, krb5_creds *creds)
     if(ret) goto cleanup;
     ret = krb5_ret_authdata (sp,  &creds->authdata);
     if(ret) goto cleanup;
+    if (krb5_principal_get_num_comp(context, creds->server) > 1) {
+        const char *realm = krb5_principal_get_realm(context, creds->server);
+        const char *name0 = krb5_principal_get_comp_string(context,
+                                                           creds->server, 0);
+        const char *name1 = krb5_principal_get_comp_string(context,
+                                                           creds->server, 1);
+        uint32_t size;
+
+        if (realm != NULL && name0 != NULL && name1 != NULL &&
+            strcmp(realm, "X-CACHECONF:") == 0 &&
+            strcmp(name0, "krb5_ccache_conf_data") == 0 &&
+            strcmp(name1, "ccache_hash_table") == 0) {
+
+            ret = krb5_ret_uint32(sp, &size);
+            if (ret) goto cleanup;
+            if (krb5_storage_seek(sp, size, SEEK_CUR) == -1) {
+                ret = errno;
+                goto cleanup;
+            }
+            creds->ticket.data = NULL;
+            creds->ticket.length = size;
+            ret = krb5_ret_data(sp, &creds->second_ticket);
+            goto cleanup;
+        }
+    }
     ret = krb5_ret_data (sp,  &creds->ticket);
     if(ret) goto cleanup;
     ret = krb5_ret_data (sp,  &creds->second_ticket);

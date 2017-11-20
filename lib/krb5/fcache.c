@@ -33,11 +33,116 @@
  * SUCH DAMAGE.
  */
 
+/*
+ * We now have a lock-less, O(1) extension to the ccache.
+ *
+ * We store (as usual, holding a file lock) one very large cconfig entry that
+ * consists of a small header and a large hash table consisting of a
+ * fixed-sized array of fixed-sized slots.  The hash table is indexed by
+ * HMAC-SHA-1-96() of the principal name, keyed with a nonce in the header.
+ *
+ * We use cuckoo hashing with a number of alternate locations, and we us an LRU
+ * strategy.
+ *
+ * Large entries span multiple slots.  Not contiguous slots, but slots given by
+ * taking unique sliding windows of the hash of the principal name.  Thus a
+ * two-slot entry might be written at slots 33 and 587.  Up to N * <nslots>
+ * slots will be checked when writing, and up to N * <max_nslots> will be
+ * checked when reading.
+ *
+ * The hash table is sized as a power of 2 that is larger than N^2, where N is
+ * the working set size of ccache entries a user/app will need.  This sizing
+ * consideration, the M alternate locations, and LRU, reduces the likelihood
+ * of thrashing.  E.g., 2^10 (1024) == 32^2, so for working set sizes up to 32,
+ * 1024 will do fine, 2048 ~ 45^2, 4096 = 64^2, and so on -- that's without
+ * counting the effect of the M alternate locations.
+ *
+ * Therefore 1024 slots should suffice for a working set of 128 small tickets.
+ *
+ * Extra-large ccache entries are not written in the hash table, but they are
+ * written to the FILE ccache beyond the hash table as usual: holding a file
+ * lock.  In order to avoid having to always look past the hash table on cache
+ * miss, we do isert a one-slot placeholder in the hash table for such large
+ * entries.
+ *
+ * Each slot stores the HMAC-SHA-256-128() (keyed with a nonce in the hash
+ * table header) of the real ccache entry, the HMAC-SHA-1-96() of the principal
+ * name, the size of the real ccache entry, and the real ccache entry.
+ *
+ * The hash table header stores:
+ *
+ *  - nonce for HMACs
+ *  - number of hash table slots
+ *  - slot size
+ *  - max ccache entry size
+ *  - ...
+ *
+ * We use a ccache v4 extension to make finding the hash table fast by
+ * recording up front its offset.  This way we always read this offset early on
+ * when reading the ccache and need not iterate any entries at all to find
+ * service tickets.  (We could also do this for the start TGT and the
+ * start-realm ccconfig...)
+ *
+ * Retrieving is as follows:
+ *
+ *  - hash the name of the principal we're looking for and compute all the slot
+ *    locations we'd look in if the ccache entry turns out to be the largest
+ *    allowed
+ *  - iterate over the slot list, reading each and checking the name MACs found
+ *    in each
+ *     - if none matches -> CC_NOTFOUND
+ *     - if any matches -> reconstitute all matches
+ *        - read the slot header to get the size of the entry
+ *        - read the the entry
+ *        - MAC the entry and compare the MAC
+ *           - if not match -> CC_NOTFOUND
+ *           - if match -> check the other match params and return accordingly
+ *              - if all constraints match -> pick the newest (by create time)
+ *                                            entry, and write the last use
+ *                                            timestamp in the slot headers for
+ *                                            all of that entry's slots
+ *
+ * Iteration is as follows:
+ * 
+ *  - starting at the zero-th slot, read its size, read the entry (using the
+ *    stored principal MAC to compute the slot list for that entry), check the
+ *    MAC, and if it matches, output that and skipt to the slot after it, else
+ *    move one slot down and repeat until the last slot is read
+ *
+ * Writing is as follows:
+ *  - hash the name of the principal we're looking for and compute the four (or
+ *    fewer) sets of slots in which we might store
+ *  - check the last use times of the two entries, replace the Least Recently
+ *    Used one (LRU); where the LRU time is zero, use the creation time
+ *     - construct array of slots in memmory
+ *     - write each slot to its intended location in the file (writes are not
+ *       atomic anyways)
+ *
+ * The use of HMAC for hashing principal names is to avoid linearization and
+ * other DoS attacks on the hash table.  We keep 128 bits of the MAC of the
+ * principal name, which, if log2(nslots) == 10, then we get up 119 unique
+ * locations, but perhaps, too, as few as 1 unique location (very unlikely!).
+ *
+ * The use of HMAC for integrity protection of actual ccache entries is to
+ * protect against smuggling ccache entries in Tickets, and to provide
+ * protection against corruption due to concurrency.
+ *
+ * Lock-less for reading, lock-less for writing.
+ */
+
 #include "krb5_locl.h"
+#include <assert.h>
 
 typedef struct krb5_fcache{
     char *filename;
     int version;
+    krb5_principal def_princ;
+    off_t tbl_off_off;  /* offset to offset for table */
+    off_t tbl_off;      /* offset to hash table */
+    size_t tbl_sz;      /* size of hash table */
+    struct fcc_hash_table_header *tbl; /* mmap'ed table */
+    size_t tbl_mmap_sz; /* mmap'ed size; should be == to tbl_sz */
+    krb5_crypto crypto; /* for MAC operations */
 }krb5_fcache;
 
 struct fcc_cursor {
@@ -47,12 +152,38 @@ struct fcc_cursor {
     krb5_storage *sp;
 };
 
+struct fcc_hash_table_header {
+    char nonce[16];             /* key for MACs */
+    uint32_t nslots;            /* no. of slots in table */
+    uint32_t slotsz;            /* slot size */
+    uint32_t nalts;             /* no. of alternate locations */
+    uint32_t princ_cksumtype;   /* MAC for princ name */
+    uint32_t entry_cksumtype;   /* MAC for ccache entry */
+    uint32_t entry_max_sz;      /* max size for entries in hash table */
+};
+
+/* 64-byte header; 512 slot size - 64 -> large enough for most tix w/o PACs */
+struct fcc_hash_slot_header {
+    char princ_mac[16];         /* MAC(client, server) */
+    char entry_mac[16];         /* entry MAC; 128 bits is plenty */
+    uint64_t store_time;        /* time at which this entry was written */
+    uint64_t last_use_time;     /* last time at which this entry was read */
+    uint64_t large_entry_off;   /* loc past hash table of extra large entry */
+    uint32_t entrysz;           /* entrysz > entry_max_sz -> look past table */
+    /*
+     * We put seqnum last so we can memcmp() just a prefix of this struct minus
+     * the seqnum.  This allows us to not have to uniq slot locations.
+     */
+    uint32_t seqnum;            /* 0 -> first slot of entry, 1 -> 2nd, ... */
+};
+
 #define KRB5_FCC_FVNO_1 1
 #define KRB5_FCC_FVNO_2 2
 #define KRB5_FCC_FVNO_3 3
 #define KRB5_FCC_FVNO_4 4
 
 #define FCC_TAG_DELTATIME 1
+#define FCC_TAG_HASH_TABLE_OFFSET 2 /* offset to table */
 
 #define FCACHE(X) ((krb5_fcache*)(X)->data.data)
 
@@ -185,7 +316,7 @@ static krb5_error_code KRB5_CALLCONV
 fcc_resolve(krb5_context context, krb5_ccache *id, const char *res)
 {
     krb5_fcache *f;
-    f = malloc(sizeof(*f));
+    f = calloc(1, sizeof(*f));
     if(f == NULL) {
 	krb5_set_error_message(context, KRB5_CC_NOMEM,
 			       N_("malloc: out of memory", ""));
@@ -199,6 +330,13 @@ fcc_resolve(krb5_context context, krb5_ccache *id, const char *res)
 	return KRB5_CC_NOMEM;
     }
     f->version = 0;
+    f->def_princ = NULL;
+    f->tbl_mmap_sz = 0;
+    f->tbl_off_off = -1;
+    f->tbl_off = -1;
+    f->tbl_sz = 0;
+    f->crypto = NULL;
+    f->tbl = NULL;
     (*id)->data.data = f;
     (*id)->data.length = sizeof(*f);
     return 0;
@@ -312,7 +450,7 @@ fcc_gen_new(krb5_context context, krb5_ccache *id)
     krb5_fcache *f;
     int fd;
 
-    f = malloc(sizeof(*f));
+    f = calloc(1, sizeof(*f));
     if(f == NULL) {
 	krb5_set_error_message(context, KRB5_CC_NOMEM,
 			       N_("malloc: out of memory", ""));
@@ -345,6 +483,13 @@ fcc_gen_new(krb5_context context, krb5_ccache *id)
     close(fd);
     f->filename = exp_file;
     f->version = 0;
+    f->def_princ = NULL;
+    f->tbl_mmap_sz = 0;
+    f->tbl_off_off = -1;
+    f->tbl_off = -1;
+    f->crypto = NULL;
+    f->tbl_sz = 0;
+    f->tbl = NULL;
     (*id)->data.data = f;
     (*id)->data.length = sizeof(*f);
     return 0;
@@ -534,6 +679,13 @@ fcc_initialize(krb5_context context,
         return krb5_einval(context, 2);
 
     unlink (f->filename);
+    f->tbl_off_off = -1;
+    f->tbl_off = -1;
+    if (f->tbl != NULL)
+        munmap(f->tbl, f->tbl_mmap_sz);
+    f->tbl_mmap_sz = 0;
+    f->tbl_sz = 0;
+    f->tbl = NULL;
 
     ret = fcc_open(context, id, "initialize", &fd, O_RDWR | O_CREAT | O_EXCL, 0600);
     if(ret)
@@ -551,23 +703,28 @@ fcc_initialize(krb5_context context,
         if (ret == 0)
             ret = krb5_store_int8(sp, f->version);
 	storage_set_flags(context, sp, f->version);
-	if(f->version == KRB5_FCC_FVNO_4 && ret == 0) {
-	    /* V4 stuff */
-	    if (context->kdc_sec_offset) {
-                if (ret == 0)
-                    ret = krb5_store_int16 (sp, 12); /* length */
-                if (ret == 0)
-                    ret = krb5_store_int16 (sp, FCC_TAG_DELTATIME); /* Tag */
-                if (ret == 0)
-                    ret = krb5_store_int16 (sp, 8); /* length of data */
-                if (ret == 0)
-                    ret = krb5_store_int32 (sp, context->kdc_sec_offset);
-                if (ret == 0)
-                    ret = krb5_store_int32 (sp, context->kdc_usec_offset);
-	    } else {
-                if (ret == 0)
-                    ret = krb5_store_int16 (sp, 0);
-	    }
+	if (f->version == KRB5_FCC_FVNO_4 && ret == 0) {
+	    /* V4 ccache extensions */
+            if (ret == 0)
+                ret = krb5_store_int16(sp, 28); /* length of all extensions */
+            if (ret == 0)
+                ret = krb5_store_int16(sp, FCC_TAG_DELTATIME); /* Tag */
+            if (ret == 0)
+                ret = krb5_store_int16(sp, 8); /* length of time offset */
+            if (ret == 0)
+                ret = krb5_store_int32(sp, context->kdc_sec_offset);
+            if (ret == 0)
+                ret = krb5_store_int32(sp, context->kdc_usec_offset);
+            if (ret == 0)
+                ret = krb5_store_int16(sp, FCC_TAG_HASH_TABLE_OFFSET); /* Tag */
+            if (ret == 0)
+                ret = krb5_store_int16(sp, 12); /* length of file offset */
+            if (ret == 0) {
+                f->tbl_off_off = krb5_storage_seek(sp, 0, SEEK_CUR);
+                ret = krb5_store_int64(sp, -1); /* offset to hash table */
+            }
+            if (ret == 0)
+                ret = krb5_store_uint32(sp, 0); /* size of hash table */
 	}
         if (ret == 0)
             ret = krb5_store_principal(sp, primary_principal);
@@ -596,6 +753,17 @@ fcc_close(krb5_context context,
         return krb5_einval(context, 2);
 
     free (FILENAME(id));
+    if (FCACHE(id)->tbl != NULL)
+        (void) munmap(FCACHE(id)->tbl, FCACHE(id)->tbl_mmap_sz);
+    if (FCACHE(id)->crypto != NULL)
+        krb5_crypto_destroy(context, FCACHE(id)->crypto);
+    FCACHE(id)->tbl_mmap_sz = 0;
+    FCACHE(id)->tbl_off_off = -1;
+    FCACHE(id)->tbl_off = -1;
+    FCACHE(id)->tbl_sz = 0;
+    FCACHE(id)->crypto = NULL;
+    FCACHE(id)->tbl = NULL;
+
     krb5_data_free(&id->data);
     return 0;
 }
@@ -609,6 +777,362 @@ fcc_destroy(krb5_context context,
 
     return _krb5_erase_file(context, FILENAME(id));
 }
+
+#ifdef HAVE_MMAP
+static krb5_error_code KRB5_CALLCONV
+make_hash_table(krb5_context context, krb5_ccache id, int fd)
+{
+    struct fcc_hash_table_header tbl;
+    krb5_error_code ret;
+    krb5_storage *sp = NULL;
+    krb5_creds tbl_cred;
+    ssize_t page_size = 8192;
+    ssize_t sz;
+    off_t off, save_off;
+
+    if (FCACHE(id)->def_princ == NULL || FCACHE(id)->tbl_off_off == -1)
+        return -1;
+
+#if defined(HAVE_SYSCONF) && defined(_SC_PAGE_SIZE)
+    if ((page_size = sysconf(_SC_PAGE_SIZE)) < 0)
+        page_size = 8192;
+#endif
+
+    memset(&tbl, 0, sizeof(tbl));
+    tbl.nslots = 1024;
+    tbl.slotsz = 512;
+    tbl.princ_cksumtype = CKSUMTYPE_HMAC_SHA256_128_AES128;
+    tbl.entry_cksumtype = CKSUMTYPE_HMAC_SHA256_128_AES128;
+    tbl.entry_max_sz = 1UL<<14;
+
+    assert(sizeof(tbl) < tbl.slotsz);
+    sz = (ssize_t)((tbl.nslots + 1) * tbl.slotsz);
+
+    ret = krb5_generate_random(&tbl.nonce, sizeof(tbl.nonce));
+    if (ret)
+        return ret;
+
+    memset(&tbl_cred, 0, sizeof(tbl_cred));
+
+    /* Prep a krb5_creds to store, then store it */
+    tbl_cred.times.authtime = time(NULL);
+    if (sizeof(tbl_cred.times.endtime) > sizeof(uint32_t))
+        tbl_cred.times.endtime = tbl_cred.times.authtime + 3600 * 24 * 365 * 10;
+    else
+        tbl_cred.times.endtime = tbl_cred.times.authtime + 3600 * 24 * 365;
+
+    tbl_cred.client = FCACHE(id)->def_princ;
+    ret = krb5_make_principal(context, &tbl_cred.server,
+                              "X-CACHECONF:", "krb5_ccache_conf_data",
+                              "ccache_hash_table", NULL);
+
+    /*
+     * XXX If we didn't use krb5_store_creds() then we wouldn't have to
+     * allocate sz bytes here for nothing.
+     */
+    if (ret == 0)
+        /*
+         * We add a page to the size so that we can align the actual table at a
+         * page boundary so we can mmap() the table.
+         */
+        ret = krb5_data_alloc(&tbl_cred.ticket, sz + page_size);
+    if (ret == 0) {
+        memset(tbl_cred.ticket.data, 0, tbl_cred.ticket.length);
+        sp = krb5_storage_from_fd(fd);
+        if (sp == NULL)
+            ret = ENOMEM;
+    }
+
+    if (ret == 0) {
+        off = krb5_storage_seek(sp, 0, SEEK_CUR);
+        if (off == -1)
+            ret = errno;
+    }
+
+    if (ret == 0)
+	ret = krb5_store_creds(sp, &tbl_cred);
+
+    /*
+     * Work out the offset of the page-aligned table, and make sure to preserve
+     * the current offset (end of the cred we just wrote) of the sp.
+     */
+
+    if (ret == 0)
+        save_off = krb5_storage_seek(sp, 0, SEEK_CUR);
+    else
+        save_off = -1;
+
+    /* krb5_storage_from_fd() dup()s fd; update fd's offset to match */
+    if (save_off > -1 && lseek(fd, off, SEEK_SET) == -1 && ret == 0)
+        ret = errno;
+
+    krb5_free_principal(context, tbl_cred.server);
+    tbl_cred.client = tbl_cred.server = NULL;
+    krb5_data_free(&tbl_cred.ticket);
+    
+    /* Find the offset to the table in the ccache entry we just wrote */
+    if (ret == 0 && save_off != -1 &&
+        krb5_storage_seek(sp, off, SEEK_SET) == off) {
+        int8_t u8;
+        int32_t i32;
+        uint32_t u32;
+
+        ret = krb5_ret_principal(sp, &tbl_cred.client);
+        if (ret == 0)
+            ret = krb5_ret_principal(sp, &tbl_cred.server);
+        if (ret == 0)
+            ret = krb5_ret_keyblock(sp, &tbl_cred.session);
+        if (ret == 0)
+            krb5_ret_times(sp, &tbl_cred.times);
+        if (ret == 0)
+            krb5_ret_int8(sp, &u8);
+        if (ret == 0)
+            ret = krb5_ret_int32(sp, &i32);
+        if (ret == 0) {
+            tbl_cred.flags.b = int2TicketFlags(0);
+            ret = krb5_ret_addrs(sp, &tbl_cred.addresses);
+        }
+        if (ret == 0)
+            ret = krb5_ret_authdata(sp, &tbl_cred.authdata);
+
+        /* sp's offset now points at the length of the "ticket" */
+        if (ret == 0)
+            ret = krb5_ret_uint32(sp, &u32);
+
+        if (u32 != sz + page_size)
+            ret = KRB5_CC_FORMAT;
+
+        /* sp's offset now points at the "ticket" */
+
+        if (ret == 0)
+            off = krb5_storage_seek(sp, 0, SEEK_CUR);
+
+        off += page_size - (off % page_size); /* offset to actual table */
+
+        /* Update the offset to the table in the ccache header */
+        if (save_off > off && save_off >= off + sz) {
+            if (krb5_storage_seek(sp, FCACHE(id)->tbl_off_off, SEEK_SET) != -1)
+                ret = krb5_store_int64(sp, off);
+            else
+                ret = KRB5_CC_FORMAT;
+        } else
+            ret = KRB5_CC_FORMAT;
+    }
+
+    tbl_cred.client = NULL;
+    krb5_free_cred_contents(context, &tbl_cred);
+    krb5_storage_free(sp);
+
+    /* Leave fd's offset as expected */
+    if (save_off > 0 && lseek(fd, save_off, SEEK_SET) == -1 && ret == 0)
+        ret = errno;
+    return ret;
+}
+
+static inline uint32_t
+ones32(register uint32_t x)
+{
+    x -= ((x >> 1) & 0x55555555);
+    x = (((x >> 2) & 0x33333333) + (x & 0x33333333));
+    x = (((x >> 4) + x) & 0x0f0f0f0f);
+    x += (x >> 8);
+    x += (x >> 16);
+    return(x & 0x0000003f);
+}
+
+static inline uint32_t
+my_log2(register uint32_t x)
+{
+    register int y = (x & (x - 1));
+
+    y |= -y;
+    y >>= (sizeof(x) * CHAR_BIT - 1);
+    x |= (x >> 1);
+    x |= (x >> 2);
+    x |= (x >> 4);
+    x |= (x >> 8);
+    x |= (x >> 16);
+    return(ones32(x >> 1) - y);
+}
+
+static uint64_t
+get_mac_bits(unsigned char *src, size_t len, size_t numbits, size_t idx)
+{
+    size_t lobits = idx + numbits;          /* index of lowest bit */
+    size_t lobyte = len - ((lobits >> 3) % CHAR_BIT);    /* index of lowest bytes */
+    size_t bytes = numbits >> 3;    /* floor(no. of bytes needed for numbits) */
+    uint64_t bits = 0;
+    size_t i;
+
+    assert(CHAR_BIT == 8);
+    assert(numbits >= CHAR_BIT);
+    assert(((numbits + CHAR_BIT - 1) >> 3) < sizeof(bits));
+
+    /*
+     * This loop copies the bits from the bit string into `bits`, such that 0
+     * to 7 bits of the LSB of `bits` may need to be shifted out.
+     */
+    for (i = 0; i < sizeof(bits) && i < bytes + 1 && &src[lobyte - i] >= src; i++)
+        bits |= (src[lobyte - i] << (i * 8));
+    /*
+     * Shift out 0 to 7 bits, then mask out all but the low `numbits` bits of
+     * `bits`.
+     */
+    return (bits >> (lobits % CHAR_BIT)) & ((1<<numbits) - 1);
+}
+
+static krb5_error_code
+tbl_mac2offsets(krb5_context context,
+                krb5_ccache id,
+                krb5_checksum *macp,
+                size_t sz,
+                struct fcc_hash_slot_header **slotsp,
+                size_t *nslotsp)
+{
+    struct fcc_hash_table_header *h = FCACHE(id)->tbl;
+    struct fcc_hash_slot_header *slots;
+    size_t i, nslots, maxi, numbits, slotsz;
+    uint32_t *indexes;
+
+    if (h == NULL || h->nalts < 1 || h->nalts > 5 ||
+        h->nslots < 256 || h->slotsz < 512)
+        return -1;
+
+    slots = (void *)(((char *)h) + h->slotsz);
+    numbits = my_log2(h->nslots);
+
+    /* Effective slot size -- space for ccache entry content */
+    slotsz = h->slotsz - sizeof(struct fcc_hash_slot_header);
+
+    if (sz == 0)
+        /* When we're reading, we don't know the slot size */
+        sz = h->entry_max_sz;
+
+    if (sz < slotsz)
+        /* Don't check too many locations */
+        nslots = h->nalts;
+    else
+        nslots = h->nalts * (sz / slotsz);
+
+    indexes = calloc(nslots, sizeof(indexes[0]));
+    if (indexes == NULL)
+        return ENOMEM;
+
+    /*
+     * How many indices can we generate from a MAC?  For example, for a 128-bit
+     * MAC we can get up to 119 10-bit indices.
+     */
+    maxi = macp->checksum.length * CHAR_BIT + 1 - numbits;
+
+    for (i = 0; i < nslots && i < maxi; i++)
+        indexes[i] = get_mac_bits(macp->checksum.data, macp->checksum.length, numbits, i);
+    nslots = i;
+
+    /*
+     * We could uniq here, but without sorting that's a bit silly: accidentally
+     * quadratic.  Or we could not uniq at all.  Instead on read we'd just
+     * ignore seqnums we've already seen, or on write we'd not overwrite our
+     * own entries.
+     */
+
+    if (*slotsp == NULL || *nslotsp < nslots) {
+        free(*slotsp);
+        *slotsp = calloc(nslots, sizeof(*slotsp));
+        if (*slotsp == NULL) {
+            *nslotsp = 0;
+            free(indexes);
+            return ENOMEM;
+        }
+    }
+
+    for (i = 0; i < nslots; i++)
+        slotsp[i] = &slots[i];
+
+    *nslotsp = nslots;
+    return 0;
+}
+
+static krb5_error_code
+tbl_hash(krb5_context context,
+         krb5_ccache id,
+         int fd,
+         krb5_creds *creds,
+         krb5_checksum *macp,
+         struct fcc_hash_slot_header **slotsp,
+         size_t *nslotsp)
+{
+    krb5_error_code ret;
+    krb5_checksum mac;
+    krb5_storage *sp;
+    krb5_data d;
+    ssize_t page_size = 8192;
+
+#if defined(HAVE_SYSCONF) && defined(_SC_PAGE_SIZE)
+    if ((page_size = sysconf(_SC_PAGE_SIZE)) < 0)
+        page_size = 8192;
+#endif
+
+    if (FCACHE(id)->tbl_off == -1 || FCACHE(id)->tbl_sz < 2 * page_size)
+        return -1;
+
+    /* XXX Actually, do this in init_fcc() */
+    if (FCACHE(id)->tbl == NULL) {
+        void *p;
+
+        p = mmap(NULL, FCACHE(id)->tbl_sz, PROT_READ | PROT_WRITE, MAP_SHARED,
+                 fd, FCACHE(id)->tbl_off);
+        if (p == MAP_FAILED)
+            return -1;
+        FCACHE(id)->tbl = p;
+        FCACHE(id)->tbl_mmap_sz = FCACHE(id)->tbl_sz;
+    }
+
+    /* MAC the cred's client and server princ name */
+    sp = krb5_storage_emem();
+    if (sp == NULL)
+        return ENOMEM;
+    ret = krb5_store_principal(sp, creds->client);
+    if (ret == 0)
+        ret = krb5_store_principal(sp, creds->client);
+    if (ret == 0)
+        ret = krb5_storage_to_data(sp, &d);
+    krb5_storage_free(sp);
+    if (ret == 0 && FCACHE(id)->crypto == NULL) {
+        krb5_keyblock key;
+        
+        key.keytype = FCACHE(id)->tbl->princ_cksumtype;
+        key.keyvalue.data = FCACHE(id)->tbl->nonce;
+        key.keyvalue.length = sizeof(FCACHE(id)->tbl->nonce);
+        ret = krb5_crypto_init(context, &key, 0, &FCACHE(id)->crypto);
+    }
+    if (ret == 0)
+        ret = krb5_create_checksum(context, FCACHE(id)->crypto,
+                                   KRB5_KU_OTHER_CKSUM,
+                                   FCACHE(id)->tbl->princ_cksumtype,
+                                   d.data, d.length, &mac);
+    krb5_data_free(&d);
+    if (ret)
+        return ret;
+
+    /* XXX Compute creds size */
+    sp = krb5_storage_emem();
+    if (sp == NULL)
+        ret = ENOMEM;
+    if (ret == 0)
+        ret = krb5_store_creds(sp, creds);
+    if (ret == 0)
+        ret = krb5_storage_to_data(sp, &d);
+    krb5_storage_free(sp);
+    if (ret == 0)
+        ret = tbl_mac2offsets(context, id, &mac, d.length, slotsp, nslotsp);
+    krb5_data_free(&d);
+    if (macp != NULL)
+        *macp = mac;
+    else
+        krb5_checksum_free(context, &mac);
+    return ret;
+}
+#endif /* HAVE_MMAP */
 
 static krb5_error_code KRB5_CALLCONV
 fcc_store_cred(krb5_context context,
@@ -631,6 +1155,30 @@ fcc_store_cred(krb5_context context,
 	if (ret == 0)
 	    ret = write_storage(context, sp, fd);
 	krb5_storage_free(sp);
+    }
+    /* If this is a start_realm cconfig, then make_hash_table() */
+    /*
+     * XXX This is probably not the best way -- we want to write this after all
+     * cconfigs written by kinit and friends, since we want all of those stored
+     * ahead of the hash table.  Alternatively we'll store all subsequent
+     * cconfigs both in the hash table, and past it -- we won't be storing many
+     * cconfigs, so having to use a lock to store them is fine.
+     */
+    if (FCACHE(id)->tbl_off == -1 && creds->server != NULL &&
+        krb5_principal_get_num_comp(context, creds->server) > 1)
+    {
+        const char *realm = krb5_principal_get_realm(context, creds->server);
+        const char *name0 = krb5_principal_get_comp_string(context,
+                                                           creds->server, 0);
+        const char *name1 = krb5_principal_get_comp_string(context,
+                                                           creds->server, 1);
+
+        if (realm != NULL && name0 != NULL && name1 != NULL &&
+            strcmp(realm, "X-CACHECONF:") == 0 &&
+            strcmp(name0, "krb5_ccache_conf_data") == 0 &&
+            strcmp(name1, "ccache_hash_table") == 0) {
+            ret = make_hash_table(context, id, fd);
+        }
     }
     if (close(fd) < 0) {
 	if (ret == 0) {
@@ -740,20 +1288,65 @@ init_fcc(krb5_context context,
 	    case FCC_TAG_DELTATIME : {
 		int32_t offset;
 
-		ret = krb5_ret_int32 (sp, &offset);
-		ret |= krb5_ret_int32 (sp, &context->kdc_usec_offset);
-		if(ret) {
-		    ret = KRB5_CC_FORMAT;
-		    krb5_set_error_message(context, ret,
-					   N_("Error reading kdc_sec in "
-					      "cache file: %s", ""),
-					   FILENAME(id));
-		    goto out;
-		}
-		context->kdc_sec_offset = offset;
-		if (kdc_offset)
-		    *kdc_offset = offset;
+                if (data_len >= 8) {
+                    ret = krb5_ret_int32 (sp, &offset);
+                    ret |= krb5_ret_int32 (sp, &context->kdc_usec_offset);
+                    if(ret) {
+                        ret = KRB5_CC_FORMAT;
+                        krb5_set_error_message(context, ret,
+                                               N_("Error reading kdc_sec in "
+                                                  "cache file: %s", ""),
+                                               FILENAME(id));
+                        goto out;
+                    }
+                    context->kdc_sec_offset = offset;
+                    if (kdc_offset)
+                        *kdc_offset = offset;
+                    krb5_storage_seek(sp, data_len - 8, SEEK_CUR);
+                } else {
+                    krb5_storage_seek(sp, data_len, SEEK_CUR);
+                }
 		break;
+	    }
+	    case FCC_TAG_HASH_TABLE_OFFSET : {
+                int64_t off;
+                uint32_t sz;
+
+                if (data_len >= 12) {
+                    off = krb5_storage_seek(sp, 0, SEEK_CUR);
+                    if (off == -1)
+                        ret = errno;
+                    else
+                        FCACHE(id)->tbl_off_off = off;
+                    if (ret == 0)
+                        ret = krb5_ret_int64(sp, &FCACHE(id)->tbl_off);
+                    if (ret == 0) {
+                        if (FCACHE(id)->tbl_off != -1 &&
+                            FCACHE(id)->tbl_off != off &&
+                            FCACHE(id)->tbl != NULL)
+                            (void) munmap(FCACHE(id)->tbl,
+                                          FCACHE(id)->tbl_mmap_sz);
+                        FCACHE(id)->tbl_mmap_sz = 0;
+                        FCACHE(id)->tbl_off = off;
+                        FCACHE(id)->tbl = NULL;
+                        ret = krb5_ret_uint32(sp, &sz);
+                    }
+                    if (ret == 0)
+                        FCACHE(id)->tbl_sz = sz;
+                    if (ret) {
+                        ret = KRB5_CC_FORMAT;
+                        krb5_set_error_message(context, ret,
+                                               N_("Error hash table offset in "
+                                                  "cache file: %s", ""),
+                                               FILENAME(id));
+                        goto out;
+                    }
+                    /* Ignore future extensions to this tag's payload */
+                    krb5_storage_seek(sp, data_len - 12, SEEK_CUR);
+                } else {
+                    krb5_storage_seek(sp, data_len, SEEK_CUR);
+                }
+                break;
 	    }
 	    default :
 		for (i = 0; i < data_len; ++i) {
@@ -805,16 +1398,112 @@ fcc_get_principal(krb5_context context,
     int fd;
     krb5_storage *sp;
 
+    /*
+     * XXX We could just return a copy of FCACHE(id)->def_princ if we have one,
+     * but perhaps we want to detect changes to the file as soon as possible?
+     */
     ret = init_fcc (context, id, "get-principal", &sp, &fd, NULL);
     if (ret)
 	return ret;
     ret = krb5_ret_principal(sp, principal);
     if (ret)
 	krb5_clear_error_message(context);
+    if (FCACHE(id)->def_princ != NULL)
+        krb5_free_principal(context, FCACHE(id)->def_princ);
+    if (krb5_copy_principal(context, *principal, &FCACHE(id)->def_princ) != 0)
+        FCACHE(id)->def_princ = NULL;
     krb5_storage_free(sp);
     close(fd);
     return ret;
 }
+
+static krb5_error_code KRB5_CALLCONV
+fcc_retrieve(krb5_context context, krb5_ccache id,
+             krb5_flags whichfields, const krb5_creds *mcreds,
+             krb5_creds *out)
+{
+    struct fcc_hash_slot_header *slots;
+    struct fcc_hash_slot_header *slots2check = NULL;
+    const char *realm, *name0, *name1;
+    krb5_error_code ret;
+    krb5_cc_cursor cursor;
+    krb5_data d;
+    size_t chunk_sz, nslots2check = 0;
+    int fd;
+
+    d.length = 0;
+    d.data = NULL;
+
+    ret = fcc_get_first(context, id, &cursor);
+    if (ret)
+        return ret;
+
+    chunk_sz = FCACHE(id)->tbl->slotsz - sizeof(struct fcc_hash_slot_header);
+    while ((ret = fcc_get_next(context, id, &cursor, out)) == 0) {
+        if (krb5_compare_creds(context, whichfields, mcreds, out))
+            return fcc_end_get(context, id, &cursor);
+
+        if (krb5_principal_get_num_comp(context, out->server) < 2)
+            continue;
+            
+        realm = krb5_principal_get_realm(context, out->client);
+        name0 = krb5_principal_get_comp_string(context, out->client, 0);
+        name1 = krb5_principal_get_comp_string(context, out->client, 1);
+        if (realm == NULL || name0 == NULL || name1 == NULL ||
+            strcmp(realm, "X-CACHECONF:") != 0 ||
+            strcmp(name0, "krb5_ccache_conf_data") != 0 ||
+            strcmp(name1, "ccache_hash_table") != 0)
+            continue;
+
+        slots = (void *)((char *)FCACHE(id)->tbl + FCACHE(id)->tbl->slotsz);
+        for (i = 0; i < FCACHE(id)->tbl->nslots; i++) {
+            size_t slots_needed = 0;
+
+            if (slots[i].entrysz == 0 ||
+                slots[i].entrysz > FCACHE(id)->tbl->entry_max_sz)
+                continue;
+
+            slots_needed = slots[i].entrysz / chunk_sz;
+
+            if (slots[i].entrysz > d.length) {
+                void *tmp;
+
+                if ((tmp = realloc(d.data,
+                                   (slots_needed + 1) * chunk_sz)) == NULL) {
+                    free(d.data);
+                    return ret;
+                }
+                d.length = (slots_needed + 1) * chunk_sz;
+                d.data = tmp;
+            }
+
+            ret = tbl_hash(context, id, fd, mcreds, slots[i].princ_mac,
+                           &slots2check, &nslots2check);
+            if (ret)
+                break; /* XXX */
+
+            /* Reconstitute cred XXX Move to separate function */
+            for (k = 0; k < nslots2check; k++) {
+                if (slots[i] == slots2check[k] ||
+                    slots2check[k].seqnum > slots_needed ||
+                    memcmp(slots[i].princ_mac,
+                           slots2check[k].princ_mac,
+                           sizeof(slots[i].princ_mac)) != 0)
+                    continue;
+                memcpy(d.data + chunk_sz * slots2check[k].seqnum,
+                       ((char *)&slots2check[k]) + sizeof(slots2check[k]),
+                       chunk_sz);
+            }
+            /* XXX We may not have read the whole entry */
+            if (!tbl_check(context, d.data, slots[i]entrysz, ...))
+                continue;
+            /* XXX Got one! */
+            ...;
+        }
+    }
+    return KRB5_CC_NOTFOUND;
+}
+
 
 static krb5_error_code KRB5_CALLCONV
 fcc_end_get (krb5_context context,
@@ -852,7 +1541,10 @@ fcc_get_first (krb5_context context,
 	fcc_end_get(context, id, cursor);
 	return ret;
     }
-    krb5_free_principal (context, principal);
+    if (FCACHE(id)->def_princ == NULL)
+        FCACHE(id)->def_princ = principal;
+    else
+        krb5_free_principal (context, principal);
     return 0;
 }
 
@@ -876,6 +1568,12 @@ fcc_get_next (krb5_context context,
     ret = krb5_ret_creds(FCC_CURSOR(*cursor)->sp, creds);
     if (ret)
 	krb5_clear_error_message(context);
+    
+    /*
+     * XXX If this is the hash table ccconfig entry then we should set
+     * FCACHE(id)->tbl_off if it's not set already (and maybe complain if the
+     * current offset is less than FCACHE(id)->tbl_off).
+     */
 
     FCC_CURSOR(*cursor)->cred_end =
         krb5_storage_seek(FCC_CURSOR(*cursor)->sp, 0, SEEK_CUR);
@@ -1293,7 +1991,7 @@ KRB5_LIB_VARIABLE const krb5_cc_ops krb5_fcc_ops = {
     fcc_destroy,
     fcc_close,
     fcc_store_cred,
-    NULL, /* fcc_retrieve */
+    fcc_retrieve,
     fcc_get_principal,
     fcc_get_first,
     fcc_get_next,
