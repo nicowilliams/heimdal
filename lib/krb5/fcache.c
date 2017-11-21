@@ -143,6 +143,8 @@ typedef struct krb5_fcache{
     struct fcc_hash_table_header *tbl; /* mmap'ed table */
     size_t tbl_mmap_sz; /* mmap'ed size; should be == to tbl_sz */
     krb5_crypto crypto; /* for MAC operations */
+    unsigned char *bitmap;
+    size_t bitmap_sz;
 }krb5_fcache;
 
 struct fcc_cursor {
@@ -156,7 +158,6 @@ struct fcc_hash_table_header {
     char nonce[16];             /* key for MACs */
     uint32_t nslots;            /* no. of slots in table */
     uint32_t slotsz;            /* slot size */
-    uint32_t nalts;             /* no. of alternate locations */
     uint32_t princ_cksumtype;   /* MAC for princ name */
     uint32_t entry_cksumtype;   /* MAC for ccache entry */
     uint32_t entry_max_sz;      /* max size for entries in hash table */
@@ -331,11 +332,10 @@ fcc_resolve(krb5_context context, krb5_ccache *id, const char *res)
     }
     f->version = 0;
     f->def_princ = NULL;
-    f->tbl_mmap_sz = 0;
     f->tbl_off_off = -1;
     f->tbl_off = -1;
-    f->tbl_sz = 0;
     f->crypto = NULL;
+    f->bitmap = NULL;
     f->tbl = NULL;
     (*id)->data.data = f;
     (*id)->data.length = sizeof(*f);
@@ -484,11 +484,10 @@ fcc_gen_new(krb5_context context, krb5_ccache *id)
     f->filename = exp_file;
     f->version = 0;
     f->def_princ = NULL;
-    f->tbl_mmap_sz = 0;
     f->tbl_off_off = -1;
     f->tbl_off = -1;
     f->crypto = NULL;
-    f->tbl_sz = 0;
+    f->bitmap = NULL;
     f->tbl = NULL;
     (*id)->data.data = f;
     (*id)->data.length = sizeof(*f);
@@ -757,11 +756,14 @@ fcc_close(krb5_context context,
         (void) munmap(FCACHE(id)->tbl, FCACHE(id)->tbl_mmap_sz);
     if (FCACHE(id)->crypto != NULL)
         krb5_crypto_destroy(context, FCACHE(id)->crypto);
+    if (FCACHE(id)->bitmap != NULL)
+        free(FCACHE(id)->bitmap);
     FCACHE(id)->tbl_mmap_sz = 0;
     FCACHE(id)->tbl_off_off = -1;
     FCACHE(id)->tbl_off = -1;
     FCACHE(id)->tbl_sz = 0;
     FCACHE(id)->crypto = NULL;
+    FCACHE(id)->bitmap = NULL;
     FCACHE(id)->tbl = NULL;
 
     krb5_data_free(&id->data);
@@ -981,21 +983,26 @@ get_mac_bits(unsigned char *src, size_t len, size_t numbits, size_t idx)
     return (bits >> (lobits % CHAR_BIT)) & ((1<<numbits) - 1);
 }
 
+#define BITMAP_BIT_IS_SET(id, idx) \
+    ((FCACHE(id)->bitmap)[(idx >> 3)] & (1<<(idx % CHAR_BIT)))
+
+#define BITMAP_BIT_SET(id, idx) \
+    ((FCACHE(id)->bitmap)[(idx >> 3)] |= (1<<(idx % CHAR_BIT)))
+
+
 static krb5_error_code
 tbl_mac2offsets(krb5_context context,
                 krb5_ccache id,
                 krb5_checksum *macp,
-                size_t sz,
                 struct fcc_hash_slot_header **slotsp,
                 size_t *nslotsp)
 {
     struct fcc_hash_table_header *h = FCACHE(id)->tbl;
     struct fcc_hash_slot_header *slots;
-    size_t i, nslots, maxi, numbits, slotsz;
+    size_t i, k, nslots, maxi, numbits, slotsz;
     uint32_t *indexes;
 
-    if (h == NULL || h->nalts < 1 || h->nalts > 5 ||
-        h->nslots < 256 || h->slotsz < 512)
+    if (h == NULL || h->nslots < 256 || h->slotsz < 512)
         return -1;
 
     slots = (void *)(((char *)h) + h->slotsz);
@@ -1004,15 +1011,16 @@ tbl_mac2offsets(krb5_context context,
     /* Effective slot size -- space for ccache entry content */
     slotsz = h->slotsz - sizeof(struct fcc_hash_slot_header);
 
-    if (sz == 0)
-        /* When we're reading, we don't know the slot size */
-        sz = h->entry_max_sz;
-
-    if (sz < slotsz)
-        /* Don't check too many locations */
-        nslots = h->nalts;
-    else
-        nslots = h->nalts * (sz / slotsz);
+    /*
+     * We want up to 1.5 x the number of slots need for storing the largest
+     * ccache entry we're willing to store in the hash table.  That's plenty
+     * for small tickets, and not very much for large ones.
+     *
+     * Extra large tickets are written as usual, but we'll still store a
+     * one-slot entry for them with the offset of the real entry.
+     */
+    nslots = h->entry_max_sz / slotsz;
+    nslots += nslots >> 1;
 
     indexes = calloc(nslots, sizeof(indexes[0]));
     if (indexes == NULL)
@@ -1024,16 +1032,34 @@ tbl_mac2offsets(krb5_context context,
      */
     maxi = macp->checksum.length * CHAR_BIT + 1 - numbits;
 
-    for (i = 0; i < nslots && i < maxi; i++)
-        indexes[i] = get_mac_bits(macp->checksum.data, macp->checksum.length, numbits, i);
-    nslots = i;
-
     /*
-     * We could uniq here, but without sorting that's a bit silly: accidentally
-     * quadratic.  Or we could not uniq at all.  Instead on read we'd just
-     * ignore seqnums we've already seen, or on write we'd not overwrite our
-     * own entries.
+     * We want up to nslots unique indices.  We'll use a bitmap to check for
+     * uniqueness.
      */
+
+    if (FCACHE(id)->bitmap == NULL ||
+        FCACHE(id)->bitmap_sz < ((1<<numbits) >> 3)) {
+
+        free(FCACHE(id)->bitmap);
+        FCACHE(id)->bitmap = malloc((1<<numbits) >> 3);
+        if (FCACHE(id)->bitmap == NULL) {
+            *nslotsp = 0;
+            free(indexes);
+            return ENOMEM;
+        }
+        FCACHE(id)->bitmap_sz = (1<<numbits) >> 3;
+    }
+
+    memset(FCACHE(id)->bitmap, 0, FCACHE(id)->bitmap_sz);
+
+    for (i = k = 0; k < nslots && i < maxi; i++) {
+        indexes[k] = get_mac_bits(macp->checksum.data, macp->checksum.length, numbits, i);
+        if (BITMAP_BIT_IS_SET(id, indexes[k]))
+            continue;
+        BITMAP_BIT_SET(id, indexes[k]);
+        k++;
+    }
+    nslots = k; /* may be less than desired, but not likely */
 
     if (*slotsp == NULL || *nslotsp < nslots) {
         free(*slotsp);
@@ -1111,26 +1137,107 @@ tbl_hash(krb5_context context,
                                    FCACHE(id)->tbl->princ_cksumtype,
                                    d.data, d.length, &mac);
     krb5_data_free(&d);
-    if (ret)
-        return ret;
 
-    /* XXX Compute creds size */
-    sp = krb5_storage_emem();
-    if (sp == NULL)
-        ret = ENOMEM;
     if (ret == 0)
-        ret = krb5_store_creds(sp, creds);
-    if (ret == 0)
-        ret = krb5_storage_to_data(sp, &d);
-    krb5_storage_free(sp);
-    if (ret == 0)
-        ret = tbl_mac2offsets(context, id, &mac, d.length, slotsp, nslotsp);
-    krb5_data_free(&d);
-    if (macp != NULL)
+        ret = tbl_mac2offsets(context, id, &mac, slotsp, nslotsp);
+    if (ret == 0 && macp != NULL)
         *macp = mac;
     else
         krb5_checksum_free(context, &mac);
     return ret;
+}
+
+/*
+ * If slotp != NULL then reconstitute the entry found there, else look for it
+ * from scratch.
+ */
+static krb5_error_code
+tbl_get_entry(krb5_context context,
+              krb5_ccache id,
+              krb5_creds *mcreds,
+              struct fcc_hash_slot_header *slotp,
+              krb5_creds *out)
+{
+    struct fcc_hash_slot_header *slots2check = NULL;
+    krb5_error_code ret;
+    krb5_checksum princ_mac;
+    krb5_data d;
+    size_t chunk_sz;
+    size_t nslots2check = 0;
+    size_t slots_needed = 0;
+    size_t i;
+
+    if (FCACHE(id)->tbl == NULL)
+        return -1;
+
+    chunk_sz = FCACHE(id)->tbl->slotsz - sizeof(struct fcc_hash_slot_header);
+
+    d.length = 0;
+    d.data = NULL;
+
+    if (slotp == NULL) {
+        /* XXX MAC the principal names in the mcreds */
+    }
+
+    ret = tbl_hash(context, id, fd, mcreds, slots[i].princ_mac,
+                   &slots2check, &nslots2check);
+    if (ret)
+        return ret;
+
+    for (i = 0; i < nslots2check; i++) {
+        if (memcmp(slots2check[i].princ_mac, princ_mac.checksum.data,
+                   min(sizeof(slots2check[i].princ_mac),
+                       princ_mac.checksum.length)) != 0)
+            continue;
+        if (slotp != NULL &&
+            memcmp(slotp->entry_mac, slots2check[i].entry_mac,
+                   sizeof(slotp->entry_mac)) != 0)
+            continue;
+
+        /* Match */
+
+        if (slots_needed == 0)
+            slots_needed = slots[i].entrysz / chunk_sz;
+
+        if (slots2check[i].entrysz > d.length) {
+            void *tmp;
+
+            if ((tmp = realloc(d.data,
+                               (slots_needed + 1) * chunk_sz)) == NULL) {
+                free(d.data);
+                return ret;
+            }
+            d.length = (slots_needed + 1) * chunk_sz;
+            d.data = tmp;
+        }
+    }
+
+    ret = tbl_hash(context, id, fd, mcreds, slots[i].princ_mac,
+                   &slots2check, &nslots2check);
+    if (ret) {
+        krb5_data_free(&d);
+        return ret;
+    }
+
+    if (ret)
+        break; /* XXX */
+
+    /* XXX Move up */
+    /* Reconstitute cred XXX Move to separate function */
+    for (k = 0; k < nslots2check; k++) {
+        if (slots[i] == slots2check[k] ||
+            slots2check[k].seqnum > slots_needed ||
+            memcmp(slots[i].princ_mac,
+                   slots2check[k].princ_mac,
+                   sizeof(slots[i].princ_mac)) != 0)
+            continue;
+        memcpy(d.data + chunk_sz * slots2check[k].seqnum,
+               ((char *)&slots2check[k]) + sizeof(slots2check[k]),
+               chunk_sz);
+    }
+    /* XXX We may not have read the whole entry */
+    if (!tbl_check(context, d.data, slots[i]entrysz, ...))
+        continue;
 }
 #endif /* HAVE_MMAP */
 
@@ -1427,18 +1534,14 @@ fcc_retrieve(krb5_context context, krb5_ccache id,
     const char *realm, *name0, *name1;
     krb5_error_code ret;
     krb5_cc_cursor cursor;
-    krb5_data d;
-    size_t chunk_sz, nslots2check = 0;
     int fd;
 
-    d.length = 0;
-    d.data = NULL;
+    *out = NULL;
 
     ret = fcc_get_first(context, id, &cursor);
     if (ret)
         return ret;
 
-    chunk_sz = FCACHE(id)->tbl->slotsz - sizeof(struct fcc_hash_slot_header);
     while ((ret = fcc_get_next(context, id, &cursor, out)) == 0) {
         if (krb5_compare_creds(context, whichfields, mcreds, out))
             return fcc_end_get(context, id, &cursor);
@@ -1457,48 +1560,20 @@ fcc_retrieve(krb5_context context, krb5_ccache id,
 
         slots = (void *)((char *)FCACHE(id)->tbl + FCACHE(id)->tbl->slotsz);
         for (i = 0; i < FCACHE(id)->tbl->nslots; i++) {
-            size_t slots_needed = 0;
-
             if (slots[i].entrysz == 0 ||
                 slots[i].entrysz > FCACHE(id)->tbl->entry_max_sz)
                 continue;
 
-            slots_needed = slots[i].entrysz / chunk_sz;
-
-            if (slots[i].entrysz > d.length) {
-                void *tmp;
-
-                if ((tmp = realloc(d.data,
-                                   (slots_needed + 1) * chunk_sz)) == NULL) {
-                    free(d.data);
-                    return ret;
-                }
-                d.length = (slots_needed + 1) * chunk_sz;
-                d.data = tmp;
-            }
-
-            ret = tbl_hash(context, id, fd, mcreds, slots[i].princ_mac,
-                           &slots2check, &nslots2check);
-            if (ret)
-                break; /* XXX */
-
-            /* Reconstitute cred XXX Move to separate function */
-            for (k = 0; k < nslots2check; k++) {
-                if (slots[i] == slots2check[k] ||
-                    slots2check[k].seqnum > slots_needed ||
-                    memcmp(slots[i].princ_mac,
-                           slots2check[k].princ_mac,
-                           sizeof(slots[i].princ_mac)) != 0)
-                    continue;
-                memcpy(d.data + chunk_sz * slots2check[k].seqnum,
-                       ((char *)&slots2check[k]) + sizeof(slots2check[k]),
-                       chunk_sz);
-            }
-            /* XXX We may not have read the whole entry */
-            if (!tbl_check(context, d.data, slots[i]entrysz, ...))
+            ret = tbl_get_entry(context, id, mcreds, &slots[i], out);
+            if (ret == -1)
                 continue;
-            /* XXX Got one! */
-            ...;
+            if (ret)
+                return ret;
+            /* Got one! */
+            if (krb5_compare_creds(context, whichfields, mcreds, out))
+                return fcc_end_get(context, id, &cursor); /* really got one */
+            krb5_free_cred_contents(context, out);
+            *out = NULL;
         }
     }
     return KRB5_CC_NOTFOUND;
