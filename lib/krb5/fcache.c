@@ -136,6 +136,7 @@
 typedef struct krb5_fcache{
     char *filename;
     int version;
+    int fd;             /* XXX Set! */
     krb5_principal def_princ;
     off_t tbl_off_off;  /* offset to offset for table */
     off_t tbl_off;      /* offset to hash table */
@@ -999,14 +1000,14 @@ tbl_mac2offsets(krb5_context context,
                 size_t *nslotsp)
 {
     struct fcc_hash_table_header *h = FCACHE(id)->tbl;
-    struct fcc_hash_slot_header *slots;
+    unsigned char *slots;
     size_t i, k, nslots, maxi, numbits, slotsz;
     uint32_t *indexes;
 
     if (h == NULL || h->nslots < 256 || h->slotsz < 512)
         return -1;
 
-    slots = (void *)(((char *)h) + h->slotsz);
+    slots = (((unsigned char *)h) + h->slotsz);
     numbits = my_log2(h->nslots);
 
     /* Effective slot size -- space for ccache entry content */
@@ -1073,7 +1074,7 @@ tbl_mac2offsets(krb5_context context,
     }
 
     for (i = 0; i < nslots; i++)
-        slotsp[i] = &slots[i];
+        slotsp[i] = (void *)&slots[FCACHE(id)->tbl->slotsz * i];
 
     *nslotsp = nslots;
     return 0;
@@ -1082,7 +1083,7 @@ tbl_mac2offsets(krb5_context context,
 static krb5_error_code
 tbl_hash(krb5_context context,
          krb5_ccache id,
-         krb5_creds *creds,
+         const krb5_creds *creds,
          krb5_checksum *macp,
          struct fcc_hash_slot_header ***slotsp,
          size_t *nslotsp)
@@ -1155,14 +1156,14 @@ tbl_hash(krb5_context context,
 static krb5_error_code
 tbl_get_entry(krb5_context context,
               krb5_ccache id,
-              krb5_creds *mcreds,
+              const krb5_creds *mcreds,
               struct fcc_hash_slot_header *model,
               krb5_creds *out)
 {
     struct fcc_hash_slot_header **slots2check = NULL;
     krb5_checksum princ_mac;
     krb5_error_code ret;
-    krb5_storage sp = NULL;
+    krb5_storage *sp = NULL;
     krb5_data d;
     size_t chunk_sz;
     size_t nslots2check = 0;
@@ -1184,10 +1185,10 @@ tbl_get_entry(krb5_context context,
         mac.length = sizeof(model->princ_mac);
         ret = tbl_mac2offsets(context, id, &mac, &slots2check, &nslots2check);
     } else if (mcreds != NULL) {
-        ret = tbl_hash(context, id, mcreds, &princ_map, &slots2check, &nslots2check);
+        ret = tbl_hash(context, id, mcreds, &princ_mac, &slots2check, &nslots2check);
         if (ret)
             return ret;
-        if (princ_map.checksum.length != sizeof(model->princ_mac))
+        if (princ_mac.checksum.length != sizeof(model->princ_mac))
             return -1; /* XXX */
     } else
         return EINVAL; /* Internal API usage error; can't happen, should assert */
@@ -1197,17 +1198,17 @@ tbl_get_entry(krb5_context context,
         if (model != NULL) {
             if (memcmp(model, &slots2check[i],
                        offsetof(struct fcc_hash_slot_header, seqnum)) != 0)
-                continue
-        } else if (first_match != -1) {
-            if (memcmp(slots2check[i].princ_mac, princ_mac.checksum.data,
-                       sizeof(slots2check[i].princ_mac)) != 0)
                 continue;
-            if (memcmp(model, &slots2check[first_match],
+        } else if (first_match != -1) {
+            if (memcmp(slots2check[i]->princ_mac, princ_mac.checksum.data,
+                       sizeof(slots2check[i]->princ_mac)) != 0)
+                continue;
+            if (memcmp(model, slots2check[first_match],
                        offsetof(struct fcc_hash_slot_header, seqnum)) != 0)
                 continue;
         } else {
-            if (memcmp(slots2check[i].princ_mac, princ_mac.checksum.data,
-                       sizeof(slots2check[i].princ_mac)) != 0)
+            if (memcmp(slots2check[i]->princ_mac, princ_mac.checksum.data,
+                       sizeof(slots2check[i]->princ_mac)) != 0)
                 continue;
             /* From here on only check partial matches of this one */
             first_match = i;
@@ -1216,13 +1217,13 @@ tbl_get_entry(krb5_context context,
         /* Got a matching slot */
 
         if (slots_needed == 0)
-            slots_needed = slots[i].entrysz / chunk_sz;
+            slots_needed = slots2check[i]->entrysz / chunk_sz;
 
-        if (slots[i].seqnum > slots_needed ||
-            seqmap & (1 << slots[i].seqnum))
+        if (slots2check[i]->seqnum > slots_needed ||
+            seqmap & (1 << slots2check[i]->seqnum))
             continue;
 
-        if (slots2check[i].entrysz > d.length) {
+        if (slots2check[i]->entrysz > d.length) {
             void *tmp;
 
             if ((tmp = realloc(d.data,
@@ -1233,8 +1234,8 @@ tbl_get_entry(krb5_context context,
             d.length = (slots_needed + 1) * chunk_sz;
             d.data = tmp;
         }
-        memcpy(d.data + (slots2check[i])->seqnum * chunk_sz,
-               (slots2check[i]) + 1, chunk_sz);
+        memcpy((char *)d.data + (slots2check[i])->seqnum * chunk_sz,
+               slots2check[i] + 1, chunk_sz);
         if (seqmap == (1 << slots_needed) - 1) {
             ret = 0;
             break; /* Got all the chunks we needed */
@@ -1253,10 +1254,10 @@ tbl_get_entry(krb5_context context,
 }
 
 static int
-writer_slotcmp(void *ap, void *bp)
+writer_slotcmp(const void *ap, const void *bp)
 {
-    struct fcc_hash_slot_header *a = ap;
-    struct fcc_hash_slot_header *b = bp;
+    const struct fcc_hash_slot_header *a = ap;
+    const struct fcc_hash_slot_header *b = bp;
     int cmp;
 
     if ((cmp = a->last_use_time - b->last_use_time) != 0)
@@ -1279,10 +1280,8 @@ tbl_put_entry(krb5_context context,
     struct fcc_hash_slot_header model;
     krb5_error_code ret;
     krb5_checksum princ_mac, entry_mac;
-    krb5_storage sp = NULL;
+    krb5_storage *sp = NULL;
     krb5_data d;
-    uint64_t lru = 0;
-    uint64_t oldest = (uint64_t)-1;
     size_t chunk_sz;
     size_t nslots = 0;
     size_t slots_needed = 0;
@@ -1325,7 +1324,7 @@ tbl_put_entry(krb5_context context,
     if (ret)
         goto out;
 
-    memset(model, 0, sizeof(model));
+    memset(&model, 0, sizeof(model));
 
     memcpy(model.princ_mac, princ_mac.checksum.data,
            min(sizeof(model.princ_mac), princ_mac.checksum.length));
@@ -1355,14 +1354,14 @@ tbl_put_entry(krb5_context context,
         model.seqnum = i;
         memcpy(slots[i], &model, sizeof(model));
         if (i + 1 == slots_needed)
-            memcpy(slots[i] + 1, d.data + chunk_sz * i, d.length - chunk_sz * i);
+            memcpy(slots[i] + 1, (char *)d.data + chunk_sz * i, d.length - chunk_sz * i);
         else
-            memcpy(slots[i] + 1, d.data + chunk_sz * i, chunk_sz);
+            memcpy(slots[i] + 1, (char *)d.data + chunk_sz * i, chunk_sz);
     }
 
 out:
-    krb5_checksum_free(&princ_mac);
-    krb5_checksum_free(&entry_mac);
+    krb5_checksum_free(context, &princ_mac);
+    krb5_checksum_free(context, &entry_mac);
     krb5_data_free(&d);
     return ret;
 }
@@ -1652,61 +1651,6 @@ fcc_get_principal(krb5_context context,
 }
 
 static krb5_error_code KRB5_CALLCONV
-fcc_retrieve(krb5_context context, krb5_ccache id,
-             krb5_flags whichfields, const krb5_creds *mcreds,
-             krb5_creds *out)
-{
-    struct fcc_hash_slot_header *slots;
-    struct fcc_hash_slot_header *slots2check = NULL;
-    const char *realm, *name0, *name1;
-    krb5_error_code ret;
-    krb5_cc_cursor cursor;
-
-    *out = NULL;
-
-    ret = fcc_get_first(context, id, &cursor);
-    if (ret)
-        return ret;
-
-    while ((ret = fcc_get_next(context, id, &cursor, out)) == 0) {
-        if (krb5_compare_creds(context, whichfields, mcreds, out))
-            return fcc_end_get(context, id, &cursor);
-
-        if (krb5_principal_get_num_comp(context, out->server) < 2)
-            continue;
-            
-        realm = krb5_principal_get_realm(context, out->client);
-        name0 = krb5_principal_get_comp_string(context, out->client, 0);
-        name1 = krb5_principal_get_comp_string(context, out->client, 1);
-        if (realm == NULL || name0 == NULL || name1 == NULL ||
-            strcmp(realm, "X-CACHECONF:") != 0 ||
-            strcmp(name0, "krb5_ccache_conf_data") != 0 ||
-            strcmp(name1, "ccache_hash_table") != 0)
-            continue;
-
-        slots = (void *)((char *)FCACHE(id)->tbl + FCACHE(id)->tbl->slotsz);
-        for (i = 0; i < FCACHE(id)->tbl->nslots; i++) {
-            if (slots[i].entrysz == 0 ||
-                slots[i].entrysz > FCACHE(id)->tbl->entry_max_sz)
-                continue;
-
-            ret = tbl_get_entry(context, id, mcreds, &slots[i], out);
-            if (ret == -1)
-                continue;
-            if (ret)
-                return ret;
-            /* Got one! */
-            if (krb5_compare_creds(context, whichfields, mcreds, out))
-                return fcc_end_get(context, id, &cursor); /* really got one */
-            krb5_free_cred_contents(context, out);
-            *out = NULL;
-        }
-    }
-    return KRB5_CC_NOTFOUND;
-}
-
-
-static krb5_error_code KRB5_CALLCONV
 fcc_end_get (krb5_context context,
 	     krb5_ccache id,
 	     krb5_cc_cursor *cursor);
@@ -1800,6 +1744,59 @@ fcc_end_get (krb5_context context,
     *cursor = NULL;
     return 0;
 }
+
+#ifdef HAVE_MMAP
+static krb5_error_code KRB5_CALLCONV
+fcc_retrieve(krb5_context context, krb5_ccache id,
+             krb5_flags whichfields, const krb5_creds *mcreds,
+             krb5_creds *out)
+{
+    struct fcc_hash_slot_header *slots;
+    const char *realm, *name0, *name1;
+    krb5_error_code ret;
+    krb5_cc_cursor cursor;
+    size_t i;
+
+    ret = fcc_get_first(context, id, &cursor);
+    if (ret)
+        return ret;
+
+    while ((ret = fcc_get_next(context, id, &cursor, out)) == 0) {
+        if (krb5_compare_creds(context, whichfields, mcreds, out))
+            return fcc_end_get(context, id, &cursor);
+
+        if (krb5_principal_get_num_comp(context, out->server) < 2)
+            continue;
+            
+        realm = krb5_principal_get_realm(context, out->client);
+        name0 = krb5_principal_get_comp_string(context, out->client, 0);
+        name1 = krb5_principal_get_comp_string(context, out->client, 1);
+        if (realm == NULL || name0 == NULL || name1 == NULL ||
+            strcmp(realm, "X-CACHECONF:") != 0 ||
+            strcmp(name0, "krb5_ccache_conf_data") != 0 ||
+            strcmp(name1, "ccache_hash_table") != 0)
+            continue;
+
+        slots = (void *)((char *)FCACHE(id)->tbl + FCACHE(id)->tbl->slotsz);
+        for (i = 0; i < FCACHE(id)->tbl->nslots; i++) {
+            if (slots[i].entrysz == 0 ||
+                slots[i].entrysz > FCACHE(id)->tbl->entry_max_sz)
+                continue;
+
+            ret = tbl_get_entry(context, id, mcreds, &slots[i], out);
+            if (ret == -1)
+                continue;
+            if (ret)
+                return ret;
+            /* Got one! */
+            if (krb5_compare_creds(context, whichfields, mcreds, out))
+                return fcc_end_get(context, id, &cursor); /* really got one */
+            krb5_free_cred_contents(context, out);
+        }
+    }
+    return KRB5_CC_NOTFOUND;
+}
+#endif
 
 static void KRB5_CALLCONV
 cred_delete(krb5_context context,
@@ -2192,7 +2189,11 @@ KRB5_LIB_VARIABLE const krb5_cc_ops krb5_fcc_ops = {
     fcc_destroy,
     fcc_close,
     fcc_store_cred,
+#ifdef HAVE_MMAP
     fcc_retrieve,
+#else
+    NULL,
+#endif
     fcc_get_principal,
     fcc_get_first,
     fcc_get_next,
