@@ -167,15 +167,15 @@ struct fcc_hash_table_header {
 struct fcc_hash_slot_header {
     char princ_mac[16];         /* MAC(client, server) */
     char entry_mac[16];         /* entry MAC; 128 bits is plenty */
-    uint64_t store_time;        /* time at which this entry was written */
-    uint64_t last_use_time;     /* last time at which this entry was read */
     uint64_t large_entry_off;   /* loc past hash table of extra large entry */
+    uint64_t store_time;        /* time at which this entry was written */
     uint32_t entrysz;           /* entrysz > entry_max_sz -> look past table */
     /*
-     * We put seqnum last so we can memcmp() just a prefix of this struct minus
-     * the seqnum.  This allows us to not have to uniq slot locations.
+     * We put seqnum and last_use_time last so we can memcmp() just a prefix of
+     * this struct minus those two fields when reconstituting entries.
      */
     uint32_t seqnum;            /* 0 -> first slot of entry, 1 -> 2nd, ... */
+    uint64_t last_use_time;     /* last time at which this entry was read */
 };
 
 #define KRB5_FCC_FVNO_1 1
@@ -993,7 +993,7 @@ get_mac_bits(unsigned char *src, size_t len, size_t numbits, size_t idx)
 static krb5_error_code
 tbl_mac2offsets(krb5_context context,
                 krb5_ccache id,
-                krb5_checksum *macp,
+                heim_octet_string *macp,
                 struct fcc_hash_slot_header **slotsp,
                 size_t *nslotsp)
 {
@@ -1030,7 +1030,7 @@ tbl_mac2offsets(krb5_context context,
      * How many indices can we generate from a MAC?  For example, for a 128-bit
      * MAC we can get up to 119 10-bit indices.
      */
-    maxi = macp->checksum.length * CHAR_BIT + 1 - numbits;
+    maxi = macp->length * CHAR_BIT + 1 - numbits;
 
     /*
      * We want up to nslots unique indices.  We'll use a bitmap to check for
@@ -1053,7 +1053,7 @@ tbl_mac2offsets(krb5_context context,
     memset(FCACHE(id)->bitmap, 0, FCACHE(id)->bitmap_sz);
 
     for (i = k = 0; k < nslots && i < maxi; i++) {
-        indexes[k] = get_mac_bits(macp->checksum.data, macp->checksum.length, numbits, i);
+        indexes[k] = get_mac_bits(macp->data, macp->length, numbits, i);
         if (BITMAP_BIT_IS_SET(id, indexes[k]))
             continue;
         BITMAP_BIT_SET(id, indexes[k]);
@@ -1139,7 +1139,7 @@ tbl_hash(krb5_context context,
     krb5_data_free(&d);
 
     if (ret == 0)
-        ret = tbl_mac2offsets(context, id, &mac, slotsp, nslotsp);
+        ret = tbl_mac2offsets(context, id, &mac.checksum, slotsp, nslotsp);
     if (ret == 0 && macp != NULL)
         *macp = mac;
     else
@@ -1158,14 +1158,14 @@ tbl_get_entry(krb5_context context,
               struct fcc_hash_slot_header *slotp,
               krb5_creds *out)
 {
-    struct fcc_hash_slot_header *slots2check = NULL;
+    struct fcc_hash_slot_header *slots2check = NULL; /* XXX No!  We need an array of full-size slots */
     krb5_error_code ret;
     krb5_checksum princ_mac;
     krb5_data d;
     size_t chunk_sz;
     size_t nslots2check = 0;
     size_t slots_needed = 0;
-    size_t i;
+    size_t i, first_match, seqmap;
 
     if (FCACHE(id)->tbl == NULL)
         return -1;
@@ -1175,29 +1175,48 @@ tbl_get_entry(krb5_context context,
     d.length = 0;
     d.data = NULL;
 
-    if (slotp == NULL) {
-        /* XXX MAC the principal names in the mcreds */
-    }
+    if (slotp != NULL) {
+        heim_octet_string mac;
 
-    ret = tbl_hash(context, id, fd, mcreds, slots[i].princ_mac,
-                   &slots2check, &nslots2check);
-    if (ret)
-        return ret;
+        mac.data = slotp->princ_mac;
+        mac.length = sizeof(slotp->princ_mac);
+        ret = tbl_mac2offsets(context, id, &mac, &slots2check, &nslots2check);
+    } else if (mcreds != NULL) {
+        ret = tbl_hash(context, id, fd, mcreds, &princ_map, &slots2check, &nslots2check);
+        if (ret)
+            return ret;
+        if (princ_map.checksum.length != sizeof(slotp->princ_mac))
+            return -1; /* XXX */
+    } else
+        return EINVAL; /* Internal API usage error; can't happen, should assert */
 
-    for (i = 0; i < nslots2check; i++) {
-        if (memcmp(slots2check[i].princ_mac, princ_mac.checksum.data,
-                   min(sizeof(slots2check[i].princ_mac),
-                       princ_mac.checksum.length)) != 0)
-            continue;
-        if (slotp != NULL &&
-            memcmp(slotp->entry_mac, slots2check[i].entry_mac,
-                   sizeof(slotp->entry_mac)) != 0)
-            continue;
+    for (i = 0, seqmap = 0, first_match = (size_t)-1; i < nslots2check; i++) {
+        if (slotp != NULL) {
+            if (memcmp(slotp, &slots2check[i],
+                       offsetof(struct fcc_hash_slot_header, seqnum)) != 0)
+                continue
+        } else if (first_match != -1) {
+            if (memcmp(slots2check[i].princ_mac, princ_mac.checksum.data,
+                       sizeof(slots2check[i].princ_mac)) != 0)
+                continue;
+            if (memcmp(slotp, &slots2check[first_match],
+                       offsetof(struct fcc_hash_slot_header, seqnum)) != 0)
+                continue;
+        } else {
+            if (memcmp(slots2check[i].princ_mac, princ_mac.checksum.data,
+                       sizeof(slots2check[i].princ_mac)) != 0)
+                continue;
+            first_match = i;
+        }
 
-        /* Match */
+        /* Got a matching slot */
 
         if (slots_needed == 0)
             slots_needed = slots[i].entrysz / chunk_sz;
+
+        if (slots[i].seqnum > slots_needed ||
+            seqmap & (1 << slots[i].seqnum))
+            continue;
 
         if (slots2check[i].entrysz > d.length) {
             void *tmp;
@@ -1210,10 +1229,10 @@ tbl_get_entry(krb5_context context,
             d.length = (slots_needed + 1) * chunk_sz;
             d.data = tmp;
         }
+        memcpy(d.data + slots[i].seqnum * chunk_sz,
+               slots2check[i] + 1, 
     }
 
-    ret = tbl_hash(context, id, fd, mcreds, slots[i].princ_mac,
-                   &slots2check, &nslots2check);
     if (ret) {
         krb5_data_free(&d);
         return ret;
