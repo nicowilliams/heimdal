@@ -167,8 +167,9 @@ struct fcc_hash_table_header {
 struct fcc_hash_slot_header {
     char princ_mac[16];         /* MAC(client, server) */
     char entry_mac[16];         /* entry MAC; 128 bits is plenty */
-    uint64_t large_entry_off;   /* loc past hash table of extra large entry */
+    int64_t large_entry_off;    /* loc past hash table of extra large entry */
     uint64_t store_time;        /* time at which this entry was written */
+    uint64_t exp_time;          /* entry expiration time */
     uint32_t entrysz;           /* entrysz > entry_max_sz -> look past table */
     /*
      * We put seqnum and last_use_time last so we can memcmp() just a prefix of
@@ -1081,7 +1082,6 @@ tbl_mac2offsets(krb5_context context,
 static krb5_error_code
 tbl_hash(krb5_context context,
          krb5_ccache id,
-         int fd,
          krb5_creds *creds,
          krb5_checksum *macp,
          struct fcc_hash_slot_header ***slotsp,
@@ -1098,7 +1098,8 @@ tbl_hash(krb5_context context,
         page_size = 8192;
 #endif
 
-    if (FCACHE(id)->tbl_off == -1 || FCACHE(id)->tbl_sz < 2 * page_size)
+    if (FCACHE(id)->tbl_off == -1 || FCACHE(id)->tbl_sz < 2 * page_size ||
+        FCACHE(id)->fd < 0)
         return -1;
 
     /* XXX Actually, do this in init_fcc() */
@@ -1106,7 +1107,7 @@ tbl_hash(krb5_context context,
         void *p;
 
         p = mmap(NULL, FCACHE(id)->tbl_sz, PROT_READ | PROT_WRITE, MAP_SHARED,
-                 fd, FCACHE(id)->tbl_off);
+                 FCACHE(id)->fd, FCACHE(id)->tbl_off);
         if (p == MAP_FAILED)
             return -1;
         FCACHE(id)->tbl = p;
@@ -1168,7 +1169,7 @@ tbl_get_entry(krb5_context context,
     size_t slots_needed = 0;
     size_t i, first_match, seqmap;
 
-    if (FCACHE(id)->tbl == NULL)
+    if (FCACHE(id)->tbl == NULL || FCACHE(id)->fd < 0)
         return -1;
 
     chunk_sz = FCACHE(id)->tbl->slotsz - sizeof(struct fcc_hash_slot_header);
@@ -1183,7 +1184,7 @@ tbl_get_entry(krb5_context context,
         mac.length = sizeof(model->princ_mac);
         ret = tbl_mac2offsets(context, id, &mac, &slots2check, &nslots2check);
     } else if (mcreds != NULL) {
-        ret = tbl_hash(context, id, fd, mcreds, &princ_map, &slots2check, &nslots2check);
+        ret = tbl_hash(context, id, mcreds, &princ_map, &slots2check, &nslots2check);
         if (ret)
             return ret;
         if (princ_map.checksum.length != sizeof(model->princ_mac))
@@ -1247,6 +1248,121 @@ tbl_get_entry(krb5_context context,
         ret = krb5_ret_creds(sp, out);
 
     krb5_storage_free(sp);
+    krb5_data_free(&d);
+    return ret;
+}
+
+static int
+writer_slotcmp(void *ap, void *bp)
+{
+    struct fcc_hash_slot_header *a = ap;
+    struct fcc_hash_slot_header *b = bp;
+    int cmp;
+
+    if ((cmp = a->last_use_time - b->last_use_time) != 0)
+        return cmp;
+    if ((cmp = a->store_time - b->store_time) != 0)
+        return cmp;
+    if ((cmp = a->exp_time - b->exp_time) != 0)
+        return cmp;
+    if ((cmp = a->seqnum - b->seqnum) != 0)
+        return cmp;
+    return (char *)ap - (char *)bp;
+}
+
+static krb5_error_code
+tbl_put_entry(krb5_context context,
+              krb5_ccache id,
+              krb5_creds *creds)
+{
+    struct fcc_hash_slot_header **slots = NULL;
+    struct fcc_hash_slot_header model;
+    krb5_error_code ret;
+    krb5_checksum princ_mac, entry_mac;
+    krb5_storage sp = NULL;
+    krb5_data d;
+    uint64_t lru = 0;
+    uint64_t oldest = (uint64_t)-1;
+    size_t chunk_sz;
+    size_t nslots = 0;
+    size_t slots_needed = 0;
+    size_t i;
+
+    if (FCACHE(id)->tbl == NULL || FCACHE(id)->fd < 1)
+        return -1;
+
+    if ((sp = krb5_storage_emem()) == NULL)
+        return ENOMEM;
+
+    chunk_sz = FCACHE(id)->tbl->slotsz - sizeof(struct fcc_hash_slot_header);
+
+    d.length = 0;
+    d.data = NULL;
+
+    ret = tbl_hash(context, id, creds, &princ_mac, &slots, &nslots);
+    if (ret == 0)
+        ret = krb5_store_creds(sp, creds);
+    if (ret == 0)
+        ret = krb5_storage_to_data(sp, &d);
+
+    krb5_storage_free(sp);
+
+    if (ret == 0 && FCACHE(id)->crypto == NULL) {
+        krb5_keyblock key;
+        
+        key.keytype = FCACHE(id)->tbl->princ_cksumtype;
+        key.keyvalue.data = FCACHE(id)->tbl->nonce;
+        key.keyvalue.length = sizeof(FCACHE(id)->tbl->nonce);
+        ret = krb5_crypto_init(context, &key, 0, &FCACHE(id)->crypto);
+    }
+
+    if (ret == 0)
+        ret = krb5_create_checksum(context, FCACHE(id)->crypto,
+                                   KRB5_KU_OTHER_CKSUM,
+                                   FCACHE(id)->tbl->princ_cksumtype,
+                                   d.data, d.length, &entry_mac);
+
+    if (ret)
+        goto out;
+
+    memset(model, 0, sizeof(model));
+
+    memcpy(model.princ_mac, princ_mac.checksum.data,
+           min(sizeof(model.princ_mac), princ_mac.checksum.length));
+    memcpy(model.entry_mac, entry_mac.checksum.data,
+           min(sizeof(model.entry_mac), entry_mac.checksum.length));
+
+    model.last_use_time = 0;
+    model.store_time = time(NULL);
+    model.exp_time = creds->times.endtime;
+    model.entrysz = d.length;
+
+    if (d.length > FCACHE(id)->tbl->entry_max_sz) {
+        /*
+         * XXX acquire lock, O_APPEND write `d` to fd, save offset in
+         * model.large_entry_off
+         */
+        model.large_entry_off = -1;
+    } else
+        model.large_entry_off = -1;
+
+    qsort(slots, nslots, sizeof(slots[0]), writer_slotcmp);
+
+    if (slots_needed == 0)
+        slots_needed = d.length / chunk_sz;
+
+    for (i = 0; i < slots_needed; i++) {
+        model.seqnum = i;
+        memcpy(slots[i], &model, sizeof(model));
+        if (i + 1 == slots_needed)
+            memcpy(slots[i] + 1, d.data + chunk_sz * i, d.length - chunk_sz * i);
+        else
+            memcpy(slots[i] + 1, d.data + chunk_sz * i, chunk_sz);
+    }
+
+out:
+    krb5_checksum_free(&princ_mac);
+    krb5_checksum_free(&entry_mac);
     krb5_data_free(&d);
     return ret;
 }
@@ -1545,7 +1661,6 @@ fcc_retrieve(krb5_context context, krb5_ccache id,
     const char *realm, *name0, *name1;
     krb5_error_code ret;
     krb5_cc_cursor cursor;
-    int fd;
 
     *out = NULL;
 
