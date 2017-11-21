@@ -1253,22 +1253,42 @@ tbl_get_entry(krb5_context context,
     return ret;
 }
 
-static int
-writer_slotcmp(const void *ap, const void *bp)
-{
-    const struct fcc_hash_slot_header *a = ap;
-    const struct fcc_hash_slot_header *b = bp;
-    int cmp;
+struct fcc_hash_slot_reference {
+    struct fcc_hash_slot_header *slot;
+    uint64_t last_use_time;
+};
 
-    if ((cmp = a->last_use_time - b->last_use_time) != 0)
-        return cmp;
-    if ((cmp = a->store_time - b->store_time) != 0)
-        return cmp;
-    if ((cmp = a->exp_time - b->exp_time) != 0)
-        return cmp;
-    if ((cmp = a->seqnum - b->seqnum) != 0)
-        return cmp;
-    return (char *)ap - (char *)bp;
+/*
+ * `ap` is less than `bp` if `a` is expired or use less recently than `b`, or
+ * stored earlier than `b`.
+ */
+static int
+writer_slotcmp(const void *ap, const void *bp, void *ctx)
+{
+    const struct fcc_hash_slot_reference *a = *(const struct fcc_hash_slot_reference *)ap;
+    const struct fcc_hash_slot_reference *b = *(const struct fcc_hash_slot_reference *)bp;
+    const time_t *now = ctx;
+
+    /* The more expired of `a` or `b` is lesser */
+    if (a->slot->exp_time > *now || b->slot->exp_time > *now)
+        return a->slot->exp_time - b->slot->exp_time;
+
+    /* Neither is expired */
+
+    if (a->last_use_time == 0) {
+        if (b->last_use_time == 0)
+            return a->slot->store_time - b->slot->store_time;
+        return -1; /* or a->slot->store_time - b->last_use_time */
+    }
+    if (b->last_use_time == 0)
+        return  1; /* or a->slot->last_use_time - b->store_time */
+
+    /* Both used at least once */
+    if (a->last_use_time != b->last_use_time)
+        return a->last_use_time - b->last_use_time;
+
+    /* Same last use time, neither expired, pick oldest */
+    return a->slot->store_time - b->slot->store_time;
 }
 
 static krb5_error_code
@@ -1278,6 +1298,7 @@ tbl_put_entry(krb5_context context,
 {
     struct fcc_hash_slot_header **slots = NULL;
     struct fcc_hash_slot_header model;
+    struct fcc_hash_slot_reference *slotrefs = NULL;
     krb5_error_code ret;
     krb5_checksum princ_mac, entry_mac;
     krb5_storage *sp = NULL;
@@ -1286,6 +1307,7 @@ tbl_put_entry(krb5_context context,
     size_t nslots = 0;
     size_t slots_needed = 0;
     size_t i;
+    time_t now;
 
     if (FCACHE(id)->tbl == NULL || FCACHE(id)->fd < 1)
         return -1;
@@ -1324,6 +1346,8 @@ tbl_put_entry(krb5_context context,
     if (ret)
         goto out;
 
+    now = time(NULL);
+
     memset(&model, 0, sizeof(model));
 
     memcpy(model.princ_mac, princ_mac.checksum.data,
@@ -1332,7 +1356,7 @@ tbl_put_entry(krb5_context context,
            min(sizeof(model.entry_mac), entry_mac.checksum.length));
 
     model.last_use_time = 0;
-    model.store_time = time(NULL);
+    model.store_time = now;
     model.exp_time = creds->times.endtime;
     model.entrysz = d.length;
 
@@ -1345,18 +1369,45 @@ tbl_put_entry(krb5_context context,
     } else
         model.large_entry_off = -1;
 
-    qsort(slots, nslots, sizeof(slots[0]), writer_slotcmp);
+    /*
+     * We want to sort the slots so that the best uses to clobber are first.
+     *
+     * We can't qsort_r(slots, nslots, ...) because we need to use the
+     * last_use_time from each slot, which is unstable, which means using it
+     * would yield undefined behavior from qsort().
+     *
+     * Instead we make and qsort_r() an array of slot references, each with a
+     * pointer to its slot, and a copy of that slot's last_use_time.
+     */
+    slotrefs = calloc(nslots, sizeof(slotrefs[0]));
+    if (slotrefs == NULL) {
+        ret = ENOMEM;
+        goto out;
+    }
+
+    /*
+     * XXX Further halve the size of slotrefs[i] by storing a 32-bit index and
+     * a 32-bit time.  This means passing not just `now` to the comparator, but
+     * also the address of the zeroth slot.
+     */
+    for (i = 0; i < nslots; i++) {
+        slotrefs[i].slot = slots[i];
+        slotrefs[i].last_use_time = slots[i]->last_use_time;
+        slotrefs[i].now = now;
+    }
+
+    qsort_r(slotrefs, nslots, sizeof(slotrefs[0]), writer_slotcmp, &now);
 
     if (slots_needed == 0)
         slots_needed = d.length / chunk_sz;
 
     for (i = 0; i < slots_needed; i++) {
         model.seqnum = i;
-        memcpy(slots[i], &model, sizeof(model));
+        memcpy(slotrefs[i].slot, &model, sizeof(model));
         if (i + 1 == slots_needed)
-            memcpy(slots[i] + 1, (char *)d.data + chunk_sz * i, d.length - chunk_sz * i);
+            memcpy(slotrefs[i].slot + 1, (char *)d.data + chunk_sz * i, d.length - chunk_sz * i);
         else
-            memcpy(slots[i] + 1, (char *)d.data + chunk_sz * i, chunk_sz);
+            memcpy(slotrefs[i].slot + 1, (char *)d.data + chunk_sz * i, chunk_sz);
     }
 
 out:
