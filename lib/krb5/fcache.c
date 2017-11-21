@@ -994,7 +994,7 @@ static krb5_error_code
 tbl_mac2offsets(krb5_context context,
                 krb5_ccache id,
                 heim_octet_string *macp,
-                struct fcc_hash_slot_header **slotsp,
+                struct fcc_hash_slot_header ***slotsp,
                 size_t *nslotsp)
 {
     struct fcc_hash_table_header *h = FCACHE(id)->tbl;
@@ -1084,7 +1084,7 @@ tbl_hash(krb5_context context,
          int fd,
          krb5_creds *creds,
          krb5_checksum *macp,
-         struct fcc_hash_slot_header **slotsp,
+         struct fcc_hash_slot_header ***slotsp,
          size_t *nslotsp)
 {
     krb5_error_code ret;
@@ -1148,19 +1148,20 @@ tbl_hash(krb5_context context,
 }
 
 /*
- * If slotp != NULL then reconstitute the entry found there, else look for it
+ * If model != NULL then reconstitute the entry found there, else look for it
  * from scratch.
  */
 static krb5_error_code
 tbl_get_entry(krb5_context context,
               krb5_ccache id,
               krb5_creds *mcreds,
-              struct fcc_hash_slot_header *slotp,
+              struct fcc_hash_slot_header *model,
               krb5_creds *out)
 {
-    struct fcc_hash_slot_header *slots2check = NULL; /* XXX No!  We need an array of full-size slots */
-    krb5_error_code ret;
+    struct fcc_hash_slot_header **slots2check = NULL;
     krb5_checksum princ_mac;
+    krb5_error_code ret;
+    krb5_storage sp = NULL;
     krb5_data d;
     size_t chunk_sz;
     size_t nslots2check = 0;
@@ -1175,37 +1176,39 @@ tbl_get_entry(krb5_context context,
     d.length = 0;
     d.data = NULL;
 
-    if (slotp != NULL) {
+    if (model != NULL) {
         heim_octet_string mac;
 
-        mac.data = slotp->princ_mac;
-        mac.length = sizeof(slotp->princ_mac);
+        mac.data = model->princ_mac;
+        mac.length = sizeof(model->princ_mac);
         ret = tbl_mac2offsets(context, id, &mac, &slots2check, &nslots2check);
     } else if (mcreds != NULL) {
         ret = tbl_hash(context, id, fd, mcreds, &princ_map, &slots2check, &nslots2check);
         if (ret)
             return ret;
-        if (princ_map.checksum.length != sizeof(slotp->princ_mac))
+        if (princ_map.checksum.length != sizeof(model->princ_mac))
             return -1; /* XXX */
     } else
         return EINVAL; /* Internal API usage error; can't happen, should assert */
 
+    ret = -1;
     for (i = 0, seqmap = 0, first_match = (size_t)-1; i < nslots2check; i++) {
-        if (slotp != NULL) {
-            if (memcmp(slotp, &slots2check[i],
+        if (model != NULL) {
+            if (memcmp(model, &slots2check[i],
                        offsetof(struct fcc_hash_slot_header, seqnum)) != 0)
                 continue
         } else if (first_match != -1) {
             if (memcmp(slots2check[i].princ_mac, princ_mac.checksum.data,
                        sizeof(slots2check[i].princ_mac)) != 0)
                 continue;
-            if (memcmp(slotp, &slots2check[first_match],
+            if (memcmp(model, &slots2check[first_match],
                        offsetof(struct fcc_hash_slot_header, seqnum)) != 0)
                 continue;
         } else {
             if (memcmp(slots2check[i].princ_mac, princ_mac.checksum.data,
                        sizeof(slots2check[i].princ_mac)) != 0)
                 continue;
+            /* From here on only check partial matches of this one */
             first_match = i;
         }
 
@@ -1224,39 +1227,28 @@ tbl_get_entry(krb5_context context,
             if ((tmp = realloc(d.data,
                                (slots_needed + 1) * chunk_sz)) == NULL) {
                 free(d.data);
-                return ret;
+                return ENOMEM;
             }
             d.length = (slots_needed + 1) * chunk_sz;
             d.data = tmp;
         }
-        memcpy(d.data + slots[i].seqnum * chunk_sz,
-               slots2check[i] + 1, 
+        memcpy(d.data + (slots2check[i])->seqnum * chunk_sz,
+               (slots2check[i]) + 1, chunk_sz);
+        if (seqmap == (1 << slots_needed) - 1) {
+            ret = 0;
+            break; /* Got all the chunks we needed */
+        }
     }
 
-    if (ret) {
-        krb5_data_free(&d);
-        return ret;
-    }
+    if (ret == 0 && (sp = krb5_storage_from_data(&d)) == NULL)
+        ret = ENOMEM;
 
-    if (ret)
-        break; /* XXX */
+    if (ret == 0)
+        ret = krb5_ret_creds(sp, out);
 
-    /* XXX Move up */
-    /* Reconstitute cred XXX Move to separate function */
-    for (k = 0; k < nslots2check; k++) {
-        if (slots[i] == slots2check[k] ||
-            slots2check[k].seqnum > slots_needed ||
-            memcmp(slots[i].princ_mac,
-                   slots2check[k].princ_mac,
-                   sizeof(slots[i].princ_mac)) != 0)
-            continue;
-        memcpy(d.data + chunk_sz * slots2check[k].seqnum,
-               ((char *)&slots2check[k]) + sizeof(slots2check[k]),
-               chunk_sz);
-    }
-    /* XXX We may not have read the whole entry */
-    if (!tbl_check(context, d.data, slots[i]entrysz, ...))
-        continue;
+    krb5_storage_free(sp);
+    krb5_data_free(&d);
+    return ret;
 }
 #endif /* HAVE_MMAP */
 
