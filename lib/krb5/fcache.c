@@ -1265,8 +1265,8 @@ struct fcc_hash_slot_reference {
 static int
 writer_slotcmp(const void *ap, const void *bp, void *ctx)
 {
-    const struct fcc_hash_slot_reference *a = *(const struct fcc_hash_slot_reference *)ap;
-    const struct fcc_hash_slot_reference *b = *(const struct fcc_hash_slot_reference *)bp;
+    const struct fcc_hash_slot_reference *a = *(const struct fcc_hash_slot_reference **)ap;
+    const struct fcc_hash_slot_reference *b = *(const struct fcc_hash_slot_reference **)bp;
     const time_t *now = ctx;
 
     /* The more expired of `a` or `b` is lesser */
@@ -1393,7 +1393,6 @@ tbl_put_entry(krb5_context context,
     for (i = 0; i < nslots; i++) {
         slotrefs[i].slot = slots[i];
         slotrefs[i].last_use_time = slots[i]->last_use_time;
-        slotrefs[i].now = now;
     }
 
     qsort_r(slotrefs, nslots, sizeof(slotrefs[0]), writer_slotcmp, &now);
@@ -1423,47 +1422,56 @@ fcc_store_cred(krb5_context context,
 	       krb5_ccache id,
 	       krb5_creds *creds)
 {
-    int ret;
+    krb5_error_code ret;
+    krb5_storage *sp = NULL;
+#ifdef HAVE_MMAP
+    const char *realm = krb5_principal_get_realm(context, creds->server);
+    int hash_it = 0;
+#endif
     int fd;
 
     ret = fcc_open(context, id, "store", &fd, O_WRONLY | O_APPEND, 0);
-    if(ret)
-	return ret;
-    {
-	krb5_storage *sp;
-
+    if (ret == 0)
 	sp = krb5_storage_emem();
-	krb5_storage_set_eof_code(sp, KRB5_CC_END);
-	storage_set_flags(context, sp, FCACHE(id)->version);
-	ret = krb5_store_creds(sp, creds);
-	if (ret == 0)
-	    ret = write_storage(context, sp, fd);
-	krb5_storage_free(sp);
-    }
-    /* If this is a start_realm cconfig, then make_hash_table() */
+    if (sp != NULL)
+	return ret ? ret : ENOMEM;
+    krb5_storage_set_eof_code(sp, KRB5_CC_END);
+
+    storage_set_flags(context, sp, FCACHE(id)->version);
+    ret = krb5_store_creds(sp, creds);
+    if (ret)
+        goto cleanup;
+#ifdef HAVE_MMAP
     /*
-     * XXX This is probably not the best way -- we want to write this after all
-     * cconfigs written by kinit and friends, since we want all of those stored
-     * ahead of the hash table.  Alternatively we'll store all subsequent
-     * cconfigs both in the hash table, and past it -- we won't be storing many
-     * cconfigs, so having to use a lock to store them is fine.
+     * If we're storing a non-krbtgt, non-ccconfig entry, and we don't yet have
+     * an offset to the hash table, then we don't have a hash table yet, so
+     * create it.
      */
-    if (FCACHE(id)->tbl_off == -1 && creds->server != NULL &&
-        krb5_principal_get_num_comp(context, creds->server) > 1)
-    {
-        const char *realm = krb5_principal_get_realm(context, creds->server);
+    if (FCACHE(id)->tbl_off == -1 &&
+        strcmp(realm, "X-CACHECONF:") != 0 &&
+        krb5_principal_get_num_comp(context, creds->server) > 0) {
         const char *name0 = krb5_principal_get_comp_string(context,
                                                            creds->server, 0);
-        const char *name1 = krb5_principal_get_comp_string(context,
-                                                           creds->server, 1);
 
-        if (realm != NULL && name0 != NULL && name1 != NULL &&
-            strcmp(realm, "X-CACHECONF:") == 0 &&
-            strcmp(name0, "krb5_ccache_conf_data") == 0 &&
-            strcmp(name1, "ccache_hash_table") == 0) {
-            ret = make_hash_table(context, id, fd);
+        if (strcmp(name0, "krbtgt") != 0) {
+            if (make_hash_table(context, id, fd) == 0)
+                hash_it = 1;
         }
+    } else if (FCACHE(id)->tbl_off != -1 && strcmp(realm, "X-CACHECONF:") != 0)
+        hash_it = 1;
+
+    if (hash_it) {
+        ret = tbl_put_entry(context, id, creds);
+        if (ret != 0 && ret != -1)
+            goto cleanup;
     }
+#endif /* HAVE_MMAP */
+
+    if (ret == 0)
+        ret = write_storage(context, sp, fd);
+
+cleanup:
+    krb5_storage_free(sp);
     if (close(fd) < 0) {
 	if (ret == 0) {
 	    char buf[128];
