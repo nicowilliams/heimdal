@@ -1470,6 +1470,10 @@ krb5_store_creds(krb5_storage *sp, krb5_creds *creds)
     return ret;
 }
 
+#define princ_num_comp(P) ((P)->name.name_string.len)
+#define princ_ncomp(P, N) ((P)->name.name_string.val[(N)])
+#define princ_realm(P) ((P)->realm)
+
 /**
  * Read a credentials block from the storage.
  *
@@ -1506,12 +1510,10 @@ krb5_ret_creds(krb5_storage *sp, krb5_creds *creds)
     if(ret) goto cleanup;
     ret = krb5_ret_authdata (sp,  &creds->authdata);
     if(ret) goto cleanup;
-    if (krb5_principal_get_num_comp(context, creds->server) > 1) {
-        const char *realm = krb5_principal_get_realm(context, creds->server);
-        const char *name0 = krb5_principal_get_comp_string(context,
-                                                           creds->server, 0);
-        const char *name1 = krb5_principal_get_comp_string(context,
-                                                           creds->server, 1);
+    if (princ_num_comp(creds->server) > 1) {
+        const char *realm = princ_realm(creds->server);
+        const char *name0 = princ_ncomp(creds->server, 0);
+        const char *name1 = princ_ncomp(creds->server, 1);
         uint32_t size;
 
         if (realm != NULL && name0 != NULL && name1 != NULL &&
