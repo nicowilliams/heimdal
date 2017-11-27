@@ -1890,7 +1890,7 @@ fcc_get_next (krb5_context context,
      * If this is the hash table ccconfig entry then we should set the ccache's
      * tbl_off if it's not set already.
      */
-    if (FCACHE(id)->tbl_off == -1 &&
+    if (FCACHE(id)->tbl_off == -1 && creds->server != NULL &&
         krb5_principal_get_num_comp(context, creds->server) == 2) {
         off_t off = FCC_CURSOR(*cursor)->cred_end;
 
