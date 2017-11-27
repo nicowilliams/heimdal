@@ -1313,8 +1313,8 @@ writer_slotcmp(const void *ap, const void *bp, void *ctx)
     return a->slot->store_time - b->slot->store_time;
 }
 
-static krb5_error_code store_cred(krb5_context, krb5_ccache,
-                                  krb5_creds *, int, off_t *);
+static krb5_error_code store_creds(krb5_context, krb5_ccache,
+                                   krb5_creds *, int, off_t *);
 
 static krb5_error_code
 tbl_put_entry(krb5_context context,
@@ -1390,7 +1390,7 @@ tbl_put_entry(krb5_context context,
          * Write the cred as usual, get its offset, and store that in the hash
          * table.
          */
-        ret = store_cred(context, id, creds, 1, &model.large_entry_off);
+        ret = store_creds(context, id, creds, 0, &model.large_entry_off);
         if (ret)
             goto out;
     } else
@@ -1445,11 +1445,11 @@ out:
 #endif /* HAVE_MMAP */
 
 static krb5_error_code
-store_cred(krb5_context context,
-           krb5_ccache id,
-           krb5_creds *creds,
-           int use_hash_tbl,
-           off_t *creds_off)
+store_creds(krb5_context context,
+            krb5_ccache id,
+            krb5_creds *creds,
+            int use_hash_tbl,
+            off_t *creds_off)
 {
     krb5_error_code ret;
     krb5_storage *sp = NULL;
@@ -1463,7 +1463,7 @@ store_cred(krb5_context context,
     ret = fcc_open(context, id, "store", &fd, O_WRONLY | O_APPEND, 0);
     if (ret == 0)
 	sp = krb5_storage_emem();
-    if (sp != NULL)
+    if (sp == NULL)
 	return ret ? ret : ENOMEM;
     krb5_storage_set_eof_code(sp, KRB5_CC_END);
 
@@ -1536,7 +1536,7 @@ fcc_store_cred(krb5_context context,
                krb5_ccache id,
                krb5_creds *creds)
 {
-    return store_cred(context, id, creds, 0, NULL);
+    return store_creds(context, id, creds, 1, NULL);
 }
 
 static krb5_error_code
