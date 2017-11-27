@@ -731,13 +731,11 @@ fcc_initialize(krb5_context context,
             if (ret == 0)
                 ret = krb5_store_int16(sp, FCC_TAG_HASH_TABLE_OFFSET); /* Tag */
             if (ret == 0)
-                ret = krb5_store_int16(sp, 12); /* length of file offset */
-#ifdef HAVE_MMAP
+                ret = krb5_store_int16(sp, 12); /* length of extension payload */
             if (ret == 0) {
                 f->tbl_off_off = krb5_storage_seek(sp, 0, SEEK_CUR);
                 ret = krb5_store_int64(sp, -1); /* offset to hash table */
             }
-#endif
             if (ret == 0)
                 ret = krb5_store_uint32(sp, 0); /* size of hash table */
 	}
@@ -1657,7 +1655,7 @@ init_fcc(krb5_context context,
             int64_t off;
             uint32_t sz;
 
-            if (data_len >= 12) {
+            if (data_len >= 16) {
                 off = krb5_storage_seek(sp, 0, SEEK_CUR);
                 if (off == -1)
                     ret = errno;
@@ -1687,7 +1685,7 @@ init_fcc(krb5_context context,
                     goto out;
                 }
                 /* Ignore future extensions to this tag's payload */
-                krb5_storage_seek(sp, data_len - 12, SEEK_CUR);
+                krb5_storage_seek(sp, data_len - 16, SEEK_CUR);
             } else {
                 krb5_storage_seek(sp, data_len, SEEK_CUR);
             }
