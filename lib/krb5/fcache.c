@@ -138,6 +138,7 @@ typedef struct krb5_fcache{
     int version;
     int fd;             /* XXX Set! */
     krb5_principal def_princ;
+#ifdef HAVE_MMAP
     off_t tbl_off_off;  /* offset to offset for table */
     off_t tbl_off;      /* offset to hash table */
     size_t tbl_sz;      /* size of hash table */
@@ -146,6 +147,7 @@ typedef struct krb5_fcache{
     krb5_crypto crypto; /* for MAC operations */
     unsigned char *bitmap;
     size_t bitmap_sz;
+#endif
 }krb5_fcache;
 
 struct fcc_cursor {
@@ -193,6 +195,10 @@ struct fcc_hash_slot_header {
 #define FILENAME(X) (FCACHE(X)->filename)
 
 #define FCC_CURSOR(C) ((struct fcc_cursor*)(C))
+
+#if defined(HAVE_MMAP) && defined(HAVE_SYSCONF) && defined(_SC_PAGE_SIZE)
+static ssize_t sc_page_size = 0;
+#endif
 
 static const char* KRB5_CALLCONV
 fcc_get_name(krb5_context context,
@@ -334,11 +340,13 @@ fcc_resolve(krb5_context context, krb5_ccache *id, const char *res)
     }
     f->version = 0;
     f->def_princ = NULL;
+#ifdef HAVE_MMAP
     f->tbl_off_off = -1;
     f->tbl_off = -1;
     f->crypto = NULL;
     f->bitmap = NULL;
     f->tbl = NULL;
+#endif
     (*id)->data.data = f;
     (*id)->data.length = sizeof(*f);
     return 0;
@@ -486,11 +494,13 @@ fcc_gen_new(krb5_context context, krb5_ccache *id)
     f->filename = exp_file;
     f->version = 0;
     f->def_princ = NULL;
+#ifdef HAVE_MMAP
     f->tbl_off_off = -1;
     f->tbl_off = -1;
     f->crypto = NULL;
     f->bitmap = NULL;
     f->tbl = NULL;
+#endif
     (*id)->data.data = f;
     (*id)->data.length = sizeof(*f);
     return 0;
@@ -680,6 +690,7 @@ fcc_initialize(krb5_context context,
         return krb5_einval(context, 2);
 
     unlink (f->filename);
+#ifdef HAVE_MMAP
     f->tbl_off_off = -1;
     f->tbl_off = -1;
     if (f->tbl != NULL)
@@ -687,6 +698,7 @@ fcc_initialize(krb5_context context,
     f->tbl_mmap_sz = 0;
     f->tbl_sz = 0;
     f->tbl = NULL;
+#endif
 
     ret = fcc_open(context, id, "initialize", &fd, O_RDWR | O_CREAT | O_EXCL, 0600);
     if(ret)
@@ -720,10 +732,12 @@ fcc_initialize(krb5_context context,
                 ret = krb5_store_int16(sp, FCC_TAG_HASH_TABLE_OFFSET); /* Tag */
             if (ret == 0)
                 ret = krb5_store_int16(sp, 12); /* length of file offset */
+#ifdef HAVE_MMAP
             if (ret == 0) {
                 f->tbl_off_off = krb5_storage_seek(sp, 0, SEEK_CUR);
                 ret = krb5_store_int64(sp, -1); /* offset to hash table */
             }
+#endif
             if (ret == 0)
                 ret = krb5_store_uint32(sp, 0); /* size of hash table */
 	}
@@ -754,6 +768,7 @@ fcc_close(krb5_context context,
         return krb5_einval(context, 2);
 
     free (FILENAME(id));
+#ifdef HAVE_MMAP
     if (FCACHE(id)->tbl != NULL)
         (void) munmap(FCACHE(id)->tbl, FCACHE(id)->tbl_mmap_sz);
     if (FCACHE(id)->crypto != NULL)
@@ -767,6 +782,7 @@ fcc_close(krb5_context context,
     FCACHE(id)->crypto = NULL;
     FCACHE(id)->bitmap = NULL;
     FCACHE(id)->tbl = NULL;
+#endif
 
     krb5_data_free(&id->data);
     return 0;
@@ -798,8 +814,9 @@ make_hash_table(krb5_context context, krb5_ccache id, int fd)
         return -1;
 
 #if defined(HAVE_SYSCONF) && defined(_SC_PAGE_SIZE)
-    if ((page_size = sysconf(_SC_PAGE_SIZE)) < 0)
-        page_size = 8192;
+    if (sc_page_size == 0)
+        sc_page_size = sysconf(_SC_PAGE_SIZE);
+    page_size = sc_page_size > 0 ? sc_page_size : 8192;
 #endif
 
     memset(&tbl, 0, sizeof(tbl));
@@ -833,6 +850,11 @@ make_hash_table(krb5_context context, krb5_ccache id, int fd)
     /*
      * XXX If we didn't use krb5_store_creds() then we wouldn't have to
      * allocate sz bytes here for nothing.
+     *
+     * XXX Teach krb5_store_creds() to seek tbl_cred.ticket.length and continue
+     * when tbl_cred.ticket.data == NULL and tbl_cred.ticket.length != 0 and
+     * the creds is a ccache_hash_table ccconfig.  Then we won't need this
+     * allocation.
      */
     if (ret == 0)
         /*
@@ -1291,6 +1313,9 @@ writer_slotcmp(const void *ap, const void *bp, void *ctx)
     return a->slot->store_time - b->slot->store_time;
 }
 
+static krb5_error_code store_cred(krb5_context, krb5_ccache,
+                                  krb5_creds *, int, off_t *);
+
 static krb5_error_code
 tbl_put_entry(krb5_context context,
               krb5_ccache id,
@@ -1362,10 +1387,12 @@ tbl_put_entry(krb5_context context,
 
     if (d.length > FCACHE(id)->tbl->entry_max_sz) {
         /*
-         * XXX acquire lock, O_APPEND write `d` to fd, save offset in
-         * model.large_entry_off
+         * Write the cred as usual, get its offset, and store that in the hash
+         * table.
          */
-        model.large_entry_off = -1;
+        ret = store_cred(context, id, creds, 1, &model.large_entry_off);
+        if (ret)
+            goto out;
     } else
         model.large_entry_off = -1;
 
@@ -1417,10 +1444,12 @@ out:
 }
 #endif /* HAVE_MMAP */
 
-static krb5_error_code KRB5_CALLCONV
-fcc_store_cred(krb5_context context,
-	       krb5_ccache id,
-	       krb5_creds *creds)
+static krb5_error_code
+store_cred(krb5_context context,
+           krb5_ccache id,
+           krb5_creds *creds,
+           int use_hash_tbl,
+           off_t *creds_off)
 {
     krb5_error_code ret;
     krb5_storage *sp = NULL;
@@ -1428,6 +1457,7 @@ fcc_store_cred(krb5_context context,
     const char *realm = krb5_principal_get_realm(context, creds->server);
     int hash_it = 0;
 #endif
+    off_t creds_sz;
     int fd;
 
     ret = fcc_open(context, id, "store", &fd, O_WRONLY | O_APPEND, 0);
@@ -1441,34 +1471,51 @@ fcc_store_cred(krb5_context context,
     ret = krb5_store_creds(sp, creds);
     if (ret)
         goto cleanup;
+
+    creds_sz = krb5_storage_seek(sp, 0, SEEK_CUR);
+
 #ifdef HAVE_MMAP
-    /*
-     * If we're storing a non-krbtgt, non-ccconfig entry, and we don't yet have
-     * an offset to the hash table, then we don't have a hash table yet, so
-     * create it.
-     */
-    if (FCACHE(id)->tbl_off == -1 &&
-        strcmp(realm, "X-CACHECONF:") != 0 &&
-        krb5_principal_get_num_comp(context, creds->server) > 0) {
-        const char *name0 = krb5_principal_get_comp_string(context,
-                                                           creds->server, 0);
+    if (use_hash_tbl) {
+        /*
+         * If we're storing a non-krbtgt, non-ccconfig entry, and we don't yet
+         * have an offset to the hash table, then we don't have a hash table
+         * yet, so create it.
+         */
+        if (FCACHE(id)->tbl_off == -1 &&
+            strcmp(realm, "X-CACHECONF:") != 0 &&
+            krb5_principal_get_num_comp(context, creds->server) > 0) {
+            const char *name0 = krb5_principal_get_comp_string(context,
+                                                               creds->server,
+                                                               0);
 
-        if (strcmp(name0, "krbtgt") != 0) {
-            if (make_hash_table(context, id, fd) == 0)
-                hash_it = 1;
+            if (strcmp(name0, "krbtgt") != 0) {
+                if (make_hash_table(context, id, fd) == 0)
+                    hash_it = 1;
+            }
+        } else if (FCACHE(id)->tbl_off != -1 &&
+                   strcmp(realm, "X-CACHECONF:") != 0)
+            hash_it = 1;
+
+        if (hash_it) {
+            FCACHE(id)->fd = dup(fd);
+            ret = tbl_put_entry(context, id, creds);
+            if (FCACHE(id)->fd != -1 && close(FCACHE(id)->fd) == -1)
+                ret = errno;
+            FCACHE(id)->fd = -1;
+            if (ret != 0 && ret != -1) {
+                if (creds_off != NULL)
+                    *creds_off = -1;
+                goto cleanup;
+            }
         }
-    } else if (FCACHE(id)->tbl_off != -1 && strcmp(realm, "X-CACHECONF:") != 0)
-        hash_it = 1;
-
-    if (hash_it) {
-        ret = tbl_put_entry(context, id, creds);
-        if (ret != 0 && ret != -1)
-            goto cleanup;
+        /* Fall through, write as usual */
     }
 #endif /* HAVE_MMAP */
 
     if (ret == 0)
         ret = write_storage(context, sp, fd);
+    if (creds_off != NULL)
+        *creds_off = lseek(fd, 0, SEEK_CUR) - creds_sz;
 
 cleanup:
     krb5_storage_free(sp);
@@ -1482,6 +1529,14 @@ cleanup:
 	}
     }
     return ret;
+}
+
+static krb5_error_code KRB5_CALLCONV
+fcc_store_cred(krb5_context context,
+               krb5_ccache id,
+               krb5_creds *creds)
+{
+    return store_cred(context, id, creds, 0, NULL);
 }
 
 static krb5_error_code
@@ -1545,6 +1600,7 @@ init_fcc(krb5_context context,
     switch (tag) {
     case KRB5_FCC_FVNO_4: {
 	int16_t length;
+        int16_t dtag, data_len;
 
 	ret = krb5_ret_int16 (sp, &length);
 	if(ret) {
@@ -1554,108 +1610,101 @@ init_fcc(krb5_context context,
 				      "cache file: %s", ""), FILENAME(id));
 	    goto out;
 	}
-	while(length > 0) {
-	    int16_t dtag, data_len;
-	    int i;
-	    int8_t dummy;
 
-	    ret = krb5_ret_int16 (sp, &dtag);
-	    if(ret) {
-		ret = KRB5_CC_FORMAT;
-		krb5_set_error_message(context, ret, N_("Error reading dtag in "
-							"cache file: %s", ""),
-				       FILENAME(id));
-		goto out;
-	    }
-	    ret = krb5_ret_int16 (sp, &data_len);
-	    if(ret) {
-		ret = KRB5_CC_FORMAT;
-		krb5_set_error_message(context, ret,
-				       N_("Error reading dlength "
-					  "in cache file: %s",""),
-				       FILENAME(id));
-		goto out;
-	    }
-	    switch (dtag) {
-	    case FCC_TAG_DELTATIME : {
-		int32_t offset;
+        ret = krb5_ret_int16(sp, &dtag);
+        if(ret) {
+            ret = KRB5_CC_FORMAT;
+            krb5_set_error_message(context, ret, N_("Error reading dtag in "
+                                                    "cache file: %s", ""),
+                                   FILENAME(id));
+            goto out;
+        }
+        ret = krb5_ret_int16(sp, &data_len);
+        if(ret) {
+            ret = KRB5_CC_FORMAT;
+            krb5_set_error_message(context, ret,
+                                   N_("Error reading dlength "
+                                      "in cache file: %s",""),
+                                   FILENAME(id));
+            goto out;
+        }
+        switch (dtag) {
+        case FCC_TAG_DELTATIME : {
+            int32_t offset;
 
-                if (data_len >= 8) {
-                    ret = krb5_ret_int32 (sp, &offset);
-                    ret |= krb5_ret_int32 (sp, &context->kdc_usec_offset);
-                    if(ret) {
-                        ret = KRB5_CC_FORMAT;
-                        krb5_set_error_message(context, ret,
-                                               N_("Error reading kdc_sec in "
-                                                  "cache file: %s", ""),
-                                               FILENAME(id));
-                        goto out;
-                    }
-                    context->kdc_sec_offset = offset;
-                    if (kdc_offset)
-                        *kdc_offset = offset;
-                    krb5_storage_seek(sp, data_len - 8, SEEK_CUR);
-                } else {
-                    krb5_storage_seek(sp, data_len, SEEK_CUR);
+            if (data_len >= 8) {
+                ret = krb5_ret_int32(sp, &offset);
+                ret |= krb5_ret_int32(sp, &context->kdc_usec_offset);
+                if(ret) {
+                    ret = KRB5_CC_FORMAT;
+                    krb5_set_error_message(context, ret,
+                                           N_("Error reading kdc_sec in "
+                                              "cache file: %s", ""),
+                                           FILENAME(id));
+                    goto out;
                 }
-		break;
-	    }
-	    case FCC_TAG_HASH_TABLE_OFFSET : {
-                int64_t off;
-                uint32_t sz;
+                context->kdc_sec_offset = offset;
+                if (kdc_offset)
+                    *kdc_offset = offset;
+                krb5_storage_seek(sp, data_len - 8, SEEK_CUR);
+            } else {
+                krb5_storage_seek(sp, data_len, SEEK_CUR);
+            }
+            break;
+        }
+#ifdef HAVE_MMAP
+        case FCC_TAG_HASH_TABLE_OFFSET : {
+            int64_t off;
+            uint32_t sz;
 
-                if (data_len >= 12) {
-                    off = krb5_storage_seek(sp, 0, SEEK_CUR);
-                    if (off == -1)
-                        ret = errno;
-                    else
-                        FCACHE(id)->tbl_off_off = off;
-                    if (ret == 0)
-                        ret = krb5_ret_int64(sp, &FCACHE(id)->tbl_off);
-                    if (ret == 0) {
-                        if (FCACHE(id)->tbl_off != -1 &&
-                            FCACHE(id)->tbl_off != off &&
-                            FCACHE(id)->tbl != NULL)
-                            (void) munmap(FCACHE(id)->tbl,
-                                          FCACHE(id)->tbl_mmap_sz);
-                        FCACHE(id)->tbl_mmap_sz = 0;
-                        FCACHE(id)->tbl_off = off;
-                        FCACHE(id)->tbl = NULL;
-                        ret = krb5_ret_uint32(sp, &sz);
-                    }
-                    if (ret == 0)
-                        FCACHE(id)->tbl_sz = sz;
-                    if (ret) {
-                        ret = KRB5_CC_FORMAT;
-                        krb5_set_error_message(context, ret,
-                                               N_("Error hash table offset in "
-                                                  "cache file: %s", ""),
-                                               FILENAME(id));
-                        goto out;
-                    }
-                    /* Ignore future extensions to this tag's payload */
-                    krb5_storage_seek(sp, data_len - 12, SEEK_CUR);
-                } else {
-                    krb5_storage_seek(sp, data_len, SEEK_CUR);
+            if (data_len >= 12) {
+                off = krb5_storage_seek(sp, 0, SEEK_CUR);
+                if (off == -1)
+                    ret = errno;
+                else
+                    FCACHE(id)->tbl_off_off = off;
+                if (ret == 0)
+                    ret = krb5_ret_int64(sp, &FCACHE(id)->tbl_off);
+                if (ret == 0) {
+                    if (FCACHE(id)->tbl_off != -1 &&
+                        FCACHE(id)->tbl_off != off &&
+                        FCACHE(id)->tbl != NULL)
+                        (void) munmap(FCACHE(id)->tbl,
+                                      FCACHE(id)->tbl_mmap_sz);
+                    FCACHE(id)->tbl_mmap_sz = 0;
+                    FCACHE(id)->tbl_off = off;
+                    FCACHE(id)->tbl = NULL;
+                    ret = krb5_ret_uint32(sp, &sz);
                 }
-                break;
-	    }
-	    default :
-		for (i = 0; i < data_len; ++i) {
-		    ret = krb5_ret_int8 (sp, &dummy);
-		    if(ret) {
-			ret = KRB5_CC_FORMAT;
-			krb5_set_error_message(context, ret,
-					       N_("Error reading unknown "
-						  "tag in cache file: %s", ""),
-					       FILENAME(id));
-			goto out;
-		    }
-		}
-		break;
-	    }
-	    length -= 4 + data_len;
-	}
+                if (ret == 0)
+                    FCACHE(id)->tbl_sz = sz;
+                if (ret) {
+                    ret = KRB5_CC_FORMAT;
+                    krb5_set_error_message(context, ret,
+                                           N_("Error hash table offset in "
+                                              "cache file: %s", ""),
+                                           FILENAME(id));
+                    goto out;
+                }
+                /* Ignore future extensions to this tag's payload */
+                krb5_storage_seek(sp, data_len - 12, SEEK_CUR);
+            } else {
+                krb5_storage_seek(sp, data_len, SEEK_CUR);
+            }
+            break;
+        }
+#endif
+        default :
+            if (krb5_storage_seek(sp, data_len, SEEK_CUR) < 0) {
+                ret = KRB5_CC_FORMAT;
+                krb5_set_error_message(context, ret,
+                                       N_("Error reading unknown "
+                                          "tag in cache file: %s", ""),
+                                       FILENAME(id));
+                goto out;
+            }
+            break;
+        }
 	break;
     }
     case KRB5_FCC_FVNO_3:
@@ -1759,6 +1808,11 @@ fcc_get_next (krb5_context context,
 	      krb5_creds *creds)
 {
     krb5_error_code ret;
+#ifdef HAVE_MMAP
+    const char *realm;
+    const char *name0;
+    const char *name1;
+#endif
 
     if (FCACHE(id) == NULL)
         return krb5_einval(context, 2);
@@ -1772,15 +1826,46 @@ fcc_get_next (krb5_context context,
     ret = krb5_ret_creds(FCC_CURSOR(*cursor)->sp, creds);
     if (ret)
 	krb5_clear_error_message(context);
-    
-    /*
-     * XXX If this is the hash table ccconfig entry then we should set
-     * FCACHE(id)->tbl_off if it's not set already (and maybe complain if the
-     * current offset is less than FCACHE(id)->tbl_off).
-     */
 
     FCC_CURSOR(*cursor)->cred_end =
         krb5_storage_seek(FCC_CURSOR(*cursor)->sp, 0, SEEK_CUR);
+    
+#ifdef HAVE_MMAP
+
+#if defined(HAVE_SYSCONF) && defined(_SC_PAGE_SIZE)
+    if (sc_page_size == 0)
+        sc_page_size = sysconf(_SC_PAGE_SIZE);
+#endif
+    /*
+     * If this is the hash table ccconfig entry then we should set the ccache's
+     * tbl_off if it's not set already.
+     */
+    if (FCACHE(id)->tbl_off == -1 &&
+        krb5_principal_get_num_comp(context, creds->server) == 2) {
+        off_t off = FCC_CURSOR(*cursor)->cred_end;
+
+        realm = krb5_principal_get_realm(context, creds->client);
+        name0 = krb5_principal_get_comp_string(context, creds->client, 0);
+        name1 = krb5_principal_get_comp_string(context, creds->client, 1);
+
+        if (strcmp(realm, "X-CACHECONF:") != 0 ||
+            strcmp(name0, "krb5_ccache_conf_data") != 0 ||
+            strcmp(name1, "ccache_hash_table") != 0)
+            goto out;
+
+        /* Compute the offset to the hash table "ticket" payload */
+        off -= creds->second_ticket.length;
+        off -= sizeof(uint32_t);
+        off -= creds->ticket.length;
+
+        /* Compute the offset to mmap() in */
+        off += off % (sc_page_size > 0 ? sc_page_size : 8192);
+        if (off > 0) /* must be true */
+            FCACHE(id)->tbl_off = off;
+    }
+
+out:
+#endif /* HAVE_MMAP */
 
     return ret;
 }
@@ -1820,9 +1905,13 @@ fcc_retrieve(krb5_context context, krb5_ccache id,
     if (ret)
         return ret;
 
+    FCACHE(id)->fd = dup(FCC_CURSOR(cursor)->fd);
+
     while ((ret = fcc_get_next(context, id, &cursor, out)) == 0) {
-        if (krb5_compare_creds(context, whichfields, mcreds, out))
-            return fcc_end_get(context, id, &cursor);
+        if (krb5_compare_creds(context, whichfields, mcreds, out)) {
+            ret = 0;
+            goto out;
+        }
 
         if (krb5_principal_get_num_comp(context, out->server) < 2)
             continue;
@@ -1846,14 +1935,22 @@ fcc_retrieve(krb5_context context, krb5_ccache id,
             if (ret == -1)
                 continue;
             if (ret)
-                return ret;
+                goto out;
             /* Got one! */
-            if (krb5_compare_creds(context, whichfields, mcreds, out))
-                return fcc_end_get(context, id, &cursor); /* really got one */
+            if (krb5_compare_creds(context, whichfields, mcreds, out)) {
+                ret = 0;
+                goto out;
+            }
             krb5_free_cred_contents(context, out);
         }
     }
-    return KRB5_CC_NOTFOUND;
+    ret = KRB5_CC_NOTFOUND;
+
+out:
+    (void) fcc_end_get(context, id, &cursor);
+    (void) close(FCACHE(id)->fd);
+    FCACHE(id)->fd = -1;
+    return ret;
 }
 #endif
 
