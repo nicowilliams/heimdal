@@ -1749,10 +1749,12 @@ fcc_get_principal(krb5_context context,
     ret = krb5_ret_principal(sp, principal);
     if (ret)
 	krb5_clear_error_message(context);
-    if (FCACHE(id)->def_princ != NULL)
+    if (ret == 0 && FCACHE(id)->def_princ != NULL) {
         krb5_free_principal(context, FCACHE(id)->def_princ);
-    if (krb5_copy_principal(context, *principal, &FCACHE(id)->def_princ) != 0)
-        FCACHE(id)->def_princ = NULL;
+        ret = krb5_copy_principal(context, *principal, &FCACHE(id)->def_princ);
+        if (ret)
+            FCACHE(id)->def_princ = NULL;
+    }
     krb5_storage_free(sp);
     close(fd);
     return ret;
