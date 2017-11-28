@@ -867,14 +867,16 @@ make_hash_table(krb5_context context, krb5_ccache id, int fd)
             ret = ENOMEM;
     }
 
+    if (ret == 0)
+	ret = krb5_store_creds(sp, &tbl_cred);
+
     if (ret == 0) {
         off = krb5_storage_seek(sp, 0, SEEK_CUR);
         if (off == -1)
             ret = errno;
+        else
+            off -= tbl_cred.ticket.length + 4;
     }
-
-    if (ret == 0)
-	ret = krb5_store_creds(sp, &tbl_cred);
 
     /*
      * Work out the offset of the page-aligned table, and make sure to preserve
@@ -886,61 +888,27 @@ make_hash_table(krb5_context context, krb5_ccache id, int fd)
     else
         save_off = -1;
 
-    /* krb5_storage_from_fd() dup()s fd; update fd's offset to match */
-    if (save_off > -1 && lseek(fd, off, SEEK_SET) == -1 && ret == 0)
-        ret = errno;
-
     krb5_free_principal(context, tbl_cred.server);
     tbl_cred.client = tbl_cred.server = NULL;
     krb5_data_free(&tbl_cred.ticket);
     
     /* Find the offset to the table in the ccache entry we just wrote */
-    if (ret == 0 && save_off != -1 &&
-        krb5_storage_seek(sp, off, SEEK_SET) == off) {
-        int8_t u8;
-        int32_t i32;
-        uint32_t u32;
-
-        ret = krb5_ret_principal(sp, &tbl_cred.client);
-        if (ret == 0)
-            ret = krb5_ret_principal(sp, &tbl_cred.server);
-        if (ret == 0)
-            ret = krb5_ret_keyblock(sp, &tbl_cred.session);
-        if (ret == 0)
-            krb5_ret_times(sp, &tbl_cred.times);
-        if (ret == 0)
-            krb5_ret_int8(sp, &u8);
-        if (ret == 0)
-            ret = krb5_ret_int32(sp, &i32);
-        if (ret == 0) {
-            tbl_cred.flags.b = int2TicketFlags(0);
-            ret = krb5_ret_addrs(sp, &tbl_cred.addresses);
-        }
-        if (ret == 0)
-            ret = krb5_ret_authdata(sp, &tbl_cred.authdata);
-
-        /* sp's offset now points at the length of the "ticket" */
-        if (ret == 0)
-            ret = krb5_ret_uint32(sp, &u32);
-
-        if (u32 != sz + page_size)
-            ret = KRB5_CC_FORMAT;
-
-        /* sp's offset now points at the "ticket" */
-
-        if (ret == 0)
-            off = krb5_storage_seek(sp, 0, SEEK_CUR);
-
-        off += page_size - (off % page_size); /* offset to actual table */
+    if (ret == 0 && off != -1 && save_off != -1) {
+        off += off % page_size; /* offset to actual table */
 
         /* Update the offset to the table in the ccache header */
         if (save_off > off && save_off >= off + sz) {
+            FCACHE(id)->tbl_off = off;
             if (krb5_storage_seek(sp, FCACHE(id)->tbl_off_off, SEEK_SET) != -1)
                 ret = krb5_store_int64(sp, off);
-            else
+            else {
+                _krb5_debug(context, 5, "make_hash_table() oops 1");
                 ret = KRB5_CC_FORMAT;
-        } else
+            }
+        } else {
+            _krb5_debug(context, 5, "make_hash_table() oops 2");
             ret = KRB5_CC_FORMAT;
+        }
     }
 
     tbl_cred.client = NULL;
@@ -950,6 +918,7 @@ make_hash_table(krb5_context context, krb5_ccache id, int fd)
     /* Leave fd's offset as expected */
     if (save_off > 0 && lseek(fd, save_off, SEEK_SET) == -1 && ret == 0)
         ret = errno;
+    _krb5_debug(context, 5, "make_hash_table() = %d; tbl offset %lld", ret, (long long)FCACHE(id)->tbl_off);
     return ret;
 }
 
@@ -1994,7 +1963,7 @@ fcc_retrieve(krb5_context context, krb5_ccache id,
             krb5_free_cred_contents(context, out);
         }
     }
-    ret = KRB5_CC_NOTFOUND;
+    ret = KRB5_CC_END; /* XXX Should use KRB5_CC_NOTFOUND, but some callers only special-case KRB5_CC_END! */
 
 out:
     (void) fcc_end_get(context, id, &cursor);

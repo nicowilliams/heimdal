@@ -1354,7 +1354,7 @@ next_rule:
 	*out_creds = res_creds;
         res_creds = NULL;
 	goto out;
-    } else if(ret != KRB5_CC_END) {
+    } else if (ret != KRB5_CC_END && ret != KRB5_CC_NOTFOUND) {
         goto out;
     }
     if (options & KRB5_GC_CACHED)
