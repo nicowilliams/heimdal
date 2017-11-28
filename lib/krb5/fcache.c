@@ -200,6 +200,9 @@ struct fcc_hash_slot_header {
 static ssize_t sc_page_size = 0;
 #endif
 
+static krb5_error_code init_fcc(krb5_context, krb5_ccache, const char *, int,
+                                krb5_storage **, int *, krb5_deltat *);
+
 static const char* KRB5_CALLCONV
 fcc_get_name(krb5_context context,
 	     krb5_ccache id)
@@ -894,7 +897,7 @@ make_hash_table(krb5_context context, krb5_ccache id, int fd)
     
     /* Find the offset to the table in the ccache entry we just wrote */
     if (ret == 0 && off != -1 && save_off != -1) {
-        off += off % page_size; /* offset to actual table */
+        off += page_size - (off % page_size); /* offset to actual table */
 
         /* Update the offset to the table in the ccache header */
         if (save_off > off && save_off >= off + sz) {
@@ -1442,7 +1445,7 @@ store_creds(krb5_context context,
     off_t creds_sz;
     int fd;
 
-    ret = fcc_open(context, id, "store", &fd, O_WRONLY | O_APPEND, 0);
+    ret = init_fcc(context, id, "store", O_RDWR | O_APPEND, NULL, &fd, 0);
     if (ret == 0)
 	sp = krb5_storage_emem();
     if (sp == NULL)
@@ -1525,6 +1528,7 @@ static krb5_error_code
 init_fcc(krb5_context context,
 	 krb5_ccache id,
 	 const char *operation,
+         int flags,
 	 krb5_storage **ret_sp,
 	 int *ret_fd,
 	 krb5_deltat *kdc_offset)
@@ -1548,7 +1552,7 @@ init_fcc(krb5_context context,
     if (kdc_offset)
 	*kdc_offset = 0;
 
-    ret = fcc_open(context, id, operation, &fd, O_RDONLY, 0);
+    ret = fcc_open(context, id, operation, &fd, flags, 0);
     if(ret)
 	return ret;
 
@@ -1650,7 +1654,7 @@ init_fcc(krb5_context context,
                 int64_t off;
                 uint32_t sz;
 
-                if (data_len >= 16) {
+                if (data_len >= 12) {
                     off = krb5_storage_seek(sp, 0, SEEK_CUR);
                     if (off == -1)
                         ret = errno;
@@ -1659,19 +1663,16 @@ init_fcc(krb5_context context,
                     if (ret == 0)
                         ret = krb5_ret_int64(sp, &FCACHE(id)->tbl_off);
                     if (ret == 0) {
-                        if (FCACHE(id)->tbl_off != -1 &&
-                            FCACHE(id)->tbl_off != off &&
-                            FCACHE(id)->tbl != NULL)
+                        if (FCACHE(id)->tbl != NULL)
                             (void) munmap(FCACHE(id)->tbl,
                                           FCACHE(id)->tbl_mmap_sz);
                         FCACHE(id)->tbl_mmap_sz = 0;
-                        FCACHE(id)->tbl_off = off;
                         FCACHE(id)->tbl = NULL;
                         ret = krb5_ret_uint32(sp, &sz);
                     }
                     if (ret == 0)
                         FCACHE(id)->tbl_sz = sz;
-                    if (ret) {
+                    else {
                         ret = KRB5_CC_FORMAT;
                         krb5_set_error_message(context, ret,
                                                N_("Error hash table offset in "
@@ -1680,7 +1681,7 @@ init_fcc(krb5_context context,
                         goto out;
                     }
                     /* Ignore future extensions to this tag's payload */
-                    krb5_storage_seek(sp, data_len - 16, SEEK_CUR);
+                    krb5_storage_seek(sp, data_len - 12, SEEK_CUR);
                 } else {
                     krb5_storage_seek(sp, data_len, SEEK_CUR);
                 }
@@ -1760,7 +1761,7 @@ fcc_get_principal(krb5_context context,
      * XXX We could just return a copy of FCACHE(id)->def_princ if we have one,
      * but perhaps we want to detect changes to the file as soon as possible?
      */
-    ret = init_fcc(context, id, "get-principal", &sp, NULL, NULL);
+    ret = init_fcc(context, id, "get-principal", O_RDONLY, &sp, NULL, NULL);
     if (ret)
 	return ret;
     ret = krb5_ret_principal(sp, principal);
@@ -1800,8 +1801,8 @@ fcc_get_first (krb5_context context,
     memset(*cursor, 0, sizeof(struct fcc_cursor));
 
     /* XXX FIX */
-    ret = init_fcc(context, id, "get-first", &FCC_CURSOR(*cursor)->sp,
-		   &FCC_CURSOR(*cursor)->fd, NULL);
+    ret = init_fcc(context, id, "get-first", O_RDONLY,
+                   &FCC_CURSOR(*cursor)->sp, &FCC_CURSOR(*cursor)->fd, NULL);
     if (ret) {
 	free(*cursor);
 	*cursor = NULL;
@@ -1831,6 +1832,7 @@ fcc_get_next (krb5_context context,
     const char *realm;
     const char *name0;
     const char *name1;
+    ssize_t page_size;
 #endif
 
     if (FCACHE(id) == NULL)
@@ -1854,6 +1856,7 @@ fcc_get_next (krb5_context context,
 #if defined(HAVE_SYSCONF) && defined(_SC_PAGE_SIZE)
     if (sc_page_size == 0)
         sc_page_size = sysconf(_SC_PAGE_SIZE);
+    page_size = sc_page_size > 0 ? sc_page_size : 8192;
 #endif
     /*
      * If this is the hash table ccconfig entry then we should set the ccache's
@@ -1878,7 +1881,7 @@ fcc_get_next (krb5_context context,
         off -= creds->ticket.length;
 
         /* Compute the offset to mmap() in */
-        off += off % (sc_page_size > 0 ? sc_page_size : 8192);
+        off += page_size - (off % page_size);
         if (off > 0) /* must be true */
             FCACHE(id)->tbl_off = off;
     }
@@ -2285,7 +2288,8 @@ fcc_move(krb5_context context, krb5_ccache from, krb5_ccache to)
     /* make sure ->version is uptodate */
     {
 	krb5_storage *sp;
-	if ((ret = init_fcc(context, to, "move", &sp, NULL, NULL)) == 0) {
+	if ((ret = init_fcc(context, to, "move", O_RDONLY,
+                            &sp, NULL, NULL)) == 0) {
 	    if (sp)
 		krb5_storage_free(sp);
 	}
@@ -2337,7 +2341,8 @@ fcc_get_kdc_offset(krb5_context context, krb5_ccache id, krb5_deltat *kdc_offset
     krb5_error_code ret;
     krb5_storage *sp = NULL;
 
-    ret = init_fcc(context, id, "get-kdc-offset", &sp, NULL, kdc_offset);
+    ret = init_fcc(context, id, "get-kdc-offset", O_RDONLY, &sp, NULL,
+                   kdc_offset);
     if (sp)
 	krb5_storage_free(sp);
     return ret;
