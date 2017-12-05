@@ -302,8 +302,11 @@ write_storage(krb5_context context, krb5_storage *sp, int fd)
 	krb5_set_error_message(context, ret, N_("malloc: out of memory", ""));
 	return ret;
     }
-    sret = write(fd, data.data, data.length);
-    ret = (sret != (ssize_t)data.length);
+    if (lseek(fd, 0, SEEK_END) == -1)
+        ret = errno;
+    if (ret == 0)
+        sret = write(fd, data.data, data.length);
+    ret = ret ? ret : (sret != (ssize_t)data.length);
     krb5_data_free(&data);
     if (ret) {
 	ret = errno;
@@ -534,6 +537,7 @@ storage_set_flags(krb5_context context, krb5_storage *sp, int vno)
     krb5_storage_set_flags(sp, flags);
 }
 
+/* XXX Move locking *out* of this function, and/or make exclusive a parmeter to it */
 static krb5_error_code KRB5_CALLCONV
 fcc_open(krb5_context context,
 	 krb5_ccache id,
@@ -873,23 +877,18 @@ make_hash_table(krb5_context context, krb5_ccache id, int fd)
     if (ret == 0)
 	ret = krb5_store_creds(sp, &tbl_cred);
 
-    if (ret == 0) {
-        off = krb5_storage_seek(sp, 0, SEEK_CUR);
-        if (off == -1)
-            ret = errno;
-        else
-            off -= tbl_cred.ticket.length + 4;
-    }
-
     /*
      * Work out the offset of the page-aligned table, and make sure to preserve
      * the current offset (end of the cred we just wrote) of the sp.
      */
 
-    if (ret == 0)
-        save_off = krb5_storage_seek(sp, 0, SEEK_CUR);
-    else
-        save_off = -1;
+    if (ret == 0) {
+        save_off = off = krb5_storage_seek(sp, 0, SEEK_CUR);
+        if (off == -1)
+            ret = errno;
+        else
+            off -= tbl_cred.ticket.length + 4;
+    }
 
     krb5_free_principal(context, tbl_cred.server);
     tbl_cred.client = tbl_cred.server = NULL;
@@ -905,11 +904,13 @@ make_hash_table(krb5_context context, krb5_ccache id, int fd)
             if (krb5_storage_seek(sp, FCACHE(id)->tbl_off_off, SEEK_SET) != -1)
                 ret = krb5_store_int64(sp, off);
             else {
-                _krb5_debug(context, 5, "make_hash_table() oops 1");
+                krb5_warnx(context, "make_hash_table() oops 1");
                 ret = KRB5_CC_FORMAT;
             }
+            if (ret == 0)
+                krb5_storage_fsync(sp); /* We could use a krb5_storage_flush(); we don't need a sync */
         } else {
-            _krb5_debug(context, 5, "make_hash_table() oops 2");
+            krb5_warnx(context, "make_hash_table() oops 2");
             ret = KRB5_CC_FORMAT;
         }
     }
@@ -921,7 +922,7 @@ make_hash_table(krb5_context context, krb5_ccache id, int fd)
     /* Leave fd's offset as expected */
     if (save_off > 0 && lseek(fd, save_off, SEEK_SET) == -1 && ret == 0)
         ret = errno;
-    _krb5_debug(context, 5, "make_hash_table() = %d; tbl offset %lld", ret, (long long)FCACHE(id)->tbl_off);
+    krb5_warnx(context, "make_hash_table() = %d; tbl offset %lld", ret, (long long)FCACHE(id)->tbl_off);
     return ret;
 }
 
@@ -1445,7 +1446,7 @@ store_creds(krb5_context context,
     off_t creds_sz;
     int fd;
 
-    ret = init_fcc(context, id, "store", O_RDWR | O_APPEND, NULL, &fd, 0);
+    ret = init_fcc(context, id, "store", O_RDWR, NULL, &fd, 0);
     if (ret == 0)
 	sp = krb5_storage_emem();
     if (sp == NULL)
@@ -1884,6 +1885,7 @@ fcc_get_next (krb5_context context,
         off += page_size - (off % page_size);
         if (off > 0) /* must be true */
             FCACHE(id)->tbl_off = off;
+        krb5_warnx(context, "fcc_get_next() = %d; tbl offset %lld", ret, (long long)FCACHE(id)->tbl_off);
     }
 
 out:
