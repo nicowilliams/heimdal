@@ -203,6 +203,66 @@ test_init_vs_destroy(krb5_context context, const char *type)
 }
 
 static void
+work_hash(krb5_context context)
+{
+    krb5_error_code ret;
+    krb5_ccache id;
+    krb5_creds cred;
+    krb5_principal p;
+
+    ret = krb5_parse_name(context, "lha@SU.SE", &p);
+    if (ret)
+	krb5_err(context, 1, ret, "krb5_parse_name");
+
+    ret = krb5_cc_new_unique(context, "FILE", NULL, &id);
+    if (ret)
+	krb5_err(context, 1, ret, "krb5_cc_gen_new: %s", type);
+
+    ret = krb5_cc_initialize(context, id, p);
+    if (ret)
+	krb5_err(context, 1, ret, "krb5_cc_initialize");
+
+    memset(&cred, 0, sizeof(cred));
+    ret = krb5_parse_name(context, "krbtgt/SU.SE@SU.SE", &cred.server);
+    if (ret)
+	krb5_err(context, 1, ret, "krb5_parse_name");
+    ret = krb5_parse_name(context, "lha@SU.SE", &cred.client);
+    if (ret)
+	krb5_err(context, 1, ret, "krb5_parse_name");
+    cred.ticket.data = "foobar";
+    cred.ticket.length = sizeof("foobar") - 1;
+    ret = krb5_cc_store_cred(context, id, &cred);
+    if (ret)
+	krb5_err(context, 1, ret, "krb5_cc_store_cred");
+
+    memset(&cred, 0, sizeof(cred));
+    ret = krb5_parse_name(context, "krbtgt/FOO.SU.SE@SU.SE", &cred.server);
+    if (ret)
+	krb5_err(context, 1, ret, "krb5_parse_name");
+    ret = krb5_parse_name(context, "lha@SU.SE", &cred.client);
+    if (ret)
+	krb5_err(context, 1, ret, "krb5_parse_name");
+    cred.ticket.data = "foobar";
+    cred.ticket.length = sizeof("foobar") - 1;
+    ret = krb5_cc_store_cred(context, id, &cred);
+    if (ret)
+	krb5_err(context, 1, ret, "krb5_cc_store_cred");
+
+    memset(&cred, 0, sizeof(cred));
+    ret = krb5_parse_name(context, "krbtgt/FOO.SU.SE@SU.SE", &cred.server);
+    if (ret)
+	krb5_err(context, 1, ret, "krb5_parse_name");
+    ret = krb5_parse_name(context, "lha@SU.SE", &cred.client);
+    if (ret)
+	krb5_err(context, 1, ret, "krb5_parse_name");
+    cred.ticket.data = "foobar";
+    cred.ticket.length = sizeof("foobar") - 1;
+    ret = krb5_cc_store_cred(context, id, &cred);
+    if (ret)
+	krb5_err(context, 1, ret, "krb5_cc_store_cred");
+}
+
+static void
 test_cache_remove(krb5_context context, const char *type)
 {
     krb5_error_code ret;
