@@ -46,9 +46,9 @@ _gsskrb5_store_cred_into(OM_uint32         *minor_status,
 {
     krb5_context context;
     krb5_error_code ret;
-    gsskrb5_cred cred;
+    gsskrb5_cred input_cred;
     krb5_ccache id = NULL;
-    const char *def_type = NULL;
+    const char *cctype = NULL;
     time_t exp_current;
     time_t exp_new;
     const char *cs_ccache_name = NULL;
@@ -56,41 +56,42 @@ _gsskrb5_store_cred_into(OM_uint32         *minor_status,
 
     *minor_status = 0;
 
+    /* Sanity check inputs */
     if (cred_usage != GSS_C_INITIATE) {
 	*minor_status = GSS_KRB5_S_G_BAD_USAGE;
 	return GSS_S_FAILURE;
     }
-
     if (desired_mech != GSS_C_NO_OID &&
         gss_oid_equal(desired_mech, GSS_KRB5_MECHANISM) == 0)
 	return GSS_S_BAD_MECH;
+    if (input_cred_handle == GSS_C_NO_CREDENTIAL)
+	return GSS_S_CALL_INACCESSIBLE_READ;
+    input_cred = (gsskrb5_cred)input_cred_handle;
 
-    cred = (gsskrb5_cred)input_cred_handle;
-    if (cred == NULL)
-	return GSS_S_NO_CRED;
+    HEIMDAL_MUTEX_lock(&input_cred->cred_id_mutex);
 
-    GSSAPI_KRB5_INIT (&context);
-
-    HEIMDAL_MUTEX_lock(&cred->cred_id_mutex);
-    if (cred->usage != cred_usage && cred->usage != GSS_C_BOTH) {
-	HEIMDAL_MUTEX_unlock(&cred->cred_id_mutex);
+    /* Sanity check the input_cred */
+    if (input_cred->usage != cred_usage && input_cred->usage != GSS_C_BOTH) {
+	HEIMDAL_MUTEX_unlock(&input_cred->cred_id_mutex);
 	*minor_status = GSS_KRB5_S_G_BAD_USAGE;
-	return GSS_S_FAILURE;
+	return GSS_S_NO_CRED;
+    }
+    if (input_cred->principal == NULL) {
+	HEIMDAL_MUTEX_unlock(&input_cred->cred_id_mutex);
+	*minor_status = GSS_KRB5_S_KG_TGT_MISSING;
+	return GSS_S_NO_CRED;
     }
 
-    ret = krb5_cc_get_lifetime(context, cred->ccache, &exp_new);
+    /* More sanity checking of the input_cred (good to fail early) */
+    GSSAPI_KRB5_INIT (&context);
+    ret = krb5_cc_get_lifetime(context, input_cred->ccache, &exp_new);
     if (ret) {
-	HEIMDAL_MUTEX_unlock(&cred->cred_id_mutex);
+	HEIMDAL_MUTEX_unlock(&input_cred->cred_id_mutex);
 	*minor_status = ret;
 	return GSS_S_NO_CRED;
     }
 
-    if (cred->principal == NULL) {
-	HEIMDAL_MUTEX_unlock(&cred->cred_id_mutex);
-	*minor_status = GSS_KRB5_S_KG_TGT_MISSING;
-	return GSS_S_FAILURE;
-    }
-
+    /* Extact the ccache name from the store if given */
     if (cred_store != GSS_C_NO_CRED_STORE) {
 	major_status = __gsskrb5_cred_store_find(minor_status, cred_store,
 						 "ccache", &cs_ccache_name);
@@ -99,37 +100,71 @@ _gsskrb5_store_cred_into(OM_uint32         *minor_status,
 	    major_status = GSS_S_NO_CRED;
 	}
 	if (GSS_ERROR(major_status)) {
-	    HEIMDAL_MUTEX_unlock(&cred->cred_id_mutex);
+	    HEIMDAL_MUTEX_unlock(&input_cred->cred_id_mutex);
 	    return major_status;
 	}
     }
 
-    if (cs_ccache_name)
+    /*
+     * Main event.
+     *
+     * We need to resolve the given ccache, if given, else find the default,
+     * then we need to decide whether to overwrite.
+     *
+     * Wrinkle: DIR and KCM ccache types (and maybe SQLITE, and maybe API, and
+     * maybe others) support storing multiple principals' creds in one ccache,
+     * and they have a notion of "default principal" that can be switched.
+     *
+     * We have {ccache?, default_cred, overwrite} as inputs to help us decide
+     * exactly what to do.  If the ccache we find is "switchable" then we'll
+     * always create a "new unique" sub-ccache and set `overwrite=1'.  If we
+     * don't find a ccache already there then we'll set `overwrite=1'.
+     *
+     * If `overwrite=1' then we'll krb5_cc_initialize(), else we'll bail.
+     *
+     * If `default_cred' then we'll switch the ccache if it's switchable, else
+     * ??
+     */
+
+    if (cs_ccache_name) {
 	ret = krb5_cc_resolve(context, cs_ccache_name, &id);
-    else {
-	krb5_ccache def_ccache = NULL;
+        if (ret == 0)
+            cctype = krb5_cc_get_type(context, def_ccache);
+    } else {
+        krb5_ccache def_ccache = NULL;
 
-	if (krb5_cc_default(context, &def_ccache) == 0) {
-	    def_type = krb5_cc_get_type(context, def_ccache);
-	    krb5_cc_close(context, def_ccache);
-	}
-
-	/* write out cred to credential cache */
-	ret = krb5_cc_cache_match(context, cred->principal, &id);
-	if (ret) {
-	    if (default_cred)
-		ret = krb5_cc_default(context, &id);
-	    else if (def_type &&
-		     krb5_cc_support_switch(context, def_type)) {
-		ret = krb5_cc_new_unique(context, def_type, NULL, &id);
-		overwrite_cred = 1;
-	    } else
-		ret = 0; /* == GSS_C_NO_CRED */
-	}
+        ret = krb5_cc_default(context, &def_ccache);
+        if (ret == 0)
+	    cctype = krb5_cc_get_type(context, def_ccache);
+        if (ret == 0) {
+            if (!krb5_cc_support_switch(context, cctype)) {
+                /*
+                 * Not a DIR or KCM ccache, so we can't store more than one
+                 * principal's credentials in the default ccache.
+                 */
+                id = def_ccache;
+                def_ccache = NULL;
+            } else {
+                /*
+                 * A DIR or KCM ccache, so we will create / reinitialize a
+                 * ccache in there for the delegated credentials.
+                 *
+                 * Our krb5_cc_new_unique() does not implement the same
+                 * semantics as MIT's, but those are the semantics we need.
+                 * Since both do not (well, did not) use the hint argument, and
+                 * all callers pass NULL for it we'll have a magical value that
+                 * says "do the MIT thing".
+                 */
+                ret = krb5_cc_new_unique(context, cctype, (char *)1, &id);
+                if (ret == 0)
+                    overwrite_cred = 1; /* We created it, it's unique */
+            }
+        }
+        (void) krb5_cc_close(context, def_ccache);
     }
 
     if (ret || id == NULL) {
-	HEIMDAL_MUTEX_unlock(&cred->cred_id_mutex);
+	HEIMDAL_MUTEX_unlock(&input_cred->cred_id_mutex);
 	*minor_status = ret;
 	return ret == 0 ? GSS_S_NO_CRED : GSS_S_FAILURE;
     }
@@ -144,27 +179,22 @@ _gsskrb5_store_cred_into(OM_uint32         *minor_status,
     if (!overwrite_cred) {
         /* Nothing to do */
         krb5_cc_close(context, id);
-        HEIMDAL_MUTEX_unlock(&cred->cred_id_mutex);
+        HEIMDAL_MUTEX_unlock(&input_cred->cred_id_mutex);
         *minor_status = 0;
         return GSS_S_DUPLICATE_ELEMENT;
     }
 
-    ret = krb5_cc_initialize(context, id, cred->principal);
+    ret = krb5_cc_initialize(context, id, input_cred->principal);
     if (ret == 0)
-	ret = krb5_cc_copy_match_f(context, cred->ccache, id, NULL, NULL, NULL);
-    if (ret) {
-        krb5_cc_close(context, id);
-	HEIMDAL_MUTEX_unlock(&cred->cred_id_mutex);
-	*minor_status = ret;
-	return(GSS_S_FAILURE);
-    }
+        ret = krb5_cc_copy_match_f(context, input_cred->ccache, id, NULL, NULL,
+                                   NULL);
 
-    if (default_cred && def_type != NULL &&
-        krb5_cc_support_switch(context, def_type))
+    if (ret == 0 && default_cred &&
+        krb5_cc_support_switch(context, cctype))
 	krb5_cc_switch(context, id);
+    (void) krb5_cc_close(context, id);
 
-    krb5_cc_close(context, id);
-    HEIMDAL_MUTEX_unlock(&cred->cred_id_mutex);
-    *minor_status = 0;
-    return GSS_S_COMPLETE;
+    HEIMDAL_MUTEX_unlock(&input_cred->cred_id_mutex);
+    *minor_status = ret;
+    return ret ? GSS_S_FAILURE : GSS_S_COMPLETE;
 }
