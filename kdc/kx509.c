@@ -36,7 +36,6 @@
 #include <rfc2459_asn1.h>
 #include <hx509.h>
 #include <kx509_err.h>
-#include "token_validator_plugin.h"
 
 #include <stdarg.h>
 
@@ -83,7 +82,7 @@ typedef struct kx509_req_context {
     heim_octet_string token_jwt;
     heim_octet_string token_saml;
     heim_octet_string token_oidc;
-    char *on_behalf_of;
+    krb5_principal on_behalf_of;
     Kx509CSRPlus csr_plus;
     krb5_auth_context ac;
     const char *realm; /* XXX Confusion: is this crealm or srealm? */
@@ -94,8 +93,11 @@ typedef struct kx509_req_context {
     krb5_keyblock *key;
     hx509_request csr;
     krb5_data *reply;
-    unsigned int have_auth_data:1;  /* Relevant authz data in the AP-REQ */
-    unsigned int send_chain:1;      /* Client expects a full chain */
+    unsigned int have_auth_data:1;      /* Relevant authz data in the AP-REQ */
+    unsigned int send_chain:1;          /* Client expects a full chain */
+    unsigned int have_csr:1;            /* Client sent a CSR */
+    unsigned int clnt_claims_authz:1;   /* Client sent AD-CSR-AUTHORIZED */
+    unsigned int csr_authorized:1;      /* AD-CSR-AUTHORIZED accepted */
 } *kx509_req_context;
 
 /*
@@ -995,6 +997,7 @@ get_csr(krb5_context context, kx509_req_context reqctx)
     ret = decode_Kx509CSRPlus(pk_key.data, pk_key.length, &reqctx->csr_plus,
                               &size);
     if (ret == 0) {
+        reqctx->have_csr = 1;
         reqctx->send_chain = 1;
         if (reqctx->csr_plus.authz_datas.len)
             reqctx->have_auth_data = 1;
@@ -1014,6 +1017,7 @@ get_csr(krb5_context context, kx509_req_context reqctx)
         return ret;
     }
     reqctx->send_chain = 0;
+    reqctx->have_csr = 0;
 
     /* Check if proof of possession is required by configuration */
     if (!get_bool_param(context, FALSE, reqctx->realm, "require_csr"))
@@ -1060,10 +1064,15 @@ extract_authz_data(krb5_context context,
             continue;
         }
         case KRB5_AUTHDATA_ON_BEHALF_OF:
-            if (reqctx->on_behalf_of == NULL)
+            if (reqctx->on_behalf_of == NULL) {
+                char *s = NULL;
+
                 ret = der_get_utf8string(ad->val[i].ad_data.data,
                                          ad->val[i].ad_data.length,
-                                         &reqctx->on_behalf_of, NULL);
+                                         &s, NULL);
+                if (ret == 0)
+                    ret = krb5_parse_name(context, s, &reqctx->on_behalf_of);
+            }
             continue;
         case KRB5_AUTHDATA_BEARER_TOKEN_JWT:
             if (!reqctx->token_jwt.length)
@@ -1080,67 +1089,14 @@ extract_authz_data(krb5_context context,
                 ret = der_copy_octet_string(&ad->val[i].ad_data,
                                             &reqctx->token_oidc);
             continue;
+        case KRB5_AUTHDATA_CSR_AUTHORIZED:
+            reqctx->clnt_claims_authz = 1;
+            continue;
         default:
             /* We've no use for any other authz data here; we ignore it all */
             break;
         }
     }
-    return ret;
-}
-
-/*
- * Invoke a plugin to validate a JWT/SAML/OIDC token and evaluate access
- * control.
- */
-static krb5_error_code
-validate_token(krb5_context context,
-               const char *realm,
-               const char *token_kind,
-               heim_octet_string *token,
-               const char *on_behalf_of,
-               krb5_principal *actual_cprincipal)
-{
-    token_free_name_f tok_free;
-    token_validate_f tok_val;
-    krb5_error_code ret;
-    const char *plugin_name, *plugin_config;
-    char *errstr = NULL;
-    char *s = NULL;
-    void *dl;
-
-    plugin_name = krb5_config_get_string(context, NULL, "kdc", "realms",
-                                         realm, "bearer_token_validator",
-                                         token_kind, "shared_object", NULL);
-    plugin_config = krb5_config_get_string(context, NULL, "kdc", "realms",
-                                           realm, "bearer_token_validator",
-                                           token_kind, "configuration", NULL);
-
-    /*
-     * XXX Re-write to use krb5 plugin architecture (and not dlopen() and
-     * dlclose() over and over.
-     */
-    if (plugin_name == NULL ||
-        (dl = dlopen(plugin_name, RTLD_NOW | RTLD_LOCAL)) == NULL)
-        return ENOENT;
-    if ((tok_free = dlsym(dl, "token_free_name")) == NULL ||
-        (tok_val = dlsym(dl, "token_validate")) == NULL) {
-        dlclose(dl);
-        return ENOTSUP;
-    }
-
-    /*
-     * XXX The external token validator probably could use additional inputs:
-     *
-     *  - both, the client's and server's realms
-     *  - the client principal name (unparsed)
-     */
-    ret = tok_val(realm, plugin_config, token_kind, on_behalf_of,
-                         token->data, token->length, &s, &errstr);
-    if (ret == 0 && s != NULL)
-        ret = krb5_parse_name(context, s, actual_cprincipal);
-    tok_free(&errstr); /* XXX do something with this */
-    tok_free(&s);
-    dlclose(dl);
     return ret;
 }
 
@@ -1164,7 +1120,7 @@ check_impersonation(krb5_context context,
     if (kx509_proxy_name != NULL &&
         krb5_parse_name(context, kx509_proxy_name, &proxy_name) == 0 &&
         krb5_principal_compare(context, proxy_name, cprincipal) &&
-        krb5_parse_name(context, reqctx->on_behalf_of, actual_principal) == 0) {
+        krb5_copy_principal(context, reqctx->on_behalf_of, actual_principal) == 0) {
         kx509_log(context, reqctx, 0, "Impersonation request valid");
         krb5_free_principal(context, proxy_name);
         return 1;
@@ -1206,6 +1162,9 @@ verify_auth_data(krb5_context context,
     if (check_impersonation(context, reqctx, cprincipal, actual_cprincipal))
         return 0;
 
+    /* If authorized to impersonate, then authorized to authorize CSR */
+    reqctx->csr_authorized = reqctx->clnt_claims_authz;
+
     (void) krb5_unparse_name(context, cprincipal, &s);
     kx509_log(context, reqctx, 0, "untrusted client principal "
               "using bearer tokens: %s", s ? s : "<out of memory>");
@@ -1216,35 +1175,44 @@ verify_auth_data(krb5_context context,
     /* If multiple tokens were sent, all must validate (XXX ??) */
     if (ret == 0 && reqctx->token_jwt.length) {
         ntokens++;
-        ret = validate_token(context, reqctx->realm, "jwt",
-                             &reqctx->token_jwt,
-                             reqctx->on_behalf_of,
-                             actual_cprincipal);
+        ret = kdc_validate_token(context, reqctx->realm, "jwt",
+                                 &reqctx->token_jwt,
+                                 reqctx->on_behalf_of,
+                                 actual_cprincipal);
         verified += (ret == 0) ? 1 : 0;
-        kx509_log(context, reqctx, 0, "JWT token status: %sverified",
-                  verified ? "" : "not ");
+        if (ret)
+            kx509_log(context, reqctx, 0, "JWT token not verified: %s",
+                      krb5_get_error_message(context, ret));
+        else
+            kx509_log(context, reqctx, 0, "JWT token verified");
     }
 
     if (ret == 0 && reqctx->token_saml.length) {
         ntokens++;
-        ret = validate_token(context, reqctx->realm, "saml",
-                             &reqctx->token_saml,
-                             reqctx->on_behalf_of,
-                             actual_cprincipal);
+        ret = kdc_validate_token(context, reqctx->realm, "saml",
+                                 &reqctx->token_saml,
+                                 reqctx->on_behalf_of,
+                                 actual_cprincipal);
         verified += (ret == 0) ? 1 : 0;
-        kx509_log(context, reqctx, 0, "SAML token status: %sverified",
-                  verified ? "" : "not ");
+        if (ret)
+            kx509_log(context, reqctx, 0, "SAML token not verified: %s",
+                      krb5_get_error_message(context, ret));
+        else
+            kx509_log(context, reqctx, 0, "SAML token verified");
     }
 
     if (ret == 0 && reqctx->token_oidc.length) {
         ntokens++;
-        ret = validate_token(context, reqctx->realm, "oidc",
-                             &reqctx->token_oidc,
-                             reqctx->on_behalf_of,
-                             actual_cprincipal);
+        ret = kdc_validate_token(context, reqctx->realm, "oidc",
+                                 &reqctx->token_oidc,
+                                 reqctx->on_behalf_of,
+                                 actual_cprincipal);
         verified += (ret == 0) ? 1 : 0;
-        kx509_log(context, reqctx, 0, "OIDC token status: %sverified",
-                  verified ? "" : "not ");
+        if (ret)
+            kx509_log(context, reqctx, 0, "OIDC token not verified: %s",
+                      krb5_get_error_message(context, ret));
+        else
+            kx509_log(context, reqctx, 0, "OIDC token verified");
     }
 
     kx509_log(context, reqctx, 0,
@@ -1255,6 +1223,168 @@ verify_auth_data(krb5_context context,
         /* XXX EACCES will do here, but we could use a better error code */
         return EACCES;
     return ret;
+}
+
+static krb5_error_code
+check_authz(krb5_context context,
+            kx509_req_context reqctx,
+            krb5_principal cprincipal)
+{
+    krb5_error_code ret;
+    const char *comp0 = krb5_principal_get_comp_string(context, cprincipal, 0);
+    const char *comp1 = krb5_principal_get_comp_string(context, cprincipal, 1);
+    unsigned int ncomp = krb5_principal_get_num_comp(context, cprincipal);
+    KeyUsage ku, ku_allowed;
+    const heim_oid *eku_whitelist[] = {
+        &asn1_oid_id_pkix_kp_serverAuth,
+        &asn1_oid_id_pkix_kp_clientAuth,
+        &asn1_oid_id_pkekuoid,
+        &asn1_oid_id_ms_client_authentication,
+        &asn1_oid_id_pkinit_ms_eku
+    };
+    char *cprinc = NULL;
+    char *s = NULL;
+    int cursor;
+
+    if (!reqctx->have_csr)
+        return 0; /* We'll derive cert contents from client name */
+    ret = kdc_authorize_csr(context, reqctx->config, reqctx->csr, cprincipal);
+    if (ret == 0) {
+        kx509_log(context, reqctx, 0, "Requested extensions authorized "
+                  "by plugin");
+        return 0;
+    }
+    if (ret != KRB5_PLUGIN_NO_HANDLE) {
+        kx509_log(context, reqctx, 0, "Requested extensions rejected "
+                  "by plugin");
+        return ret;
+    }
+
+    /*
+     * Default authorizer.
+     *
+     *  - Check requested SANs against client principal.
+     *    TODO: Add HDB lookup support here.
+     *
+     *  - Check EKUs.
+     *
+     *  - Check KU (signature only).
+     */
+
+    if ((ret = krb5_unparse_name(context, cprincipal, &cprinc)))
+        return ret;
+
+    cursor = 0;
+    while ((ret = hx509_request_get_pkinit_san(context->hx509ctx, reqctx->csr,
+                                               &s, &cursor)) == 0 && s) {
+        if (strcmp(cprinc, s) != 0) {
+            kx509_log(context, reqctx, 0, "Requested extensions rejected "
+                      "by default policy (PKINIT SAN %s does not match "
+                      "client %s)", s, cprinc);
+            goto eacces;
+        }
+        free(s);
+        s = NULL;
+    }
+    if (ret && ret != -1)
+        return ret;
+
+    cursor = 0;
+    while ((ret = hx509_request_get_xmpp_san(context->hx509ctx, reqctx->csr,
+                                             &s, &cursor)) == 0 && s) {
+        kx509_log(context, reqctx, 0, "Requested extensions rejected "
+                  "by default policy (XMPP SAN not supported)");
+        goto eacces;
+    }
+    if (ret && ret != -1)
+        return ret;
+
+    cursor = 0;
+    while ((ret = hx509_request_get_email_san(context->hx509ctx, reqctx->csr,
+                                              &s, &cursor)) == 0 && s) {
+        kx509_log(context, reqctx, 0, "Requested extensions rejected "
+                  "by default policy (rfc822Name SAN not supported)");
+        goto eacces;
+        free(s);
+        s = NULL;
+    }
+    if (ret && ret != -1)
+        return ret;
+
+    cursor = 0;
+    while ((ret = hx509_request_get_ms_upn_san(context->hx509ctx,
+                                             reqctx->csr, &s,
+                                             &cursor)) == 0 && s) {
+        kx509_log(context, reqctx, 0, "Requested extensions rejected "
+                  "by default policy (MSFT UPN SAN not supported)");
+        goto eacces;
+    }
+    if (ret && ret != -1)
+        return ret;
+
+    cursor = 0;
+    while ((ret = hx509_request_get_dns_name_san(context->hx509ctx,
+                                                 reqctx->csr, &s,
+                                                 &cursor)) == 0 && s) {
+        if (ncomp != 2 || strcasecmp(comp1, s) != 0 ||
+            strchr(s, '.') == NULL) {
+            kx509_log(context, reqctx, 0, "Requested extensions rejected "
+                      "by default policy (dNSName SAN %s does not match "
+                      "client %s)", s, cprinc);
+            goto eacces;
+        }
+        if (strcmp(comp0, "HTTP") != 0) {
+            kx509_log(context, reqctx, 0, "Requested extensions rejected "
+                      "by default policy (hostbased client %s not an "
+                      "HTTP service", cprinc);
+            goto eacces;
+        }
+        free(s);
+        s = NULL;
+    }
+    if (ret && ret != -1)
+        return ret;
+
+    cursor = 0;
+    while ((ret = hx509_request_get_eku(context->hx509ctx,
+                                        reqctx->csr, &s,
+                                        &cursor)) == 0 && s) {
+        heim_oid oid;
+        size_t k;
+
+        if ((ret = der_parse_heim_oid(s, ".", &oid))) {
+            free(cprinc);
+            free(s);
+            return ret;
+        }
+        for (k = 0; k < sizeof(eku_whitelist)/sizeof(eku_whitelist[0]); k++) {
+            if (der_heim_oid_cmp(eku_whitelist[k], &oid) == 0)
+                break;
+        }
+        der_free_oid(&oid);
+        if (k == sizeof(eku_whitelist)/sizeof(eku_whitelist[0]))
+            goto eacces;
+        free(s);
+        s = NULL;
+    }
+    if (ret && ret != -1)
+        return ret;
+
+    memset(&ku_allowed, 0, sizeof(ku_allowed));
+    ku_allowed.digitalSignature = 1;
+    ku_allowed.nonRepudiation = 1;
+    ret = hx509_request_get_ku(context->hx509ctx, reqctx->csr, &ku);
+    if (ret)
+        return ret;
+    if (KeyUsage2int(ku) != (KeyUsage2int(ku) & KeyUsage2int(ku_allowed)))
+        goto eacces;
+    
+    return 0;
+
+eacces:
+    free(cprinc);
+    free(s);
+    return EACCES;
 }
 
 /*
@@ -1414,6 +1544,10 @@ _kdc_do_kx509(krb5_context context,
         }
     }
 
+    if (!reqctx.csr_authorized &&
+        (ret = check_authz(context, &reqctx, cprincipal)))
+        goto out; /* check_authz() calls mk_error_response() on error */
+
     ALLOC(rep.hash);
     ALLOC(rep.certificate);
     if (rep.certificate == NULL || rep.hash == NULL) {
@@ -1472,7 +1606,7 @@ out:
     if (reqctx.cname)
 	free(reqctx.cname);
     hx509_request_free(&reqctx.csr);
-    free(reqctx.on_behalf_of);
+    krb5_free_principal(context, reqctx.on_behalf_of);
     free_Kx509CSRPlus(&reqctx.csr_plus);
     free_Kx509Response(&rep);
 

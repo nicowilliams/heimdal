@@ -41,11 +41,11 @@
  *
  * To get a key certified:
  *
- *  GET /bx509?csr=<base64-encoded-PKCS#10-CSR>&princ=<princ>
+ *  GET /bx509?csr=<base64-encoded-PKCS#10-CSR>
  *
  * To get an HTTP/Negotiate token:
  *
- *  GET /bnegotiate?cprinc=<initiator-principal>&target=<acceptor-principal>
+ *  GET /bnegotiate?target=<acceptor-principal>
  *
  * which, if authorized, produces a Negotiate token (base64-encoded, as
  * expected, with the "Negotiate " prefix, ready to be put in an Authorization:
@@ -98,7 +98,21 @@
 #include "../lib/hx509/hx_locl.h"
 #include <hx509-private.h>
 
+static krb5_kdc_configuration *kdc_config;
 static pthread_key_t k5ctx;
+
+static krb5_error_code
+get_krb5_context(krb5_context *contextp)
+{
+    int ret;
+
+    if ((*contextp = pthread_getspecific(k5ctx)))
+        return 0;
+    if ((ret = krb5_init_context(contextp)))
+        return ret;
+    (void) pthread_setspecific(k5ctx, *contextp);
+    return 0;
+}
 
 static int port = -1;
 static int help_flag;
@@ -111,43 +125,49 @@ static int thread_per_client_flag;
 static const char *cert_file;
 static const char *priv_key_file;
 static const char *cache_dir;
-static const char *token_validator_plugin;
-static const char *token_validator_config;
 static char *impersonation_key_fn;
 
 static int
 validate_token(struct MHD_Connection *connection,
                char **cprinc_from_token)
 {
-    token_free_name_f tok_free;
-    token_validate_f tok_val;
+    krb5_principal actual_cprinc = NULL;
+    krb5_context context;
     const char *token;
-    char *errstr = NULL;
-    char *s = NULL;
-    void *dl;
+    char token_type[64]; /* Plenty */
+    krb5_data tok;
+    size_t brk;
     int ret;
+
+    ret = get_krb5_context(&context);
+    if (ret)
+        return ret;
 
     token = MHD_lookup_connection_value(connection, MHD_HEADER_KIND,
                                         "Authorization");
     if (token == NULL)
         return EINVAL;
-    if (strncasecmp(token, "Bearer ", sizeof("Bearer ") - 1) == 0)
-        token += sizeof("Bearer ") - 1;
-    if ((dl = dlopen(token_validator_plugin, RTLD_NOW | RTLD_LOCAL)) == NULL)
-        return ENOENT;
-    if ((tok_free = dlsym(dl, "token_free_name")) == NULL ||
-        (tok_val = dlsym(dl, "token_validate")) == NULL) {
-        dlclose(dl);
-        return ENOTSUP;
-    }
-    ret = tok_val(NULL /* XXX */, token_validator_config, "JWT" /* XXX */,
-                  NULL, token, strlen(token), &s, &errstr);
-    tok_free(&errstr);
-    if (ret)
+    brk = strcspn(token, " \t");
+    if (token[brk] == '\0' || brk > sizeof(token_type) - 1)
+        return EINVAL;
+    memcpy(token_type, token, brk);
+    token_type[brk] = '\0';
+    token += brk + 1;
+    tok.length = strlen(token);
+    tok.data = (void *)(uintptr_t)token;
+
+    ret = kdc_validate_token(context, NULL /* XXX realm */,
+                             token_type, &tok, NULL, &actual_cprinc);
+    if (ret) {
+        /* XXX Log message */
         return ret;
-    *cprinc_from_token = strdup(s);
-    tok_free(&s);
-    return (*cprinc_from_token) ? 0 : ENOMEM;
+    }
+    if (actual_cprinc) {
+        ret = krb5_unparse_name(context, actual_cprinc,
+                                cprinc_from_token);
+        krb5_free_principal(context, actual_cprinc);
+    }
+    return ret;
 }
 
 static void
@@ -198,19 +218,6 @@ generate_key(hx509_context context,
         hx509_certs_free(&certs);
     if (cert)
         hx509_cert_free(cert);
-}
-
-static krb5_error_code
-get_krb5_context(krb5_context *contextp)
-{
-    int ret;
-
-    if ((*contextp = pthread_getspecific(k5ctx)))
-        return 0;
-    if ((ret = krb5_init_context(contextp)))
-        return ret;
-    (void) pthread_setspecific(k5ctx, *contextp);
-    return 0;
 }
 
 static void
@@ -501,7 +508,6 @@ bx509(struct MHD_Connection *connection, const char *realm)
     krb5_kx509_req_ctx kx509ctx = NULL;
     const char *token;
     const char *csr;
-    const char *princ;
     char *cprinc_from_token = NULL;
     char *pkix_store = NULL;
     int mret = MHD_YES;
@@ -526,23 +532,10 @@ bx509(struct MHD_Connection *connection, const char *realm)
             return bad_req(connection, 0, MHD_HTTP_BAD_REQUEST, "Realm is missing");
     }
 
-    /*
-     * If we can get the principal from the token, do that.  Else the KDC will
-     * validate the token but we need to know the principal name now.
-     */
-    princ = MHD_lookup_connection_value(connection, MHD_GET_ARGUMENT_KIND,
-                                        "clientPrincipal");
-    if (princ == NULL &&
-        token_validator_plugin == NULL && token_validator_config == NULL)
+    if ((ret = validate_token(connection, &cprinc_from_token)))
         return bad_req(connection, 0, MHD_HTTP_BAD_REQUEST,
-                       "Query missing 'princ' parameter value");
-    else if (princ == NULL) {
-        if ((ret = validate_token(connection, &cprinc_from_token)))
-            return bad_req(connection, 0, MHD_HTTP_BAD_REQUEST,
-                           "Could not validate token or extract "
-                           "principal name");
-        princ = cprinc_from_token;
-    }
+                       "Could not validate token or extract "
+                       "principal name");
 
     if ((ret = get_krb5_context(&context))) {
         mret = bad_req(connection, ret, MHD_HTTP_SERVICE_UNAVAILABLE,
@@ -558,7 +551,8 @@ bx509(struct MHD_Connection *connection, const char *realm)
     }
     /* Load all relevant query parameters into kx509 request context */
     if ((mret = setup_kx509_req(context, connection, kx509ctx, realm, token,
-                                csr, princ, &pkix_store)) == MHD_NO ||
+                                csr, cprinc_from_token,
+                                &pkix_store)) == MHD_NO ||
         pkix_store == NULL)
         goto out; /* setup_kx509_req() will have called bad_req() */
     /* Run the kx509 protocol */
@@ -983,7 +977,6 @@ bnegotiate_core(struct MHD_Connection *connection,
 static int
 bnegotiate(struct MHD_Connection *connection, const char *realm)
 {
-    const char *cprinc;
     const char *target;
     const char *token;
     char *cprinc_from_token = NULL;
@@ -1004,19 +997,10 @@ bnegotiate(struct MHD_Connection *connection, const char *realm)
         return bad_req(connection, 0, MHD_HTTP_BAD_REQUEST,
                        "Query missing 'target' parameter value");
 
-    cprinc = MHD_lookup_connection_value(connection, MHD_GET_ARGUMENT_KIND,
-                                         "cprinc");
-    if (cprinc == NULL &&
-        token_validator_plugin == NULL && token_validator_config == NULL)
+    if ((ret = validate_token(connection, &cprinc_from_token)))
         return bad_req(connection, 0, MHD_HTTP_BAD_REQUEST,
-                       "Query missing 'cprinc' parameter value");
-    else if (cprinc == NULL) {
-        if ((ret = validate_token(connection, &cprinc_from_token)))
-            return bad_req(connection, 0, MHD_HTTP_BAD_REQUEST,
-                           "Could not validate token or extract "
-                           "principal name");
-        cprinc = cprinc_from_token;
-    }
+                       "Could not validate token or extract "
+                       "principal name");
 
     /*
      * Make sure we have Kerberos credentials for cprinc.  If we have them
@@ -1026,11 +1010,13 @@ bnegotiate(struct MHD_Connection *connection, const char *realm)
      * Perhaps we could use S4U instead, which would speed up the slow path a
      * bit.
      */
-    mret = bnegotiate_get_creds(connection, realm, token, cprinc, &ccname);
+    mret = bnegotiate_get_creds(connection, realm, token, cprinc_from_token,
+                                &ccname);
 
     /* Acquire the Negotiate token and output it */
     if (mret == MHD_YES && ccname != NULL)
-        mret = bnegotiate_core(connection, realm, cprinc, target, ccname);
+        mret = bnegotiate_core(connection, realm, cprinc_from_token, target,
+                               ccname);
 
     free(cprinc_from_token);
     free(ccname);
@@ -1092,11 +1078,7 @@ static struct getargs args[] = {
         "private key", "private key file path (PEM)" },
     { "thread-per-client", 't', arg_flag, &thread_per_client_flag,
         "thread per-client", "use thread per-client" },
-    { "verbose", 'v', arg_flag, &verbose_flag, "verbose", "run verbosely" },
-    /* These two are for testing, so they have no help and are not shown */
-    { "token-validator", 0, arg_string, &token_validator_plugin, NULL, NULL },
-    { "token-validator-config", 0, arg_string, &token_validator_config,
-        NULL, NULL },
+    { "verbose", 'v', arg_flag, &verbose_flag, "verbose", "run verbosely" }
 };
 
 static int
@@ -1128,7 +1110,8 @@ main(int argc, char **argv)
     struct MHD_Daemon *previous = NULL;
     struct MHD_Daemon *current = NULL;
     struct sigaction sa;
-    hx509_context context = NULL;
+    hx509_context hx509ctx = NULL;
+    krb5_context context = NULL;
     char *priv_key_pem = NULL;
     char *cert_pem = NULL;
     char sig;
@@ -1155,6 +1138,12 @@ main(int argc, char **argv)
     argc -= optidx;
     argv += optidx;
 
+    if ((errno = get_krb5_context(&context)))
+        err(1, "Could not init krb5 context");
+
+    if ((ret = krb5_kdc_get_config(context, &kdc_config)))
+        krb5_err(context, 1, ret, "Could not init krb5 context");
+
     if (cache_dir == NULL) {
         char *s = NULL;
 
@@ -1169,9 +1158,9 @@ main(int argc, char **argv)
         setenv("TMPDIR", cache_dir, 1);
     }
 
-    if ((ret = hx509_context_init(&context)))
+    if ((ret = hx509_context_init(&hx509ctx)))
         hx509_err(NULL, 1, ret, "Could not initialize hx509 library");
-    generate_key(context, "impersonation", "rsa", 2048, &impersonation_key_fn);
+    generate_key(hx509ctx, "impersonation", "rsa", 2048, &impersonation_key_fn);
 
     if ((errno = pthread_key_create(&k5ctx, k5_free_context)))
         err(1, "Could not create thread-specific storage");
@@ -1188,11 +1177,11 @@ again:
         size_t len;
         void *s;
 
-        ret = hx509_certs_init(context, cert_file, 0, NULL, &certs);
+        ret = hx509_certs_init(hx509ctx, cert_file, 0, NULL, &certs);
         if (ret == 0)
-            ret = hx509_certs_start_seq(context, certs, &cursor);
+            ret = hx509_certs_start_seq(hx509ctx, certs, &cursor);
         while (ret == 0 &&
-               (ret = hx509_certs_next_cert(context, certs,
+               (ret = hx509_certs_next_cert(hx509ctx, certs,
                                             cursor, &cert)) == 0 && cert) {
             time_t notAfter = 0;
 
@@ -1211,12 +1200,12 @@ again:
             }
             hx509_cert_free(cert);
         }
-        (void) hx509_certs_end_seq(context, certs, cursor);
+        (void) hx509_certs_end_seq(hx509ctx, certs, cursor);
         if (min_cert_life > 4)
             alarm(min_cert_life >> 1);
         hx509_certs_free(&certs);
         if (ret)
-            hx509_err(context, 1, ret,
+            hx509_err(hx509ctx, 1, ret,
                       "could not read certificate from %s", cert_file);
 
         errno = rk_undumpdata(cert_file, &s, &len);

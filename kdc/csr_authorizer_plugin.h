@@ -31,56 +31,51 @@
  * SUCH DAMAGE.
  */
 
-#ifndef HEIMDAL_KDC_BEARER_TOKEN_PLUGIN_H
-#define HEIMDAL_KDC_BEARER_TOKEN_PLUGIN_H 1
+#ifndef HEIMDAL_KDC_CSR_AUTHORIZER_PLUGIN_H
+#define HEIMDAL_KDC_CSR_AUTHORIZER_PLUGIN_H 1
 
-#define KDC_PLUGIN_BEARER "kdc_plugin_bearer_token"
-#define KDC_PLUGIN_BEARER_VERSION_0 0
+#define KDC_CSR_AUTHORIZER "kdc_plugin_csr_authorizer"
+#define KDC_CSR_AUTHORIZER_VERSION_0 0
 
 /*
  * @param init          Plugin initialization function (see krb5-plugin(7))
  * @param minor_version The plugin minor version number (0)
  * @param fini          Plugin finalization function
- * @param validate      Plugin token validation function
- * @param freestr       Function for freeing output values of validate function
+ * @param authorize     Plugin CSR authorization function
  *
- * The validate field is the plugin entry point that performs the bearer token
- * validation operation however the plugin desires.  It is invoked in no
- * particular order relative to other bearer token validator plugins.  The
- * plugin validate function must return KRB5_PLUGIN_NO_HANDLE if the rule is
- * not applicable to it.
+ * The authorize field is the plugin entry point that performs authorization of
+ * CSRs for kx509 however the plugin desires.  It is invoked in no particular
+ * order relative to other CSR authorization plugins.  The plugin authorize
+ * function must return KRB5_PLUGIN_NO_HANDLE if the rule is not applicable to
+ * it.
  *
- * The plugin validate function has the following arguments, in this
+ * The plugin authorize function has the following arguments, in this
  * order:
  *
  * -# plug_ctx, the context value output by the plugin's init function
  * -# context, a krb5_context
- * -# realm, a const char *
- * -# token_type, a const char *
- * -# token, a krb5_data *
- * -# requested_principal, a krb5_const_principal
- * -# validation result, a pointer to a krb5_boolean
- * -# actual principal, a krb5_principal * output parameter (optional)
- * -# error_string, a char ** output parameter (optional)
+ * -# config, a krb5_kdc_configuration *
+ * -# csr, a hx509_request
+ * -# client, a krb5_const_principal
+ * -# authorization_result, a pointer to a krb5_boolean
+ * -# error string, a char ** output parameter (optional)
  * -# freestr, a pointer to a void-returning function of a char * that frees it
  *
  * @ingroup krb5_support
  */
-typedef struct krb5plugin_token_validator_ftable_desc {
+typedef struct krb5plugin_csr_authorizer_ftable_desc {
     int			minor_version;
     krb5_error_code	(KRB5_LIB_CALL *init)(krb5_context, void **);
     void		(KRB5_LIB_CALL *fini)(void *);
-    krb5_error_code	(KRB5_LIB_CALL *validate)(void *,           /*plug_ctx*/
-                                                  krb5_context,
-                                                  const char *,     /*realm*/
-                                                  const char *,     /*token_type*/
-                                                  krb5_data *,      /*token*/
-                                                  krb5_const_principal,   /*on_behalf_of*/
-                                                  krb5_boolean *,   /*valid*/
-                                                  krb5_principal *, /*actual_principal*/
-                                                  char **,          /*error_string*/
-                                                  void (KRB5_LIB_CALL **)(char **) /*freestr*/
-                                                  );
-} krb5plugin_token_validator_ftable;
+    krb5_error_code	(KRB5_LIB_CALL *authorize)(void *,              /*plug_ctx*/
+                                                   krb5_context,
+                                                   krb5_kdc_configuration *,
+                                                   hx509_request,       /*CSR*/
+                                                   krb5_const_principal,/*client*/
+                                                   krb5_boolean *,      /*authorized*/
+                                                   char **,             /*error_string*/
+                                                   void (KRB5_LIB_CALL **)(char **) /*freestr*/
+                                                   );
+} krb5plugin_csr_authorizer_ftable;
 
-#endif /* HEIMDAL_KDC_BEARER_TOKEN_PLUGIN_H */
+#endif /* HEIMDAL_KDC_CSR_AUTHORIZER_PLUGIN_H */

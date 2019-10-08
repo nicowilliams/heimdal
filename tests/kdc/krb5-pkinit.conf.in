@@ -18,16 +18,14 @@
 	pkinit_identity = FILE:@objdir@/kdc.crt,@srcdir@/../../lib/hx509/data/key2.der
 	pkinit_anchors = FILE:@objdir@/ca.crt
 	pkinit_mappings_file = @srcdir@/pki-mapping
-        realms = {
-                TEST.H5L.SE = {
-                        bearer_token_validator =  {
-                                jwt = {
-                                        shared_object = @objdir@/../token/.libs/stub_token_validator.so
-                                        configuration = foo@TEST.H5L.SE
-                                }
-                        }
-                }
-        }
+
+        plugin_dir =  @objdir@/../token/.libs
+        plugin_dir =  @objdir@/../csr_authorizer/.libs
+
+        stub_token_type = Stub
+        stub_token_directory = @srcdir@/../token/stub_dir
+
+        simple_csr_authorizer_directory = @srcdir@/../csr_authorizer/simple_dir
 
         enable-kx509 = true
         kx509_include_email_san = true

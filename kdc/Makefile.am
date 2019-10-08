@@ -10,9 +10,10 @@ bin_PROGRAMS = string2key
 
 sbin_PROGRAMS = kstash
 
-libexec_PROGRAMS = bx509 hprop hpropd kdc digest-service
+libexec_PROGRAMS = hprop hpropd kdc digest-service
 
-noinst_PROGRAMS = kdc-replay kdc-tester
+noinst_PROGRAMS = kdc-replay kdc-tester \
+		  test_token_validator test_csr_authorizer
 
 man_MANS = kdc.8 kstash.8 hprop.8 hpropd.8 string2key.8
 
@@ -23,9 +24,11 @@ kstash_SOURCES = kstash.c headers.h
 
 string2key_SOURCES = string2key.c headers.h
 
+if HAVE_MICROHTTPD
 bx509_SOURCES = kx509_proxy_uhttpd.c
 bx509_AM_CPPFLAGS = $(AM_CPPFLAGS) $(MICROHTTPD_CFLAGS)
 bx509_LDADD =	-ldl \
+		libkdc.la \
 		$(MICROHTTPD_LIBS) \
 		$(LIB_roken) \
 		$(top_builddir)/lib/sl/libsl.la \
@@ -33,6 +36,8 @@ bx509_LDADD =	-ldl \
 		$(top_builddir)/lib/krb5/libkrb5.la \
 		$(top_builddir)/lib/hx509/libhx509.la \
 		$(top_builddir)/lib/gssapi/libgssapi.la
+libexec_PROGRAMS += bx509
+endif
 
 digest_service_SOURCES = \
 	digest-service.c
@@ -45,6 +50,9 @@ kdc_SOURCES = connect.c	\
 kdc_tester_SOURCES = \
 	config.c	\
 	kdc-tester.c
+
+test_token_validator_SOURCES = test_token_validator.c
+test_csr_authorizer_SOURCES = test_csr_authorizer.c
 
 libkdc_la_SOURCES = 		\
 	default_config.c 	\
@@ -59,6 +67,8 @@ libkdc_la_SOURCES = 		\
 	log.c			\
 	misc.c			\
 	kx509.c			\
+	token_validator.c	\
+	csr_authorizer.c	\
 	process.c		\
 	windc.c			\
 	rx.h
@@ -68,6 +78,8 @@ KDC_PROTOS = $(srcdir)/kdc-protos.h $(srcdir)/kdc-private.h
 ALL_OBJECTS  = $(kdc_OBJECTS)
 ALL_OBJECTS += $(kdc_replay_OBJECTS)
 ALL_OBJECTS += $(kdc_tester_OBJECTS)
+ALL_OBJECTS += $(test_token_validator_OBJECTS)
+ALL_OBJECTS += $(test_csr_authorizer_OBJECTS)
 ALL_OBJECTS += $(libkdc_la_OBJECTS)
 ALL_OBJECTS += $(string2key_OBJECTS)
 ALL_OBJECTS += $(kstash_OBJECTS)
@@ -146,13 +158,15 @@ digest_service_LDADD = \
 	$(LDADD) $(LIB_pidfile)
 kdc_replay_LDADD = libkdc.la $(LDADD) $(LIB_pidfile)
 kdc_tester_LDADD = libkdc.la $(LDADD) $(LIB_pidfile) $(LIB_heimbase)
+test_token_validator_LDADD = libkdc.la $(LDADD) $(LIB_pidfile) $(LIB_heimbase)
+test_csr_authorizer_LDADD = libkdc.la $(top_builddir)/lib/hx509/libhx509.la $(LDADD) $(LIB_pidfile) $(LIB_heimbase)
 
 include_HEADERS = kdc.h $(srcdir)/kdc-protos.h
 
 noinst_HEADERS = $(srcdir)/kdc-private.h
 
 krb5dir = $(includedir)/krb5
-krb5_HEADERS = windc_plugin.h token_validator_plugin.h
+krb5_HEADERS = windc_plugin.h token_validator_plugin.h csr_authorizer_plugin.h
 
 build_HEADERZ = $(krb5_HEADERS) # XXX
 

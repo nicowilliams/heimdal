@@ -49,8 +49,6 @@ port=@port@
 kadmin="${kadmin} -l -r $R"
 kdc="${kdc} --addresses=localhost -P $port"
 bx509="${bx509} --reverse-proxied -p 8001"
-bx509="${bx509} --token-validator=${objdir}/../token/.libs/stub_token_validator.so"
-bx509="${bx509} --token-validator-config=foo@${R}"
 
 server=host/datan.test.h5l.se
 bx509_cache="FILE:${objdir}/cache-bx509.krb5"
