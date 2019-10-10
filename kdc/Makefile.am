@@ -10,7 +10,7 @@ bin_PROGRAMS = string2key
 
 sbin_PROGRAMS = kstash
 
-libexec_PROGRAMS = hprop hpropd kdc digest-service
+libexec_PROGRAMS = bx509 hprop hpropd kdc digest-service
 
 noinst_PROGRAMS = kdc-replay kdc-tester
 
@@ -22,6 +22,17 @@ hpropd_SOURCES = hpropd.c hprop.h
 kstash_SOURCES = kstash.c headers.h
 
 string2key_SOURCES = string2key.c headers.h
+
+bx509_SOURCES = kx509_proxy_uhttpd.c
+bx509_AM_CPPFLAGS = $(AM_CPPFLAGS) $(MICROHTTPD_CFLAGS)
+bx509_LDADD =	-ldl \
+		$(MICROHTTPD_LIBS) \
+		$(LIB_roken) \
+		$(top_builddir)/lib/sl/libsl.la \
+		$(top_builddir)/lib/asn1/libasn1.la \
+		$(top_builddir)/lib/krb5/libkrb5.la \
+		$(top_builddir)/lib/hx509/libhx509.la \
+		$(top_builddir)/lib/gssapi/libgssapi.la
 
 digest_service_SOURCES = \
 	digest-service.c
@@ -141,7 +152,7 @@ include_HEADERS = kdc.h $(srcdir)/kdc-protos.h
 noinst_HEADERS = $(srcdir)/kdc-private.h
 
 krb5dir = $(includedir)/krb5
-krb5_HEADERS = windc_plugin.h
+krb5_HEADERS = windc_plugin.h token_validator_plugin.h
 
 build_HEADERZ = $(krb5_HEADERS) # XXX
 

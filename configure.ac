@@ -182,6 +182,38 @@ AM_CONDITIONAL([HAVE_CAPNG], [test "$with_capng" != "no"])
 AC_SUBST([CAPNG_CFLAGS])
 AC_SUBST([CAPNG_LIBS])
 
+dnl libmicrohttpd
+AC_ARG_WITH([microhttpd],
+  AC_HELP_STRING([--with-microhttpd], [use microhttpd to serve KDC REST API @<:@default=check@:>@]),
+  [],
+  [with_microhttpd=check])
+if test "$with_microhttpd" != "no"; then
+  PKG_CHECK_MODULES([MICROHTTPD], [libmicrohttpd >= 0.9.59],
+		    [with_microhttpd=yes],[with_microhttpd=no])
+fi
+if test "$with_microhttpd" = "yes"; then
+  AC_DEFINE_UNQUOTED([HAVE_MICROHTTPD], 1, [whether libmicrohttpd is available for KDC REST API])
+fi
+AM_CONDITIONAL([HAVE_MICROHTTPD], [test "$with_microhttpd" != "no"])
+AC_SUBST([MICROHTTPD_CFLAGS])
+AC_SUBST([MICROHTTPD_LIBS])
+
+dnl libcjwt
+AC_ARG_WITH([cjwt],
+  AC_HELP_STRING([--with-cjwt], [use cjwt to validate JWT tokens @<:@default=check@:>@]),
+  [],
+  [with_cjwt=check])
+if test "$with_cjwt" != "no"; then
+  PKG_CHECK_MODULES([CJWT], [libcjwt >= 1.0.0],
+		    [with_cjwt=yes],[with_cjwt=no])
+fi
+if test "$with_cjwt" = "yes"; then
+  AC_DEFINE_UNQUOTED([HAVE_CJWT], 1, [whether libcjwt is available for KDC REST API])
+fi
+AM_CONDITIONAL([HAVE_CJWT], [test "$with_cjwt" != "no"])
+AC_SUBST([CJWT_CFLAGS])
+AC_SUBST([CJWT_LIBS])
+
 dnl Check for sqlite
 rk_TEST_PACKAGE(sqlite3,
 [#include <sqlite3.h>
@@ -678,6 +710,7 @@ AC_CONFIG_FILES(Makefile 		\
 	tests/gss/Makefile		\
 	tests/java/Makefile		\
 	tests/plugin/Makefile		\
+	tests/token/Makefile		\
 	packages/Makefile		\
 	packages/mac/Makefile		\
 	doc/Makefile			\
