@@ -198,7 +198,7 @@ der_find_heim_oid_by_name(const char *str, const heim_oid **oid)
             *oid = sym_oids_sorted_by_name[mid].oid;
             return 0;
         }
-        if (cmp < 0 && right)
+        if (cmp < 0 && mid)
             right = mid - 1;
         else if (cmp < 0)
             return -1;
