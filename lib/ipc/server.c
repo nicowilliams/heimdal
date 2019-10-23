@@ -1094,12 +1094,13 @@ heim_sipc_service_unix(const char *service,
 		       void *user, heim_sipc *ctx)
 {
     struct sockaddr_un un;
+    const char *d = secure_getenv("HEIM_IPC_DIR");
     int fd, ret;
 
     un.sun_family = AF_UNIX;
 
     snprintf(un.sun_path, sizeof(un.sun_path),
-	     "/var/run/.heim_%s-socket", service);
+	     "%s/.heim_%s-socket", d ? d : _PATH_VARRUN, service);
     fd = socket(AF_UNIX, SOCK_STREAM, 0);
     if (fd < 0)
 	return errno;
