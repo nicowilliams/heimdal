@@ -403,6 +403,89 @@ bx509_param_cb(void *d,
     return a->ret ? MHD_NO : MHD_YES;
 }
 
+struct bx509_param_handler_arg2 {
+    hx509_context context;
+    hx509_request req;
+    krb5_error_code ret;
+};
+
+static int
+bx509_param_cb2(void *d,
+                enum MHD_ValueKind kind,
+                const char *key,
+                const char *val)
+{
+    struct bx509_param_handler_arg2 *a = d;
+
+    if (strcmp(key, "eku") == 0 && val) {
+        heim_oid oid;
+
+        a->ret = der_parse_heim_oid(val, ".", &oid);
+        if (a->ret == 0) {
+            a->ret = hx509_request_add_eku(a->context, a->req, &oid);
+            der_free_oid(&oid);
+        }
+    } else if (strcmp(key, "dNSName") == 0 && val) {
+        a->ret = hx509_request_add_dns_name(a->context, a->req, val);
+    } else if (strcmp(key, "rfc822Name") == 0 && val) {
+        a->ret = hx509_request_add_email(a->context, a->req, val);
+    } else if (strcmp(key, "xMPPName") == 0 && val) {
+        a->ret = hx509_request_add_xmpp_name(a->context, a->req, val);
+    } else if (strcmp(key, "krb5PrincipalName") == 0 && val) {
+        a->ret = hx509_request_add_pkinit(a->context, a->req, val);
+    } else if (strcmp(key, "ms-upn") == 0 && val) {
+        a->ret = hx509_request_add_ms_upn_name(a->context, a->req, val);
+    } else if (strcmp(key, "registeredID") == 0 && val) {
+        heim_oid oid;
+
+        a->ret = der_parse_heim_oid(val, ".", &oid);
+        if (a->ret == 0) {
+            a->ret = hx509_request_add_registered(a->context, a->req, &oid);
+            der_free_oid(&oid);
+        }
+    } else {
+        a->ret = 0; /* Handled upstairs */
+    }
+
+    return a->ret ? MHD_NO : MHD_YES;
+}
+
+static krb5_error_code
+add_external_exts(hx509_context hx509ctx,
+                  hx509_request req,
+                  struct MHD_Connection * connection)
+{
+    struct bx509_param_handler_arg2 cb_data;
+    cb_data.context = hx509ctx;
+    cb_data.req = req;
+    cb_data.ret = 0;
+    (void) MHD_get_connection_values(connection, MHD_GET_ARGUMENT_KIND,
+                                     bx509_param_cb2, &cb_data);
+    return cb_data.ret;
+}
+
+static krb5_error_code
+authorize_csr_der(krb5_context context,
+                 struct MHD_Connection * connection,
+                 krb5_data *csr,
+                 const char *princ)
+{
+    krb5_error_code ret;
+    krb5_principal p = NULL;
+    hx509_request req = NULL;
+
+    ret = krb5_parse_name(context, princ, &p);
+    if (ret == 0)
+        ret = hx509_request_parse_der(context->hx509ctx, csr, &req);
+    if (ret == 0)
+        ret = add_external_exts(context->hx509ctx, req, connection);
+    if (ret == 0)
+        ret = kdc_authorize_csr(context, kdc_config, req, p);
+    krb5_free_principal(context, p);
+    hx509_request_free(&req);
+    return ret;
+}
+
 /* Setup a kx509 request context */
 static int
 setup_kx509_req(krb5_context context,
@@ -430,13 +513,31 @@ setup_kx509_req(krb5_context context,
     /* Set CSR */
     if (csr) {
         krb5_data binary_csr;
+
         if ((binary_csr.data = malloc(strlen(csr))) == NULL)
             return bad_req(connection, ENOMEM, 503, "Out of memory");
         binary_csr.length = rk_base64_decode(csr, binary_csr.data);
 
         ret = krb5_kx509_ctx_set_csr_der(context, kx509ctx, &binary_csr);
+        if (ret == 0) {
+            ret = authorize_csr_der(context, connection, &binary_csr, princ);
+            if (ret == 0) {
+                krb5_data empty = { 0, 0 };
+
+                /*
+                 * We've checked authorization here, offloading the KDC if it
+                 * trusts us to do it.
+                 */
+                ret = krb5_kx509_ctx_add_auth_data(context, kx509ctx,
+                                                   KRB5_AUTHDATA_CSR_AUTHORIZED,
+                                                   &empty);
+                if (ret)
+                    ret = 0; /* But don't fail */
+            }
+        }
         free(binary_csr.data);
     } else {
+        krb5_data empty = { 0, 0 };
         /*
          * Else use a single priv key to avoid having to generate one here.
          *
@@ -444,6 +545,17 @@ setup_kx509_req(krb5_context context,
          * makes no sense of the /bx509 end-point.
          */
         ret = krb5_kx509_ctx_set_key(context, kx509ctx, impersonation_key_fn);
+        if (ret == 0) {
+            /*
+             * We won't be asking for anything the client would not be
+             * permitted anyways.
+             */
+            ret = krb5_kx509_ctx_add_auth_data(context, kx509ctx,
+                                               KRB5_AUTHDATA_CSR_AUTHORIZED,
+                                               &empty);
+        }
+        if (ret)
+            return bad_req(connection, ret, 503, "Out of memory");
     }
 
     /*
@@ -470,10 +582,10 @@ setup_kx509_req(krb5_context context,
         krb5_data p;
 
         /*
-         * XXX We should extract a principal name from the token if we don't
-         * have a principal name given to us as a query parameter.
-         *
-         * Until we do, clients must tell us.
+         * Our caller will have extracted the principal name from validating a
+         * bearer token or similar.  If we have this principal name, then we
+         * can tell the KDC and if it trusts us for impersonation, then the KDC
+         * need not further validate the bearer token.
          */
         p.data = rk_UNCONST(princ);
         p.length = strlen(princ);
@@ -532,10 +644,17 @@ bx509(struct MHD_Connection *connection, const char *realm)
             return bad_req(connection, 0, MHD_HTTP_BAD_REQUEST, "Realm is missing");
     }
 
+    /*
+     * XXX If validate_token() fails, we can let the KDC do the validation,
+     * while if it succeeds, we could use impersonation.
+     */
     if ((ret = validate_token(connection, &cprinc_from_token)))
         return bad_req(connection, 0, MHD_HTTP_BAD_REQUEST,
-                       "Could not validate token or extract "
-                       "principal name");
+                       "Could not validate token");
+
+    if (cprinc_from_token == NULL)
+        return bad_req(connection, 0, MHD_HTTP_BAD_REQUEST,
+                       "Could not extract principal name from token");
 
     if ((ret = get_krb5_context(&context))) {
         mret = bad_req(connection, ret, MHD_HTTP_SERVICE_UNAVAILABLE,
@@ -551,8 +670,7 @@ bx509(struct MHD_Connection *connection, const char *realm)
     }
     /* Load all relevant query parameters into kx509 request context */
     if ((mret = setup_kx509_req(context, connection, kx509ctx, realm, token,
-                                csr, cprinc_from_token,
-                                &pkix_store)) == MHD_NO ||
+                                csr, cprinc_from_token, &pkix_store)) == MHD_NO ||
         pkix_store == NULL)
         goto out; /* setup_kx509_req() will have called bad_req() */
     /* Run the kx509 protocol */
@@ -999,8 +1117,11 @@ bnegotiate(struct MHD_Connection *connection, const char *realm)
 
     if ((ret = validate_token(connection, &cprinc_from_token)))
         return bad_req(connection, 0, MHD_HTTP_BAD_REQUEST,
-                       "Could not validate token or extract "
-                       "principal name");
+                       "Could not validate token");
+
+    if (cprinc_from_token == NULL)
+        return bad_req(connection, 0, MHD_HTTP_BAD_REQUEST,
+                       "Could not extract principal name from token");
 
     /*
      * Make sure we have Kerberos credentials for cprinc.  If we have them

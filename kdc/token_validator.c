@@ -91,7 +91,7 @@ krb5_error_code
 kdc_validate_token(krb5_context context, const char *realm,
                    const char *token_kind, krb5_data *token,
                    krb5_const_principal on_behalf_of,
-                   krb5_principal *actual_cprincipal)
+                   krb5_principal *actual_principal)
 {
     krb5_error_code ret;
     struct plctx ctx;
@@ -113,7 +113,10 @@ kdc_validate_token(krb5_context context, const char *realm,
         return ret;
     }
     free(ctx.errstr);
-    if (!ctx.result)
+    if (!ctx.result) {
+        krb5_free_principal(context, ctx.actual_principal);
         return EACCES;
+    }
+    *actual_principal = ctx.actual_principal;
     return 0;
 }

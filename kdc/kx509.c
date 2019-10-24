@@ -261,20 +261,122 @@ calculate_reply_hash(krb5_context context,
     return 0;
 }
 
+static void
+frees(char **s)
+{
+    free(*s);
+    *s = NULL;
+}
+
 /*
- * Lookup the principal's HDB entry, authorize the requested extensions, add
- * authorized extensions to the `tbs', and indicate whether to add any of the
- * EKUs/SANs we'd normally add automatically.
+ * If the client requested certificate extensions and those have been
+ * authorized, then copy them to the to-be-signed certificate.
  */
 static krb5_error_code
-get_hdb_ekus_and_sans(krb5_context context,
-                      kx509_req_context reqctx,
-                      krb5_principal principal,
-                      hx509_ca_tbs tbs,
-                      int *add_auto_exts)
+copy_exts_from_csr_plus(krb5_context context,
+                        kx509_req_context reqctx,
+                        hx509_ca_tbs tbs,
+                        int *add_auto_exts)
 {
-    *add_auto_exts = 1;
-    return ENOTSUP;
+    krb5_error_code ret;
+    KeyUsage ku;
+    char *s = NULL;
+    int cursor;
+
+    if (!reqctx->have_csr || !reqctx->csr_authorized)
+        return 0;
+
+    cursor = 0;
+    while ((ret = hx509_request_get_pkinit_san(context->hx509ctx, reqctx->csr,
+                                               &s, &cursor)) == 0 && s) {
+        ret = hx509_ca_tbs_add_san_pkinit(context->hx509ctx, tbs, s);
+        frees(&s);
+        if (ret)
+            return ret;
+        *add_auto_exts = 0;
+    }
+    frees(&s);
+    if (ret && ret != -1)
+        return ret;
+
+    cursor = 0;
+    while ((ret = hx509_request_get_xmpp_san(context->hx509ctx, reqctx->csr,
+                                             &s, &cursor)) == 0 && s) {
+        ret = hx509_ca_tbs_add_san_jid(context->hx509ctx, tbs, s);
+        frees(&s);
+        if (ret)
+            return ret;
+        *add_auto_exts = 0;
+    }
+    frees(&s);
+    if (ret && ret != -1)
+        return ret;
+
+    cursor = 0;
+    while ((ret = hx509_request_get_ms_upn_san(context->hx509ctx, reqctx->csr,
+                                               &s, &cursor)) == 0 && s) {
+        ret = hx509_ca_tbs_add_san_ms_upn(context->hx509ctx, tbs, s);
+        frees(&s);
+        if (ret)
+            return ret;
+        *add_auto_exts = 0;
+    }
+    frees(&s);
+    if (ret && ret != -1)
+        return ret;
+
+    cursor = 0;
+    while ((ret = hx509_request_get_email_san(context->hx509ctx, reqctx->csr,
+                                              &s, &cursor)) == 0 && s) {
+        ret = hx509_ca_tbs_add_san_rfc822name(context->hx509ctx, tbs, s);
+        frees(&s);
+        if (ret)
+            return ret;
+        *add_auto_exts = 0;
+    }
+    frees(&s);
+    if (ret && ret != -1)
+        return ret;
+
+    cursor = 0;
+    while ((ret = hx509_request_get_dns_name_san(context->hx509ctx,
+                                                 reqctx->csr, &s,
+                                                 &cursor)) == 0 && s) {
+        ret = hx509_ca_tbs_add_san_hostname(context->hx509ctx, tbs, s);
+        *add_auto_exts = 0;
+        frees(&s);
+        if (ret)
+            return ret;
+    }
+    frees(&s);
+    if (ret && ret != -1)
+        return ret;
+
+    cursor = 0;
+    while ((ret = hx509_request_get_eku(context->hx509ctx, reqctx->csr,
+                                        &s, &cursor)) == 0 && s) {
+        heim_oid oid;
+
+        ret = der_parse_heim_oid(s, ".", &oid);
+        if (ret == 0) {
+            ret = hx509_ca_tbs_add_eku(context->hx509ctx, tbs, &oid);
+            der_free_oid(&oid);
+        }
+        frees(&s);
+        if (ret)
+            return ret;
+        /* Here we don't reset *add_auto_exts */
+    }
+    frees(&s);
+    if (ret && ret != -1)
+        return ret;
+
+    ret = hx509_request_get_ku(context->hx509ctx, reqctx->csr, &ku);
+    if (ret == 0)
+        /* Here we don't reset *add_auto_exts */
+        hx509_ca_tbs_add_ku(context->hx509ctx, tbs, ku);
+
+    return ret;
 }
 
 /*
@@ -310,10 +412,9 @@ get_template(krb5_context context,
     char *email = NULL;
     int add_auto_exts = 1;
 
-    /* Populate extensions from CSR / HDB entry as requested and permitted */
-    ret = get_hdb_ekus_and_sans(context, reqctx, principal, tbs,
-                                &add_auto_exts);
-    if (ret != 0 && ret != ENOTSUP)
+    /* Populate requested extensions if permitted */
+    ret = copy_exts_from_csr_plus(context, reqctx, tbs, &add_auto_exts);
+    if (ret)
         return ret;
 
     if (ncomp == 1) {
@@ -512,6 +613,12 @@ build_certificate(krb5_context context,
 	goto out;
 
     /* Pick an issuer based on the crealm if we can */
+    /*
+     * XXX Add support for different signers (and chains) depending on whether
+     * the cert we're building is a client cert, a server cert, or both.
+     *
+     * Also, add logic for longer lifetimes for server-only certs.
+     */
     kx509_ca = krb5_config_get_string(context, NULL, "kdc", "realms", crealm,
                                       "kx509_ca", NULL);
     if (kx509_ca == NULL)
@@ -637,6 +744,9 @@ build_certificate(krb5_context context,
 
     /*
      * Add other SANs.
+     *
+     * XXX No!  Move this to get_template() so we can leave this out when the
+     * client asks for specific SANs (and they are authorized).
      *
      * Adding an id-pkinit-san means the client can use the certificate to
      * initiate PKINIT.  That might seem odd, but it enables a sort of PKIX
@@ -1159,11 +1269,11 @@ verify_auth_data(krb5_context context,
     free_Authenticator(a);
     free(a);
 
-    if (check_impersonation(context, reqctx, cprincipal, actual_cprincipal))
+    if (check_impersonation(context, reqctx, cprincipal, actual_cprincipal)) {
+        /* If authorized to impersonate, then authorized to authorize CSR */
+        reqctx->csr_authorized = reqctx->clnt_claims_authz;
         return 0;
-
-    /* If authorized to impersonate, then authorized to authorize CSR */
-    reqctx->csr_authorized = reqctx->clnt_claims_authz;
+    }
 
     (void) krb5_unparse_name(context, cprincipal, &s);
     kx509_log(context, reqctx, 0, "untrusted client principal "
@@ -1545,8 +1655,12 @@ _kdc_do_kx509(krb5_context context,
     }
 
     if (!reqctx.csr_authorized &&
-        (ret = check_authz(context, &reqctx, cprincipal)))
-        goto out; /* check_authz() calls mk_error_response() on error */
+        (ret = check_authz(context, &reqctx, cprincipal))) {
+        ret = mk_error_response(context, &reqctx, ENOMEM,
+                                "rejected by policy");
+        goto out;
+    }
+    reqctx.csr_authorized = 1;
 
     ALLOC(rep.hash);
     ALLOC(rep.certificate);

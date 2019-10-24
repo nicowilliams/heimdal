@@ -72,10 +72,20 @@ freestr(char **s)
 }
 
 static const char *
-get_kv(krb5_context context, const char *realm, const char *k)
+get_kv(krb5_context context, const char *realm, const char *k, const char *k2)
 {
     return krb5_config_get_string(context, NULL, "kdc", "realm", realm,
-                                  k, NULL);
+                                  k, k2, NULL);
+}
+
+static krb5_boolean
+get_kb(krb5_context context,
+       const char *realm,
+       const char *k,
+       krb5_boolean def)
+{
+    return krb5_config_get_bool_default(context, NULL, def, "kdc", "realm",
+                                        realm, k, NULL);
 }
 
 static krb5_error_code
@@ -88,7 +98,7 @@ get_issuer_pubkey(krb5_context context,
     const char *v;
 
     *errstr = NULL;
-    if ((v = get_kv(context, realm, "cjwt_jwk"))) {
+    if ((v = get_kv(context, realm, "cjwt_jwk", NULL))) {
         if ((ret = rk_undumpdata(v, &d->data, &d->length)) == 0)
             return 0;
         (void) asprintf(errstr, "could not read jwk issuer key %s: %s (%d)", v,
@@ -109,7 +119,14 @@ check_audience(krb5_context context,
     const char *e;
     size_t i;
 
-    if (!jwt->aud || (e = get_kv(context, realm, "cjwt_aud")) == NULL)
+    if (!jwt->aud) {
+        if (get_kb(context, realm, "cjwt_empty_aud_allowed", FALSE))
+            return 0;
+        krb5_set_error_message(context, EACCES, "JWT bearer token has no "
+                               "audience");
+        return EACCES;
+    }
+    if ((e = get_kv(context, realm, "cjwt_aud", NULL)) == NULL)
         return EACCES;
     for (i = 0; i < jwt->aud->count; i++)
         if (strcmp(e, jwt->aud->names[i]) == 0)
@@ -125,12 +142,15 @@ get_princ(krb5_context context,
           char **errstr)
 {
     krb5_error_code ret;
+    const char *force_realm = NULL;
+    const char *domain;
 
     if (jwt->sub == NULL) {
         *errstr = strdup("JWT token lacks 'sub' (subject name)!");
         return EACCES;
     }
-    if (strchr(jwt->sub, '@')) {
+    if ((domain = strchr(jwt->sub, '@'))) {
+        force_realm = get_kv(context, realm, "cjwt_force_realm", ++domain);
         ret = krb5_parse_name(context, jwt->sub, actual_principal);
     } else {
         ret = krb5_parse_name_flags(context, jwt->sub,
@@ -140,8 +160,11 @@ get_princ(krb5_context context,
     if (ret)
         (void) asprintf(errstr, "JWT token 'sub' not a valid "
                         "principal name: %s", jwt->sub);
-    else if (strchr(jwt->sub, '@') == NULL)
+    else if (force_realm)
         ret = krb5_principal_set_realm(context, *actual_principal, realm);
+    else if (domain == NULL)
+        ret = krb5_principal_set_realm(context, *actual_principal, realm);
+    /* else leave the domain as the realm */
     return ret;
 }
 
@@ -181,7 +204,7 @@ validate(void *ctx,
         realm = defrealm;
     }
 
-    ret = get_issuer_pubkey(context, NULL, &issuer_pubkey, errstr);
+    ret = get_issuer_pubkey(context, realm, &issuer_pubkey, errstr);
     if (ret) {
         free(defrealm);
         free(tokstr);
@@ -212,7 +235,7 @@ validate(void *ctx,
     }
 
     /* Success; check audience */
-    if ((ret = check_audience(context, NULL, jwt, errstr))) {
+    if ((ret = check_audience(context, realm, jwt, errstr))) {
         cjwt_destroy(&jwt);
         free(defrealm);
         return EACCES;
@@ -226,11 +249,12 @@ validate(void *ctx,
         return EACCES;
     }
 
-    /* XXX Sanity-check more of the decoded JWT */
-
     ret = get_princ(context, realm, jwt, actual_principal, errstr);
     cjwt_destroy(&jwt);
     free(defrealm);
+
+    if (ret == 0)
+        *result = TRUE;
     return ret;
 }
 
