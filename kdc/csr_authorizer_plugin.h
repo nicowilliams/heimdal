@@ -34,7 +34,7 @@
 #ifndef HEIMDAL_KDC_CSR_AUTHORIZER_PLUGIN_H
 #define HEIMDAL_KDC_CSR_AUTHORIZER_PLUGIN_H 1
 
-#define KDC_CSR_AUTHORIZER "kdc_plugin_csr_authorizer"
+#define KDC_CSR_AUTHORIZER "kdc_csr_authorizer"
 #define KDC_CSR_AUTHORIZER_VERSION_0 0
 
 /*

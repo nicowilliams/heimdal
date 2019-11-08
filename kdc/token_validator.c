@@ -40,7 +40,6 @@ struct plctx {
     krb5_data               *token;
     const char * const      *audiences;
     size_t                  naudiences;
-    krb5_const_principal    on_behalf_of;
     krb5_boolean            result;
     krb5_principal          actual_principal;
     krb5_times              token_times;
@@ -56,8 +55,8 @@ plcallback(krb5_context context, const void *plug, void *plugctx, void *userctx)
     ret = validator->validate(plugctx, context, plctx->realm,
                               plctx->token_kind, plctx->token,
                               plctx->audiences, plctx->naudiences,
-                              plctx->on_behalf_of, &plctx->result,
-                              &plctx->actual_principal, &plctx->token_times);
+                              &plctx->result, &plctx->actual_principal,
+                              &plctx->token_times);
     if (ret) {
         krb5_free_principal(context, plctx->actual_principal);
         plctx->actual_principal = NULL;
@@ -86,7 +85,6 @@ kdc_validate_token(krb5_context context,
                    krb5_data *token,
                    const char * const *audiences,
                    size_t naudiences,
-                   krb5_const_principal on_behalf_of,
                    krb5_principal *actual_principal,
                    krb5_times *token_times)
 {
@@ -95,7 +93,6 @@ kdc_validate_token(krb5_context context,
 
     memset(&ctx, 0, sizeof(ctx));
     ctx.realm = realm;
-    ctx.on_behalf_of = on_behalf_of;
     ctx.token_kind = token_kind;
     ctx.token = token;
     ctx.audiences = audiences;

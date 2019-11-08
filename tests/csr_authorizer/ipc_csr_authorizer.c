@@ -141,7 +141,7 @@ string_encode(const char *in)
     s[sz] = '\0';
 
     for (i = k = 0; i < len; i++) {
-        char c = in[i];
+        unsigned char c = ((const unsigned char *)in)[i];
 
         switch (c) {
         case '@':
@@ -191,7 +191,6 @@ static int
 call_svc(krb5_context context, heim_ipc ipc, const char *cmd)
 {
     heim_octet_string req, resp;
-    char *request = NULL;
     int ret;
 
     req.data = (void *)(uintptr_t)cmd;
@@ -204,19 +203,17 @@ call_svc(krb5_context context, heim_ipc ipc, const char *cmd)
                                    (int)resp.length, (const char *)resp.data);
             ret = EACCES;
         } else {
-            krb5_set_error_message(context, ret, "Could not reach CSR "
-                                   "authorizer IPC service");
-            ret = KRB5_PLUGIN_NO_HANDLE;
+            krb5_set_error_message(context, EACCES, "CSR denied because could "
+                                   "not reach CSR authorizer IPC service");
+            ret = EACCES;
         }
-        free(request);
         return ret;
     }
-    free(request);
     if (resp.data == NULL || resp.length == 0) {
         free(resp.data);
         krb5_set_error_message(context, ret, "CSR authorizer IPC service "
                                "failed silently");
-        return KRB5_PLUGIN_NO_HANDLE;
+        return EACCES;
     }
     if (resp.length == sizeof("denied") - 1 &&
         strncasecmp(resp.data, "denied", sizeof("denied") - 1) == 0) {
@@ -233,7 +230,7 @@ call_svc(krb5_context context, heim_ipc ipc, const char *cmd)
     krb5_set_error_message(context, ret, "CSR authorizer failed %s: %.*s",
                            cmd, resp.length < INT_MAX ? (int)resp.length : 0,
                            resp.data);
-    return KRB5_PLUGIN_NO_HANDLE;
+    return EACCES;
 }
 
 static void
@@ -241,6 +238,32 @@ frees(char **s)
 {
     free(*s);
     *s = NULL;
+}
+
+static krb5_error_code
+mark_authorized(hx509_request csr)
+{
+    size_t i;
+    char *s;
+    int ret = 0;
+
+    for (i = 0; ret == 0; i++) {
+        ret = hx509_request_get_eku(csr, i, &s);
+        if (ret == 0)
+            hx509_request_authorize_eku(csr, i);
+        frees(&s);
+    }
+    if (ret == HX509_NO_ITEM)
+        ret = 0;
+
+    for (i = 0; ret == 0; i++) {
+        hx509_san_type san_type;
+        ret = hx509_request_get_san(csr, i, &san_type, &s);
+        if (ret == 0)
+            hx509_request_authorize_eku(csr, i);
+        frees(&s);
+    }
+    return ret == HX509_NO_ITEM ? 0 : ret;
 }
 
 static KRB5_LIB_CALL krb5_error_code
@@ -256,11 +279,11 @@ authorize(void *ctx,
     hx509_context hx509ctx = NULL;
     heim_ipc ipc = NULL;
     const char *svc;
-    KeyUsage ku, ku_allowed;
+    KeyUsage ku;
+    size_t i;
     char *princ = NULL;
     char *s = NULL;
     int do_check = 0;
-    int cursor;
 
     if ((svc = krb5_config_get_string(context, NULL, "kdc",
                                       "ipc_csr_authorizer", "service",
@@ -283,90 +306,79 @@ authorize(void *ctx,
         goto enomem;
     frees(&princ);
 
-    cursor = 0;
-    while ((ret = hx509_request_get_pkinit_san(hx509ctx, csr,
-                                               &s, &cursor)) == 0 && s) {
-        if ((ret = cmd_append(&cmd, " san_pkinit=", s, NULL)))
-            goto enomem;
-        do_check = 1;
+    for (i = 0; ret == 0; i++) {
+        hx509_san_type san_type;
+
+        ret = hx509_request_get_san(csr, i, &san_type, &s);
+        if (ret)
+            break;
+        switch (san_type) {
+        case HX509_SAN_TYPE_EMAIL:
+            if ((ret = cmd_append(&cmd, " san_email=", s, NULL)))
+                goto enomem;
+            do_check = 1;
+            break;
+        case HX509_SAN_TYPE_DNSNAME:
+            if ((ret = cmd_append(&cmd, " san_dnsname=", s, NULL)))
+                goto enomem;
+            do_check = 1;
+            break;
+        case HX509_SAN_TYPE_XMPP:
+            if ((ret = cmd_append(&cmd, " san_xmpp=", s, NULL)))
+                goto enomem;
+            do_check = 1;
+            break;
+        case HX509_SAN_TYPE_PKINIT:
+            if ((ret = cmd_append(&cmd, " san_pkinit=", s, NULL)))
+                goto enomem;
+            do_check = 1;
+            break;
+        case HX509_SAN_TYPE_MS_UPN:
+            if ((ret = cmd_append(&cmd, " san_ms_upn=", s, NULL)))
+                goto enomem;
+            do_check = 1;
+            break;
+        default:
+            if ((ret = hx509_request_reject_san(csr, i)))
+                goto out;
+            break;
+        }
         frees(&s);
     }
-    if (ret && ret != -1)
+    if (ret == HX509_NO_ITEM)
+        ret = 0;
+    if (ret)
         goto out;
 
-    cursor = 0;
-    while ((ret = hx509_request_get_xmpp_san(hx509ctx, csr,
-                                             &s, &cursor)) == 0 && s) {
-        if ((ret = cmd_append(&cmd, " san_xmpp=", s, NULL)))
-            goto enomem;
-        do_check = 1;
-        frees(&s);
-    }
-    if (ret && ret != -1)
-        goto out;
-
-    cursor = 0;
-    while ((ret = hx509_request_get_email_san(hx509ctx, csr,
-                                              &s, &cursor)) == 0 && s) {
-        if ((ret = cmd_append(&cmd, " san_email=", s, NULL)))
-            goto enomem;
-        do_check = 1;
-        frees(&s);
-    }
-    if (ret && ret != -1)
-        goto out;
-
-    cursor = 0;
-    while ((ret = hx509_request_get_ms_upn_san(hx509ctx, csr,
-                                               &s, &cursor)) == 0 && s) {
-        if ((ret = cmd_append(&cmd, " san_ms_upn=", s, NULL)))
-            goto enomem;
-        do_check = 1;
-        frees(&s);
-    }
-    if (ret && ret != -1)
-        goto out;
-
-    cursor = 0;
-    while ((ret = hx509_request_get_dns_name_san(hx509ctx,
-                                                 csr, &s,
-                                                 &cursor)) == 0 && s) {
-        if ((ret = cmd_append(&cmd, " san_dnsname=", s, NULL)))
-            goto enomem;
-        do_check = 1;
-        frees(&s);
-    }
-    if (ret && ret != -1)
-        goto out;
-
-    cursor = 0;
-    while ((ret = hx509_request_get_eku(hx509ctx,
-                                        csr, &s,
-                                        &cursor)) == 0 && s) {
+    for (i = 0; ret == 0; i++) {
+        ret = hx509_request_get_eku(csr, i, &s);
+        if (ret)
+            break;
         if ((ret = cmd_append(&cmd, " eku=", s, NULL)))
             goto enomem;
         do_check = 1;
         frees(&s);
     }
-    if (ret && ret != -1)
-        goto out;
-
-    memset(&ku_allowed, 0, sizeof(ku_allowed));
-    ku_allowed.digitalSignature = 1;
-    ku_allowed.nonRepudiation = 1;
-    ret = hx509_request_get_ku(hx509ctx, csr, &ku);
+    if (ret == HX509_NO_ITEM)
+        ret = 0;
     if (ret)
         goto out;
-    if (KeyUsage2int(ku) != (KeyUsage2int(ku) & KeyUsage2int(ku_allowed)))
-        goto err;
+
+    ku = int2KeyUsage(0);
+    ku.digitalSignature = 1;
+    ku.nonRepudiation = 1;
+    hx509_request_authorize_ku(csr, ku);
 
     if (do_check) {
         if ((s = rk_strpoolcollect(cmd)) == NULL)
             goto enomem;
         cmd = NULL;
         if ((ret = call_svc(context, ipc, s)))
-            goto err;
+            goto out;
     } /* else -> permit */
+
+    if ((ret = mark_authorized(csr)))
+        goto out;
 
     *result = TRUE;
     ret = 0;
@@ -374,11 +386,6 @@ authorize(void *ctx,
 
 enomem:
     ret = krb5_enomem(context);
-    goto out;
-
-err:
-    if (ret != EACCES)
-        ret = KRB5_PLUGIN_NO_HANDLE; /* Allow another plugin to get a crack */
     goto out;
 
 out:
@@ -420,13 +427,13 @@ ipc_csr_authorizer_get_instance(const char *libname)
     return 0;
 }
 
-krb5_plugin_load_ft kdc_plugin_csr_authorizer_plugin_load;
+krb5_plugin_load_ft kdc_csr_authorizer_plugin_load;
 
 krb5_error_code KRB5_CALLCONV
-kdc_plugin_csr_authorizer_plugin_load(krb5_context context,
-                                      krb5_get_instance_func_t *get_instance,
-                                      size_t *num_plugins,
-                                      krb5_plugin_common_ftable_cp **plugins)
+kdc_csr_authorizer_plugin_load(krb5_context context,
+                               krb5_get_instance_func_t *get_instance,
+                               size_t *num_plugins,
+                               krb5_plugin_common_ftable_cp **plugins)
 {
     *get_instance = ipc_csr_authorizer_get_instance;
     *num_plugins = sizeof(plugs) / sizeof(plugs[0]);

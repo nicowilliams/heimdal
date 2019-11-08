@@ -147,16 +147,6 @@ krb5_kdc_get_config(krb5_context context, krb5_kdc_configuration **config)
 	krb5_config_get_bool_default(context, NULL,
 				     FALSE,
 				     "kdc", "enable_kx509", NULL);
-
-    if (c->enable_kx509) {
-        /* These are global defaults.  There are also per-realm defaults. */
-	c->kx509_template =
-	    krb5_config_get_string(context, NULL,
-				   "kdc", "kx509_template", NULL);
-	c->kx509_ca =
-	    krb5_config_get_string(context, NULL,
-				   "kdc", "kx509_ca", NULL);
-    }
 #endif
 
     c->tgt_use_strongest_session_key =

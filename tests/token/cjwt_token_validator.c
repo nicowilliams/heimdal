@@ -66,28 +66,59 @@
 static const char *
 get_kv(krb5_context context, const char *realm, const char *k, const char *k2)
 {
-    return krb5_config_get_string(context, NULL, "kdc", "realm", realm,
+    return krb5_config_get_string(context, NULL, "bx509", "realms", realm,
                                   k, k2, NULL);
 }
 
 static krb5_error_code
-get_issuer_pubkey(krb5_context context,
-                  const char *realm,
-                  krb5_data *d)
+get_issuer_pubkeys(krb5_context context,
+                   const char *realm,
+                   krb5_data *previous,
+                   krb5_data *current,
+                   krb5_data *next)
 {
+    krb5_error_code save_ret = 0;
     krb5_error_code ret;
     const char *v;
+    size_t nkeys = 0;
 
-    if ((v = get_kv(context, realm, "cjwt_jwk", NULL))) {
-        if ((ret = rk_undumpdata(v, &d->data, &d->length)) == 0)
-            return 0;
-        krb5_set_error_message(context, ret, "could not read jwk issuer "
-                               "key %s", v);
-        return ret;
+    previous->data = current->data = next->data = 0;
+    previous->length = current->length = next->length = 0;
+
+    if ((v = get_kv(context, realm, "cjwt_jwk_next", NULL)) &&
+        (++nkeys) &&
+        (ret = rk_undumpdata(v, &next->data, &next->length)))
+        save_ret = ret;
+    if ((v = get_kv(context, realm, "cjwt_jwk_previous", NULL)) &&
+        (++nkeys) &&
+        (ret = rk_undumpdata(v, &previous->data, &previous->length)) &&
+        save_ret == 0)
+        save_ret = ret;
+    if ((v = get_kv(context, realm, "cjwt_jwk_current", NULL)) &&
+        (++nkeys) &&
+        (ret = rk_undumpdata(v, &current->data, &current->length)) &&
+        save_ret == 0)
+        save_ret = ret;
+    if (nkeys == 0)
+        krb5_set_error_message(context, EINVAL, "jwk issuer key not specified in "
+                               "[bx509]->realm->%s->cjwt_jwk_{previous,current,next}",
+                               realm);
+    if (!previous->length && !current->length && !next->length)
+        krb5_set_error_message(context, save_ret,
+                               "Could not read jwk issuer public key files");
+    if (current->length == next->length &&
+        memcmp(current->data, next->data, next->length) == 0) {
+        free(next->data);
+        next->data = 0;
+        next->length = 0;
     }
-    krb5_set_error_message(context, EINVAL, "jwk issuer key not specified in "
-                           "[kdc]->realm->%s->cjwt->jwk", realm);
-    return EINVAL;
+    if (current->length == previous->length &&
+        memcmp(current->data, previous->data, previous->length) == 0) {
+        free(previous->data);
+        previous->data = 0;
+        previous->length = 0;
+    }
+    return 0;
 }
 
 static krb5_error_code
@@ -100,18 +131,13 @@ check_audience(krb5_context context,
     size_t i, k;
 
     if (!jwt->aud) {
-        /* Check if absent audience is permitted */
-        for (i = 0; i < naudiences; i++)
-            if (audiences[i][0] == '\0')
-                return 0;
         krb5_set_error_message(context, EACCES, "JWT bearer token has no "
                                "audience");
         return EACCES;
     }
     for (i = 0; i < jwt->aud->count; i++)
         for (k = 0; k < naudiences; k++)
-            if (strcmp(audiences[k], "*") == 0 ||
-                strcmp(audiences[k], jwt->aud->names[i]) == 0)
+            if (strcasecmp(audiences[k], jwt->aud->names[i]) == 0)
                 return 0;
     krb5_set_error_message(context, EACCES, "JWT bearer token's audience "
                            "does not match any expected audience");
@@ -169,12 +195,13 @@ validate(void *ctx,
          krb5_data *token,
          const char * const *audiences,
          size_t naudiences,
-         krb5_const_principal on_behalf_of,
          krb5_boolean *result,
          krb5_principal *actual_principal,
          krb5_times *token_times)
 {
-    heim_octet_string issuer_pubkey;
+    heim_octet_string jwk_previous;
+    heim_octet_string jwk_current;
+    heim_octet_string jwk_next;
     cjwt_t *jwt = NULL;
     char *tokstr = NULL;
     char *defrealm = NULL;
@@ -198,17 +225,24 @@ validate(void *ctx,
         realm = defrealm;
     }
 
-    ret = get_issuer_pubkey(context, realm, &issuer_pubkey);
+    ret = get_issuer_pubkeys(context, realm, &jwk_previous, &jwk_current,
+                             &jwk_next);
     if (ret) {
         free(defrealm);
         free(tokstr);
         return ret;
     }
 
-    ret = cjwt_decode(tokstr, 0, &jwt, issuer_pubkey.data,
-                      issuer_pubkey.length);
-    free(issuer_pubkey.data);
-    issuer_pubkey.data = NULL;
+    if ((ret = cjwt_decode(tokstr, 0, &jwt, jwk_current.data,
+                           jwk_current.length)) == -2 &&
+        (ret = cjwt_decode(tokstr, 0, &jwt, jwk_next.data,
+                           jwk_next.length)) == -2)
+        ret = cjwt_decode(tokstr, 0, &jwt, jwk_previous.data,
+                          jwk_previous.length);
+    free(jwk_previous.data);
+    free(jwk_current.data);
+    free(jwk_next.data);
+    jwk_previous.data = jwk_current.data = jwk_next.data = NULL;
     free(tokstr);
     tokstr = NULL;
     switch (ret) {
@@ -237,25 +271,16 @@ validate(void *ctx,
     }
 
     /* Success; extract principal name */
-    if (jwt->sub == NULL) {
-        cjwt_destroy(&jwt);
-        free(defrealm);
-        krb5_set_error_message(context, EACCES, "bearer token missing claims");
-        return EACCES;
+    if ((ret = get_princ(context, realm, jwt, actual_principal)) == 0) {
+        token_times->authtime   = jwt->iat.tv_sec;
+        token_times->starttime  = jwt->nbf.tv_sec;
+        token_times->endtime    = jwt->exp.tv_sec;
+        token_times->renew_till = jwt->exp.tv_sec;
+        *result = TRUE;
     }
-
-    ret = get_princ(context, realm, jwt, actual_principal);
-
-    token_times->authtime   = jwt->iat.tv_sec;
-    token_times->starttime  = jwt->nbf.tv_sec;
-    token_times->endtime    = jwt->exp.tv_sec;
-    token_times->renew_till = jwt->exp.tv_sec;
 
     cjwt_destroy(&jwt);
     free(defrealm);
-
-    if (ret == 0)
-        *result = TRUE;
     return ret;
 }
 
@@ -284,13 +309,13 @@ hcjwt_get_instance(const char *libname)
     return 0;
 }
 
-krb5_plugin_load_ft kdc_plugin_bearer_token_plugin_load;
+krb5_plugin_load_ft kdc_token_validator_plugin_load;
 
 krb5_error_code KRB5_CALLCONV
-kdc_plugin_bearer_token_plugin_load(krb5_context context,
-                                    krb5_get_instance_func_t *get_instance,
-                                    size_t *num_plugins,
-                                    krb5_plugin_common_ftable_cp **plugins)
+kdc_token_validator_plugin_load(krb5_context context,
+                                krb5_get_instance_func_t *get_instance,
+                                size_t *num_plugins,
+                                krb5_plugin_common_ftable_cp **plugins)
 {
     *get_instance = hcjwt_get_instance;
     *num_plugins = sizeof(plugs) / sizeof(plugs[0]);

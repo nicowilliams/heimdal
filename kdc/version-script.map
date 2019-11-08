@@ -4,6 +4,7 @@ HEIMDAL_KDC_1.0 {
 	global:
 		kdc_authorize_csr;
 		kdc_get_instance;
+		kdc_issue_certificate;
 		kdc_log;
 		kdc_log_msg;
 		kdc_log_msg_va;

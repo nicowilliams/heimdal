@@ -3,19 +3,16 @@
 static int help_flag;
 static int version_flag;
 static char *realm;
-static char *princstr;
 static struct getarg_strings audiences;
 
 struct getargs args[] = {
     {   "help",         'h',    arg_flag,    &help_flag,
-        "show usage", "this message" },
-    {   "realm",        'r',    arg_string,  &realm,
-        "realm", "realm" },
-    {   "on-behalf-of", 'p',    arg_string,  &princstr,
-        "principal", "principal" },
-    {   "audience",     'a',    arg_strings, &audiences,
-        "expected token audience", "expected token audience" },
-    {   "version",      'v',    arg_flag,    &version_flag, NULL, NULL }
+        "Print usage message", NULL },
+    {   NULL,           'r',    arg_string,  &realm,
+        "Realm name for plugin configuration", "REALM" },
+    {   NULL,           'a',    arg_strings, &audiences,
+        "expected token acceptor audience (hostname)", "ACCEPTOR-HOSTNAME" },
+    {   "version",      'v',    arg_flag,    &version_flag, "Print version", NULL }
 };
 size_t num_args = sizeof(args) / sizeof(args[0]);
 
@@ -35,7 +32,6 @@ main(int argc, char **argv)
     krb5_context context;
     krb5_data token;
     const char *token_type;
-    krb5_principal princ = NULL;
     krb5_principal actual_princ = NULL;
     krb5_times token_times;
     size_t bufsz = 0;
@@ -64,8 +60,6 @@ main(int argc, char **argv)
     if ((ret = krb5_kdc_get_config(context, &config)))
         krb5_err(context, 1, ret, "Could not get KDC configuration");
 
-    if (princstr && (ret = krb5_parse_name(context, princstr, &princ)))
-        krb5_err(context, 1, ret, "Could not parse principal %s", princstr);
     token_type = argv[0];
     token.data = argv[1];
     if (strcmp(token.data, "-") == 0) {
@@ -78,7 +72,7 @@ main(int argc, char **argv)
     }
     if ((ret = kdc_validate_token(context, realm, token_type, &token,
                                   (const char * const *)audiences.strings,
-                                  audiences.num_strings, princ, &actual_princ,
+                                  audiences.num_strings, &actual_princ,
                                   &token_times)))
         krb5_err(context, 1, ret, "Could not validate %s token", token_type);
     if (actual_princ && (ret = krb5_unparse_name(context, actual_princ, &s)))
@@ -87,5 +81,6 @@ main(int argc, char **argv)
         printf("Token is valid.  Actual principal: %s\n", s);
     else
         printf("Token is valid.");
+    krb5_free_principal(context, actual_princ);
     return 0;
 }

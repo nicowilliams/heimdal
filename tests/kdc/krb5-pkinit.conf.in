@@ -30,7 +30,6 @@
 
         enable_kx509 = true
         require_initial_kca_tickets = false
-        kx509_proxy_client_service = bx509_service@TEST.H5L.SE
 
 	database = {
 		dbname = @objdir@/current-db
@@ -39,9 +38,9 @@
                 log_file = @objdir@/log.current-db.log
 	}
 
-        simple_csr_authorizer_directory = @objdir@/simple_csra
+        simple_csr_authorizer_directory = @objdir@/simple_csr_authz
 
-        realm = {
+        realms = {
                 TEST.H5L.SE = {
                         negotiate_token_validator = {
                                 keytab = HDBGET:@objdir@/current-db

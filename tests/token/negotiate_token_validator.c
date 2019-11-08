@@ -87,6 +87,8 @@ display_status(krb5_context context,
             gmsg = NULL;
             break;
         }
+        gmsg = s;
+        s = NULL;
     } while (!GSS_ERROR(dmaj) && more);
     if (mech_type != GSS_C_NO_OID) {
         do {
@@ -101,6 +103,8 @@ display_status(krb5_context context,
                 gmmsg = NULL;
                 break;
             }
+            gmmsg = s;
+            s = NULL;
         } while (!GSS_ERROR(dmaj) && more);
     }
     if (gmsg == NULL)
@@ -133,13 +137,10 @@ validate(void *ctx,
          krb5_data *token,
          const char * const *audiences,
          size_t naudiences,
-         krb5_const_principal on_behalf_of,
          krb5_boolean *result,
          krb5_principal *actual_principal,
          krb5_times *token_times)
 {
-    gss_key_value_element_desc store_keytab_kv;
-    gss_key_value_set_desc store;
     gss_buffer_desc adisplay_name = GSS_C_EMPTY_BUFFER;
     gss_buffer_desc idisplay_name = GSS_C_EMPTY_BUFFER;
     gss_buffer_desc output_token = GSS_C_EMPTY_BUFFER;
@@ -149,9 +150,7 @@ validate(void *ctx,
     gss_name_t aname = GSS_C_NO_NAME;
     gss_name_t iname = GSS_C_NO_NAME;
     gss_OID mech_type = GSS_C_NO_OID;
-    gss_OID_desc mech_set[2];
-    gss_OID_set_desc mechs = { 2, mech_set };
-    const char *kt = krb5_config_get_string(context, NULL, "kdc"
+    const char *kt = krb5_config_get_string(context, NULL, "kdc",
                                             "negotiate_token_validator",
                                             "keytab", NULL);
     OM_uint32 major, minor, ret_flags, time_rec;
@@ -159,29 +158,32 @@ validate(void *ctx,
     char *token_decoded = NULL;
     void *token_copy = NULL;
     char *princ_str = NULL;
-    int ret;
+    int ret = 0;
 
     if (strcmp(token_type, "Negotiate") != 0)
         return KRB5_PLUGIN_NO_HANDLE;
-    if (kt == NULL) {
-        krb5_set_error_message(context, EACCES, "Negotiate token rejected by "
-                               "negotiate_token_validator because no keytab "
-                               "was configured in [kdc]->"
-                               "negotiate_token_validator->keytab");
-        return KRB5_PLUGIN_NO_HANDLE;
-    }
 
-    mech_set[0] = *GSS_KRB5_MECHANISM;
-    mech_set[1] = *GSS_SPNEGO_MECHANISM;
-    store_keytab_kv.key = "keytab";
-    store_keytab_kv.value = kt;
-    store.elements = &store_keytab_kv;
-    store.count = 1;
-    major = gss_acquire_cred_from(&minor, GSS_C_NO_NAME, GSS_C_INDEFINITE,
-                                  &mechs, GSS_C_ACCEPT, &store, &acred, NULL,
-                                  NULL);
-    if (major != GSS_S_COMPLETE)
-        return display_status(context, major, minor, acred, gctx, mech_type);
+    if (kt) {
+        gss_key_value_element_desc store_keytab_kv;
+        gss_key_value_set_desc store;
+        gss_OID_desc mech_set[2] = { *GSS_KRB5_MECHANISM, *GSS_SPNEGO_MECHANISM };
+        gss_OID_set_desc mechs = { 2, mech_set };
+
+        store_keytab_kv.key = "keytab";
+        store_keytab_kv.value = kt;
+        store.elements = &store_keytab_kv;
+        store.count = 1;
+        major = gss_acquire_cred_from(&minor, GSS_C_NO_NAME, GSS_C_INDEFINITE,
+                                      &mechs, GSS_C_ACCEPT, &store, &acred, NULL,
+                                      NULL);
+        if (major != GSS_S_COMPLETE)
+            return display_status(context, major, minor, acred, gctx, mech_type);
+
+        mechs.count = 1;
+        major = gss_set_neg_mechs(&minor, acred, &mechs);
+        if (major != GSS_S_COMPLETE)
+            return display_status(context, major, minor, acred, gctx, mech_type);
+    } /* else we'll use the default credential */
 
     if ((token_decoded = malloc(token->length)) == NULL ||
         (token_copy = calloc(1, token->length + 1)) == NULL)
@@ -199,35 +201,63 @@ validate(void *ctx,
     major = gss_accept_sec_context(&minor, &gctx, acred, &input_token, NULL,
                                    &iname, &mech_type, &output_token,
                                    &ret_flags, &time_rec, NULL);
-    if (major == GSS_S_COMPLETE || major == GSS_S_CONTINUE_NEEDED)
-        major = gss_inquire_context(&minor, gctx, NULL, &aname, NULL, NULL,
-                                    NULL, NULL, NULL);
+
+    if (mech_type == GSS_C_NO_OID ||
+        !gss_oid_equal(mech_type, GSS_KRB5_MECHANISM)) {
+        krb5_set_error_message(context, ret = EACCES, "Negotiate token used "
+                               "non-Kerberos mechanism");
+        goto out;
+    }
+
+    if (major != GSS_S_COMPLETE && major != GSS_S_CONTINUE_NEEDED) {
+        ret = display_status(context, major, minor, acred, gctx, mech_type);
+        if (ret == 0)
+            ret = EINVAL;
+        goto out;
+    }
+
+    if (!(ret_flags & GSS_C_CONF_FLAG)) {
+        if (major == GSS_S_CONTINUE_NEEDED)
+            /*
+             * XXX Guessing here that the token is expired, which is why we
+             * have major == GSS_S_CONTINUE_NEEDED.
+             */
+            krb5_set_error_message(context, ret = KRB5KRB_AP_ERR_SKEW,
+                                   "Negotiate token expired");
+        else
+            krb5_set_error_message(context, ret = EACCES,
+                                   "Negotiate token rejected for unknown "
+                                   "reasons");
+        goto out;
+    }
+
+    major = gss_inquire_context(&minor, gctx, NULL, &aname, NULL, NULL,
+                                NULL, NULL, NULL);
     if (major == GSS_S_COMPLETE)
         major = gss_display_name(&minor, aname, &adisplay_name, NULL);
     if (major == GSS_S_COMPLETE)
         major = gss_display_name(&minor, iname, &idisplay_name, NULL);
-    if (major != GSS_S_COMPLETE)
+    if (major != GSS_S_COMPLETE && major != GSS_S_CONTINUE_NEEDED) {
         ret = display_status(context, major, minor, acred, gctx, mech_type);
+        if (ret == 0)
+            ret = EINVAL;
+        goto out;
+    }
 
-    if (!gss_oid_equal(mech_type, GSS_KRB5_MECHANISM)) {
-        krb5_set_error_message(context, EACCES, "Negotiate token used "
-                               "non-Kerberos mechanism");
-        goto out;
-    }
-    if (adisplay_name.length < sizeof("HTTP/") - 1 ||
-        strncmp(adisplay_name.value, "HTTP/", sizeof("HTTP/") - 1) != 0) {
-        krb5_set_error_message(context, EACCES, "Negotiate token used "
-                               "non-HTTP service acceptor name");
-        goto out;
-    }
     for (i = 0; i < naudiences; i++) {
+        const char *s = adisplay_name.value;
+        size_t slen = adisplay_name.length;
         size_t len = strlen(audiences[i]);
 
-        if (adisplay_name.length == len &&
-            strncmp(adisplay_name.value, audiences[i], len) == 0)
+        if (slen >= sizeof("HTTP/") - 1       &&
+            slen >= sizeof("HTTP/") - 1 + len &&
+            memcmp(s, "HTTP/", sizeof("HTTP/") - 1) == 0 &&
+            memcmp(s + sizeof("HTTP/") - 1, audiences[i], len) == 0 &&
+            s[sizeof("HTTP/") - 1 + len] == '@')
             break;
     }
     if (i == naudiences) {
+        /* This handles the case where naudiences == 0 as an error */
         krb5_set_error_message(context, EACCES, "Negotiate token used "
                                "wrong HTTP service host acceptor name");
         goto out;
@@ -241,8 +271,8 @@ validate(void *ctx,
 
     /* XXX Need name attributes to get authtime/starttime/renew_till */
     token_times->authtime   = 0;
-    token_times->starttime  = 0;
-    token_times->endtime    = time(NULL) + time_rec;
+    token_times->starttime  = time(NULL);
+    token_times->endtime    = token_times->starttime + time_rec;
     token_times->renew_till = 0;
 
     *result = TRUE;
@@ -290,13 +320,13 @@ negotiate_get_instance(const char *libname)
     return 0;
 }
 
-krb5_plugin_load_ft kdc_plugin_bearer_token_plugin_load;
+krb5_plugin_load_ft kdc_token_validator_plugin_load;
 
 krb5_error_code KRB5_CALLCONV
-kdc_plugin_bearer_token_plugin_load(krb5_context context,
-                                    krb5_get_instance_func_t *get_instance,
-                                    size_t *num_plugins,
-                                    krb5_plugin_common_ftable_cp **plugins)
+kdc_token_validator_plugin_load(krb5_context context,
+                                krb5_get_instance_func_t *get_instance,
+                                size_t *num_plugins,
+                                krb5_plugin_common_ftable_cp **plugins)
 {
     *get_instance = negotiate_get_instance;
     *num_plugins = sizeof(plugs) / sizeof(plugs[0]);

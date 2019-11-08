@@ -48,17 +48,13 @@ port=@port@
 
 kadmin="${kadmin} -l -r $R"
 kdc="${kdc} --addresses=localhost -P $port"
-bx509="${bx509} --reverse-proxied -p 8001"
 
 server=host/datan.test.h5l.se
-bx509_cache="FILE:${objdir}/cache-bx509.krb5"
 cache="FILE:${objdir}/cache.krb5"
 keyfile="${hx509_data}/key.der"
 keyfile2="${hx509_data}/key2.der"
 
-bx509_kinit="${kinit} -c $bx509_cache ${afs_no_afslog}"
 kinit="${kinit} -c $cache ${afs_no_afslog}"
-bx509_klist="${klist} --hidden -v -c $bx509_cache"
 klist="${klist} --hidden -v -c $cache"
 kgetcred="${kgetcred} -c $cache"
 kdestroy="${kdestroy} -c $cache ${afs_no_unlog}"
@@ -102,7 +98,6 @@ ${kadmin} \
 ${kadmin} add -p foo --use-defaults foo@${R} || exit 1
 ${kadmin} add -p bar --use-defaults bar@${R} || exit 1
 ${kadmin} add -p baz --use-defaults baz@${R} || exit 1
-${kadmin} add -p foo --use-defaults bx509@${R} || exit 1
 ${kadmin} add -p foo --use-defaults host/server.test.h5l.se@${R} || exit 1
 ${kadmin} modify --alias=baz2@test.h5l.se baz@${R} || exit 1
 ${kadmin} modify --pkinit-acl="CN=baz,DC=test,DC=h5l,DC=se" baz@${R} || exit 1
@@ -193,13 +188,7 @@ echo Starting kdc ; > messages.log
 ${kdc} --detach --testing || { echo "kdc failed to start"; exit 1; }
 kdcpid=`getpid kdc`
 
-echo Starting bx509 ; > messages.log
-${bx509_kinit} --password-file=${objdir}/foopassword bx509@${R} || \
-	{ ec=1 ; eval "${testfailed}"; }
-KRB5CCNAME=$bx509_cache ${bx509} --daemon || { echo "bx509 failed to start"; exit 2; }
-bx509pid=`getpid bx509`
-
-trap "kill -9 ${kdcpid} ${bx509pid}; echo signal killing kdc; cat ca.crt kdc.crt pkinit.crt ;exit 1;" EXIT
+trap "kill -9 ${kdcpid}; echo signal killing kdc; cat ca.crt kdc.crt pkinit.crt ;exit 1;" EXIT
 
 ec=0
 
@@ -319,7 +308,6 @@ fi
 
 echo "killing kdc (${kdcpid})"
 sh ${leaks_kill} kdc $kdcpid || ec=1
-sh ${leaks_kill} bx509 $bx509pid || ec=1
 
 trap "" EXIT
 

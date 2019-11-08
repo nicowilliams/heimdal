@@ -127,7 +127,7 @@ string_encode(const char *in)
     s[sz] = '\0';
 
     for (i = k = 0; i < len; i++, first = 0) {
-        char c = in[i];
+        unsigned char c = ((const unsigned char *)in)[i];
 
         switch (c) {
         case '@':
@@ -167,12 +167,11 @@ authorize(void *ctx,
 {
     krb5_error_code ret;
     hx509_context hx509ctx = NULL;
-    KeyUsage ku, ku_allowed;
+    KeyUsage ku;
     const char *d;
+    size_t i;
     char *princ = NULL;
-    char *san = NULL;
     char *s = NULL;
-    int cursor;
 
     if ((d = krb5_config_get_string(context, NULL, "kdc",
                                     "simple_csr_authorizer_directory",
@@ -194,114 +193,64 @@ authorize(void *ctx,
     princ = s;
     s = NULL;
 
-    cursor = 0;
-    while ((ret = hx509_request_get_pkinit_san(hx509ctx, csr,
-                                               &s, &cursor)) == 0 && s) {
+    for (i = 0; ret == 0; i++) {
+        hx509_san_type san_type;
         struct stat st;
+        const char *prefix;
+        char *san;
         char *p;
 
+        ret = hx509_request_get_san(csr, i, &san_type, &s);
+        if (ret)
+            break;
+        switch (san_type) {
+        case HX509_SAN_TYPE_EMAIL:
+            prefix = "email";
+            break;
+        case HX509_SAN_TYPE_DNSNAME:
+            prefix = "dnsname";
+            break;
+        case HX509_SAN_TYPE_XMPP:
+            prefix = "xmpp";
+            break;
+        case HX509_SAN_TYPE_PKINIT:
+            prefix = "pkinit";
+            break;
+        case HX509_SAN_TYPE_MS_UPN:
+            prefix = "ms-upn";
+            break;
+        default:
+            ret = ENOTSUP;
+            break;
+        }
+        if (ret)
+            break;
+
         if ((san = string_encode(s)) == NULL ||
-            asprintf(&p, "%s/%s/pkinit-%s", d, princ, san) == -1 ||
+            asprintf(&p, "%s/%s/%s-%s", d, princ, prefix, san) == -1 ||
             p == NULL)
             goto enomem;
         ret = stat(p, &st) == -1 ? errno : 0;
+        free(san);
         free(p);
         free(s);
         s = NULL;
         if (ret)
             goto skip;
+        ret = hx509_request_authorize_san(csr, i);
     }
-    if (ret && ret != -1)
+    if (ret == HX509_NO_ITEM)
+        ret = 0;
+    if (ret)
         goto out;
 
-    cursor = 0;
-    while ((ret = hx509_request_get_xmpp_san(hx509ctx, csr,
-                                             &s, &cursor)) == 0 && s) {
+    for (i = 0; ret == 0; i++) {
         struct stat st;
         char *p;
 
-        if ((san = string_encode(s)) == NULL ||
-            asprintf(&p, "%s/%s/xmpp-%s", d, princ, san) == -1 ||
-            p == NULL)
-            goto enomem;
-        ret = stat(p, &st) == -1 ? errno : 0;
-        free(p);
-        free(s);
-        s = NULL;
+        ret = hx509_request_get_eku(csr, i, &s);
         if (ret)
-            goto skip;
-    }
-    if (ret && ret != -1)
-        goto out;
-
-    cursor = 0;
-    while ((ret = hx509_request_get_email_san(hx509ctx, csr,
-                                              &s, &cursor)) == 0 && s) {
-        struct stat st;
-        char *p;
-
-        if ((san = string_encode(s)) == NULL ||
-            asprintf(&p, "%s/%s/email-%s", d, princ, san) == -1 ||
-            p == NULL)
-            goto enomem;
-        ret = stat(p, &st) == -1 ? errno : 0;
-        free(p);
-        free(s);
-        s = NULL;
-        if (ret)
-            goto skip;
-    }
-    if (ret && ret != -1)
-        goto out;
-
-    cursor = 0;
-    while ((ret = hx509_request_get_ms_upn_san(hx509ctx, csr,
-                                               &s, &cursor)) == 0 && s) {
-        struct stat st;
-        char *p;
-
-        if ((san = string_encode(s)) == NULL ||
-            asprintf(&p, "%s/%s/ms-upn-%s", d, princ, san) == -1 ||
-            p == NULL)
-            goto enomem;
-        ret = stat(p, &st) == -1 ? errno : 0;
-        free(p);
-        free(s);
-        s = NULL;
-        if (ret)
-            goto skip;
-    }
-    if (ret && ret != -1)
-        goto out;
-
-    cursor = 0;
-    while ((ret = hx509_request_get_dns_name_san(hx509ctx,
-                                                 csr, &s,
-                                                 &cursor)) == 0 && s) {
-        struct stat st;
-        char *p;
-
-        if ((san = string_encode(s)) == NULL ||
-            asprintf(&p, "%s/%s/dnsname-%s", d, princ, san) == -1 ||
-            p == NULL)
-            goto enomem;
-        ret = stat(p, &st) == -1 ? errno : 0;
-        free(p);
-        free(s);
-        s = NULL;
-        if (ret)
-            goto skip;
-    }
-    if (ret && ret != -1)
-        goto out;
-
-    cursor = 0;
-    while ((ret = hx509_request_get_eku(hx509ctx,
-                                        csr, &s,
-                                        &cursor)) == 0 && s) {
-        struct stat st;
-        char *p;
-
+            break;
         if (asprintf(&p, "%s/%s/eku-%s", d, princ, s) == -1 || p == NULL) {
             free(princ);
             free(s);
@@ -312,18 +261,17 @@ authorize(void *ctx,
         s = NULL;
         if (ret)
             goto skip;
+        ret = hx509_request_authorize_eku(csr, i);
     }
-    if (ret && ret != -1)
-        goto out;
-
-    memset(&ku_allowed, 0, sizeof(ku_allowed));
-    ku_allowed.digitalSignature = 1;
-    ku_allowed.nonRepudiation = 1;
-    ret = hx509_request_get_ku(hx509ctx, csr, &ku);
+    if (ret == HX509_NO_ITEM)
+        ret = 0;
     if (ret)
         goto out;
-    if (KeyUsage2int(ku) != (KeyUsage2int(ku) & KeyUsage2int(ku_allowed)))
-        goto skip;
+
+    ku = int2KeyUsage(0);
+    ku.digitalSignature = 1;
+    ku.nonRepudiation = 1;
+    hx509_request_authorize_ku(csr, ku);
 
     *result = TRUE;
     ret = 0;
@@ -341,7 +289,6 @@ enomem:
 out:
     hx509_context_free(&hx509ctx);
     free(princ);
-    free(san);
     free(s);
     return ret;
 }
@@ -370,17 +317,18 @@ simple_csr_authorizer_get_instance(const char *libname)
         return krb5_get_instance(libname);
     if (strcmp(libname, "kdc") == 0)
         return kdc_get_instance(libname);
-    /* XXX Need hx509_get_instance() */
+    if (strcmp(libname, "hx509") == 0)
+        return hx509_get_instance(libname);
     return 0;
 }
 
-krb5_plugin_load_ft kdc_plugin_csr_authorizer_plugin_load;
+krb5_plugin_load_ft kdc_csr_authorizer_plugin_load;
 
 krb5_error_code KRB5_CALLCONV
-kdc_plugin_csr_authorizer_plugin_load(krb5_context context,
-                                      krb5_get_instance_func_t *get_instance,
-                                      size_t *num_plugins,
-                                      krb5_plugin_common_ftable_cp **plugins)
+kdc_csr_authorizer_plugin_load(krb5_context context,
+                               krb5_get_instance_func_t *get_instance,
+                               size_t *num_plugins,
+                               krb5_plugin_common_ftable_cp **plugins)
 {
     *get_instance = simple_csr_authorizer_get_instance;
     *num_plugins = sizeof(plugs) / sizeof(plugs[0]);

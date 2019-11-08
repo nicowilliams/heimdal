@@ -4,8 +4,10 @@ static int help_flag;
 static int version_flag;
 
 struct getargs args[] = {
-    {   "help",         'h',    arg_flag,   &help_flag, NULL, NULL },
-    {   "version",      'v',    arg_flag,   &version_flag, NULL, NULL }
+    {   "help",         'h',    arg_flag,   &help_flag,
+        "Print usage message", NULL },
+    {   "version",      'v',    arg_flag,   &version_flag,
+        "Print version", NULL }
 };
 size_t num_args = sizeof(args) / sizeof(args[0]);
 
@@ -13,6 +15,11 @@ static int
 usage(int e)
 {
     arg_printusage(args, num_args, NULL, "PATH-TO-DER-CSR PRINCIPAL");
+    fprintf(stderr,
+            "\n\tExercise CSR authorization plugins for a given CSR for a\n"
+            "\tgiven principal.\n"
+            "\n\tExample: %s PKCS10:/tmp/csr.der foo@TEST.H5L.SE\n",
+            getprogname());
     exit(e);
     return e;
 }
@@ -23,8 +30,6 @@ main(int argc, char **argv)
     krb5_kdc_configuration *config;
     krb5_error_code ret;
     krb5_context context;
-    hx509_context hx509ctx;
-    heim_octet_string os;
     hx509_request csr;
     krb5_principal princ = NULL;
     const char *argv0 = argv[0];
@@ -46,12 +51,8 @@ main(int argc, char **argv)
     if (argc != 2)
         usage(1);
 
-    if ((errno = rk_undumpdata(argv[0], &os.data, &os.length)))
-        err(1, "Could not read CSR from %s", argv[0]);
     if ((errno = krb5_init_context(&context)))
         err(1, "Could not initialize krb5_context");
-    if ((errno = hx509_context_init(&hx509ctx)))
-        err(1, "Could not initialize hx509_context");
     if ((ret = krb5_kdc_get_config(context, &config)))
         krb5_err(context, 1, ret, "Could not get KDC configuration");
     if ((ret = krb5_initlog(context, argv0, &config->logf)) ||
@@ -59,17 +60,16 @@ main(int argc, char **argv)
         krb5_err(context, 1, ret, "Could not setup logging to stderr");
     if ((ret = krb5_kdc_set_dbinfo(context, config)))
         krb5_err(context, 1, ret, "Could not get KDC configuration (HDB)");
+    if ((ret = hx509_request_parse(context->hx509ctx, argv[0], &csr)))
+        krb5_err(context, 1, ret, "Could not parse PKCS#10 CSR from %s", argv[0]);
     if ((ret = krb5_parse_name(context, argv[1], &princ)))
         krb5_err(context, 1, ret, "Could not parse principal %s", argv[1]);
-    if ((ret = hx509_request_parse_der(hx509ctx, &os, &csr)))
-        krb5_err(context, 1, ret, "Could not parse PKCS#10 CSR from %s", argv[0]);
     if ((ret = kdc_authorize_csr(context, config, csr, princ)))
         krb5_err(context, 1, ret, "Authorization failed");
     printf("Authorized!\n");
     krb5_free_principal(context, princ);
     krb5_free_context(context);
     hx509_request_free(&csr);
-    hx509_context_free(&hx509ctx);
     /* FIXME There's no free function for config yet */
     return 0;
 }

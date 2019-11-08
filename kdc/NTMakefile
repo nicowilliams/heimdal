@@ -92,6 +92,8 @@ $(LIBEXECDIR)\kdc.exe: \
 
 LIBKDC_OBJS=\
 	$(OBJ)\default_config.obj	\
+	$(OBJ)\ca.obj			\
+	$(OBJ)\kx509.obj		\
 	$(OBJ)\set_dbinfo.obj		\
 	$(OBJ)\digest.obj		\
 	$(OBJ)\fast.obj			\
@@ -128,6 +130,7 @@ clean::
 
 libkdc_la_SOURCES = 		\
 	default_config.c 	\
+	ca.c			\
 	set_dbinfo.c	 	\
 	digest.c		\
 	fast.c			\

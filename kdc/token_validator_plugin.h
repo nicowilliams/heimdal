@@ -34,7 +34,7 @@
 #ifndef HEIMDAL_KDC_BEARER_TOKEN_PLUGIN_H
 #define HEIMDAL_KDC_BEARER_TOKEN_PLUGIN_H 1
 
-#define KDC_PLUGIN_BEARER "kdc_plugin_bearer_token"
+#define KDC_PLUGIN_BEARER "kdc_token_validator"
 #define KDC_PLUGIN_BEARER_VERSION_0 0
 
 /*
@@ -77,7 +77,6 @@ typedef struct krb5plugin_token_validator_ftable_desc {
                                                   krb5_data *,      /*token*/
                                                   const char * const *, /*audiences*/
                                                   size_t,           /*naudiences*/
-                                                  krb5_const_principal, /*on_behalf_of*/
                                                   krb5_boolean *,   /*valid*/
                                                   krb5_principal *, /*actual_principal*/
                                                   krb5_times *);    /*token_times*/
