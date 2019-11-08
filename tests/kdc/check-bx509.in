@@ -1,0 +1,193 @@
+#!/bin/sh
+#
+# Copyright (c) 2019 Kungliga Tekniska Högskolan
+# (Royal Institute of Technology, Stockholm, Sweden). 
+# All rights reserved. 
+#
+# Redistribution and use in source and binary forms, with or without 
+# modification, are permitted provided that the following conditions 
+# are met: 
+#
+# 1. Redistributions of source code must retain the above copyright 
+#    notice, this list of conditions and the following disclaimer. 
+#
+# 2. Redistributions in binary form must reproduce the above copyright 
+#    notice, this list of conditions and the following disclaimer in the 
+#    documentation and/or other materials provided with the distribution. 
+#
+# 3. Neither the name of the Institute nor the names of its contributors 
+#    may be used to endorse or promote products derived from this software 
+#    without specific prior written permission. 
+#
+# THIS SOFTWARE IS PROVIDED BY THE INSTITUTE AND CONTRIBUTORS ``AS IS'' AND 
+# ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE 
+# IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE 
+# ARE DISCLAIMED.  IN NO EVENT SHALL THE INSTITUTE OR CONTRIBUTORS BE LIABLE 
+# FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL 
+# DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS 
+# OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) 
+# HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT 
+# LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY 
+# OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF 
+# SUCH DAMAGE. 
+
+top_builddir="@top_builddir@"
+env_setup="@env_setup@"
+objdir="@objdir@"
+
+testfailed="echo test failed; cat messages.log; exit 1"
+
+. ${env_setup}
+
+# If there is no useful db support compiled in, disable test
+${have_db} || exit 77
+
+R=TEST.H5L.SE
+DCs="DC=test,DC=h5l,DC=se"
+
+port=@port@
+
+kadmin="${kadmin} -l -r $R"
+kdc="${kdc} --addresses=localhost -P $port"
+bx509="${bx509} --reverse-proxied -p 8001"
+
+server=host/datan.test.h5l.se
+bx509_cache="FILE:${objdir}/cache-bx509.krb5"
+cache="FILE:${objdir}/cache.krb5"
+keyfile="${hx509_data}/key.der"
+keyfile2="${hx509_data}/key2.der"
+
+bx509_kinit="${kinit} -c $bx509_cache ${afs_no_afslog}"
+kinit="${kinit} -c $cache ${afs_no_afslog}"
+bx509_klist="${klist} --hidden -v -c $bx509_cache"
+klist="${klist} --hidden -v -c $cache"
+kgetcred="${kgetcred} -c $cache"
+kdestroy="${kdestroy} -c $cache ${afs_no_unlog}"
+kx509="${kx509} -c $cache"
+
+KRB5_CONFIG="${objdir}/krb5-pkinit.conf"
+export KRB5_CONFIG
+
+rsa=yes
+pkinit=no
+if ${hxtool} info | grep 'rsa: hx509 null RSA' > /dev/null ; then
+    rsa=no
+fi
+if ${hxtool} info | grep 'rand: not available' > /dev/null ; then
+    rsa=no
+fi
+
+if ${kinit} --help 2>&1 | grep "CA certificates" > /dev/null; then
+    pkinit=yes
+fi
+
+# If we doesn't support pkinit and have RSA, give up
+if test "$pkinit" != yes -o "$rsa" != yes ; then
+    exit 77
+fi
+
+
+rm -f current-db*
+rm -f out-*
+rm -f mkey.file*
+rm -f *.pem *.crt *.der
+rm -rf simple_csra
+
+mkdir -p simple_csra
+
+> messages.log
+
+echo Creating database
+${kadmin} \
+    init \
+    --realm-max-ticket-life=1day \
+    --realm-max-renewable-life=1month \
+    ${R} || exit 1
+
+${kadmin} add -r --use-defaults foo@${R} || exit 1
+${kadmin} add -r --use-defaults bx509_service@${R} || exit 1
+${kadmin} add -r --use-defaults host/server.test.h5l.se@${R} || exit 1
+${kadmin} add -r --use-defaults ${server}@${R} || exit 1
+
+${kasmin} ext_keytab -k ${objdir}/foo.kt \
+                     --random-key foo@${R} || exit 1
+${kasmin} ext_keytab -k ${objdir}/bx509_service.kt \
+                     --random-key bx509_service@${R} || exit 1
+${kasmin} ext_keytab -k ${objdir}/server.kt \
+                     --random-key ${server}@${R} || exit 1
+
+echo "Doing database check"
+${kadmin} check ${R} || exit 1
+
+# XXX Do not use committed, in-tree private keys or certificates!
+# XXX Add hxtool command to generate a private key w/o generating a CSR
+# XXX Use hxtool to generate a fresh private key
+# XXX Use hxtool to generate self-signed CA certs
+# XXX Use PEM-FILE and store private key and certificate in same file
+# XXX Update krb5.conf.in to use ${objdir}-relative keys and certificates
+
+echo "Setting up certificates"
+${hxtool} ca --issue-ca --self-signed --type=pkinit-kdc             \
+             --ku=digitalSignature --ku=keyCertSign --ku=cRLSign    \
+             --pkinit-principal=krbtgt/${R}@${R}                    \
+             --generate-key=rsa --key-bits=1280                     \
+             --subject="OU=Users,CN=KDC,${DCs}"                     \
+             --certificate=PEM-FILE:${objdir}/user-issuer.pem || exit 1
+
+cp ${objdir}/user-issuer.pem ${objdir}/pkinit-anchor.pem
+ex ${objdir}/pkinit-anchor.pem <<"EOF"
+/-----BEGIN CERTIFICATE-----
+1,.-1 d
+wq
+EOF
+
+${hxtool} ca --issue-ca --self-signed --type=pkinit-kdc             \
+             --ku=digitalSignature --ku=keyCertSign --ku=cRLSign    \
+             --pkinit-principal=krbtgt/${R}@${R}                    \
+             --generate-key=rsa --key-bits=1280                     \
+             --subject="OU=Servers,CN=KDC,${DCs}"                   \
+             --certificate=PEM-FILE:${objdir}/server-issuer.pem || exit 1
+
+echo Starting kdc ; > messages.log
+${kdc} --detach --testing || { echo "kdc failed to start"; exit 1; }
+kdcpid=`getpid kdc`
+
+echo Starting bx509 ; > messages.log
+${bx509_kinit} -kt ${objdir}/bx509_service.kt bx509_service@${R} || \
+	{ ec=1 ; eval "${testfailed}"; }
+KRB5CCNAME=$bx509_cache ${bx509} --daemon || { echo "bx509 failed to start"; exit 2; }
+bx509pid=`getpid bx509`
+
+trap "kill -9 ${kdcpid} ${bx509pid}; echo signal killing kdc; cat ca.crt kdc.crt pkinit.crt ;exit 1;" EXIT
+
+ec=0
+
+echo "Trying pk-init (principal in cert)"; > messages.log
+base="${objdir}"
+${kinit} -C FILE:${base}/pkinit.crt,${keyfile2} bar@${R} || \
+	{ ec=1 ; eval "${testfailed}"; }
+${kgetcred} ${server}@${R} || { ec=1 ; eval "${testfailed}"; }
+${klist}
+
+echo "Check kx509 certificate acquisition"
+${kx509} -s || { ec=1 ; eval "${testfailed}"; }
+${kx509} -o PEM-FILE:${objdir}/kx509.pem || { ec=1 ; eval "${testfailed}"; }
+${kdestroy}
+
+echo "Check PKINIT w/ kx509 certificate"
+${kinit} -C PEM-FILE:${objdir}/kx509.pem bar@${R} || \
+	{ ec=1 ; eval "${testfailed}"; }
+${kgetcred} ${server}@${R} || { ec=1 ; eval "${testfailed}"; }
+${kdestroy}
+
+echo "Making a CSR"
+${hxtool} request-create --subject='' --generate-key=rsa --key-bits=1024 \
+                         --key=DER-FILE=${objdir}/k.der ${objdir}/csr
+
+echo "killing kdc (${kdcpid})"
+sh ${leaks_kill} kdc $kdcpid || ec=1
+sh ${leaks_kill} bx509 $bx509pid || ec=1
+
+trap "" EXIT
+
+exit $ec
