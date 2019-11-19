@@ -29,6 +29,11 @@ EXPORTS
 	hx509_request_add_pkinit
 	hx509_request_add_registered
 	hx509_request_add_xmpp_name
+        hx509_request_authorize_ku
+        hx509_request_authorize_eku
+        hx509_request_authorize_san
+        hx509_request_count_unsupported
+        hx509_request_count_unauthorized
 	_hx509_private_key_export
 	_hx509_private_key_exportable
 	_hx509_private_key_get_internal

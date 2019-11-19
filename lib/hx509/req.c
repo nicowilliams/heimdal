@@ -34,12 +34,23 @@
 #include "hx_locl.h"
 #include <pkcs10_asn1.h>
 
+typedef struct authorized_features_s {
+    unsigned char *feats;
+    size_t feat_bytes;
+} *authorized_features;
+
 struct hx509_request_data {
     hx509_name name;
     SubjectPublicKeyInfo key;
     KeyUsage ku;
     ExtKeyUsage eku;
     GeneralNames san;
+    struct authorized_features_s authorized_EKUs;
+    struct authorized_features_s authorized_SANs;
+    uint32_t nunsupported;  /* Count of unsupported features requested */
+    uint32_t nrequested;    /* Count of supported   features requested */
+    uint32_t nauthorized;   /* Count of supported   features authorized */
+    uint32_t ku_are_authorized:1;
 };
 
 /**
@@ -189,6 +200,10 @@ hx509_request_get_SubjectPublicKeyInfo(hx509_context context,
 HX509_LIB_FUNCTION int HX509_LIB_CALL
 hx509_request_set_ku(hx509_context context, hx509_request req, KeyUsage ku)
 {
+    uint64_t n = KeyUsage2int(ku);
+
+    if ((KeyUsage2int(req->ku) | n) > n)
+        req->ku_are_authorized = 0;
     req->ku = ku;
     return 0;
 }
@@ -797,18 +812,39 @@ hx509_request_parse_der(hx509_context context,
             ret = decode_KeyUsage(e->extnValue.data, e->extnValue.length,
                                   &(*req)->ku, NULL);
             what = "keyUsage";
+            /*
+             * Count all KUs as one requested extension to be authorized,
+             * though the caller will have to check the KU values individually.
+             */
+            if (KeyUsage2int((*req)->ku) & ~KeyUsage2int(int2KeyUsage(~0)))
+                (*req)->nunsupported++;
+            (*req)->nrequested++;
         } else if (der_heim_oid_cmp(&e->extnID,
                                     &asn1_oid_id_x509_ce_extKeyUsage) == 0) {
             ret = decode_ExtKeyUsage(e->extnValue.data, e->extnValue.length,
                                      &(*req)->eku, NULL);
             what = "extKeyUsage";
+
+            /*
+             * Count each EKU as a separate requested extension to be
+             * authorized.
+             */
+            (*req)->nrequested += (*req)->eku.len;
         } else if (der_heim_oid_cmp(&e->extnID,
                                     &asn1_oid_id_x509_ce_subjectAltName) == 0) {
             ret = decode_GeneralNames(e->extnValue.data, e->extnValue.length,
                                       &(*req)->san, NULL);
             what = "subjectAlternativeName";
+
+            /*
+             * Count each SAN as a separate requested extension to be
+             * authorized.
+             */
+            (*req)->nrequested += (*req)->san.len;
         } else {
             char *oidstr = NULL;
+
+            (*req)->nunsupported++;
 
             /*
              * We need an HX509_TRACE facility for this sort of warning.
@@ -912,6 +948,102 @@ hx509_request_get_eku(hx509_context context,
     else
         *cursor = -1;
     return der_print_heim_oid(&req->eku.val[i], '.', out);
+}
+
+static int
+authorize_feat(hx509_request req, authorized_features a, size_t n, int cursor)
+{
+    size_t bytes = n / CHAR_BIT + ((n % CHAR_BIT) ? 1 : 0);
+    size_t idx;
+
+    if (cursor < 1 || cursor > n)
+        return EINVAL;
+    idx = cursor - 1;
+
+    if (a->feat_bytes < bytes) {
+        unsigned char *tmp;
+
+        if ((tmp = realloc(a->feats, bytes)) == NULL)
+            return ENOMEM;
+        memset(tmp + (bytes - a->feat_bytes), 0, bytes - a->feat_bytes);
+        a->feats = tmp;
+        a->feat_bytes = bytes;
+    }
+
+    if (!(a->feats[idx / CHAR_BIT] & (1UL<<(idx % CHAR_BIT)))) {
+        a->feats[idx / CHAR_BIT] |= 1UL<<(idx % CHAR_BIT);
+        req->nauthorized++;
+    }
+    return 0;
+}
+
+/**
+ * Filter the requested KeyUsage and mark it authorized.
+ *
+ * @param req The hx509_request object.
+ * @param ku Permitted KeyUsage
+ *
+ * @ingroup hx509_request
+ */
+HX509_LIB_FUNCTION void HX509_LIB_CALL
+hx509_request_authorize_ku(hx509_request req, KeyUsage ku)
+{
+    req->ku_are_authorized = 1;
+    req->ku = int2KeyUsage(KeyUsage2int(req->ku) & KeyUsage2int(ku));
+}
+
+/**
+ * Mark a requested EKU as authorized.
+ *
+ * @param req The hx509_request object.
+ * @param cursor The cursor as modified by hx509_request_get_eku().
+ *
+ * @ingroup hx509_request
+ */
+HX509_LIB_FUNCTION int HX509_LIB_CALL
+hx509_request_authorize_eku(hx509_request req, int cursor)
+{
+    return authorize_feat(req, &req->authorized_EKUs, req->eku.len, cursor);
+}
+
+/**
+ * Mark a requested SAN as authorized.
+ *
+ * @param req The hx509_request object.
+ * @param cursor The cursor as modified by a SAN iterator.
+ *
+ * @ingroup hx509_request
+ */
+HX509_LIB_FUNCTION int HX509_LIB_CALL
+hx509_request_authorize_san(hx509_request req, int cursor)
+{
+    return authorize_feat(req, &req->authorized_SANs, req->san.len, cursor);
+}
+
+/**
+ * Return the count of unsupported requested certificate extensions.
+ *
+ * @param req The hx509_request object.
+ *
+ * @ingroup hx509_request
+ */
+HX509_LIB_FUNCTION size_t HX509_LIB_CALL
+hx509_request_count_unsupported(hx509_request req)
+{
+    return req->nunsupported;
+}
+
+/**
+ * Return the count of as-yet unauthorized certificate extensions requested.
+ *
+ * @param req The hx509_request object.
+ *
+ * @ingroup hx509_request
+ */
+HX509_LIB_FUNCTION size_t HX509_LIB_CALL
+hx509_request_count_unauthorized(hx509_request req)
+{
+    return req->nrequested - req->nauthorized + req->ku_are_authorized;
 }
 
 ssize_t
