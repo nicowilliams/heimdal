@@ -70,6 +70,22 @@
  *     or
  *     CN=component0,CN=component1,..,CN=componentN,DC=<from-REALM>
  *     and set KU and EKUs)
+ *
+ * Processing begins in _kdc_do_kx509().
+ *
+ * The sequence of events is:
+ *
+ *  - authorize request based only on the request's details
+ *     - there is a default authorizer, and a plugin authorizer
+ *  - characterize request (default client, or server cert, or non-default
+ *    client, server, or mixed cert; default means "no certificate extensions
+ *    requested, just whatever the client principal is supposed to get")
+ *  - get configuration sub-tree corresponding to the request as characterized
+ *     - missing configuration sub-tree -> reject (we have multiple ways to
+ *       express "no")
+ *  - get common config params from that sub-tree
+ *  - set TBS template and details from CSR and such
+ *  - issue certificate by signing TBS
  */
 
 #ifdef KX509
@@ -107,10 +123,9 @@ typedef struct kx509_req_context {
     unsigned int want_sans:1;
     unsigned int has_sans:1;
     unsigned int have_tokens:1;
-    unsigned int is_not_proxied:1;
-    unsigned int is_proxied:1;
     unsigned int mixed_certs_ok:1;
     unsigned int empty_subject_name:1;
+    int8_t is_proxied; /* -1 -> haven't checked; 0 -> no; 1 -> yes */
 } *kx509_req_context;
 
 /*
@@ -123,9 +138,9 @@ _kdc_try_kx509_request(void *ptr, size_t len, struct Kx509Request *req)
     size_t sz;
 
     if (len < sizeof(version_2_0))
-	return -1;
+        return -1;
     if (memcmp(version_2_0, p, sizeof(version_2_0)) != 0)
-	return -1;
+        return -1;
     p += sizeof(version_2_0);
     len -= sizeof(version_2_0);
     if (len == 0)
@@ -154,25 +169,25 @@ get_bool_param(krb5_context context,
  */
 static krb5_error_code
 verify_req_hash(krb5_context context,
-		const Kx509Request *req,
-		krb5_keyblock *key)
+                const Kx509Request *req,
+                krb5_keyblock *key)
 {
     unsigned char digest[SHA_DIGEST_LENGTH];
     HMAC_CTX ctx;
 
     if (req->pk_hash.length != sizeof(digest)) {
-	krb5_set_error_message(context, KRB5KDC_ERR_PREAUTH_FAILED,
-			       "pk-hash have wrong length: %lu",
-			       (unsigned long)req->pk_hash.length);
-	return KRB5KDC_ERR_PREAUTH_FAILED;
+        krb5_set_error_message(context, KRB5KDC_ERR_PREAUTH_FAILED,
+                               "pk-hash have wrong length: %lu",
+                               (unsigned long)req->pk_hash.length);
+        return KRB5KDC_ERR_PREAUTH_FAILED;
     }
 
     HMAC_CTX_init(&ctx);
     HMAC_Init_ex(&ctx,
-		 key->keyvalue.data, key->keyvalue.length,
-		 EVP_sha1(), NULL);
+                 key->keyvalue.data, key->keyvalue.length,
+                 EVP_sha1(), NULL);
     if (sizeof(digest) != HMAC_size(&ctx))
-	krb5_abortx(context, "runtime error, hmac buffer wrong size in kx509");
+        krb5_abortx(context, "runtime error, hmac buffer wrong size in kx509");
     HMAC_Update(&ctx, version_2_0, sizeof(version_2_0));
     if (req->pk_key.length)
         HMAC_Update(&ctx, req->pk_key.data, req->pk_key.length);
@@ -182,9 +197,9 @@ verify_req_hash(krb5_context context,
     HMAC_CTX_cleanup(&ctx);
 
     if (ct_memcmp(req->pk_hash.data, digest, sizeof(digest)) != 0) {
-	krb5_set_error_message(context, KRB5KDC_ERR_PREAUTH_FAILED,
-			       "kx509 request MAC mismatch");
-	return KRB5KDC_ERR_PREAUTH_FAILED;
+        krb5_set_error_message(context, KRB5KDC_ERR_PREAUTH_FAILED,
+                               "kx509 request MAC mismatch");
+        return KRB5KDC_ERR_PREAUTH_FAILED;
     }
     return 0;
 }
@@ -225,8 +240,8 @@ kx509_log(krb5_context context,
  */
 static krb5_error_code
 calculate_reply_hash(krb5_context context,
-		     krb5_keyblock *key,
-		     Kx509Response *rep)
+                     krb5_keyblock *key,
+                     Kx509Response *rep)
 {
     krb5_error_code ret;
     HMAC_CTX ctx;
@@ -234,17 +249,17 @@ calculate_reply_hash(krb5_context context,
     HMAC_CTX_init(&ctx);
 
     HMAC_Init_ex(&ctx, key->keyvalue.data, key->keyvalue.length,
-		 EVP_sha1(), NULL);
+                 EVP_sha1(), NULL);
     ret = krb5_data_alloc(rep->hash, HMAC_size(&ctx));
     if (ret) {
-	HMAC_CTX_cleanup(&ctx);
-	krb5_set_error_message(context, ENOMEM, "malloc: out of memory");
-	return ENOMEM;
+        HMAC_CTX_cleanup(&ctx);
+        krb5_set_error_message(context, ENOMEM, "malloc: out of memory");
+        return ENOMEM;
     }
 
     HMAC_Update(&ctx, version_2_0, sizeof(version_2_0));
     {
-	int32_t t = rep->error_code;
+        int32_t t = rep->error_code;
         unsigned char encint[sizeof(t) + 1];
         size_t k;
 
@@ -266,9 +281,9 @@ calculate_reply_hash(krb5_context context,
             HMAC_Update(&ctx, &encint[sizeof(encint)] - k, k);
     }
     if (rep->certificate)
-	HMAC_Update(&ctx, rep->certificate->data, rep->certificate->length);
+        HMAC_Update(&ctx, rep->certificate->data, rep->certificate->length);
     if (rep->e_text)
-	HMAC_Update(&ctx, (unsigned char *)*rep->e_text, strlen(*rep->e_text));
+        HMAC_Update(&ctx, (unsigned char *)*rep->e_text, strlen(*rep->e_text));
 
     HMAC_Final(&ctx, rep->hash->data, 0);
     HMAC_CTX_cleanup(&ctx);
@@ -287,7 +302,7 @@ frees(char **s)
  * Handle desired certificate extensions.
  *
  * If invoked with `tbs == NULL', then just characterize the request into
- * `reqctx'.
+ * `reqctx'.  See get_cf() for more information about request characterization.
  *
  * If invoked with `tbs != NULL', then update the to-be-signed certificate with
  * the extensions if they were authorized.
@@ -353,7 +368,7 @@ handle_exts_from_csr_plus(krb5_context context,
         frees(&s);
         if (ret)
             return ret;
-        /* This SAN implies client cert if no clienty EKUs requested */
+        /* This SAN implies client cert if no EKUs requested */
         if (!want_ekus)
             reqctx->want_client_cert = 1;
         reqctx->wants_default_cert = 0;
@@ -430,8 +445,8 @@ handle_exts_from_csr_plus(krb5_context context,
     ret = hx509_request_get_ku(context->hx509ctx, reqctx->csr, &ku);
     if (ret == 0 && tbs)
         /*
-         * Here we can't tell if we had a requested KU, so we'll not reset 
-         * reqctx->wants_default_cert.  It's not that important
+         * Here we can't tell if we had a requested KU, so we'll not reset
+         * reqctx->wants_default_cert.  It's not that important.
          */
         (void) hx509_ca_tbs_add_ku(context->hx509ctx, tbs, ku);
 
@@ -539,32 +554,32 @@ set_template(krb5_context context,
     ekus = krb5_config_get_strings(context, reqctx->cf, "ekus", NULL);
 
     if (cert_template) {
-	hx509_certs certs;
-	hx509_cert template;
+        hx509_certs certs;
+        hx509_cert template;
 
-	ret = hx509_certs_init(context->hx509ctx, cert_template, 0,
-			       NULL, &certs);
+        ret = hx509_certs_init(context->hx509ctx, cert_template, 0,
+                               NULL, &certs);
         if (ret == 0)
             ret = hx509_get_one_cert(context->hx509ctx, certs, &template);
-	hx509_certs_free(&certs);
-	if (ret) {
-	    kdc_log(context, reqctx->config, 0,
+        hx509_certs_free(&certs);
+        if (ret) {
+            kdc_log(context, reqctx->config, 0,
                     "Failed to load template from %s", cert_template);
-	    return ret;
-	}
+            return ret;
+        }
 
         /*
          * Only take the subjectName, the keyUsage, and EKUs from the template
          * certificate.
          */
-	ret = hx509_ca_tbs_set_template(context->hx509ctx, tbs,
-					HX509_CA_TEMPLATE_SUBJECT |
-					HX509_CA_TEMPLATE_KU |
-					HX509_CA_TEMPLATE_EKU,
-					template);
-	hx509_cert_free(template);
-	if (ret)
-	    return ret;
+        ret = hx509_ca_tbs_set_template(context->hx509ctx, tbs,
+                                        HX509_CA_TEMPLATE_SUBJECT |
+                                        HX509_CA_TEMPLATE_KU |
+                                        HX509_CA_TEMPLATE_EKU,
+                                        template);
+        hx509_cert_free(template);
+        if (ret)
+            return ret;
     }
 
     if (subj_name) {
@@ -801,22 +816,31 @@ tbs_set_times(krb5_context context,
     time_t req_life =
         reqctx->csr_plus.req_life ? *reqctx->csr_plus.req_life : 0;
     int server_life =
-        krb5_config_get_time_default(context, NULL, 5 * 24 * 3600, "kdc",
-                                     "kx509_server_cert_life", NULL);
+        krb5_config_get_time_default(context, reqctx->cf, 5 * 24 * 3600,
+                                     "cert_lifetime", NULL);
     int expless_token_life =
-        krb5_config_get_time_default(context, NULL, 0, "kdc"
-                                     "kx509_expless_token_life", NULL);
+        krb5_config_get_time_default(context, reqctx->cf, 0,
+                                     "expless_token_lifetime", NULL);
 
-    if (reqctx->is_not_proxied) {
+    if (expless_token_life == 0)
+        expless_token_life = 10 * 60;
+
+    if (reqctx->is_proxied == -1)
+        return EACCES; /* Won't happen */
+
+    if (!reqctx->is_proxied) {
         endtime = reqctx->ticket_times.endtime;
         starttime = reqctx->ticket_times.starttime;
+        if (starttime == 0)
+            starttime = now - 5 * 60; /* XXX Get skew from config */
     }
 
     if (reqctx->have_tokens) {
         starttime = reqctx->token_times.starttime ?
-            reqctx->token_times.starttime : time(NULL);
+            reqctx->token_times.starttime : now;
 
-        endtime = reqctx->token_times.endtime;
+        if (endtime == 0 || reqctx->token_times.endtime < endtime)
+            endtime = reqctx->token_times.endtime;
         if (endtime == 0 && reqctx->is_proxied) {
             if (expless_token_life == 0) {
                 krb5_set_error_message(context, EINVAL,
@@ -834,11 +858,10 @@ tbs_set_times(krb5_context context,
         endtime = starttime + server_life;
 
     if (req_life && req_life < endtime - now)
-        endtime -= endtime - now - req_life;
+        endtime = now + req_life;
 
     hx509_ca_tbs_set_notAfter(context->hx509ctx, tbs, endtime);
-    if (starttime)
-        hx509_ca_tbs_set_notBefore(context->hx509ctx, tbs, starttime);
+    hx509_ca_tbs_set_notBefore(context->hx509ctx, tbs, starttime);
     return 0;
 }
 
@@ -848,8 +871,8 @@ tbs_set_times(krb5_context context,
 static krb5_error_code
 build_certificate(krb5_context context,
                   kx509_req_context reqctx,
-		  krb5_principal principal,
-		  krb5_data *certificate)
+                  krb5_principal principal,
+                  krb5_data *certificate)
 {
     const char *crealm = krb5_principal_get_realm(context, principal);
     const char *kx509_ca;
@@ -878,11 +901,11 @@ build_certificate(krb5_context context,
 
     ret = hx509_ca_tbs_init(context->hx509ctx, &tbs);
     if (ret)
-	return ret;
+        return ret;
 
     ret = krb5_unparse_name_flags(context, principal,
-				  KRB5_PRINCIPAL_UNPARSE_NO_REALM,
-				  &name);
+                                  KRB5_PRINCIPAL_UNPARSE_NO_REALM,
+                                  &name);
     if (ret == 0)
         ret = krb5_unparse_name(context, principal, &princ);
 
@@ -913,7 +936,7 @@ build_certificate(krb5_context context,
         ret = KRB5KDC_ERR_POLICY;
     }
     if (ret)
-	goto out;
+        goto out;
 
     /* Remaining failures will not be policy failures.  Log now. */
     kdc_log(context, reqctx->config, 3, "Issuing kx509 certificate to %s",
@@ -931,37 +954,37 @@ build_certificate(krb5_context context,
 
     /* Load the issuer certificate and private key */
     {
-	hx509_certs certs;
-	hx509_query *q;
+        hx509_certs certs;
+        hx509_query *q;
 
-	ret = hx509_certs_init(context->hx509ctx, kx509_ca, 0, NULL, &certs);
-	if (ret) {
-	    kdc_log(context, reqctx->config, 0,
+        ret = hx509_certs_init(context->hx509ctx, kx509_ca, 0, NULL, &certs);
+        if (ret) {
+            kdc_log(context, reqctx->config, 0,
                     "Failed to load CA %s", kx509_ca);
-	    goto out;
-	}
-	ret = hx509_query_alloc(context->hx509ctx, &q);
-	if (ret) {
-	    hx509_certs_free(&certs);
-	    goto out;
-	}
+            goto out;
+        }
+        ret = hx509_query_alloc(context->hx509ctx, &q);
+        if (ret) {
+            hx509_certs_free(&certs);
+            goto out;
+        }
 
-	hx509_query_match_option(q, HX509_QUERY_OPTION_PRIVATE_KEY);
-	hx509_query_match_option(q, HX509_QUERY_OPTION_KU_KEYCERTSIGN);
+        hx509_query_match_option(q, HX509_QUERY_OPTION_PRIVATE_KEY);
+        hx509_query_match_option(q, HX509_QUERY_OPTION_KU_KEYCERTSIGN);
 
-	ret = hx509_certs_find(context->hx509ctx, certs, q, &signer);
-	hx509_query_free(context->hx509ctx, q);
-	hx509_certs_free(&certs);
-	if (ret) {
-	    kdc_log(context, reqctx->config, 0,
+        ret = hx509_certs_find(context->hx509ctx, certs, q, &signer);
+        hx509_query_free(context->hx509ctx, q);
+        hx509_certs_free(&certs);
+        if (ret) {
+            kdc_log(context, reqctx->config, 0,
                     "Failed to find a CA in %s", kx509_ca);
-	    goto out;
-	}
+            goto out;
+        }
     }
 
     /* Populate the subject public key in the TBS context */
     {
-	SubjectPublicKeyInfo spki;
+        SubjectPublicKeyInfo spki;
 
         ret = hx509_request_get_SubjectPublicKeyInfo(context->hx509ctx,
                                                      reqctx->csr,
@@ -969,8 +992,8 @@ build_certificate(krb5_context context,
         if (ret == 0)
             ret = hx509_ca_tbs_set_spki(context->hx509ctx, tbs, &spki);
         free_SubjectPublicKeyInfo(&spki);
-	if (ret)
-	    goto out;
+        if (ret)
+            goto out;
     }
 
     /* Work out cert expiration */
@@ -985,7 +1008,7 @@ build_certificate(krb5_context context,
     /* All done with the TBS, sign/issue the certificate */
     ret = hx509_ca_sign(context->hx509ctx, tbs, signer, &cert);
     if (ret)
-	goto out;
+        goto out;
 
     /* Encode and output the certificate */
     if (reqctx->send_chain)
@@ -997,13 +1020,13 @@ out:
     krb5_xfree(name);
     krb5_xfree(princ);
     if (env)
-	hx509_env_free(&env);
+        hx509_env_free(&env);
     if (tbs)
-	hx509_ca_tbs_free(&tbs);
+        hx509_ca_tbs_free(&tbs);
     if (cert)
         hx509_cert_free(cert);
     if (signer)
-	hx509_cert_free(signer);
+        hx509_cert_free(signer);
     return ret;
 }
 
@@ -1050,8 +1073,8 @@ is_local_realm(krb5_context context,
  */
 static krb5_error_code
 kdc_kx509_verify_service_principal(krb5_context context,
-				   kx509_req_context reqctx,
-				   krb5_principal sprincipal)
+                                   kx509_req_context reqctx,
+                                   krb5_principal sprincipal)
 {
     krb5_error_code ret = 0;
     krb5_principal principal = NULL;
@@ -1073,25 +1096,25 @@ kdc_kx509_verify_service_principal(krb5_context context,
     /* Must be hostbased kca_service name then */
     ret = gethostname(localhost, sizeof(localhost) - 1);
     if (ret != 0) {
-	ret = errno;
-	krb5_set_error_message(context, ret,
-			       N_("Failed to get local hostname", ""));
-	return ret;
+        ret = errno;
+        krb5_set_error_message(context, ret,
+                               N_("Failed to get local hostname", ""));
+        return ret;
     }
     localhost[sizeof(localhost) - 1] = '\0';
 
     ret = krb5_make_principal(context, &principal, "", "kca_service",
-			      localhost, NULL);
+                              localhost, NULL);
     if (ret)
-	goto out;
+        goto out;
 
     if (krb5_principal_compare_any_realm(context, sprincipal, principal))
-	goto out;	/* found a match */
+        goto out;       /* found a match */
 
 err:
     ret = krb5_unparse_name(context, sprincipal, &expected);
     if (ret)
-	goto out;
+        goto out;
 
     ret = KRB5KDC_ERR_SERVER_NOMATCH;
     kx509_log(context, reqctx, 2, "client used wrong kx509 service principal "
@@ -1414,31 +1437,30 @@ extract_authz_data(krb5_context context,
     return ret;
 }
 
-static int
+static krb5_error_code
 check_is_proxy(krb5_context context,
                struct kx509_req_context *reqctx,
                krb5_principal cprincipal)
 {
     krb5_principal proxy_name = NULL;
+    krb5_error_code ret = 0;
     const char *kx509_proxy_name;
 
-    if (reqctx->is_proxied)
-        return 1;
-    if (reqctx->is_not_proxied)
+    if (reqctx->is_proxied != -1)
         return 0;
 
     kx509_proxy_name = krb5_config_get_string(context, NULL, "kdc",
                                               "kx509_proxy_client_service",
                                               NULL);
-    if (kx509_proxy_name != NULL &&
-        krb5_parse_name(context, kx509_proxy_name, &proxy_name) == 0 &&
-        krb5_principal_compare(context, proxy_name, cprincipal)) {
-        reqctx->is_proxied = 1;
-    } else if (proxy_name) {
-        reqctx->is_not_proxied = 1;
+    if (kx509_proxy_name == NULL) {
+        reqctx->is_proxied = 0;
+        return 0;
     }
+    if ((ret = krb5_parse_name(context, kx509_proxy_name, &proxy_name)) == 0)
+        reqctx->is_proxied = krb5_principal_compare(context, proxy_name,
+                                                    cprincipal);
     krb5_free_principal(context, proxy_name);
-    return reqctx->is_proxied;
+    return ret;
 }
 
 /* Check impersonation request */
@@ -1633,6 +1655,12 @@ check_authz(krb5_context context,
      *  - Check KU (signature only).
      */
 
+    if (reqctx->is_proxied) {
+        kx509_log(context, reqctx, 0, "Requested extensions rejected "
+                  "by default policy", s, cprinc);
+        goto eacces;
+    }
+
     if ((ret = krb5_unparse_name(context, cprincipal, &cprinc)))
         return ret;
 
@@ -1667,8 +1695,6 @@ check_authz(krb5_context context,
         kx509_log(context, reqctx, 0, "Requested extensions rejected "
                   "by default policy (rfc822Name SAN not supported)");
         goto eacces;
-        free(s);
-        s = NULL;
     }
     if (ret && ret != -1)
         return ret;
@@ -1693,12 +1719,6 @@ check_authz(krb5_context context,
             kx509_log(context, reqctx, 0, "Requested extensions rejected "
                       "by default policy (dNSName SAN %s does not match "
                       "client %s)", s, cprinc);
-            goto eacces;
-        }
-        if (strcmp(comp0, "HTTP") != 0) {
-            kx509_log(context, reqctx, 0, "Requested extensions rejected "
-                      "by default policy (hostbased client %s not an "
-                      "HTTP service", cprinc);
             goto eacces;
         }
         free(s);
@@ -1740,7 +1760,7 @@ check_authz(krb5_context context,
         return ret;
     if (KeyUsage2int(ku) != (KeyUsage2int(ku) & KeyUsage2int(ku_allowed)))
         goto eacces;
-    
+
     return 0;
 
 eacces:
@@ -1755,9 +1775,9 @@ eacces:
 
 krb5_error_code
 _kdc_do_kx509(krb5_context context,
-	      krb5_kdc_configuration *config,
-	      const struct Kx509Request *req, krb5_data *reply,
-	      const char *from, struct sockaddr *addr)
+              krb5_kdc_configuration *config,
+              const struct Kx509Request *req, krb5_data *reply,
+              const char *from, struct sockaddr *addr)
 {
     krb5_error_code ret = 0;
     krb5_ticket *ticket = NULL;
@@ -1774,6 +1794,7 @@ _kdc_do_kx509(krb5_context context,
     reqctx.csr_plus.authz_datas.val = NULL;
     reqctx.csr_plus.csr.data = NULL;
     reqctx.csr_plus.exts = NULL;
+    reqctx.is_proxied = -1;
     reqctx.config = config;
     reqctx.sname = NULL;
     reqctx.cname = NULL;
@@ -1793,7 +1814,6 @@ _kdc_do_kx509(krb5_context context,
 
     krb5_data_zero(reply);
     memset(&rep, 0, sizeof(rep));
-
 
     if (req->authenticator.length == 0) {
         /*
@@ -1815,20 +1835,20 @@ _kdc_do_kx509(krb5_context context,
         ret = mk_error_response(context, &reqctx,
                                 KRB5KDC_ERR_S_PRINCIPAL_UNKNOWN,
                                 "Can't open HDB/keytab for kx509");
-	goto out;
+        goto out;
     }
 
     ret = krb5_rd_req(context,
-		      &reqctx.ac,
-		      &req->authenticator,
-		      NULL,
-		      id,
-		      &ap_req_options,
-		      &ticket);
+                      &reqctx.ac,
+                      &req->authenticator,
+                      NULL,
+                      id,
+                      &ap_req_options,
+                      &ticket);
     if (ret == 0)
         ret = krb5_auth_con_getkey(context, reqctx.ac, &reqctx.key);
     if (ret == 0 && reqctx.key == NULL)
-	ret = KRB5KDC_ERR_NULL_KEY;
+        ret = KRB5KDC_ERR_NULL_KEY;
     /*
      * Provided we got the session key, errors past this point will be
      * authenticated.
@@ -1838,7 +1858,7 @@ _kdc_do_kx509(krb5_context context,
     if (ret) {
         ret = mk_error_response(context, &reqctx, ret,
                                 "authentication failed");
-	goto out;
+        goto out;
     }
 
     /* Optional: check if Ticket is INITIAL */
@@ -1868,14 +1888,14 @@ _kdc_do_kx509(krb5_context context,
     if (ret) {
         mk_error_response(context, &reqctx, ret,
                           "client used incorrect service name");
-	goto out;
+        goto out;
     }
 
     /* Authenticate the rest of the request */
     ret = verify_req_hash(context, req, reqctx.key);
     if (ret) {
         mk_error_response(context, &reqctx, ret, "Incorrect request HMAC");
-	goto out;
+        goto out;
     }
 
     if (req->pk_key.length == 0) {
@@ -1888,7 +1908,7 @@ _kdc_do_kx509(krb5_context context,
         is_probe = 1;
         ret = mk_error_response(context, &reqctx, 0,
                                 "kx509 authenticated probe request");
-	goto out;
+        goto out;
     }
 
     /* Extract and parse CSR or a DER-encoded RSA public key */
@@ -1938,7 +1958,7 @@ _kdc_do_kx509(krb5_context context,
     if (ret) {
         mk_error_response(context, &reqctx, ret,
                           "Failed to compute response HMAC");
-	goto out;
+        goto out;
     }
 
     /* Encode and output reply */
@@ -1953,23 +1973,23 @@ out:
     else
         kx509_log(context, &reqctx, 2, "Did not issue certificate");
     if (reqctx.ac)
-	krb5_auth_con_free(context, reqctx.ac);
+        krb5_auth_con_free(context, reqctx.ac);
     if (ticket)
-	krb5_free_ticket(context, ticket);
+        krb5_free_ticket(context, ticket);
     if (id)
-	krb5_kt_close(context, id);
+        krb5_kt_close(context, id);
     if (sprincipal)
-	krb5_free_principal(context, sprincipal);
+        krb5_free_principal(context, sprincipal);
     if (cprincipal)
-	krb5_free_principal(context, cprincipal);
+        krb5_free_principal(context, cprincipal);
     if (actual_cprincipal)
-	krb5_free_principal(context, actual_cprincipal);
+        krb5_free_principal(context, actual_cprincipal);
     if (reqctx.key)
-	krb5_free_keyblock (context, reqctx.key);
+        krb5_free_keyblock (context, reqctx.key);
     if (reqctx.sname)
-	free(reqctx.sname);
+        free(reqctx.sname);
     if (reqctx.cname)
-	free(reqctx.cname);
+        free(reqctx.cname);
     hx509_request_free(&reqctx.csr);
     krb5_free_principal(context, reqctx.on_behalf_of);
     free_Kx509CSRPlus(&reqctx.csr_plus);
