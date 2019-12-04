@@ -4,16 +4,19 @@ include $(top_srcdir)/Makefile.am.common
 
 AM_CPPFLAGS += $(INCLUDE_libintl) $(INCLUDE_openssl_crypto) -I$(srcdir)/../lib/krb5
 
-lib_LTLIBRARIES = libkdc.la
+lib_LTLIBRARIES = simple_csr_authorizer.la \
+		  ipc_csr_authorizer.la \
+		  libkdc.la cjwt_token_validator.la \
+		  negotiate_token_validator.la
 
 bin_PROGRAMS = string2key
 
 sbin_PROGRAMS = kstash
 
-libexec_PROGRAMS = hprop hpropd kdc digest-service
+libexec_PROGRAMS = hprop hpropd kdc digest-service \
+		   test_token_validator test_csr_authorizer test_kdc_ca
 
-noinst_PROGRAMS = kdc-replay kdc-tester \
-		  test_token_validator test_csr_authorizer test_kdc_ca
+noinst_PROGRAMS = kdc-replay kdc-tester
 
 man_MANS = kdc.8 kstash.8 hprop.8 hpropd.8 string2key.8
 
@@ -54,6 +57,22 @@ kdc_tester_SOURCES = \
 test_token_validator_SOURCES = test_token_validator.c
 test_csr_authorizer_SOURCES = test_csr_authorizer.c
 test_kdc_ca_SOURCES = test_kdc_ca.c
+
+# Token plugins (for bx509d)
+cjwt_token_validator_la_SOURCES = cjwt_token_validator.c
+cjwt_token_validator_la_AM_CPPFLAGS = $(CJSON_FLAGS) $(CJWT_FLAGS)
+cjwt_token_validator_la_LDFLAGS = -module $(CJSON_LIBS) $(CJWT_LIBS)
+negotiate_token_validator_la_SOURCES = negotiate_token_validator.c
+negotiate_token_validator_la_LDFLAGS = -module $(top_builddir)/lib/gssapi/libgssapi.la
+# CSR Authorizer plugins (for kdc/kx509 and bx509d)
+simple_csr_authorizer_la_SOURCES = simple_csr_authorizer.c
+simple_csr_authorizer_la_LDFLAGS = -module
+ipc_csr_authorizer_la_SOURCES = ipc_csr_authorizer.c
+ipc_csr_authorizer_la_LDFLAGS = -module	\
+				$(top_builddir)/lib/krb5/libkrb5.la \
+				$(top_builddir)/lib/hx509/libhx509.la \
+				$(top_builddir)/lib/ipc/libheim-ipcc.la \
+				$(top_builddir)/lib/roken/libroken.la
 
 libkdc_la_SOURCES = 		\
 	default_config.c 	\

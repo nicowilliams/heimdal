@@ -25,8 +25,7 @@
 	pkinit_mappings_file = @srcdir@/pki-mapping
 
         # Locate kdc plugins for testing
-        plugin_dir =  @objdir@/../token/.libs
-        plugin_dir =  @objdir@/../csr_authorizer/.libs
+        plugin_dir =  @objdir@/../../kdc/.libs
 
         # Configure kdc plugins for testing
         simple_csr_authorizer_directory = @objdir@/simple_csr_authz

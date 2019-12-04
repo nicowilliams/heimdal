@@ -20,13 +20,9 @@
 	pkinit_anchors = FILE:@objdir@/ca.crt
 	pkinit_mappings_file = @srcdir@/pki-mapping
 
-        plugin_dir =  @objdir@/../token/.libs
-        plugin_dir =  @objdir@/../csr_authorizer/.libs
+        plugin_dir =  @objdir@/../../kdc/.libs
 
-        stub_token_type = Stub
-        stub_token_directory = @srcdir@/../token/stub_dir
-
-        simple_csr_authorizer_directory = @srcdir@/../csr_authorizer/simple_dir
+        simple_csr_authorizer_directory = @objdir@/simple_csr_authz
 
         enable_kx509 = true
         require_initial_kca_tickets = false
@@ -38,7 +34,6 @@
                 log_file = @objdir@/log.current-db.log
 	}
 
-        simple_csr_authorizer_directory = @objdir@/simple_csr_authz
 
         realms = {
                 TEST.H5L.SE = {

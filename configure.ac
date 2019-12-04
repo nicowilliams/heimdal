@@ -726,8 +726,6 @@ AC_CONFIG_FILES(Makefile 		\
 	tests/gss/Makefile		\
 	tests/java/Makefile		\
 	tests/plugin/Makefile		\
-	tests/token/Makefile		\
-	tests/csr_authorizer/Makefile	\
 	packages/Makefile		\
 	packages/mac/Makefile		\
 	doc/Makefile			\
