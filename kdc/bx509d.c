@@ -1517,6 +1517,8 @@ main(int argc, char **argv)
     if ((ret = krb5_kdc_get_config(context, &kdc_config)))
         krb5_err(context, 1, ret, "Could not init krb5 context");
 
+    kdc_config->app = "bx509";
+
     if (cache_dir == NULL) {
         char *s = NULL;
 
@@ -1608,13 +1610,18 @@ again:
     memset(&sa, 0, sizeof(sa));
     sa.sa_handler = sighandler;
     if (reverse_proxied_flag) {
+        /*
+         * We won't use TLS in the reverse proxy case, so no need to reload
+         * certs.  But we'll still read them if given, and alarm() will get
+         * called.
+         */
         (void) signal(SIGHUP, SIG_IGN);
         (void) signal(SIGUSR1, SIG_IGN);
         (void) signal(SIGALRM, SIG_IGN);
     } else {
         (void) sigaction(SIGHUP, &sa, NULL);    /* Reload key & cert */
         (void) sigaction(SIGUSR1, &sa, NULL);   /* Reload key & cert */
-        (void) sigaction(SIGALRM, &sa, NULL);   /* Graceful shutdown */
+        (void) sigaction(SIGALRM, &sa, NULL);   /* Reload key & cert */
     }
     (void) sigaction(SIGINT, &sa, NULL);    /* Graceful shutdown */
     (void) sigaction(SIGTERM, &sa, NULL);   /* Graceful shutdown */

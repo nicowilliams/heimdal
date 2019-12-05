@@ -645,9 +645,13 @@ check_authz_svc_ok(krb5_context context, const char *svc)
 
     strs = krb5_config_get_strings(context, NULL, "kdc",
                                    "kx509_permitted_hostbased_services", NULL);
-    for (svcs = strs ? (const char * const *)strs : def; svcs[0]; svcs++)
-        if (strcmp(svcs[0], svc) == 0)
+    for (svcs = strs ? (const char * const *)strs : def; svcs[0]; svcs++) {
+        if (strcmp(svcs[0], svc) == 0) {
+            krb5_config_free_strings(strs);
             return 1;
+        }
+    }
+    krb5_config_free_strings(strs);
     return 0;
 }
 
