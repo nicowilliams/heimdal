@@ -51,6 +51,7 @@ enum krb5_kdc_trpolicy {
 };
 
 typedef struct krb5_kdc_configuration {
+    const char *app;
     krb5_boolean require_preauth; /* require preauth for all principals */
     time_t kdc_warn_pwexpire; /* time before expiration to print a warning */
 

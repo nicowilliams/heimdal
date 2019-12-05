@@ -83,6 +83,7 @@ krb5_kdc_get_config(krb5_context context, krb5_kdc_configuration **config)
 	return ENOMEM;
     }
 
+    c->app = "kdc";
     c->num_kdc_processes = -1;
     c->require_preauth = TRUE;
     c->kdc_warn_pwexpire = 0;

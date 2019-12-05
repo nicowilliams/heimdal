@@ -2,12 +2,15 @@
 
 static int help_flag;
 static int version_flag;
+static const char *app_string = "kdc";
 
 struct getargs args[] = {
-    {   "help",         'h',    arg_flag,   &help_flag,
+    {   "help",     'h',    arg_flag,   &help_flag,
         "Print usage message", NULL },
-    {   "version",      'v',    arg_flag,   &version_flag,
-        "Print version", NULL }
+    {   "version",  'v',    arg_flag,   &version_flag,
+        "Print version", NULL },
+    {   "app",      'a',    arg_string, &app_string,
+        "App to test (kdc or bx509); default: kdc", "APPNAME" },
 };
 size_t num_args = sizeof(args) / sizeof(args[0]);
 
@@ -55,9 +58,10 @@ main(int argc, char **argv)
         err(1, "Could not initialize krb5_context");
     if ((ret = krb5_kdc_get_config(context, &config)))
         krb5_err(context, 1, ret, "Could not get KDC configuration");
+    config->app = app_string;
     if ((ret = krb5_initlog(context, argv0, &config->logf)) ||
         (ret = krb5_addlog_dest(context, config->logf, "0-5/STDERR")))
-        krb5_err(context, 1, ret, "Could not setup logging to stderr");
+        krb5_err(context, 1, ret, "Could not set up logging to stderr");
     if ((ret = krb5_kdc_set_dbinfo(context, config)))
         krb5_err(context, 1, ret, "Could not get KDC configuration (HDB)");
     if ((ret = hx509_request_parse(context->hx509ctx, argv[0], &csr)))

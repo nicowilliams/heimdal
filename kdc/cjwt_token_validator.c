@@ -32,8 +32,8 @@
  */
 
 /*
- * This is a plugin by which the KDC and the kx509 REST proxy can validate JWT
- * Bearer tokens using the cjwt library.
+ * This is a plugin by which bx509d can validate JWT Bearer tokens using the
+ * cjwt library.
  *
  * Configuration:
  *
@@ -247,14 +247,20 @@ validate(void *ctx,
     tokstr = NULL;
     switch (ret) {
     case 0:
+        if (jwt->header.alg == alg_none) {
+            krb5_set_error_message(context, EINVAL, "JWT signature algorithm "
+                                   "not supported");
+            free(defrealm);
+            return EPERM;
+        }
         break;
     case -1:
-        krb5_set_error_message(context, EINVAL, "invalid jwt format");
+        krb5_set_error_message(context, EINVAL, "invalid JWT format");
         free(defrealm);
         return EINVAL;
     case -2:
-        krb5_set_error_message(context, EINVAL, "signature validation failed "
-                               "(wrong issuer)");
+        krb5_set_error_message(context, EINVAL, "JWT signature validation "
+                               "failed (wrong issuer?)");
         free(defrealm);
         return EPERM;
     default:

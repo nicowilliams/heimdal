@@ -167,7 +167,7 @@ verify_req_hash(krb5_context context,
 
     if (req->pk_hash.length != sizeof(digest)) {
         krb5_set_error_message(context, KRB5KDC_ERR_PREAUTH_FAILED,
-                               "pk-hash have wrong length: %lu",
+                               "pk-hash has wrong length: %lu",
                                (unsigned long)req->pk_hash.length);
         return KRB5KDC_ERR_PREAUTH_FAILED;
     }
@@ -631,12 +631,33 @@ get_csr(krb5_context context, kx509_req_context reqctx)
                              "Could not decode CSR or RSA subject public key");
 }
 
+/*
+ * Host-based principal _clients_ might ask for a cert for their host -- but
+ * which services are permitted to do that?  This function answers that
+ * question.
+ */
+static int
+check_authz_svc_ok(krb5_context context, const char *svc)
+{
+    const char *def[] = { "host", "HTTP", 0 };
+    const char * const *svcs;
+    char **strs;
+
+    strs = krb5_config_get_strings(context, NULL, "kdc",
+                                   "kx509_permitted_hostbased_services", NULL);
+    for (svcs = strs ? (const char * const *)strs : def; svcs[0]; svcs++)
+        if (strcmp(svcs[0], svc) == 0)
+            return 1;
+    return 0;
+}
+
 static krb5_error_code
 check_authz(krb5_context context,
             kx509_req_context reqctx,
             krb5_principal cprincipal)
 {
     krb5_error_code ret;
+    const char *comp0 = krb5_principal_get_comp_string(context, cprincipal, 0);
     const char *comp1 = krb5_principal_get_comp_string(context, cprincipal, 1);
     unsigned int ncomp = krb5_principal_get_num_comp(context, cprincipal);
     KeyUsage ku, ku_allowed;
@@ -668,6 +689,8 @@ check_authz(krb5_context context,
         return ret;
     }
 
+    /* Default authz */
+
     if ((ret = krb5_unparse_name(context, cprincipal, &cprinc)))
         return ret;
 
@@ -680,9 +703,9 @@ check_authz(krb5_context context,
             break;
         switch (san_type) {
         case HX509_SAN_TYPE_DNSNAME:
-            /* XXX Support only HTTP svc? */
             if (ncomp != 2 || strcasecmp(comp1, s) != 0 ||
-                strchr(s, '.') == NULL) {
+                strchr(s, '.') == NULL ||
+                !check_authz_svc_ok(context, comp0)) {
                 kx509_log(context, reqctx, 0, "Requested extensions rejected "
                           "by default policy (dNSName SAN %s does not match "
                           "client %s)", s, cprinc);
@@ -952,7 +975,7 @@ _kdc_do_kx509(krb5_context context,
     krb5_data_zero(rep.hash);
     krb5_data_zero(rep.certificate);
     krb5_ticket_get_times(context, ticket, &reqctx.ticket_times);
-    ret = kdc_issue_certificate(context, "kdc", reqctx.csr, cprincipal,
+    ret = kdc_issue_certificate(context, reqctx.config, reqctx.csr, cprincipal,
                                 &reqctx.ticket_times, reqctx.send_chain,
                                 &certs);
     if (ret) {

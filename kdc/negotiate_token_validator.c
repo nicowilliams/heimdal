@@ -32,6 +32,8 @@
  */
 
 /*
+ * This is a plugin by which bx509d can validate Negotiate tokens.
+ *
  * [kdc]
  *     negotiate_token_validator = {
  *         keytab = ...
@@ -209,25 +211,10 @@ validate(void *ctx,
         goto out;
     }
 
-    if (major != GSS_S_COMPLETE && major != GSS_S_CONTINUE_NEEDED) {
+    if (major != GSS_S_COMPLETE) {
         ret = display_status(context, major, minor, acred, gctx, mech_type);
         if (ret == 0)
             ret = EINVAL;
-        goto out;
-    }
-
-    if (!(ret_flags & GSS_C_CONF_FLAG)) {
-        if (major == GSS_S_CONTINUE_NEEDED)
-            /*
-             * XXX Guessing here that the token is expired, which is why we
-             * have major == GSS_S_CONTINUE_NEEDED.
-             */
-            krb5_set_error_message(context, ret = KRB5KRB_AP_ERR_SKEW,
-                                   "Negotiate token expired");
-        else
-            krb5_set_error_message(context, ret = EACCES,
-                                   "Negotiate token rejected for unknown "
-                                   "reasons");
         goto out;
     }
 
@@ -237,7 +224,7 @@ validate(void *ctx,
         major = gss_display_name(&minor, aname, &adisplay_name, NULL);
     if (major == GSS_S_COMPLETE)
         major = gss_display_name(&minor, iname, &idisplay_name, NULL);
-    if (major != GSS_S_COMPLETE && major != GSS_S_CONTINUE_NEEDED) {
+    if (major != GSS_S_COMPLETE) {
         ret = display_status(context, major, minor, acred, gctx, mech_type);
         if (ret == 0)
             ret = EINVAL;
@@ -271,8 +258,8 @@ validate(void *ctx,
 
     /* XXX Need name attributes to get authtime/starttime/renew_till */
     token_times->authtime   = 0;
-    token_times->starttime  = time(NULL);
-    token_times->endtime    = token_times->starttime + time_rec;
+    token_times->starttime  = time(NULL) - 300;
+    token_times->endtime    = token_times->starttime + 300 + time_rec;
     token_times->renew_till = 0;
 
     *result = TRUE;

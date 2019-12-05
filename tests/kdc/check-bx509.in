@@ -211,7 +211,7 @@ $hxtool request-create  --subject='' --generate-key=rsa --key-bits=1024 \
 rm -f trivial.pem server.pem email.pem
 
 echo "Testing plain user cert issuance KDC CA"
-$test_kdc_ca -t bx509 -A foo@TEST.H5L.SE PKCS10:${objdir}/req       \
+$test_kdc_ca -a bx509 -A foo@TEST.H5L.SE PKCS10:${objdir}/req       \
              PEM-FILE:${objdir}/trivial.pem ||
     { echo "Trivial offline CA test failed"; exit 2; }
 $hxtool print --content PEM-FILE:${objdir}/trivial.pem ||
@@ -225,12 +225,12 @@ $hxtool request-create  --subject='' --generate-key=rsa --key-bits=1024 \
                         --eku=id_pkix_kp_serverAuth                     \
                         --dnsname=foo.test.h5l.se "${objdir}/req" ||
     { echo "Failed to make a CSR with a dNSName SAN request"; exit 2; }
-$test_kdc_ca -t bx509 foo@TEST.H5L.SE PKCS10:${objdir}/req              \
+$test_kdc_ca -a bx509 foo@TEST.H5L.SE PKCS10:${objdir}/req              \
              PEM-FILE:${objdir}/server.pem &&
     { echo "Trivial offline CA test failed: unauthorized issuance (dNSName)"; exit 2; }
 csr_grant dnsname foo.test.h5l.se foo@TEST.H5L.SE
 csr_grant eku 1.3.6.1.5.5.7.3.1 foo@TEST.H5L.SE
-$test_kdc_ca -t bx509 foo@TEST.H5L.SE PKCS10:${objdir}/req              \
+$test_kdc_ca -a bx509 foo@TEST.H5L.SE PKCS10:${objdir}/req              \
              PEM-FILE:${objdir}/server.pem ||
     { echo "Offline CA test failed for explicitly authorized dNSName"; exit 2; }
 $hxtool print --content PEM-FILE:${objdir}/server.pem ||
@@ -241,12 +241,12 @@ $hxtool request-create  --subject='' --generate-key=rsa --key-bits=1024 \
                         --eku=id_pkix_kp_clientAuth                     \
                         --email=foo@test.h5l.se "${objdir}/req" ||
     { echo "Failed to make a CSR with an rfc822Name SAN request"; exit 2; }
-$test_kdc_ca -t bx509 foo@TEST.H5L.SE PKCS10:${objdir}/req              \
+$test_kdc_ca -a bx509 foo@TEST.H5L.SE PKCS10:${objdir}/req              \
              PEM-FILE:${objdir}/email.pem &&
     { echo "Trivial offline CA test failed: unauthorized issuance (dNSName)"; exit 2; }
 csr_grant email foo@test.h5l.se foo@TEST.H5L.SE
 csr_grant eku 1.3.6.1.5.5.7.3.2 foo@TEST.H5L.SE
-$test_kdc_ca -t bx509 foo@TEST.H5L.SE PKCS10:${objdir}/req              \
+$test_kdc_ca -a bx509 foo@TEST.H5L.SE PKCS10:${objdir}/req              \
              PEM-FILE:${objdir}/email.pem ||
     { echo "Offline CA test failed for explicitly authorized dNSName"; exit 2; }
 $hxtool print --content PEM-FILE:${objdir}/email.pem ||

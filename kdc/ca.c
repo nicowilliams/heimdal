@@ -255,7 +255,7 @@ get_cf(krb5_context context,
         case CERT_MIXED:    label = "mixed";  break;
         case CERT_CLIENT:   label = "client"; break;
         case CERT_SERVER:   label = "server"; break;
-        default:            label = "other";  break;
+        default:            return NULL;
         }
     } else {
         def = "default";
@@ -577,7 +577,7 @@ tbs_set_times(krb5_context context,
  */
 krb5_error_code
 kdc_issue_certificate(krb5_context context,
-                      const char *toplevel,
+                      const krb5_kdc_configuration *config,
                       hx509_request req,
                       krb5_principal cprinc,
                       krb5_times *auth_times,
@@ -601,7 +601,7 @@ kdc_issue_certificate(krb5_context context,
     hx509_request_authorize_ku(req, ku);
 
     /* Get configuration */
-    if ((cf = get_cf(context, toplevel, req, cprinc)) == NULL)
+    if ((cf = get_cf(context, config->app, req, cprinc)) == NULL)
         return KRB5KDC_ERR_POLICY;
     if ((kx509_ca = krb5_config_get_string(context, cf, "ca", NULL)) == NULL) {
         krb5_set_error_message(context, ret = KRB5KDC_ERR_POLICY,

@@ -2,7 +2,7 @@
 
 static int authorized_flag;
 static int help_flag;
-static const char * toplevel_string = "kdc";
+static const char *app_string = "kdc";
 static int version_flag;
 
 struct getargs args[] = {
@@ -10,8 +10,8 @@ struct getargs args[] = {
         "Assume CSR is authorized", NULL },
     {   "help",         'h',    arg_flag,   &help_flag,
         "Print usage message", NULL },
-    {   "toplevel",     't',    arg_string, &toplevel_string,
-        "Name of krb5.conf section for CA", "SECTION" },
+    {   "app",          'a',    arg_string, &app_string,
+        "Application name (kdc or bx509); default: kdc", "APPNAME" },
     {   "version",      'v',    arg_flag,   &version_flag,
         "Print version", NULL }
 };
@@ -26,8 +26,8 @@ usage(int e)
             "\n\tTest kx509/bx509 online CA issuer functionality.\n"
             "\n\tIf --authorized / -A not given, then authorizer plugins\n"
             "\twill be invoked.\n"
-            "\n\tUse --toplevel kdc to test the kx509 configuration.\n"
-            "\tUse --toplevel bx509 to test the bx509 configuration.\n\n\t"
+            "\n\tUse --app kdc to test the kx509 configuration.\n"
+            "\tUse --app bx509 to test the bx509 configuration.\n\n\t"
             "Example: %s foo@TEST.H5L.SE PKCS10:/tmp/csr PEM-FILE:/tmp/cert\n",
             getprogname());
     exit(e);
@@ -71,7 +71,7 @@ main(int argc, char **argv)
         krb5_err(context, 1, ret, "Could not get KDC configuration");
     if ((ret = krb5_initlog(context, argv0, &config->logf)) ||
         (ret = krb5_addlog_dest(context, config->logf, "0-5/STDERR")))
-        krb5_err(context, 1, ret, "Could not setup logging to stderr");
+        krb5_err(context, 1, ret, "Could not set up logging to stderr");
 #if 0
     if ((ret = krb5_kdc_set_dbinfo(context, config)))
         krb5_err(context, 1, ret, "Could not get KDC configuration (HDB)");
@@ -117,7 +117,7 @@ main(int argc, char **argv)
     memset(&t, 0, sizeof(t));
     t.starttime = time(NULL);
     t.endtime = t.starttime + 3600;
-    if ((ret = kdc_issue_certificate(context, toplevel_string, req, p, &t, 1,
+    if ((ret = kdc_issue_certificate(context, config, req, p, &t, 1,
                                      &certs)))
         krb5_err(context, 1, ret, "Certificate issuance failed");
 

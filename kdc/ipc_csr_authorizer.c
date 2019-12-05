@@ -285,13 +285,14 @@ authorize(void *ctx,
     char *s = NULL;
     int do_check = 0;
 
-    if ((svc = krb5_config_get_string(context, NULL, "kdc",
+    if ((svc = krb5_config_get_string(context, NULL,
+                                      config->app ? config->app : "kdc",
                                       "ipc_csr_authorizer", "service",
                                       NULL)) == NULL)
         return KRB5_PLUGIN_NO_HANDLE;
 
     if ((ret = heim_ipc_init_context(svc, &ipc))) {
-	krb5_set_error_message(context, ret, "Could not setup IPC client "
+	krb5_set_error_message(context, ret, "Could not set up IPC client "
                                "end-point for service %s", svc);
         return ret;
     }

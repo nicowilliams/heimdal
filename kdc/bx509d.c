@@ -176,7 +176,7 @@ validate_token(struct MHD_Connection *connection,
     ret = get_krb5_context(&context);
     if (ret)
         return bad_500(connection, ret,
-                       "Could not setup context for token validation");
+                       "Could not set up context for token validation");
 
     host = MHD_lookup_connection_value(connection, MHD_HEADER_KIND,
                                        MHD_HTTP_HEADER_HOST);
@@ -239,7 +239,7 @@ generate_key(hx509_context context,
     if (asprintf(fn, "PEM-FILE:%s/.%s_priv_key.pem",
                  cache_dir, key_name) == -1 ||
         *fn == NULL)
-        err(1, "Could not setup private key for %s", key_name);
+        err(1, "Could not set up private key for %s", key_name);
 
     ret = _hx509_generate_private_key_init(context,
                                            ASN1_OID_ID_PKCS1_RSAENCRYPTION,
@@ -572,7 +572,11 @@ bx509_param_cb(void *d,
         der_free_oid(&oid);
     } else if (strcmp(key, "csr") == 0 && val) {
         a->ret = 0; /* Handled upstairs */
-    } else { /* XXX Maybe produce error for unknown params? */ }
+    } else {
+        /* Produce error for unknown params */
+        krb5_set_error_message(a->context, a->ret = ENOTSUP,
+                               "Query parameter %s not supported", key);
+    }
     return a->ret == 0 ? MHD_YES : MHD_NO /* Stop iterating */;
 }
 
@@ -683,7 +687,7 @@ do_CA(krb5_context context,
     }
 
     /* Issue the certificate */
-    ret = kdc_issue_certificate(context, "kdc", req, p, token_times,
+    ret = kdc_issue_certificate(context, kdc_config, req, p, token_times,
                                 1 /* send_chain */, &certs);
     krb5_free_principal(context, p);
     hx509_request_free(&req);
@@ -722,6 +726,10 @@ bx509(struct MHD_Connection *connection)
     char *cprinc_from_token = NULL;
     char *pkix_store = NULL;
 
+    if ((ret = get_krb5_context(&context)))
+        return bad_503(connection, ret, "Could not initialize Kerberos "
+                       "library");
+
     /* Get required inputs */
     csr = MHD_lookup_connection_value(connection, MHD_GET_ARGUMENT_KIND,
                                       "csr");
@@ -734,10 +742,6 @@ bx509(struct MHD_Connection *connection)
     if (cprinc_from_token == NULL)
         return bad_403(connection, EINVAL,
                        "Could not extract principal name from token");
-
-    if ((ret = get_krb5_context(&context)))
-        return bad_503(connection, ret, "Could not initialize Kerberos "
-                       "library");
 
     /* Parse CSR, add extensions from parameters, authorize, issue cert */
     if ((ret = do_CA(context, connection, csr, cprinc_from_token,
@@ -913,13 +917,15 @@ do_pkinit(krb5_context context,
             (void) close(fd);
             fd = -1;
         }
+        errno = 0;
         if (ret == 0 &&
             ((fd = open(fn, O_RDWR | O_CREAT, 0600)) == -1 ||
              flock(fd, LOCK_EX) == -1 ||
-             lstat(fn, &st1) == -1 ||
+             (lstat(fn, &st1) == -1 && errno != ENOENT) ||
              fstat(fd, &st2) == -1))
             ret = errno;
-        if (ret == 0 && st1.st_dev == st2.st_dev && st1.st_ino == st2.st_ino) {
+        if (ret == 0 && errno == 0 &&
+            st1.st_dev == st2.st_dev && st1.st_ino == st2.st_ino) {
             if (S_ISREG(st1.st_mode))
                 break;
             if (unlink(fn) == -1)
@@ -1062,7 +1068,7 @@ bnegotiate_do_CA(krb5_context context,
 
     /* Issue the certificate */
     if (ret == 0)
-        ret = kdc_issue_certificate(context, "kdc", req, p, token_times,
+        ret = kdc_issue_certificate(context, kdc_config, req, p, token_times,
                                     1 /* send_chain */, &certs);
     hx509_private_key_free(&key);
     krb5_free_principal(context, p);
@@ -1174,8 +1180,10 @@ fmt_gss_errors(const char *r, OM_uint32 major, OM_uint32 minor, gss_OID mech)
     if (asprintf(&s, "%s: %s%s%s", r, ma, mi ? ": " : "", mi ? mi : "") > -1 &&
         s) {
         free(ma);
+        free(mi);
         return s;
     }
+    free(mi);
     return ma;
 }
 
@@ -1589,21 +1597,27 @@ again:
         free(s);
     }
 
-    if (verbose_counter)
+    if (verbose_counter > 1)
         flags |= MHD_USE_DEBUG;
     if (thread_per_client_flag)
         flags |= MHD_USE_THREAD_PER_CONNECTION;
 
 
     if (pipe(sigpipe) == -1)
-        err(1, "Could not setup key/cert reloading");
+        err(1, "Could not set up key/cert reloading");
     memset(&sa, 0, sizeof(sa));
     sa.sa_handler = sighandler;
-    (void) sigaction(SIGHUP, &sa, NULL);    /* Reload key & cert */
-    (void) sigaction(SIGUSR1, &sa, NULL);   /* Reload key & cert */
+    if (reverse_proxied_flag) {
+        (void) signal(SIGHUP, SIG_IGN);
+        (void) signal(SIGUSR1, SIG_IGN);
+        (void) signal(SIGALRM, SIG_IGN);
+    } else {
+        (void) sigaction(SIGHUP, &sa, NULL);    /* Reload key & cert */
+        (void) sigaction(SIGUSR1, &sa, NULL);   /* Reload key & cert */
+        (void) sigaction(SIGALRM, &sa, NULL);   /* Graceful shutdown */
+    }
     (void) sigaction(SIGINT, &sa, NULL);    /* Graceful shutdown */
     (void) sigaction(SIGTERM, &sa, NULL);   /* Graceful shutdown */
-    (void) sigaction(SIGALRM, &sa, NULL);   /* Graceful shutdown */
     (void) signal(SIGPIPE, SIG_IGN);
 
     if (previous)
