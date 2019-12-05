@@ -205,12 +205,12 @@ hx509_request_set_ku(hx509_context context, hx509_request req, KeyUsage ku)
     KeyUsage oldku = req->ku;
     uint64_t n = KeyUsage2int(ku);
 
-    if ((KeyUsage2int(req->ku) | n) != n) {
+    if ((KeyUsage2int(req->ku) & n) != n) {
         req->ku_are_authorized = 0;
     }
     req->ku = ku;
 
-    if (KeyUsage2int(oldku) == 0)
+    if (KeyUsage2int(oldku) == 0 && n != 0)
         req->nrequested++;
     if (KeyUsage2int(oldku) && KeyUsage2int(req->ku) == 0)
         req->nrequested--;
@@ -981,25 +981,29 @@ abitstring_check(abitstring a, size_t n, int idx)
 {
     size_t bytes;
 
-    if (idx > n)
+    if (idx >= n)
         return EINVAL;
 
-    bytes = n / CHAR_BIT + ((n % CHAR_BIT) ? 1 : 0);
+    bytes = (idx + 1) / CHAR_BIT + (((idx + 1) % CHAR_BIT) ? 1 : 0);
     if (a->feat_bytes < bytes)
         return 0;
 
     return !!(a->feats[idx / CHAR_BIT] & (1UL<<(idx % CHAR_BIT)));
 }
 
+/*
+ * Sets and returns 0 if not already set, -1 if already set.  Positive return
+ * values are system errors.
+ */
 static int
 abitstring_set(abitstring a, size_t n, int idx)
 {
     size_t bytes;
 
-    if (idx > n)
+    if (idx >= n)
         return EINVAL;
 
-    bytes = n / CHAR_BIT + ((n % CHAR_BIT) ? 1 : 0);
+    bytes = (idx + 1) / CHAR_BIT + (((idx + 1) % CHAR_BIT) ? 1 : 0);
     if (a->feat_bytes < bytes) {
         unsigned char *tmp;
 
@@ -1017,15 +1021,19 @@ abitstring_set(abitstring a, size_t n, int idx)
     return -1;
 }
 
+/*
+ * Resets and returns 0 if not already reset, -1 if already reset.  Positive
+ * return values are system errors.
+ */
 static int
 abitstring_reset(abitstring a, size_t n, int idx)
 {
     size_t bytes;
 
-    if (idx > n)
+    if (idx >= n)
         return EINVAL;
 
-    bytes = n / CHAR_BIT + ((n % CHAR_BIT) ? 1 : 0);
+    bytes = (idx + 1) / CHAR_BIT + (((idx + 1) % CHAR_BIT) ? 1 : 0);
     if (a->feat_bytes >= bytes &&
         (a->feats[idx / CHAR_BIT] & (1UL<<(idx % CHAR_BIT)))) {
         a->feats[idx / CHAR_BIT] &= ~(1UL<<(idx % CHAR_BIT));
