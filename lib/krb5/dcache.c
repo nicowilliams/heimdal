@@ -34,19 +34,78 @@
  */
 
 #include "krb5_locl.h"
+#include <base32.h>
 
 typedef struct krb5_dcache{
     krb5_ccache fcache;
+    krb5_principal princ;
     char *dir;
     char *name;
 } krb5_dcache;
 
 #define DCACHE(X) ((krb5_dcache*)(X)->data.data)
 #define D2FCACHE(X) ((X)->fcache)
+#define D2PRINC(X) ((X)->princ)
 
 static krb5_error_code KRB5_CALLCONV dcc_close(krb5_context, krb5_ccache);
 static krb5_error_code KRB5_CALLCONV dcc_get_default_name(krb5_context, char **);
 
+/*
+ * Encode principal name as a filesystem-friendly string.
+ *
+ * Alphanumerics, @s, and underscores are preserved, while all others are
+ * replaced with dash ('-').  Periods are preserved as long as they are
+ * followed by not-period and are not the first character of a component,
+ * otherwise they too get replaced with dashes.
+ *
+ * Thus host/foo.bar.example@BAR.EXAMPLE -> host-foo.bar.example@BAR.EXAMPLE,
+ * while host/..foo.bar@BAR -> host--.foo.bar@BAR, and so on.
+ *
+ * In particular, no filesystem component separators will be emitted, and . and
+ * .. will not be traversed.
+ *
+ * XXX We should truncate long principal names.
+ */
+static krb5_error_code
+fs_encode_princ(krb5_context context,
+                krb5_dcache *dc,
+                krb5_const_principal princ,
+                char **res)
+{
+    krb5_error_code ret;
+    unsigned char hash[SHA256_DIGEST_LENGTH];
+    const EVP_MD *md = EVP_sha256();
+    EVP_MD_CTX *m;
+    char *hash_b32 = NULL;
+    char *p = NULL;
+
+    *res = NULL;
+    if ((m = EVP_MD_CTX_create()) == NULL)
+        return krb5_enomem(context);
+    if ((ret = krb5_unparse_name(context, princ, &p))) {
+        EVP_MD_CTX_destroy(m);
+        return ret;
+    }
+
+    EVP_DigestInit_ex(m, md, NULL);
+    EVP_DigestUpdate(m, p, strlen(p));
+    EVP_DigestFinal_ex(m, hash, NULL);
+    EVP_MD_CTX_destroy(m);
+
+    ret = rk_base32_encode(hash, sizeof(hash), &hash_b32, RK_BASE32_FLAG_PRESERVE_ORDER);
+    free(p);
+    if (ret < 0)
+        return errno == ENOMEM ? krb5_enomem(context) : errno;
+    ret = 0;
+    if (hash_b32 == NULL ||
+        asprintf(res, "tkt%s", hash_b32) == -1 ||
+        *res == NULL) {
+        ret = krb5_enomem(context);
+    }
+
+    free(hash_b32);
+    return ret;
+}
 
 static char *
 primary_create(krb5_dcache *dc)
@@ -141,14 +200,18 @@ set_default_cache(krb5_context context, krb5_dcache *dc, const char *residual)
 }
 
 static krb5_error_code
-get_default_cache(krb5_context context, krb5_dcache *dc, char **residual)
+get_default_cache(krb5_context context, krb5_dcache *dc,
+                  krb5_const_principal principal, char **residual)
 {
     krb5_error_code ret;
     char buf[MAXPATHLEN];
-    char *primary;
+    char *primary = NULL;
     FILE *f;
 
     *residual = NULL;
+    if (principal)
+        return fs_encode_princ(context, dc, principal, residual);
+
     primary = primary_create(dc);
     if (primary == NULL)
 	return krb5_enomem(context);
@@ -157,6 +220,8 @@ get_default_cache(krb5_context context, krb5_dcache *dc, char **residual)
     if (f == NULL) {
 	if (errno == ENOENT) {
 	    free(primary);
+            if (principal)
+                return ENOENT;
 	    *residual = strdup("tkt");
 	    if (*residual == NULL)
 		return krb5_enomem(context);
@@ -250,7 +315,8 @@ dcc_release(krb5_context context, krb5_dcache *dc)
 }
 
 static krb5_error_code KRB5_CALLCONV
-dcc_resolve(krb5_context context, krb5_ccache *id, const char *res)
+dcc_resolve_for(krb5_context context, krb5_ccache *id, const char *res,
+                krb5_const_principal principal)
 {
     char *filename = NULL;
     krb5_error_code ret;
@@ -281,6 +347,7 @@ dcc_resolve(krb5_context context, krb5_ccache *id, const char *res)
     if (res[0] == ':') {
 	char *q;
 
+        /* XXX Ignore principal here? */
 	dc->dir = strdup(&res[1]);
 #ifdef _WIN32
 	q = strrchr(dc->dir, '\\');
@@ -335,7 +402,7 @@ dcc_resolve(krb5_context context, krb5_ccache *id, const char *res)
 	    return ret;
 	}
 
-	ret = get_default_cache(context, dc, &residual);
+	ret = get_default_cache(context, dc, principal, &residual);
 	if (ret) {
 	    dcc_release(context, dc);
 	    return ret;
@@ -355,7 +422,7 @@ dcc_resolve(krb5_context context, krb5_ccache *id, const char *res)
 	return krb5_enomem(context);
     }
 
-    ret = krb5_cc_resolve(context, filename, &dc->fcache);
+    ret = krb5_cc_resolve_for(context, filename, principal, &dc->fcache);
     free(filename);
     if (ret) {
 	dcc_release(context, dc);
@@ -417,7 +484,7 @@ dcc_gen_new(krb5_context context, krb5_ccache *id)
     else
 	len = 0;
 
-    ret = dcc_resolve(context, id, name + len);
+    ret = dcc_resolve_for(context, id, name + len, NULL);
     free(name);
     name = NULL;
     if (ret)
@@ -545,8 +612,11 @@ dcc_get_version(krb5_context context,
 }
 
 struct dcache_iter {
-    int first;
+    unsigned int first:1;
+    unsigned int skip_tkt:1;
+    krb5_ccache cc;
     krb5_dcache *dc;
+    DIR *d;
 };
 
 static krb5_error_code KRB5_CALLCONV
@@ -554,6 +624,7 @@ dcc_get_cache_first(krb5_context context, krb5_cc_cursor *cursor)
 {
     struct dcache_iter *iter;
     krb5_error_code ret;
+    char *dname = NULL;
     char *name;
 
     *cursor = NULL;
@@ -570,14 +641,27 @@ dcc_get_cache_first(krb5_context context, krb5_cc_cursor *cursor)
 	return KRB5_CC_FORMAT;
     }
 
-    ret = dcc_resolve(context, NULL, name);
-    free(name);
-    if (ret) {
+    if (asprintf(&dname, "DIR:%s", name) == -1 || dname == NULL) {
+        free(name);
         free(iter);
-        return ret;
+        return krb5_enomem(context);
     }
+    if ((ret = krb5_cc_resolve_for(context, dname, NULL, &iter->cc))) {
+        free(name);
+        free(iter);
+        return krb5_enomem(context);
+    }
+    if ((iter->d = opendir(name)) == NULL) {
+        free(name);
+        free(iter);
+	krb5_set_error_message(context, KRB5_CC_FORMAT,
+                               N_("Can't open DIR %s: %s", ""), name,
+                               strerror(errno));
+	return KRB5_CC_FORMAT;
+    }
+    free(name);
 
-    /* XXX We need to opendir() here */
+    iter->dc = iter->cc->data.data;
 
     *cursor = iter;
     return 0;
@@ -587,19 +671,50 @@ static krb5_error_code KRB5_CALLCONV
 dcc_get_cache_next(krb5_context context, krb5_cc_cursor cursor, krb5_ccache *id)
 {
     struct dcache_iter *iter = cursor;
+    krb5_error_code ret = 0;
+    const char *name = NULL;
+    char *s = NULL;
+    char *p = NULL;
 
     if (iter == NULL)
         return krb5_einval(context, 2);
 
-    if (!iter->first) {
-	krb5_clear_error_message(context);
-	return KRB5_CC_END;
+    if (iter->first) {
+        /* Emit primary first */
+        iter->first = 0;
+
+        ret = get_default_cache(context, iter->dc, NULL, &s);
+        if (ret == 0) {
+            name = s;
+            if (strcmp(name, "tkt") == 0)
+                iter->skip_tkt = 1;
+        } else {
+            ret = KRB5_CC_END;
+        }
+    } else {
+        struct dirent *dentry;
+
+        while ((dentry = readdir(iter->d)) != NULL &&
+               (!is_filename_cacheish(dentry->d_name) ||
+                (iter->skip_tkt && strcmp(dentry->d_name, "tkt") == 0)))
+            ;
+        if (dentry)
+            name = dentry->d_name;
+        else
+            ret = KRB5_CC_END;
     }
 
-    /* XXX We need to readdir() here */
-    iter->first = 0;
+    if (ret)
+        return ret;
 
-    return KRB5_CC_END;
+    if (asprintf(&p, "FILE:%s/%s", iter->dc->dir, name) == -1 || p == NULL)
+        ret = krb5_enomem(context);
+    else
+        ret = krb5_cc_resolve(context, p, id);
+
+    free(s);
+    free(p);
+    return ret;
 }
 
 static krb5_error_code KRB5_CALLCONV
@@ -610,9 +725,8 @@ dcc_end_cache_get(krb5_context context, krb5_cc_cursor cursor)
     if (iter == NULL)
         return krb5_einval(context, 2);
 
-    /* XXX We need to closedir() here */
-    if (iter->dc)
-	dcc_release(context, iter->dc);
+    (void) closedir(iter->d);
+    krb5_cc_close(context, iter->cc);
     free(iter);
     return 0;
 }
@@ -678,7 +792,7 @@ KRB5_LIB_VARIABLE const krb5_cc_ops krb5_dcc_ops = {
     KRB5_CC_OPS_VERSION,
     "DIR",
     dcc_get_name,
-    dcc_resolve,
+    dcc_resolve_for,
     dcc_gen_new,
     dcc_initialize,
     dcc_destroy,

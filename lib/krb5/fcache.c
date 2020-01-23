@@ -38,6 +38,7 @@
 typedef struct krb5_fcache{
     char *filename;
     char *tmpfn;
+    krb5_principal princ;
     int version;
 }krb5_fcache;
 
@@ -59,6 +60,7 @@ struct fcc_cursor {
 
 #define FILENAME(X) (FCACHE(X)->filename)
 #define TMPFILENAME(X) (FCACHE(X)->tmpfn)
+#define PRINC(X) (FCACHE(X)->princ)
 
 #define FCC_CURSOR(C) ((struct fcc_cursor*)(C))
 
@@ -184,7 +186,8 @@ fcc_lock(krb5_context context, krb5_ccache id,
 }
 
 static krb5_error_code KRB5_CALLCONV
-fcc_resolve(krb5_context context, krb5_ccache *id, const char *res)
+fcc_resolve_for(krb5_context context, krb5_ccache *id, const char *res,
+                krb5_const_principal principal)
 {
     krb5_fcache *f;
     f = calloc(1, sizeof(*f));
@@ -201,9 +204,19 @@ fcc_resolve(krb5_context context, krb5_ccache *id, const char *res)
 			       N_("malloc: out of memory", ""));
 	return KRB5_CC_NOMEM;
     }
+    if (principal) {
+        krb5_error_code ret;
+
+        if ((ret = krb5_copy_principal(context, principal, &f->princ))) {
+            free(f->filename);
+            free(f);
+            return ret;
+        }
+    }
     f->version = 0;
     (*id)->data.data = f;
     (*id)->data.length = sizeof(*f);
+
     return 0;
 }
 
@@ -632,6 +645,7 @@ fcc_close(krb5_context context,
     if (FCACHE(id) == NULL)
         return krb5_einval(context, 2);
 
+    krb5_free_principal(context, PRINC(id));
     if (TMPFILENAME(id))
         (void) unlink(TMPFILENAME(id));
     free(TMPFILENAME(id));
@@ -647,11 +661,8 @@ fcc_destroy(krb5_context context,
     if (FCACHE(id) == NULL)
         return krb5_einval(context, 2);
 
-    if (TMPFILENAME(id)) {
+    if (TMPFILENAME(id))
         (void) _krb5_erase_file(context, TMPFILENAME(id));
-        free(TMPFILENAME(id));
-        TMPFILENAME(id) = NULL;
-    }
     return _krb5_erase_file(context, FILENAME(id));
 }
 
@@ -1284,7 +1295,7 @@ KRB5_LIB_VARIABLE const krb5_cc_ops krb5_fcc_ops = {
     KRB5_CC_OPS_VERSION,
     "FILE",
     fcc_get_name,
-    fcc_resolve,
+    fcc_resolve_for,
     fcc_gen_new,
     fcc_initialize,
     fcc_destroy,

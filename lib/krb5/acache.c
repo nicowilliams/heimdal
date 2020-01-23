@@ -54,6 +54,9 @@ typedef struct krb5_acc {
 } krb5_acc;
 
 static krb5_error_code KRB5_CALLCONV acc_close(krb5_context, krb5_ccache);
+static krb5_error_code KRB5_CALLCONV acc_get_principal(krb5_context,
+                                                       krb5_ccache,
+                                                       krb5_principal *);
 
 #define ACACHE(X) ((krb5_acc *)(X)->data.data)
 
@@ -510,7 +513,8 @@ acc_alloc(krb5_context context, krb5_ccache *id)
 }
 
 static krb5_error_code KRB5_CALLCONV
-acc_resolve(krb5_context context, krb5_ccache *id, const char *res)
+acc_resolve_for(krb5_context context, krb5_ccache *id, const char *res,
+                krb5_const_principal principal)
 {
     krb5_error_code ret;
     cc_int32 error;
@@ -524,6 +528,8 @@ acc_resolve(krb5_context context, krb5_ccache *id, const char *res)
 
     error = (*a->context->func->open_ccache)(a->context, res, &a->ccache);
     if (error == ccNoError) {
+        krb5_principal p = NULL;
+
 	cc_time_t offset;
 	error = get_cc_name(a);
 	if (error != ccNoError) {
@@ -538,6 +544,11 @@ acc_resolve(krb5_context context, krb5_ccache *id, const char *res)
 	if (error == 0)
 	    context->kdc_sec_offset = offset;
 
+        ret = acc_get_principal(context, *id, &p);
+        if (ret == 0 && p && !krb5_principal_compare(context, p, principal)) {
+	    acc_close(context, *id);
+            return ENOENT;
+        }
     } else if (error == ccErrCCacheNotFound) {
 	a->ccache = NULL;
 	a->cache_name = NULL;
@@ -1078,7 +1089,7 @@ KRB5_LIB_VARIABLE const krb5_cc_ops krb5_acc_ops = {
     KRB5_CC_OPS_VERSION,
     "API",
     acc_get_name,
-    acc_resolve,
+    acc_resolve_for,
     acc_gen_new,
     acc_initialize,
     acc_destroy,

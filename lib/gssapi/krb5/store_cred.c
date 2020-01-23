@@ -99,16 +99,54 @@ ccache_match(krb5_context context,
     return KRB5_CC_END;
 }
 
+static OM_uint32
+add_env(OM_uint32 *minor,
+        gss_buffer_set_t *env,
+        const char *var,
+        const char *val)
+{
+    OM_uint32 major;
+    gss_buffer_desc b;
+    char *varval = NULL;
+
+    if (asprintf(&varval, "%s=%s", var, val) == -1 || varval == NULL) {
+        *minor = ENOMEM;
+        return GSS_S_FAILURE;
+    }
+
+    b.value = varval;
+    b.length = strlen(varval) + 1;
+    major = gss_add_buffer_set_member(minor, &b, env);
+    free(varval);
+    return major;
+}
+
+static OM_uint32
+set_proc(OM_uint32 *minor, gss_buffer_set_t env)
+{
+    size_t i;
+
+    /*
+     * XXX On systems with setpag(), call setpag().  On WIN32... create a
+     * session, set the access token, ...?
+     */
+#ifndef WIN32
+    for (i = 0; i < env->count; i++)
+        putenv(env->elements[i].value);
+#endif
+    return GSS_S_COMPLETE;
+}
+
 OM_uint32 GSSAPI_CALLCONV
-_gsskrb5_store_cred_into(OM_uint32         *minor_status,
-			 gss_const_cred_id_t input_cred_handle,
-			 gss_cred_usage_t  cred_usage,
-			 const gss_OID     desired_mech,
-			 OM_uint32         overwrite_cred,
-			 OM_uint32         default_cred,
-			 gss_const_key_value_set_t cred_store,
-			 gss_OID_set       *elements_stored,
-			 gss_cred_usage_t  *cred_usage_stored)
+_gsskrb5_store_cred_into2(OM_uint32         *minor_status,
+			  gss_const_cred_id_t input_cred_handle,
+			  gss_cred_usage_t  cred_usage,
+			  const gss_OID     desired_mech,
+			  OM_uint32         store_cred_flags,
+			  gss_const_key_value_set_t cred_store,
+			  gss_OID_set       *elements_stored,
+			  gss_cred_usage_t  *cred_usage_stored,
+                          gss_buffer_set_t  *envp)
 {
     krb5_context context;
     krb5_error_code ret;
@@ -116,8 +154,11 @@ _gsskrb5_store_cred_into(OM_uint32         *minor_status,
     krb5_ccache id = NULL;
     time_t exp_current;
     time_t exp_new;
+    gss_buffer_set_t env = GSS_C_NO_BUFFER_SET;
     const char *cs_ccache_name = NULL;
-    OM_uint32 major_status;
+    OM_uint32 major_status, junk;
+    OM_uint32 overwrite_cred = store_cred_flags & GSS_C_STORE_CRED_OVERWRITE;
+    OM_uint32 default_cred = store_cred_flags & GSS_C_STORE_CRED_DEFAULT;
 
     *minor_status = 0;
 
@@ -167,6 +208,7 @@ _gsskrb5_store_cred_into(OM_uint32         *minor_status,
 	return GSS_S_NO_CRED;
     }
 
+    /* XXX Check if this is a collection or not */
     if (cs_ccache_name) {
         /*
          * Not the default ccache.
@@ -180,7 +222,8 @@ _gsskrb5_store_cred_into(OM_uint32         *minor_status,
          * XXX Perhaps we should fail in this case if default_cred is true.
          */
         default_cred = 0;
-	ret = krb5_cc_resolve(context, cs_ccache_name, &id);
+        ret = krb5_cc_resolve_for(context, cs_ccache_name,
+                                  input_cred->principal, &id);
     } else {
         const char *cctype = NULL;
 
@@ -246,9 +289,51 @@ _gsskrb5_store_cred_into(OM_uint32         *minor_status,
                                    NULL);
     if (ret == 0 && default_cred)
         krb5_cc_switch(context, id);
+
+    if ((store_cred_flags & GSS_C_STORE_CRED_SET_PROCESS) && envp == NULL)
+        envp = &env;
+    if (envp != NULL) {
+        char *p;
+
+        ret = krb5_unparse_name(context, input_cred->principal, &p);
+        if (ret == 0) {
+            major_status = add_env(minor_status, envp, "KRB5CCPRINC", p);
+            free(p);
+            if (major_status == GSS_S_COMPLETE)
+                major_status = add_env(minor_status, envp, "KRB5CCNAMESUB",
+                                       krb5_cc_get_name(context, id));
+            if (major_status)
+                ret = *minor_status;
+        }
+    }
     (void) krb5_cc_close(context, id);
 
     HEIMDAL_MUTEX_unlock(&input_cred->cred_id_mutex);
+    if (ret == 0 && (store_cred_flags & GSS_C_STORE_CRED_SET_PROCESS) &&
+        (major_status = set_proc(minor_status, *envp)) != GSS_S_COMPLETE)
+        ret = *minor_status;
+    (void) gss_release_buffer_set(&junk, &env);
     *minor_status = ret;
     return ret ? GSS_S_FAILURE : GSS_S_COMPLETE;
+}
+
+OM_uint32 GSSAPI_CALLCONV
+_gsskrb5_store_cred_into(OM_uint32         *minor_status,
+			 gss_const_cred_id_t input_cred_handle,
+			 gss_cred_usage_t  cred_usage,
+			 const gss_OID     desired_mech,
+			 OM_uint32         overwrite_cred,
+			 OM_uint32         default_cred,
+			 gss_const_key_value_set_t cred_store,
+			 gss_OID_set       *elements_stored,
+			 gss_cred_usage_t  *cred_usage_stored)
+{
+    OM_uint32 store_cred_flags =
+        (overwrite_cred ? GSS_C_STORE_CRED_OVERWRITE : 0) |
+        (default_cred ? GSS_C_STORE_CRED_DEFAULT : 0);
+
+    return _gsskrb5_store_cred_into2(minor_status, input_cred_handle,
+                                     cred_usage, desired_mech,
+                                     store_cred_flags, cred_store,
+                                     elements_stored, cred_usage_stored, NULL);
 }

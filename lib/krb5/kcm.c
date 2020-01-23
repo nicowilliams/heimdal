@@ -45,10 +45,14 @@
 static krb5_error_code
 kcm_set_kdc_offset(krb5_context, krb5_ccache, krb5_deltat);
 
+static krb5_error_code
+kcm_get_principal(krb5_context, krb5_ccache, krb5_principal *);
+
 static const char *kcm_ipc_name = "ANY:org.h5l.kcm";
 
 typedef struct krb5_kcmcache {
     char *name;
+    krb5_principal princ;
 } krb5_kcmcache;
 
 typedef struct krb5_kcm_cursor {
@@ -60,6 +64,7 @@ typedef struct krb5_kcm_cursor {
 
 #define KCMCACHE(X)	((krb5_kcmcache *)(X)->data.data)
 #define CACHENAME(X)	(KCMCACHE(X)->name)
+#define CACHEPRINC(X)	(KCMCACHE(X)->princ)
 #define KCMCURSOR(C)	((krb5_kcm_cursor)(C))
 
 static HEIMDAL_MUTEX kcm_mutex = HEIMDAL_MUTEX_INITIALIZER;
@@ -136,32 +141,59 @@ krb5_kcm_storage_request(krb5_context context,
 }
 
 static krb5_error_code
-kcm_alloc(krb5_context context, const char *name, krb5_ccache *id)
+kcm_alloc(krb5_context context, const char *name, krb5_ccache *id,
+          krb5_const_principal principal)
 {
+    krb5_error_code ret;
     krb5_kcmcache *k;
 
-    k = malloc(sizeof(*k));
+    k = calloc(1, sizeof(*k));
     if (k == NULL) {
 	krb5_set_error_message(context, KRB5_CC_NOMEM,
 			       N_("malloc: out of memory", ""));
 	return KRB5_CC_NOMEM;
     }
 
+    if (principal &&
+        (ret = krb5_copy_principal(context, principal, &k->princ))) {
+        free(k);
+        return ret;
+    }
+    k->name = NULL;
     if (name != NULL) {
 	k->name = strdup(name);
 	if (k->name == NULL) {
-	    free(k);
 	    krb5_set_error_message(context, KRB5_CC_NOMEM,
 				   N_("malloc: out of memory", ""));
+            krb5_free_principal(context, k->princ);
+	    free(k);
 	    return KRB5_CC_NOMEM;
 	}
-    } else
-	k->name = NULL;
+    }
 
     (*id)->data.data = k;
     (*id)->data.length = sizeof(*k);
 
-    return 0;
+    ret = 0;
+    if (principal) {
+        krb5_principal p = NULL;
+
+        if (kcm_get_principal(context, *id, &p) == 0 &&
+            !krb5_principal_compare(context, principal, p))
+            ret = KRB5_CC_NOTFOUND;
+        else
+            ret = krb5_copy_principal(context, principal, &k->princ);
+        krb5_free_principal(context, p);
+    }
+
+    if (ret) {
+        krb5_free_principal(context, CACHEPRINC(*id));
+        free(k->name);
+        free(k);
+        (*id)->data.data = NULL;
+        (*id)->data.length = 0;
+    }
+    return ret;
 }
 
 KRB5_LIB_FUNCTION krb5_error_code KRB5_LIB_CALL
@@ -221,12 +253,13 @@ kcm_free(krb5_context context, krb5_ccache *id)
 {
     krb5_kcmcache *k = KCMCACHE(*id);
 
-    if (k != NULL) {
-	if (k->name != NULL)
-	    free(k->name);
-	memset_s(k, sizeof(*k), 0, sizeof(*k));
-	krb5_data_free(&(*id)->data);
-    }
+    if (k == NULL)
+        return;
+    krb5_free_principal(context, k->princ);
+    if (k->name != NULL)
+        free(k->name);
+    memset_s(k, sizeof(*k), 0, sizeof(*k));
+    krb5_data_free(&(*id)->data);
 }
 
 static const char *
@@ -237,9 +270,10 @@ kcm_get_name(krb5_context context,
 }
 
 static krb5_error_code
-kcm_resolve(krb5_context context, krb5_ccache *id, const char *res)
+kcm_resolve_for(krb5_context context, krb5_ccache *id, const char *res,
+                krb5_const_principal principal)
 {
-    return kcm_alloc(context, res, id);
+    return kcm_alloc(context, res, id, principal);
 }
 
 /*
@@ -256,7 +290,7 @@ kcm_gen_new(krb5_context context, krb5_ccache *id)
     krb5_storage *request, *response;
     krb5_data response_data;
 
-    ret = kcm_alloc(context, NULL, id);
+    ret = kcm_alloc(context, NULL, id, NULL);
     if (ret)
 	return ret;
 
@@ -883,7 +917,7 @@ kcm_get_cache_next(krb5_context context, krb5_cc_cursor cursor, const krb5_cc_op
     if (ret == 0) {
 	ret = _krb5_cc_allocate(context, ops, id);
 	if (ret == 0)
-	    ret = kcm_alloc(context, name, id);
+	    ret = kcm_alloc(context, name, id, NULL);
 	krb5_xfree(name);
     }
 
@@ -1102,7 +1136,7 @@ KRB5_LIB_VARIABLE const krb5_cc_ops krb5_kcm_ops = {
     KRB5_CC_OPS_VERSION,
     "KCM",
     kcm_get_name,
-    kcm_resolve,
+    kcm_resolve_for,
     kcm_gen_new,
     kcm_initialize,
     kcm_destroy,
@@ -1131,7 +1165,7 @@ KRB5_LIB_VARIABLE const krb5_cc_ops krb5_akcm_ops = {
     KRB5_CC_OPS_VERSION,
     "API",
     kcm_get_name,
-    kcm_resolve,
+    kcm_resolve_for,
     kcm_gen_new,
     kcm_initialize,
     kcm_destroy,
@@ -1165,7 +1199,7 @@ _krb5_kcm_is_running(krb5_context context)
     krb5_ccache id = &ccdata;
     krb5_boolean running;
 
-    ret = kcm_alloc(context, NULL, &id);
+    ret = kcm_alloc(context, NULL, &id, NULL);
     if (ret)
 	return 0;
 

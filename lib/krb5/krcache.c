@@ -218,6 +218,10 @@ typedef struct _krb5_krcache {
 
 #define KRCACHE(X) ((krb5_krcache *)(X)->data.data)
 
+static krb5_error_code KRB5_CALLCONV krcc_get_principal(krb5_context,
+                                                        krb5_ccache,
+                                                        krb5_principal *);
+
 static krb5_error_code KRB5_CALLCONV
 krcc_get_first(krb5_context, krb5_ccache id, krb5_cc_cursor *cursor);
 
@@ -960,8 +964,8 @@ clear_cache_keyring(krb5_context context,
 	res = keyctl_clear(*pcache_id);
 	if (res == -1 && (errno == EACCES || errno == ENOKEY)) {
 	    /*
-	     * Possibly the keyring was destroyed between krcc_resolve() and now;
-	     * if we really don't have permission, we will fail later.
+             * Possibly the keyring was destroyed between krcc_resolve_for()
+             * and now; if we really don't have permission, we will fail later.
 	     */
 	    res = 0;
 	    *pcache_id = 0;
@@ -1013,11 +1017,14 @@ make_cache(krb5_context context,
 	   const char *anchor_name,
 	   const char *collection_name,
 	   const char *subsidiary_name,
+           krb5_const_principal principal,
 	   krb5_ccache *cache)
 {
     krb5_error_code ret;
     krb5_krcache *data;
+    krb5_principal p = NULL;
     key_serial_t princ_id = 0;
+    int allocated = 0;
 
     /* Determine the key containing principal information, if present. */
     princ_id = keyctl_search(cache_id, KRCC_KEY_TYPE_USER, KRCC_SPEC_PRINC_KEYNAME, 0);
@@ -1036,6 +1043,7 @@ make_cache(krb5_context context,
 	    free(data);
 	    return ret;
 	}
+        allocated = 1;
     }
 
     data->krc_princ_id = princ_id;
@@ -1043,12 +1051,55 @@ make_cache(krb5_context context,
     (*cache)->data.data = data;
     (*cache)->data.length = sizeof(*data);
 
+    if (principal && krcc_get_principal(context, *cache, &p) == 0 &&
+        !krb5_principal_compare(context, principal, p)) {
+        if (allocated) {
+            (void) krb5_cc_close(context, *cache);
+        } else {
+            (*cache)->data.data = NULL;
+            (*cache)->data.length = 0;
+        }
+        return ENOENT;
+    }
+
+    return 0;
+}
+
+static krb5_error_code
+make_subsidiary_name(krb5_context context,
+                     krb5_const_principal principal,
+                     char **subsidiary_name)
+{
+    krb5_error_code ret;
+    unsigned char hash[SHA256_DIGEST_LENGTH];
+    const EVP_MD *md = EVP_sha256();
+    EVP_MD_CTX *m;
+    char *p;
+
+    *subsidiary_name = NULL;
+    ret = krb5_unparse_name(context, principal, &p);
+    if (ret)
+        return ret;
+    if ((m = EVP_MD_CTX_create()) == NULL) {
+        free(p);
+        return krb5_enomem(context);
+    }
+    EVP_DigestInit_ex(m, md, NULL);
+    EVP_DigestUpdate(m, p, strlen(p));
+    EVP_DigestFinal_ex(m, hash, NULL);
+    EVP_MD_CTX_destroy(m);
+    (void) rk_base32_encode(hash, sizeof(hash), subsidiary_name,
+                            RK_BASE32_FLAG_PRESERVE_ORDER);
+    free(p);
+    if (*subsidiary_name == NULL)
+        return krb5_enomem(context);
     return 0;
 }
 
 /* Create a keyring ccache handle for the given residual string. */
 static krb5_error_code KRB5_CALLCONV
-krcc_resolve(krb5_context context, krb5_ccache *id, const char *residual)
+krcc_resolve_for(krb5_context context, krb5_ccache *id, const char *residual,
+                 krb5_const_principal principal)
 {
     krb5_error_code ret;
     key_serial_t collection_id, cache_id;
@@ -1062,6 +1113,10 @@ krcc_resolve(krb5_context context, krb5_ccache *id, const char *residual)
     ret = get_collection(context, anchor_name, collection_name, &collection_id);
     if (ret)
 	goto cleanup;
+
+    if (principal && subsidiary_name == NULL &&
+        (ret = make_subsidiary_name(context, principal, &subsidiary_name)))
+        goto cleanup;
 
     if (subsidiary_name == NULL) {
 	/* Retrieve or initialize the primary name for the collection. */
@@ -1078,7 +1133,7 @@ krcc_resolve(krb5_context context, krb5_ccache *id, const char *residual)
 	cache_id = 0;
 
     ret = make_cache(context, collection_id, cache_id, anchor_name,
-		     collection_name, subsidiary_name, id);
+		     collection_name, subsidiary_name, principal, id);
     if (ret)
 	goto cleanup;
 
@@ -1814,7 +1869,7 @@ krcc_get_cache_next(krb5_context context,
 	if (cache_id != -1) {
 	    return make_cache(context, iter->collection_id, cache_id,
 			      iter->anchor_name, iter->collection_name,
-			      first_name, cache);
+			      first_name, NULL, cache);
 	}
     }
 
@@ -1852,7 +1907,7 @@ krcc_get_cache_next(krb5_context context,
 	/* We found a valid key */
 	iter->next_key++;
 	ret = make_cache(context, iter->collection_id, key, iter->anchor_name,
-			 iter->collection_name, subsidiary_name, cache);
+			 iter->collection_name, subsidiary_name, NULL, cache);
 	break;
     }
 
@@ -2001,7 +2056,7 @@ KRB5_LIB_VARIABLE const krb5_cc_ops krb5_krcc_ops = {
     KRB5_CC_OPS_VERSION,
     "KEYRING",
     krcc_get_name,
-    krcc_resolve,
+    krcc_resolve_for,
     krcc_gen_new,
     krcc_initialize,
     krcc_destroy,

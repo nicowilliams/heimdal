@@ -180,10 +180,11 @@ _krb5_cc_allocate(krb5_context context,
  */
 
 static krb5_error_code
-allocate_ccache (krb5_context context,
-		 const krb5_cc_ops *ops,
-		 const char *residual,
-		 krb5_ccache *id)
+allocate_ccache(krb5_context context,
+                const krb5_cc_ops *ops,
+                const char *residual,
+                krb5_const_principal principal,
+                krb5_ccache *id)
 {
     krb5_error_code ret;
 #ifdef KRB5_USE_PATH_TOKENS
@@ -210,8 +211,8 @@ allocate_ccache (krb5_context context,
 	return ret;
     }
 
-    ret = (*id)->ops->resolve(context, id, residual);
-    if(ret) {
+    ret = (*id)->ops->resolve_for(context, id, residual, principal);
+    if (ret) {
 	free(*id);
         *id = NULL;
     }
@@ -244,8 +245,55 @@ is_possible_path_name(const char * name)
 }
 
 /**
- * Find and allocate a ccache in `id' from the specification in `residual'.
- * If the ccache name doesn't contain any colon, interpret it as a file name.
+ * Find and allocate a ccache in `id' from the specification in `name'.
+ * If the ccache name doesn't contain any colon, interpret it as a DIR name.
+ *
+ * @param context a Keberos context.
+ * @param name string name of a credential cache.
+ * @param principal name of principal whose cache to resolve.
+ * @param id return pointer to a found credential cache.
+ *
+ * @return Return 0 or an error code. In case of an error, id is set
+ * to NULL, see krb5_get_error_message().
+ *
+ * @ingroup krb5_ccache
+ */
+
+
+KRB5_LIB_FUNCTION krb5_error_code KRB5_LIB_CALL
+krb5_cc_resolve_for(krb5_context context,
+                    const char *name,
+                    krb5_const_principal principal,
+                    krb5_ccache *id)
+{
+    int i;
+
+    *id = NULL;
+
+    if (name == NULL)
+        name = krb5_cc_default_name(context);
+    for(i = 0; i < context->num_cc_ops && context->cc_ops[i]->prefix; i++) {
+	size_t prefix_len = strlen(context->cc_ops[i]->prefix);
+
+	if(strncmp(context->cc_ops[i]->prefix, name, prefix_len) == 0
+	   && name[prefix_len] == ':') {
+	    return allocate_ccache(context, context->cc_ops[i],
+				   name + prefix_len + 1,
+				   principal, id);
+	}
+    }
+    if (is_possible_path_name(name))
+        return allocate_ccache (context, &krb5_fcc_ops, name, principal, id);
+    else {
+	krb5_set_error_message(context, KRB5_CC_UNKNOWN_TYPE,
+			       N_("unknown ccache type %s", "name"), name);
+	return KRB5_CC_UNKNOWN_TYPE;
+    }
+}
+
+/**
+ * Find and allocate a ccache in `id' from the specification in `name'.
+ * If the ccache name doesn't contain any colon, interpret it as a FILE name.
  *
  * @param context a Keberos context.
  * @param name string name of a credential cache.
@@ -263,27 +311,18 @@ krb5_cc_resolve(krb5_context context,
 		const char *name,
 		krb5_ccache *id)
 {
-    int i;
+    const char *ccprinc = secure_getenv("KRB5CCPRINC");
+    krb5_principal p = NULL;
+    krb5_error_code ret = 0;
 
-    *id = NULL;
+    if (ccprinc)
+        ret = krb5_parse_name(context, ccprinc, &p);
 
-    for(i = 0; i < context->num_cc_ops && context->cc_ops[i]->prefix; i++) {
-	size_t prefix_len = strlen(context->cc_ops[i]->prefix);
+    if (ret == 0)
+        ret = krb5_cc_resolve_for(context, name, p, id);
 
-	if(strncmp(context->cc_ops[i]->prefix, name, prefix_len) == 0
-	   && name[prefix_len] == ':') {
-	    return allocate_ccache (context, context->cc_ops[i],
-				    name + prefix_len + 1,
-				    id);
-	}
-    }
-    if (is_possible_path_name(name))
-	return allocate_ccache (context, &krb5_fcc_ops, name, id);
-    else {
-	krb5_set_error_message(context, KRB5_CC_UNKNOWN_TYPE,
-			       N_("unknown ccache type %s", "name"), name);
-	return KRB5_CC_UNKNOWN_TYPE;
-    }
+    krb5_free_principal(context, p);
+    return ret;
 }
 
 /**

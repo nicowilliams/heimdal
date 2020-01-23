@@ -151,6 +151,7 @@ static gssapi_mech_interface_desc spnego_mech = {
     NULL, /* gm_store_cred_into */
     _gss_spnego_set_neg_mechs,
     _gss_spnego_get_neg_mechs,
+    NULL, /* gm_store_cred_into2 */
     NULL  /* gm_compat */
 };
 

@@ -107,7 +107,10 @@ mcc_alloc(const char *name)
 }
 
 static krb5_error_code KRB5_CALLCONV
-mcc_resolve(krb5_context context, krb5_ccache *id, const char *res)
+mcc_resolve_for(krb5_context context,
+                krb5_ccache *id,
+                const char *res,
+                krb5_const_principal principal)
 {
     krb5_mcache *m;
 
@@ -574,7 +577,7 @@ KRB5_LIB_VARIABLE const krb5_cc_ops krb5_mcc_ops = {
     KRB5_CC_OPS_VERSION,
     "MEMORY",
     mcc_get_name,
-    mcc_resolve,
+    mcc_resolve_for,
     mcc_gen_new,
     mcc_initialize,
     mcc_destroy,

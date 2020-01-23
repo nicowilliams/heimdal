@@ -401,6 +401,7 @@ static gssapi_mech_interface_desc krb5_mech = {
     _gsskrb5_store_cred_into,
     NULL, /* gm_set_neg_mechs */
     NULL, /* gm_get_neg_mechs */
+    _gsskrb5_store_cred_into2,
     NULL  /* gm_compat */
 };
 
