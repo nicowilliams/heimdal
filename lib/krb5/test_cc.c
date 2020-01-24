@@ -1040,6 +1040,10 @@ main(int argc, char **argv)
         ret = test_cccol(context, "KEYRING:fooccol", &what);
         if (ret)
             krb5_err(context, 1, ret, "%s", what);
+
+        ret = test_cccol(context, "MEMORY:fooccol", &what);
+        if (ret)
+            krb5_err(context, 1, ret, "%s", what);
     }
 
     krb5_free_context(context);
