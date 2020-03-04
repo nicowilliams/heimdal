@@ -402,6 +402,7 @@ heim_set_config_files(heim_context context, char **filenames,
                       heim_config_binding **res)
 {
     heim_error_code ret;
+    size_t ngood = 0;
 
     *res = NULL;
     while (filenames != NULL && *filenames != NULL && **filenames != '\0') {
@@ -412,14 +413,23 @@ heim_set_config_files(heim_context context, char **filenames,
             *res = NULL;
             return ret;
         }
+        ngood += ret ? 0 : 1;
         filenames++;
     }
 
 #ifdef _WIN32
-    heim_load_config_from_registry(context, REGPATH_KERBEROS,
-                                   REGPATH_HEIMDAL, res);
+    {
+        heim_error_code ret2;
+
+        ret2 = heim_load_config_from_registry(context, REGPATH_KERBEROS,
+                                              REGPATH_HEIMDAL, res);
+
+        if (ngood == 0)
+            ret = ret2;
+        ngood += ret2 ? 0 : 1;
+    }
 #endif
-    return ret;
+    return ngood ? 0 : ret;
 }
 
 void
