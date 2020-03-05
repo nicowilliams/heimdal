@@ -65,12 +65,17 @@ mcc_get_name(krb5_context context,
              const char **col,
              const char **sub)
 {
+    krb5_mcache *m = MCACHE(id);
+
+    HEIMDAL_MUTEX_lock(&(m->mutex));
+    heim_assert(m->refcnt != 0, "resurection released mcache");
     if (name)
-        *name = MCACHE(id)->name;
+        *name = m->name;
     if (col)
         *col = NULL;
     if (sub)
-        *sub = MCACHE(id)->name;
+        *sub = m->name;
+    HEIMDAL_MUTEX_unlock(&(m->mutex));
     return 0;
 }
 
@@ -325,28 +330,40 @@ mcc_store_cred(krb5_context context,
     krb5_error_code ret;
     struct link *l;
 
+    /* Allocate first */
+    l = calloc(1, sizeof(*l));
+    if (l == NULL)
+        return krb5_enomem(context);
+    ret = krb5_copy_creds_contents(context, creds, &l->cred);
+    if (ret) {
+        free(l);
+        return ret;
+    }
+
     HEIMDAL_MUTEX_lock(&(m->mutex));
     if (MISDEAD(m))
     {
+        /*
+         * We raced with a krb5_cc_initialize() or krb5_cc_destroy() of
+         * the same cache.
+         */
     	HEIMDAL_MUTEX_unlock(&(m->mutex));
-    	return ENOENT;
+        krb5_free_cred_contents(context, &l->cred);
+        free(l);
+        return ENOENT; /* XXX We might as well return 0 */
     }
 
-    l = malloc (sizeof(*l));
-    if (l == NULL)
-        return krb5_enomem(context);
+    /*
+     * XXX We should really add creds at the end so that any start TGTs and
+     * ccconfigs can be found quickly.  Alternatively we should use a SQLite3
+     * cache with a :memory: DB (which would require teaching lib/krb5/scache.c
+     * about those).
+     */
     l->next = m->creds;
     m->creds = l;
     memset (&l->cred, 0, sizeof(l->cred));
-    ret = krb5_copy_creds_contents (context, creds, &l->cred);
-    if (ret) {
-    	m->creds = l->next;
-    	free (l);
-    	HEIMDAL_MUTEX_unlock(&(m->mutex));
-    	return ret;
-    }
     m->mtime = time(NULL);
-	HEIMDAL_MUTEX_unlock(&(m->mutex));
+    HEIMDAL_MUTEX_unlock(&(m->mutex));
     return 0;
 }
 
