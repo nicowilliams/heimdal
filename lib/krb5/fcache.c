@@ -1301,15 +1301,22 @@ is_default_collection(krb5_context context, const char *name,
     return 0;
 }
 
-/* Collection iterator cursor */
+/*
+ * Collection iterator cursor.
+ *
+ * There may be an array of locations, and for each location we'll try
+ * resolving it, as well as doing a readdir() of the dirname of it and output
+ * all ccache names in that directory that begin with the current location and
+ * end in "+${subsidiary}".
+ */
 struct fcache_iter {
     const char *curr_location;
-    char **locations;
-    char *def_ccname;
-    char *dname;
+    char *def_ccname;   /* The default ccname */
+    char **locations;   /* All the other places we'll look for a ccache */
+    char *dname;        /* dirname() of curr_location */
     DIR *d;
     struct dirent *dentry;
-    int location;
+    int location;       /* Index of current locations */
     int first;
 };
 
