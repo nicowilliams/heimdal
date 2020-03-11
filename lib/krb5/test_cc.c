@@ -1086,8 +1086,8 @@ main(int argc, char **argv)
             krb5_err(context, 1, ret, "%s", what);
         if (chdir(d + sizeof("FILE:") - 1) == 0) {
             unlink("foobar");
-            unlink("foobar:lha@H5L.SE");
-            unlink("foobar:lha@SU.SE");
+            unlink("foobar+lha@H5L.SE");
+            unlink("foobar+lha@SU.SE");
             chdir("..");
         }
         if (rmdir(d + sizeof("FILE:") - 1))
