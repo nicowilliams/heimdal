@@ -225,24 +225,6 @@ allocate_ccache(krb5_context context,
     return ret;
 }
 
-static int
-is_possible_path_name(const char * name)
-{
-    const char * colon;
-
-    if ((colon = strchr(name, ':')) == NULL)
-        return TRUE;
-
-#ifdef _WIN32
-    /* <drive letter>:\path\to\cache ? */
-
-    if (colon == name + 1 &&
-        strchr(colon + 1, ':') == NULL)
-        return TRUE;
-#endif
-
-    return FALSE;
-}
 
 /**
  * Find and allocate a ccache in `id' from the specification in `residual'.
@@ -278,13 +260,7 @@ krb5_cc_resolve(krb5_context context,
 				    id);
 	}
     }
-    if (is_possible_path_name(name))
-	return allocate_ccache (context, &krb5_fcc_ops, name, NULL, id);
-    else {
-	krb5_set_error_message(context, KRB5_CC_UNKNOWN_TYPE,
-			       N_("unknown ccache type %s", "name"), name);
-	return KRB5_CC_UNKNOWN_TYPE;
-    }
+    return allocate_ccache(context, &krb5_fcc_ops, name, NULL, id);
 }
 
 static const char *
@@ -307,10 +283,8 @@ get_default_cc_type(krb5_context context, int simple)
                 def_ccname[prefix_len] == ':')
                 return context->cc_ops[i]->prefix;
         }
-        if (is_possible_path_name(def_ccname))
-            return "FILE";
     }
-    return def_cctype ? def_cctype : "DIR";
+    return def_cctype ? def_cctype : "FILE";
 }
 
 /**
@@ -358,7 +332,7 @@ krb5_cc_resolve_sub(krb5_context context,
 
     if (!cctype) {
         const char *def_cctype = get_default_cc_type(context, 0);
-        int might_be_path = collection && is_possible_path_name(collection);
+        int might_be_path = collection != NULL;
 
         if (def_cctype)
             cctype = def_cctype;
@@ -452,6 +426,9 @@ krb5_cc_new_unique(krb5_context context, const char *type,
 {
     const krb5_cc_ops *ops;
     krb5_error_code ret;
+
+    if (type == NULL)
+        type = get_default_cc_type(context, 1);
 
     ops = krb5_cc_get_prefix_ops(context, type);
     if (ops == NULL) {
