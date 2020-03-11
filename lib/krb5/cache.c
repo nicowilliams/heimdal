@@ -271,16 +271,26 @@ get_default_cc_type(krb5_context context, int simple)
         krb5_config_get_string_default(context, NULL,
                                        secure_getenv("KRB5CCTYPE"),
                                        "libdefaults", "default_cc_type", NULL);
+    const char *def_cccol =
+        krb5_config_get_string(context, NULL, "libdefaults",
+                               "default_cc_collection", NULL);
+    size_t i;
 
-    if (!simple &&
-        (def_ccname = krb5_cc_default_name(context))) {
-        size_t i;
-
+    if (!simple && (def_ccname = krb5_cc_default_name(context))) {
         for (i = 0; i < context->num_cc_ops && context->cc_ops[i]->prefix; i++) {
             size_t prefix_len = strlen(context->cc_ops[i]->prefix);
 
             if (!strncmp(context->cc_ops[i]->prefix, def_ccname, prefix_len) &&
                 def_ccname[prefix_len] == ':')
+                return context->cc_ops[i]->prefix;
+        }
+    }
+    if (!def_cctype && def_cccol) {
+        for (i = 0; i < context->num_cc_ops && context->cc_ops[i]->prefix; i++) {
+            size_t prefix_len = strlen(context->cc_ops[i]->prefix);
+
+            if (!strncmp(context->cc_ops[i]->prefix, def_cccol, prefix_len) &&
+                def_cccol[prefix_len] == ':')
                 return context->cc_ops[i]->prefix;
         }
     }
