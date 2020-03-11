@@ -1317,7 +1317,8 @@ struct fcache_iter {
     DIR *d;
     struct dirent *dentry;
     int location;       /* Index of current locations */
-    int first;
+    unsigned int first:1;
+    unsigned int dead:1;
 };
 
 /* Initiate FILE collection iteration */
@@ -1390,6 +1391,7 @@ next_location(krb5_context context, struct fcache_iter *iter)
     if (iter->locations &&
         (iter->curr_location = iter->locations[++(iter->location)]))
         return 0;
+    iter->dead = 1;
     return KRB5_CC_END;
 }
 
@@ -1455,6 +1457,8 @@ fcc_get_cache_next(krb5_context context, krb5_cc_cursor cursor, krb5_ccache *id)
     *id = NULL;
     if (iter == NULL)
         return krb5_einval(context, 2);
+    if (iter->dead)
+        return KRB5_CC_END;
 
     if (!iter->curr_location) {
         /* Next name */
