@@ -1318,8 +1318,8 @@ fcc_get_cache_first(krb5_context context, krb5_cc_cursor *cursor)
      * Note: do not allow krb5_cc_default_name() to recurse via
      * krb5_cc_cache_match().
      * Note that context->default_cc_name will be NULL even though
-     * KRB5CCNAME is set in the environment if
-     * krb5_cc_set_default_name() hasn't
+     * KRB5CCNAME is set in the environment if neither krb5_cc_default_name()
+     * nor krb5_cc_set_default_name() have been called.
      */
     if ((ret = is_default_collection(context, def_ccname,
                                      (const char **)def_locs,
