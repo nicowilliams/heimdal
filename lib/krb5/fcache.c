@@ -203,18 +203,39 @@ fcc_lock(krb5_context context, krb5_ccache id,
 }
 
 static krb5_error_code KRB5_CALLCONV
+fcc_get_default_name(krb5_context, char **);
+
+#ifdef WIN32
+#define FILESUBSEP "+"
+#else
+#define FILESUBSEP ":"
+#endif
+#define FILESUBSEPCHR ((FILESUBSEP)[0])
+
+static krb5_error_code KRB5_CALLCONV
 fcc_resolve(krb5_context context,
             krb5_ccache *id,
             const char *res,
             const char *sub)
 {
     krb5_fcache *f;
+    char *freeme = NULL;
+
+    if (res == NULL && sub == NULL)
+        return krb5_einval(context, 3);
+    if (res == NULL) {
+        krb5_error_code ret;
+
+        if ((ret = fcc_get_default_name(context, &freeme)))
+            return ret;
+        res = freeme + sizeof("FILE:") - 1;
+    }
 
     if ((f = calloc(1, sizeof(*f))) == NULL ||
         (f->res = strdup(res)) == NULL ||
         (f->sub = sub ? strdup(res) : NULL) == (sub ? NULL : "") ||
         asprintf(&f->filename, "%s%s%s",
-                 res, sub ? ":" : "", sub ? sub : "") == -1 ||
+                 res, sub ? FILESUBSEP : "", sub ? sub : "") == -1 ||
         f->filename == NULL) {
         if (f) {
             free(f->filename);
@@ -222,6 +243,7 @@ fcc_resolve(krb5_context context,
             free(f->sub);
         }
         free(f);
+        free(freeme);
         return krb5_enomem(context);
     }
     f->tmpfn = NULL;
@@ -229,6 +251,7 @@ fcc_resolve(krb5_context context,
     (*id)->data.data = f;
     (*id)->data.length = sizeof(*f);
 
+    free(freeme);
     return 0;
 }
 
@@ -1200,7 +1223,7 @@ matchfile(const char *fn, const char *base, int match_sub_only)
     baselen = strlen(base);
     return strncmp(fn, base, baselen) == 0 &&
         ((!match_sub_only && fn[baselen] == '\0') ||
-         (fn[baselen] == ':' && fn[baselen + 1] != '\0'));
+         (fn[baselen] == FILESUBSEPCHR && fn[baselen + 1] != '\0'));
 }
 
 static krb5_error_code
