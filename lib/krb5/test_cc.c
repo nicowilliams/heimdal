@@ -1068,13 +1068,11 @@ main(int argc, char **argv)
 
         if ((d = strdup("FILE:filesXXXXXX")) == NULL ||
             mkdtemp(d + sizeof("FILE:") - 1) == NULL ||
-            asprintf(&fname, "FILE:%s/foobar",
-                     d + sizeof("FILE:") - 1) == -1 ||
+            asprintf(&fname, "%s/foobar", d) == -1 ||
             fname == NULL ||
             asprintf(&config,
                      "[libdefaults]\n"
-                     "\tdefault_file_cache_collection = FILE:%1$s/foobar\n"
-                     "\tdefault_file_cache_collection = FILE:%1$s/foobar:*\n",
+                     "\tdefault_file_cache_collection = %1$s/foobar\n",
                      d) == -1 || config == NULL)
             krb5_err(context, 1, errno, "Could not make temp dir");
         ret = krb5_set_config(context, config);
