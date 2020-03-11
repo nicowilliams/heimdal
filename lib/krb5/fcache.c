@@ -205,11 +205,12 @@ fcc_lock(krb5_context context, krb5_ccache id,
 static krb5_error_code KRB5_CALLCONV
 fcc_get_default_name(krb5_context, char **);
 
-#ifdef WIN32
+/*
+ * This is the character used to separate the residual from the subsidiary name
+ * when both are given.  It's tempting to use ':' just as we do in the ccache
+ * names.
+ */
 #define FILESUBSEP "+"
-#else
-#define FILESUBSEP ":"
-#endif
 #define FILESUBSEPCHR ((FILESUBSEP)[0])
 
 static krb5_error_code KRB5_CALLCONV
@@ -229,6 +230,16 @@ fcc_resolve(krb5_context context,
         if ((ret = fcc_get_default_name(context, &freeme)))
             return ret;
         res = freeme + sizeof("FILE:") - 1;
+    } else if (!sub && (sub = strchr(res, FILESUBSEPCHR))) {
+        if (sub[1] == '\0') {
+            sub = NULL;
+        } else {
+            /* `res' has a subsidiary component, so split on it */
+            if ((freeme = strndup(res, sub - res)) == NULL)
+                return krb5_enomem(context);
+            res = freeme;
+            sub++;
+        }
     }
 
     if ((f = calloc(1, sizeof(*f))) == NULL ||
