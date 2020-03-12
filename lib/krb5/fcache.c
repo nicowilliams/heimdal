@@ -1208,13 +1208,12 @@ fcc_get_version(krb5_context context,
 static const char *
 my_basename(const char *fn)
 {
-    const char *base = fn;
-    const char *p;
+    const char *base, *p;
 
     if (strncmp(fn, "FILE:", sizeof("FILE:") - 1))
         return "";
     fn += sizeof("FILE:") - 1;
-    for (p = fn; *p; p++) {
+    for (p = base = fn; *p; p++) {
 #ifdef WIN32
         if (*p == '/' || *p == '\\')
             base = p;
