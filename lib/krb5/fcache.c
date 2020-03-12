@@ -208,7 +208,7 @@ fcc_get_default_name(krb5_context, char **);
 /*
  * This is the character used to separate the residual from the subsidiary name
  * when both are given.  It's tempting to use ':' just as we do in the ccache
- * names.
+ * names, but we can't on Windows.
  */
 #define FILESUBSEP "+"
 #define FILESUBSEPCHR ((FILESUBSEP)[0])
@@ -1208,7 +1208,8 @@ fcc_get_version(krb5_context context,
 static const char *
 my_basename(const char *fn)
 {
-    const char *base, *p;
+    const char *base = fn;
+    const char *p;
 
     if (strncmp(fn, "FILE:", sizeof("FILE:") - 1))
         return "";
@@ -1263,10 +1264,8 @@ my_dirname(const char *fn)
  * non-empty subsidiary component.
  */
 static int
-matchbase(const char *fn, const char *base)
+matchbase(const char *fn, const char *base, size_t baselen)
 {
-    size_t baselen = strlen(base);
-
     return strncmp(fn, base, baselen) == 0 &&
         (fn[baselen] == FILESUBSEPCHR && fn[baselen + 1] != '\0');
 }
@@ -1321,7 +1320,7 @@ struct fcache_iter {
     char *dname;        /* dirname() of curr_location */
     DIR *d;
     struct dirent *dentry;
-    int location;       /* Index of current locations */
+    int location;       /* Index of `locations' */
     unsigned int first:1;
     unsigned int dead:1;
 };
@@ -1374,7 +1373,7 @@ fcc_get_cache_first(krb5_context context, krb5_cc_cursor *cursor)
         iter->locations = NULL;
     }
     iter->curr_location = NULL;
-    iter->location = -1;
+    iter->location = -1; /* Pre-incremented */
     iter->first = 1;
     iter->dname = NULL;
     iter->d = NULL;
@@ -1417,6 +1416,7 @@ next_dir_match(krb5_context context, struct fcache_iter *iter, char **fn)
 {
     struct stat st;
     const char *base = my_basename(iter->curr_location);
+    size_t baselen = strlen(base);
     char *s;
 
     *fn = NULL;
@@ -1425,7 +1425,7 @@ next_dir_match(krb5_context context, struct fcache_iter *iter, char **fn)
     for (iter->dentry = readdir(iter->d);
          iter->dentry;
          iter->dentry = readdir(iter->d)) {
-        if (!matchbase(iter->dentry->d_name, base))
+        if (!matchbase(iter->dentry->d_name, base, baselen))
             continue;
         if (asprintf(&s, "FILE:%s/%s", iter->dname, iter->dentry->d_name) == -1 ||
             s == NULL)
