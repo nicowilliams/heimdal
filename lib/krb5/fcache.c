@@ -1217,13 +1217,13 @@ my_basename(const char *fn)
     for (p = fn; *p; p++) {
 #ifdef WIN32
         if (*p == '/' || *p == '\\')
-            base = p;
+            base = p + 1;
 #else
         if (*p == '/')
-            base = p;
+            base = p + 1;
 #endif
     }
-    return base ? base + 1 : fn;
+    return base ? base : fn;
 }
 
 /* We could use an rk_dirname()... */
