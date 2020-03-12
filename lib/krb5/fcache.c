@@ -1208,12 +1208,13 @@ fcc_get_version(krb5_context context,
 static const char *
 my_basename(const char *fn)
 {
-    const char *base, *p;
+    const char *base = NULL;
+    const char *p;
 
     if (strncmp(fn, "FILE:", sizeof("FILE:") - 1))
         return "";
     fn += sizeof("FILE:") - 1;
-    for (p = base = fn; *p; p++) {
+    for (p = fn; *p; p++) {
 #ifdef WIN32
         if (*p == '/' || *p == '\\')
             base = p;
@@ -1222,7 +1223,7 @@ my_basename(const char *fn)
             base = p;
 #endif
     }
-    return base + 1;
+    return base ? base + 1 : fn;
 }
 
 /* We could use an rk_dirname()... */
