@@ -84,6 +84,8 @@ set_default_princ_type(krb5_principal p, NAME_TYPE defnt)
 
 static krb5_error_code append_component(krb5_context, krb5_principal,
                                         const char *, size_t);
+static krb5_error_code vprepend_components(krb5_context, krb5_principal,
+                                           va_list);
 
 /**
  * Frees a Kerberos principal allocated by the library with
@@ -698,23 +700,68 @@ krb5_principal_set_realm(krb5_context context,
     return 0;
 }
 
+/**
+ * Set the Nth component of a principal, adding empty components as needed.
+ *
+ * @param context A Kerberos context.
+ * @param principal Principal to mutate
+ * @param k The number of the component to set
+ * @param component The component value to set
+ *
+ * @return An krb5 error code, see krb5_get_error_message().
+ *
+ * @ingroup krb5_principal
+ */
+
 KRB5_LIB_FUNCTION krb5_error_code KRB5_LIB_CALL
 krb5_principal_set_comp_string(krb5_context context,
 			       krb5_principal principal,
 			       unsigned int k,
                                const char *component)
 {
+    krb5_error_code ret = 0;
     char *s;
     size_t i;
 
-    for (i = princ_num_comp(principal); i <= k; i++)
-        append_component(context, principal, "", 0);
-    s = strdup(component);
-    if (s == NULL)
-        return krb5_enomem(context);
-    free(princ_ncomp(principal, k));
-    princ_ncomp(principal, k) = s;
-    return 0;
+    for (i = princ_num_comp(principal); ret == 0 && i <= k; i++)
+        ret = append_component(context, principal, "", 0);
+    if (ret == 0) {
+        s = strdup(component);
+        if (s == NULL)
+            ret = krb5_enomem(context);
+    }
+    if (ret == 0) {
+        free(princ_ncomp(principal, k));
+        princ_ncomp(principal, k) = s;
+    }
+    return ret;
+}
+
+/**
+ * Prepend components to a principal.
+ *
+ * @param context A Kerberos context.
+ * @param principal Principal to mutate.
+ * @param ... NULL-terminated vararg list of components to prepend, the first
+ * being the new component zero, and so on.
+ *
+ * @return An krb5 error code, see krb5_get_error_message().
+ *
+ * @ingroup krb5_principal
+ */
+
+KRB5_LIB_FUNCTION krb5_error_code KRB5_LIB_CALL
+krb5_principal_prepend_comp_strings(krb5_context context,
+	                            krb5_principal principal,
+                                    ...)
+{
+    krb5_error_code ret;
+    va_list ap;
+
+    va_start(ap, principal);
+    ret = vprepend_components(context, principal, ap);
+    va_end(ap);
+    return ret;
 }
 
 #ifndef HEIMDAL_SMALLER
@@ -804,6 +851,44 @@ append_component(krb5_context context, krb5_principal p,
     princ_ncomp(p, len)[comp_len] = '\0';
     princ_num_comp(p)++;
     return 0;
+}
+
+static krb5_error_code
+vprepend_components(krb5_context context,
+                    krb5_principal p,
+                    va_list ap)
+{
+    krb5_error_code ret;
+    heim_general_string *tmp;
+    size_t len = princ_num_comp(p);
+    size_t nnew = 0;
+    va_list ap2;
+    const char *s;
+
+    va_copy(ap2, ap);
+    while ((const char *)va_arg(ap, const char *))
+        nnew++;
+    if (nnew == 0) {
+        va_end(ap2);
+        return 0;
+    }
+
+    if ((tmp = realloc(princ_comp(p), (len + nnew) * sizeof(*tmp))) == NULL)
+	ret = krb5_enomem(context);
+    if (ret == 0 && len) {
+        memmove(tmp + nnew, tmp, len * sizeof(*tmp));
+        princ_comp(p) = tmp;
+    }
+    while (ret == 0 && (s = va_arg(ap2, const char *))) {
+        if ((princ_ncomp(p, len) = strdup(s)) == NULL)
+            ret = krb5_enomem(context);
+    }
+    va_end(ap2);
+    if (ret == 0)
+        princ_num_comp(p) += nnew;
+    else if (len)
+        memmove(tmp, tmp + nnew, len * sizeof(*tmp));
+    return ret;
 }
 
 static krb5_error_code

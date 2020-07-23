@@ -49,6 +49,9 @@ HDBFlags ::= BIT STRING {
 	locked-out(17),			-- Account is locked out,
 					-- authentication will be denied
 	require-pwchange(18),		-- require a passwd change
+	materialize(19),		-- store even if within virtual namespace
+	virtual-keys(20),		-- entry     stored; keys mostly derived
+	virtual(21),			-- entry not stored; keys always derived
 	force-canonicalize(30),		-- force the KDC to return the canonical
 					-- principal irrespective of the setting
 					-- of the canonicalize KDC option
@@ -103,6 +106,71 @@ hdb_keyset ::= SEQUENCE {
 
 HDB-Ext-KeySet ::= SEQUENCE OF hdb_keyset
 
+--
+-- We need a function of current (or given, but it will always be current) time
+-- and a base hdb_entry or its HDB-Ext-KeyRotation and service ticket lifetime,
+-- that outputs a sequence of {kvno, set_time, max_life} representing past keys
+-- (up to one per past and current KeyRotation), current keys (for the current
+-- KeyRotation), up to one future key for the current KeyRotation, and up to
+-- one current key for the _next_ (future) KeyRotation if there is one.
+--
+-- We have to impose constraints on new KeyRotation elements of
+-- HDB-Ext-KeyRotation.
+--
+-- So virtual keysets (keytabs) will contain:
+--
+--  - up to one past   keyset for all KeyRotation periods that are "applicable"
+--  - the   current    keyset for all KeyRotation periods that are "applicable"
+--  - up to one future keyset for all KeyRotation periods that are "applicable"
+--
+-- An applicable KeyRotation period is:
+--
+--  - the KeyRotation whose `from` is a) in the past and b) nearest to the
+--    current time - we call this the current KeyRotation
+--  - a   KeyRotation whose `from` is in the past of the current KeyRotation
+--    (see preceding item) but where the start of the last time window for the
+--    candidate KeyRotation + its `max-life` overlaps with the current one
+--  - a   KeyRotation whose `from is in the future but where the start of the
+--    current kvno + the `max-life` of the current KeyRotation is larger than
+--    the `from` of the candidate period (note: there can be multiple such
+--    future periods)
+--
+-- Note: There can be more than one applicable past KeyRotation, and more than
+--       one applicable KeyRotation.  We might not want to permit this.
+--       However, it's probably easier to permit it, though we might not test
+--       end-to-end.
+--
+-- Testing:
+--
+--  - We should have standalone unit tests for all these pure functions.
+--
+--  - We should have a test that uses kadm5 and GSS to test against a KDC using
+--    small key rotation periods on the order of seconds, with back-off in case
+--    of losing a race condition.
+--
+KeyRotation ::= SEQUENCE {
+	-- base-kvno is always computed at set time and set for the principal,
+	-- and is never subject to admin choice.  The base-kvno is that of the
+	-- current kvno at that period's `from` given the previous period.
+	--
+	-- Also, insertion of KeyRotation elements before existing ones (in
+	-- time) is never permitted, and all new KeyRotation elements must be
+	-- in the future relative to existing ones.
+	--
+	-- HDB-Ext-KeyRotation will always be sorted (as stored) by `from`, in
+	-- descending order.
+	--
+	-- Max service ticket lifetime will be constrained by the applicable
+	-- KeyRotation elements of HDB-Ext-KeyRotation, and this is over time.
+	-- 
+	base-kvno[0]	INTEGER(0..4294967295), -- starting from this kvno
+	base-key-kvno[1]INTEGER(0..4294967295), -- kvno of base-key
+	period[2]	INTEGER(0..4294967295), -- key rotation seconds
+	max-life[3]	INTEGER(0..4294967295),
+	from[4]		KerberosTime
+}
+
+HDB-Ext-KeyRotation ::= SEQUENCE OF KeyRotation
 
 HDB-extension ::= SEQUENCE {
         mandatory[0]    BOOLEAN,        -- kdc MUST understand this extension,
@@ -123,6 +191,7 @@ HDB-extension ::= SEQUENCE {
 		hist-kvno-diff-svc[11]		INTEGER (0..4294967295),
 	        policy[12]			UTF8String,
 		principal-id[13]		INTEGER(-9223372036854775808..9223372036854775807),
+		key-rotation[14]		HDB-Ext-KeyRotation,
 		...
 	},
 	...
