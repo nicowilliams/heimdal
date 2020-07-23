@@ -308,3 +308,24 @@ add_new_key(struct add_options *opt, int argc, char **argv)
     free(kstuple);
     return ret != 0;
 }
+
+/*
+ * XXX Implement!
+ */
+int
+add_new_namespace(struct add_namespace_options *opt, int argc, char **argv)
+{
+    /*
+     * Format the WELLKNOWN/... namespace name given, setup a
+     * kadm5_principal_ent_rec or kadm5_principal_ent_t according to the
+     * arguments, set no keys because those will be set in the
+     * kadm_5_s_create_principal() or kadm_5_s_create_namespace() function if
+     * we choose to add the latter.  There's so little difference between the
+     * two... except, maybe the former wants to reject creation of namespace
+     * through it, but whatever.
+     *
+     * Now, kadm_5_s_create_principal() or kadm_5_s_create_namespace() if we
+     * add that, will need to: ... do stuff which will be in a comment there.
+     */
+    return 0;
+}

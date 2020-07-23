@@ -26,12 +26,16 @@ gen_files_hdb = \
 	asn1_HDB_Ext_PKINIT_cert.x \
 	asn1_HDB_Ext_PKINIT_hash.x \
 	asn1_HDB_Ext_Constrained_delegation_acl.x \
+	asn1_HDB_Ext_KeyRotation.x \
 	asn1_HDB_Ext_Lan_Manager_OWF.x \
 	asn1_HDB_Ext_Password.x \
 	asn1_HDB_Ext_Aliases.x \
 	asn1_HDB_Ext_KeySet.x \
 	asn1_HDB_extension.x \
 	asn1_HDB_extensions.x \
+	asn1_HDB_EncTypeList.x \
+	asn1_KeyRotation.x \
+	asn1_KeyRotationFlags.x \
 	asn1_hdb_entry.x \
 	asn1_hdb_entry_alias.x \
 	asn1_hdb_keyset.x \
@@ -131,7 +135,10 @@ $(srcdir)/hdb-private.h: $(dist_libhdb_la_SOURCES)
 $(gen_files_hdb) hdb_asn1.hx hdb_asn1-priv.hx: hdb_asn1_files
 
 hdb_asn1_files: $(ASN1_COMPILE_DEP) $(srcdir)/hdb.asn1
-	$(ASN1_COMPILE) --sequence=HDB-Ext-KeySet --sequence=Keys $(srcdir)/hdb.asn1 hdb_asn1
+	$(ASN1_COMPILE) --sequence=HDB-extensions	\
+			--sequence=HDB-Ext-KeyRotation	\
+			--sequence=HDB-Ext-KeySet	\
+			--sequence=Keys $(srcdir)/hdb.asn1 hdb_asn1
 
 test_dbinfo_LIBS = libhdb.la
 

@@ -107,6 +107,19 @@ perform_tl_data(krb5_context context,
 
 	ret = hdb_replace_extension(context, &ent->entry, &ext);
 	free_HDB_extension(&ext);
+    } else if (tl_data->tl_data_type == KRB5_TL_ETYPES) {
+        if (!ent->entry.etypes &&
+            (ent->entry.etypes = calloc(1,
+                                        sizeof(ent->entry.etypes[0]))) == NULL)
+            ret = krb5_enomem(context);
+        if (ent->entry.etypes)
+            free_HDB_EncTypeList(ent->entry.etypes);
+        if (ret == 0)
+            ret = decode_HDB_EncTypeList(tl_data->tl_data_contents,
+                                         tl_data->tl_data_length,
+                                         ent->entry.etypes, NULL);
+	if (ret)
+	    return KADM5_BAD_TL_TYPE;
     } else {
 	return KADM5_BAD_TL_TYPE;
     }

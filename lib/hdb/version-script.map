@@ -35,6 +35,7 @@ HEIMDAL_HDB_1.0 {
 		hdb_entry_get_pw_change_time;
 		hdb_entry_set_password;
 		hdb_entry_set_pw_change_time;
+		hdb_fetch_kvno;
 		hdb_find_extension;
 		hdb_foreach;
 		hdb_free_dbinfo;
@@ -89,23 +90,29 @@ HEIMDAL_HDB_1.0 {
 		# some random bits needed for libkadm
 		add_HDB_Ext_KeySet;
 		add_Keys;
+		add_HDB_Ext_KeySet;
+		add_Keys;
 		asn1_HDBFlags_units;
 		copy_Event;
+		copy_HDB_EncTypeList;
 		copy_HDB_extensions;
 		copy_Key;
 		copy_Keys;
 		copy_Salt;
+		decode_HDB_EncTypeList;
 		decode_HDB_Ext_Aliases;
 		decode_HDB_extension;
 		decode_HDB_Ext_PKINIT_acl;
 		decode_Key;
 		decode_Keys;
+		encode_HDB_EncTypeList;
 		encode_HDB_Ext_Aliases;
 		encode_HDB_extension;
 		encode_HDB_Ext_PKINIT_acl;
 		encode_Key;
 		encode_Keys;
 		free_Event;
+		free_HDB_EncTypeList;
 		free_hdb_entry;
 		free_HDB_Ext_Aliases;
 		free_HDB_extension;
@@ -117,14 +124,13 @@ HEIMDAL_HDB_1.0 {
 		free_Salt;
 		HDBFlags2int;
 		int2HDBFlags;
+		length_HDB_EncTypeList;
 		length_HDB_Ext_Aliases;
 		length_HDB_extension;
 		length_HDB_Ext_PKINIT_acl;
 		length_Key;
 		length_Keys;
 		remove_Keys;
-		add_Keys;
-		add_HDB_Ext_KeySet;
 
 	local:
 		*;

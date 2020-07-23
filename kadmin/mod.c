@@ -303,3 +303,46 @@ mod_entry(struct modify_options *opt, int argc, char **argv)
     return ret != 0;
 }
 
+/*
+ * XXX Implement!
+ */
+int
+modify_namespace(struct modify_namespace_options *opt, int argc, char **argv)
+{
+#if 0
+    krb5_error_code ret = 0;
+    int i;
+
+    for(i = 0; i < argc; i++) {
+	ret = foreach_principal(argv[i], do_mod_namespace, "mod", opt);
+	if (ret)
+	    break;
+    }
+    return ret != 0;
+#else
+    return 0;
+#endif
+}
+
+/*
+ * XXX Implement!
+ */
+int
+modify_ns_kr(struct modify_namespace_key_rotation_options *opt,
+             int argc,
+             char **argv)
+{
+#if 0
+    krb5_error_code ret = 0;
+    int i;
+
+    for(i = 0; i < argc; i++) {
+	ret = foreach_principal(argv[i], do_mod_namespace, "mod_ns", opt);
+	if (ret)
+	    break;
+    }
+    return ret != 0;
+#else
+    return 0;
+#endif
+}
