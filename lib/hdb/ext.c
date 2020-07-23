@@ -157,6 +157,11 @@ hdb_replace_extension(krb5_context context,
 	return ret;
     }
 
+    /*
+     * XXX Use add_HDB_extensions() to simplify this code!
+     *
+     * ret = add_HDB_extensions(entry->extensions, ext);
+     */
     es = realloc(entry->extensions->val,
 		 (entry->extensions->len+1)*sizeof(entry->extensions->val[0]));
     if (es == NULL) {
@@ -187,11 +192,13 @@ hdb_clear_extension(krb5_context context,
 
     for (i = 0; i < entry->extensions->len; i++) {
 	if (entry->extensions->val[i].data.element == (unsigned)type) {
+            /* XXX Use remove_HDB_extensions(entry->extensions, i)! */
 	    free_HDB_extension(&entry->extensions->val[i]);
 	    memmove(&entry->extensions->val[i],
 		    &entry->extensions->val[i + 1],
 		    sizeof(entry->extensions->val[i]) * (entry->extensions->len - i - 1));
 	    entry->extensions->len--;
+            /* XXX break?  break! */
 	}
     }
     if (entry->extensions->len == 0) {
@@ -530,3 +537,75 @@ hdb_set_last_modified_by(krb5_context context, hdb_entry *entry,
     return 0;
 }
 
+krb5_error_code
+hdb_entry_get_key_rotation(krb5_context context,
+	                   const hdb_entry *entry,
+                           const HDB_Ext_KeyRotation **kr)
+{
+    HDB_extension *ext =
+        hdb_find_extension(entry, choice_HDB_extension_data_key_rotation);
+
+    *kr = ext ? &ext->data.u.key_rotation : NULL;
+    return ext ? 0 : HDB_ERR_NOENTRY;
+}
+
+/* XXX Require a new hdb_keyset be given as well */
+krb5_error_code
+hdb_entry_set_key_rotation(krb5_context context,
+                           hdb_entry *entry,
+                           const KeyRotation *kr)
+{
+    krb5_error_code ret;
+    HDB_extension new_ext, *ext;
+    KeyRotation tmp;
+    size_t i, sz;
+
+    if (kr->period < 1) {
+        krb5_set_error_message(context, EINVAL,
+                               "Key rotation period cannot be zero");
+        return EINVAL;
+    }
+
+    new_ext.mandatory = TRUE;
+    new_ext.data.element = choice_HDB_extension_data_key_rotation;
+    new_ext.data.u.key_rotation.len = 0;
+    new_ext.data.u.key_rotation.val = 0;
+
+    ext = hdb_find_extension(entry, choice_HDB_extension_data_key_rotation);
+    if (!ext) {
+        ext = &new_ext;
+    } else {
+        if (ext->data.u.key_rotation.val[0].epoch >= kr->epoch) {
+            krb5_set_error_message(context, EINVAL,
+                                   "New key rotation periods must start later"
+                                   "than existing ones");
+            return EINVAL;
+        }
+    }
+
+    /* First, append */
+    ret = add_HDB_Ext_KeyRotation(&ext->data.u.key_rotation, kr);
+    if (ret)
+        return ret;
+
+    /* Rotate new to front */
+    tmp = ext->data.u.key_rotation.val[ext->data.u.key_rotation.len - 1];
+    sz = sizeof(ext->data.u.key_rotation.val[0]);
+    memmove(&ext->data.u.key_rotation.val[1], &ext->data.u.key_rotation.val[0],
+            (ext->data.u.key_rotation.len - 1) * sz);
+    ext->data.u.key_rotation.val[0] = tmp;
+
+    /* Drop too old entries */
+    for (i = 3; i < ext->data.u.key_rotation.len; i++)
+        free_KeyRotation(&ext->data.u.key_rotation.val[i]);
+    ext->data.u.key_rotation.len =
+        ext->data.u.key_rotation.len > 3 ? 3 : ext->data.u.key_rotation.len;
+
+    if (ext != &new_ext)
+        return 0;
+
+    /* Install new extension */
+    ret = hdb_replace_extension(context, entry, ext);
+    free_HDB_extension(&new_ext);
+    return ret;
+}

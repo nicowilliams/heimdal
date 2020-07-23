@@ -216,6 +216,127 @@ command = {
 	help = "Adds a principal to the database."
 }
 command = {
+	name = "add_namespace"
+	name = "add_ns"
+	function = "add_new_namespace"
+	option = {
+		long = "enctypes"
+		short = "e"
+		type = "string"
+		help = "encryption type(s)"
+	}
+	option = {
+		long = "max-ticket-life"
+		type = "string"
+		argument ="lifetime"
+		help = "max ticket lifetime"
+	}
+	option = {
+		long = "max-renewable-life"
+		type = "string"
+		argument = "lifetime"
+		help = "max renewable life"
+	}
+	option = {
+		long = "key-rotation-epoch"
+		type = "string"
+		argument = "time"
+		help = "absolute start time (or +timespec for relative to now with default unit of month)"
+	}
+	option = {
+		long = "key-rotation-period"
+		type = "string"
+		argument = "time"
+		help = "automatic key rotation period"
+	}
+	option = {
+		long = "attributes"
+		type = "string"
+		argument = "attributes"
+		help = "principal attributes"
+	}
+	argument = "principal..."
+	min_args = "1"
+	help = "Adds a namespace of virtual principals with derived keys to the database."
+}
+command = {
+	name = "modify_namespace"
+	name = "mod_ns"
+	function = "modify_namespace"
+	option = {
+		long = "enctypes"
+		short = "e"
+		type = "string"
+		help = "encryption type(s)"
+	}
+	option = {
+		long = "max-ticket-life"
+		type = "string"
+		argument ="lifetime"
+		help = "max ticket lifetime"
+	}
+	option = {
+		long = "max-renewable-life"
+		type = "string"
+		argument = "lifetime"
+		help = "max renewable life"
+	}
+	option = {
+		long = "attributes"
+		type = "string"
+		argument = "attributes"
+		help = "principal attributes"
+	}
+	argument = "principal..."
+	min_args = "1"
+	help = "Modifies a namespace of virtual principals with derived keys to the database."
+}
+command = {
+	name = "modify_namespace_key_rotation"
+	name = "mod_ns_kr"
+	function = "modify_ns_kr"
+	option = {
+		long = "force"
+		short = "f"
+		type = "flag"
+		help = "change schedule even if it would revoke some extant tickets"
+	}
+	option = {
+		long = "keep-base-key"
+		short = "k"
+		type = "flag"
+		help = "keep current base key for new key rotation schedule"
+	}
+	option = {
+		long = "revoke-old"
+		short = "r"
+		type = "string"
+		argument = "time"
+		help = "delete base keys older than this to revoke old tickets"
+	}
+	option = {
+		long = "key-rotation-epoch"
+		type = "string"
+		argument = "time"
+		help = "new start time relative to now"
+	}
+	option = {
+		long = "key-rotation-period"
+		type = "string"
+		argument = "time"
+		help = "new automatic key rotation period"
+	}
+	option = {
+		long = "attributes"
+		type = "string"
+		argument = "attributes"
+		help = "principal attributes"
+	}
+	argument = "principal..."
+	min_args = "1"
+	help = "Adds a new key rotation schedule to the given namespaces."
+}
+command = {
 	name = "passwd"
 	name = "cpw"
 	name = "change_password"
@@ -275,6 +396,14 @@ command = {
 	argument = "principal..."
 	min_args = "1"
 	help = "Deletes all principals matching the expressions."
+}
+command = {
+	name = "delete_namespace"
+	name = "del_ns"
+	function = "del_namespace"
+	argument = "principal..."
+	min_args = "1"
+	help = "Deletes the given virtual principal namespaces"
 }
 command = {
 	name = "del_enctype"
@@ -378,6 +507,7 @@ command = {
 }
 command = {
 	name = "modify"
+	name = "mod"
 	function = "mod_entry"
 	option = {
 		long = "max-ticket-life"
