@@ -486,171 +486,238 @@ _hdb_remove(krb5_context context, HDB *db,
 }
 
 static krb5_error_code
-_derive_the_keys(krb5_context context, krb5_kdc_configuration *config,
-		 krb5_const_principal princ, krb5uint32 kvno, hdb_entry_ex *h)
+derive_keys(krb5_context context, HDB *db,
+            krb5_const_principal princ,
+            krb5_const_principal baseprinc,
+            krb5_time now,
+            krb5uint32 kvno,
+            hdb_entry_ex *h)
 {
+    HDB_Ext_KeyRotation *kr;
+    HDB_Ext_KeySet base_keys;
     krb5_error_code ret;
     krb5_crypto crypto = NULL;
     krb5_data p;
-    size_t i;
-    char *princstr = NULL;
+    size_t current_kr, last_kr, i;
+    Keys keys;
 
-    krb5_data_zero(&p);
-    free_Principal(ent->entry.principal);
-    ret = copy_Principal(princ, ent->entry.principal);
+    if (baseprinc && !h->entry.flags.virtual_keys)
+        h->entry.flags.virtual_keys = 1;
+    if (!h->entry.flags.virtual_keys)
+        return 0;
+    kr = hdb_entry_get_key_rotation(context, db, h);
+    if (!kr)
+        return HDB_ERR_NOENTRY;
+
+    /* Get the base keys from the entry, and remove them */
+    base_keys.val = 0;
+    base_keys.len = 0;
+    ret = hdb_get_base_keys(context, h, &base_keys);
     if (ret == 0)
-        ret = krb5_unparse_name(context, princ, &princstr);
-    if (ret == 0) {
-        p.data   = princstr;
-        p.length = strlen(princstr);
+        ret = hdb_remove_base_keys(context, h);
+
+    /* Set the entry's principal name */
+    if (baseprinc) {
+        krb5_data_zero(&p);
+        free_Principal(h->entry.principal);
+        if (ret == 0)
+            ret = copy_Principal(princ, h->entry.principal);
     }
+
+    /* Sanity check key rotations, determine current & last kr */
+    if (kr->periods.len < 1 || kr->periods.len > 3)
+        krb5_set_error_message(context, ret = HDB_ERR_NOENTRY,
+                               "wrong number of virtual key rotation periods");
+    for (current_kr = 0, last_kr = 0, i = 0;
+         ret == 0 && i < kr->periods.len; i++) {
+        /* Check order */
+        if (i && kr->periods.val[i - 1].epoch <= kr->periods.val[i].epoch) {
+            krb5_set_error_message(context, ret = HDB_ERR_NOENTRY,
+                                   "misordered key rotation periods");
+            break;
+        }
+        /* At most one future epoch (the first one) */
+        if (i && kr->periods.val[i].epoch >= now) {
+            krb5_set_error_message(context, ret = HDB_ERR_NOENTRY,
+                                   "multiple future key rotation periods");
+            break;
+        }
+        if (i == 0 && kr->periods.val[0].epoch > now) {
+            if (kr->periods.len == 1) {
+                krb5_set_error_message(context, ret = HDB_ERR_NOENTRY,
+                                       "no current key rotation period");
+                break;
+            }
+            current_kr = 1;
+        }
+        /* At most one relevant but kr older than current */
+        if (i == current_kr + 1 &&
+            (now - kr->periods.val[i].period) <= (kr->periods.val[i - 1].epoch))
+            last_kr = i;
+    }
+
+    /* Check that the principal has not been marked deleted */
+    if (kr->periods.val[current_kr].flags.deleted ||
+        !kr->periods.val[current_kr].flags.virtual)
+        ret = HDB_ERR_NOENTRY;
 
     /*
-     * XXX Lots of work needed here.
+     * Derive and set in `h' its current kvno and current keys
+     * This will set h->entry.kvno as well.
      *
-     * We need to find the new extensions that specify rotation periods and
-     * epochs, workout what all the kvnos are that will be needed, and derive
-     * them all.  Each kvno can potentially have a different base key depending
-     * on the base keys' set_time values and the rotation periods and epochs.
+     * This may set TWO keysets:
+     *  - current keys (h->entry.keys and h->entry.kvno)
+     *  - possibly one future or one past keyset in hist_keys for the current_kr
      *
-     * We should first derive a key from each base key using the principal name
-     * as the salt, then for each of those we should then derive final keys one
-     * for each kvno.  This way we can materialize base keys for a principal
-     * and then derive the same actual kvnos for the now-materialized
-     * principal's virtual keys.
-     *
-     * This means we need to split out the body of this for loop.
-     *
-     * We're going to need a loop over the rotation periods&epochs, for each we
-     * need to decide if it's relevant.  If we find a too-old rotation period,
-     * stop.  For each relevant period we must find one (or more) base keys
-     * that are in scope by looking at material keys' set_time values.
-     *
-     * For materialized principals with virtual keys we'll want a convention
-     * for base key kvnos: 0, 1, and 2 -- no more are needed.  That means we
-     * must never generate kvnos less than 3.
      */
-    for (i = 0; ret == 0 && i < h->entry.keys.len; i++) {
-	krb5_enctype etype = h->entry.keys.val[i].key.keytype;
-	krb5_keyblock *keyptr = &h->entry.keys.val[i].key;
-	krb5_data rnd;
-	size_t len;
+    if (ret == 0)
+        ret = derive_keys_for_current_kr(context, h, &base_keys, now,
+                                         &kr->periods.val[current_kr]);
 
-        krb5_data_zero(&rnd);
-	ret = krb5_crypto_init(context, keyptr, 0, &crypto);
-        if (ret == 0)
-            ret = krb5_enctype_keysize(context, etype, &len);
-        if (ret == 0)
-            ret = krb5_crypto_prfplus(context, crypto, &p, len, &rnd);
-        if (crypto)
-            krb5_crypto_destroy(context, crypto);
-	crypto = NULL;
-        if (ret == 0) {
-            krb5_free_keyblock_contents(context, keyptr);
-            ret = krb5_random_to_key(context, etype, rnd.data, rnd.length, keyptr);
-        }
-	krb5_data_free(&rnd);
-    }
+    /* Derive and set in `h' its future keys (key history only) */
+    if (ret == 0 && current_kr != 0 &&
+        now + kr->periods.val[current_kr].period +
+        (kr->periods.val[current_kr].period >> 1) > kr->periods.val[0].epoch)
+        ret = derive_keys_for_kr(context, h, &base_keys,
+                                 kr->periods.val[0].epoch,
+                                 &kr->periods.val[0]);
 
-    free(princstr);
+    /* Derive and set in `h' its past keys (key history only) */
+    if (ret == 0 && last_kr && last_kr != current_kr)
+        ret = derive_keys_for_kr(context, h, &base_keys,
+                                 kr->periods.val[current_kr].epoch,
+                                 &kr->periods.val[last_kr]);
 
-    return 0;
+    /*
+     * Impose a bound on h->entry.max_life so that [when the KDC is the caller]
+     * the KDC won't issue tickets longer lived than this.
+     *
+     * It's OK if ret != 0 here.
+     */
+    if (h->entry.max_life > kr->periods.val[current_kr].period >> 1)
+        h->entry.max_life = kr->periods.val[current_kr].period >> 1;
+    return ret;
 }
 
 static krb5_error_code
-_fetch_it(krb5_context context, HDB *db,
-	  krb5_const_principal princ, unsigned flags, krb5uint32 kvno,
-	  hdb_entry_ex *ent)
+fetch_it(krb5_context context, HDB *db,
+         krb5_const_principal princ, unsigned flags,
+         krb5_timestamp now,
+         krb5uint32 kvno,
+         hdb_entry_ex *ent)
 {
     krb5_const_principal tmpprinc = princ;
     krb5_principal baseprinc = NULL;
     krb5_error_code ret;
     const char *comp0 = krb5_principal_get_comp_string(context, princ, 0);
     const char *comp1 = krb5_principal_get_comp_string(context, princ, 1);
+    const char *comp2 = krb5_principal_get_comp_string(context, princ, 2);
+    const char *tmp;
     size_t mindots = db->virtual_hostbased_princ_ndots;
     size_t maxdots = db->virtual_hostbased_princ_maxdots;
     size_t hdots = 0;
     char *host = NULL;
-    int virtual = 0;
 
     flags |= HDB_F_DECRYPT;
 
-    if (ret == 0 && db->enable_virtual_hostbased_princs && comp1 &&
+    if (db->enable_virtual_hostbased_princs && comp1 &&
         strcmp("krbtgt", comp0) != 0) {
-        char *tmp;
+        char *htmp;
 
         if ((host = strdup(comp1)) == NULL)
             return krb5_enomem(context);
 
-        /* Strip the :port */
-        tmp = strchr(host, ':');
-        if (tmp) {
-            *tmp++ = '\0';
-            if (strchr(tmp, ':')) {
+        /* Strip out any :port */
+        htmp = strchr(host, ':');
+        if (htmp) {
+            if (strchr(htmp + 1, ':')) {
+                /* Extra ':'s?  No virtualization for you! */
                 free(host);
                 host = NULL;
+                htmp = NULL;
+            } else {
+                *htmp = '\0';
+                /* Count dots in `host' */
+                for (hdots = 0, htmp = host; htmp && *htmp; htmp++)
+                    if (*htmp == '.')
+                        hdots++;
             }
         }
-
-        /* Count dots in `host' */
-        for (hdots = 0, tmp = host; tmp && *tmp; tmp++)
-            if (*tmp == '.')
-                hdots++;
-        tmp = host;
     }
 
+    tmp = host ? host : comp1;
     while (ret == 0) {
-        const char *tmp;
         /*XXX use krb5_debug()*/
 	/*log_princ(context, config, 7, "Looking up %s", tmpprinc);*/
         /*
          * First time through we lookup the principal as given.
          *
-         * Next we lookup a base principal, stripping off hostname labels from
-         * the left until we find one or get tired of looking or run out of
-         * labels.
+         * Next we lookup a namespace principal, stripping off hostname labels
+         * from the left until we find one or get tired of looking or run out
+         * of labels.
          */
 	ret = db->hdb_fetch_kvno(context, db, tmpprinc, flags, kvno, ent);
-	if (ret != HDB_ERR_NOENTRY ||
-            hdots == 0 || hdots < mindots || hdots > maxdots)
+	if (ret != HDB_ERR_NOENTRY || hdots == 0 || hdots < mindots)
 	    break;
 
-        if (baseprinc == NULL) {
-            /* Make a base principal.  First copy the given principal. */
-            ret = krb5_copy_principal(context, princ, &baseprinc);
-            if (ret == 0)
-                /* Then prepend a few special components */
-                ret = krb5_principal_prepend_comp_strings(context, baseprinc,
-                                                          "WELLKNOWN",
-                                                          "BASE-PRINCIPAL",
-                                                          NULL);
-            if (ret)
-                break;
+        /*
+         * Breadcrumb:
+         *
+         *  - if we found a concrete principal, but it's been marked
+         *    non-existent, then we should return HDB_ERR_NOENTRY
+         *  - if we found a concrete principal, but it's been marked
+         *    as now-virtual, then we must keep going
+         *
+         * But this will be coded in the future.
+         */
+
+        /*
+         * The namespace's hostname will not have more labels than maxdots + 1.
+         * Thus we truncate immediately down to maxdots + 1 if we haven't yet.
+         *
+         * Example: with maxdots == 3,
+         *          foo.bar.baz.app.blah.example -> baz.app.blah.example
+         */
+        while (maxdots && hdots > maxdots) {
+            tmp = strchr(tmp, '.');
+            /* tmp != NULL because maxdots > 0 */
+            tmp++;
+            hdots--;
         }
 
+        if (baseprinc == NULL) {
+            /* First go around, need, so make, a namespace princ */
+            ret = krb5_build_principal(context, &tmpprinc, strlen(realm),
+                                       realm, "WELLKNOWN",
+                                       "HOSTBASED-NAMESPACE", NULL);
+            if (ret == 0 && comp2)
+                /* Support domain-based names */
+                ret = krb5_principal_set_comp_string(context, baseprinc, 3, comp2);
+        }
+
+        /* Update the hostname component */
+        if (ret == 0)
+            ret = krb5_principal_set_comp_string(context, baseprinc, 2, tmp);
         tmpprinc = baseprinc;
 
+        /* Strip off left-most label for the next go-around */
 	tmp = strchr(tmp, '.');
 	if (!tmp)
 	    break;
 	tmp++;
 	hdots--;
-	virtual = 1;
-        ret = krb5_principal_set_comp_string(context, baseprinc, 3, tmp);
     }
 
-    if (ret == 0 && virtual) {
-#if 0
-        /* XXX use krb5_debug() */
-	kdc_log(context,   config, 7, "Deriving keys:");
-	log_princ(context, config, 7, "    for %s", princ);
-	log_princ(context, config, 7, "    from %s", tmpprinc);
-#endif
-	_derive_the_keys(context, config, princ, kvno, ent);
-    }
+    /* There may not be any key derivation to do, but that's decided there */
+    if (ret == 0)
+	ret = derive_keys(context, config, princ, baseprinc, now, kvno, ent);
+    if (ret)
+        hdb_free_entry(context, ent);
 
-    free(host);
     krb5_free_principal(context, baseprinc);
+    baseprinc = tmpprinc = NULL;
+    free(host);
+    host = NULL;
     return ret;
 }
 
@@ -671,9 +738,11 @@ hdb_fetch_kvno(krb5_context context,
     int i;
     krb5_principal enterprise_principal = NULL;
     krb5_const_principal princ;
+    krb5_timestamp now;
 
     flags |= kvno ? HDB_F_KVNO_SPECIFIED : HDB_F_ALL_KVNOS;
-    ret = _fetch_it(context, config, db, princ, flags, kvno, h);
+    krb5_timeofday(context, &now);
+    ret = fetch_it(context, config, db, princ, flags, now, kvno, h);
     if (ret == HDB_ERR_NOENTRY)
 	krb5_set_error_message(context, ret, "no such entry found in hdb");
     krb5_free_principal(context, enterprise_principal);

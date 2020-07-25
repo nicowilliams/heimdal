@@ -157,6 +157,11 @@ hdb_replace_extension(krb5_context context,
 	return ret;
     }
 
+    /*
+     * XXX Use add_HDB_extensions() to simplify this code!
+     *
+     * ret = add_HDB_extensions(entry->extensions, ext);
+     */
     es = realloc(entry->extensions->val,
 		 (entry->extensions->len+1)*sizeof(entry->extensions->val[0]));
     if (es == NULL) {
@@ -187,11 +192,13 @@ hdb_clear_extension(krb5_context context,
 
     for (i = 0; i < entry->extensions->len; i++) {
 	if (entry->extensions->val[i].data.element == (unsigned)type) {
+            /* XXX Use remove_HDB_extensions(entry->extensions, i)! */
 	    free_HDB_extension(&entry->extensions->val[i]);
 	    memmove(&entry->extensions->val[i],
 		    &entry->extensions->val[i + 1],
 		    sizeof(entry->extensions->val[i]) * (entry->extensions->len - i - 1));
 	    entry->extensions->len--;
+            /* XXX break?  break! */
 	}
     }
     if (entry->extensions->len == 0) {
@@ -530,3 +537,31 @@ hdb_set_last_modified_by(krb5_context context, hdb_entry *entry,
     return 0;
 }
 
+HDB_Ext_KeyRotation *
+hdb_entry_get_key_rotation(krb5_context context,
+                           HDB *db,
+	                   const hdb_entry *entry)
+{
+    return hdb_find_extension(entry, choice_HDB_extension_data_key_rotation);
+}
+
+int
+hdb_entry_set_key_rotation(krb5_context context,
+                           HDB *db,
+                           hdb_entry *entry,
+                           const HDB_Ext_KeyRotation *kr)
+{
+    HDB_extension ext;
+
+    ext.mandatory = TRUE;
+    ext.data.element = choice_HDB_extension_data_key_rotation;
+    ext.u.key_rotation = kr;
+    return hdb_replace_extension(context, entry, &ext);
+}
+
+int
+hdb_entry_clear_key_rotation(krb5_context context, hdb_entry *entry)
+{
+    return hdb_clear_extension(context, entry,
+			       choice_HDB_extension_data_key_rotation);
+}
