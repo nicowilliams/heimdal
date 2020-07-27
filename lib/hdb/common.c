@@ -485,11 +485,168 @@ _hdb_remove(krb5_context context, HDB *db,
     return code;
 }
 
+/* PRF+(K_base, pad) */
+static krb5_error_code
+derive_key(krb5_context context, const char *pad, Key *base, Key *nk)
+{
+    krb5_error_code ret;
+    krb5_crypto crypto = NULL;
+    krb5_data in, out;
+    size_t len;
+
+    out.data = 0;
+    out.length = 0;
+    in.data = pad;
+    in.length = strlen(pad);
+
+    nk->salt = NULL;
+    nk->mkvno = NULL;
+    nk->key.keytype = 0;
+    nk->key.keyvalue.data = 0;
+    nk->key.keyvalue.length = 0;
+    nk->key.keytype = base->key.keytype;
+    ret = krb5_enctype_keysize(context, base->key.keytype, &len);
+    if (ret == 0)
+        ret = krb5_crypto_init(context, base->val[i].key, 0, &crypto);
+    if (ret == 0)
+        ret = krb5_crypto_prfplus(context, crypto, &in, len, &out);
+    if (crypto)
+        krb5_crypto_destroy(context, crypto);
+    if (ret == 0)
+        ret = krb5_random_to_key(context, base->key.keytype,
+                                 out.data, out.length, &nk->key);
+    krb5_data_free(&out);
+    return ret;
+}
+
+/* PRF+(K_base_i, pad) for all the base keys, optionally filtered by etype */
+static krb5_error_code
+derive_keys(krb5_context context,
+            const char *pad,
+            krb5int32 etype,
+            Keys *base,
+            Keys *dk)
+
+{
+    krb5_error_code ret;
+    size_t i;
+    Key nk;
+
+    dk->len = 0;
+    dk->val = 0;
+    for (i = 0; ret == 0 && i < keys->len; i++) {
+        if (etype != KRB5_ENCTYPE_NULL && etype != base->val[i].key.keytype)
+            continue;
+        if ((ret = derive_key(context, pad, &base->val[i].key, &nk)))
+            return ret;
+        add_Keys(dk, &nk);
+        free_Key(&nk.key);
+    }
+    return 0;
+}
+
+/*
+ * XXX Add in enctype argument for KDC paths to avoid deriving more keys than
+ * necessary.
+ *
+ * XXX Slot in the second layer of key derivation.
+ */
+
+static krb5_error_code
+derive_keyset(krb5_context context,
+              hdb_entry_ex *h,
+              hdb_keyset *base_keys,
+              const char *princ,
+              krb5int32 etype,
+              krb5uint32 kvno,
+              KerberosTime set_time,
+              struct HDB_Ext_KeyRotation_periods *krp,
+              HDB_Ext_KeySet *dks)
+{
+    krb5_error_code ret;
+
+    /* Find the base keyset with kvno == `krp->base_key_kvno' */
+    /* Call derive_keys() with that base keyset */
+    /* If princ == NULL then format the kvno as a string and use that as the pad for key derivation */
+    /* Make an `hdb_keyset' */
+    /* `add_HDB_Ext_KeySet(dks, new_keys)' */
+    /* `free_hdb_keyset(new_keys)' */
+    ...
+    return 0;
+}
+
+/* Derive ONE keyset and kvno from some base keys */
+static krb5_error_code
+derive_keys_for_kr(krb5_context context,
+                   hdb_entry_ex *h,
+                   HDB_Ext_KeySet *base_keys,
+                   const char *princ,
+                   krb5int32 etype,
+                   krb5uint32 kvno_wanted,
+                   KerberosTime t,
+                   struct HDB_Ext_KeyRotation_periods *krp)
+{
+    krb5_error_code ret;
+    HDB_Ext_KeySet dks;
+    KerberosTime n, set_time;
+    krb5uint32 kvno;
+    size_t i;
+
+    /* Compute `kvno' and `set_time' given `t' and `krp' */
+    n = (krp->epoch < t) ? (t - krp->epoch) % krp->period : 0;
+    set_time = krp->epoch + krp->period * n;
+    kvno = krp->base_kvno + n;
+
+    /* Do not waste cycles computing keys not wanted */
+    if (kvno_wanted && kvno != kvno_wanted)
+        return 0;
+
+    for (i = 0; i < base_keys->len; i++) {
+        if (base_keys->val[i].kvno == kvno)
+            break;
+    }
+    if (i == base_keys->len) {
+        /* Base key not found! */
+        if (kvno_wanted) {
+            krb5_set_error_message(context, HDB_ERR_KVNO_NOT_FOUND,
+                                   "Base key version %u not found for %s",
+                                   princ, kvno);
+            return HDB_ERR_KVNO_NOT_FOUND;
+        }
+        return 0; /* XXX log/warn/debug; or return error? */
+    }
+
+    dks.len = 0;
+    dks.val = 0;
+
+    ret = derive_keyset(context, h, &base_keys->val[i], princ, etype, kvno,
+                        set_time, &dks);
+    if (ret == 0)
+        ret = install_keyset(context, h, &dks);
+
+    free_HDB_Ext_KeySet(&dks);
+    return ret;
+}
+
+static krb5_error_code
+derive_keys_for_current_kr(krb5_context context,
+                           hdb_entry_ex *h, 
+                           HDB_Ext_KeySet *base_keys,
+                           const char *princ,
+                           krb5uint32 kvno,
+                           KerberosTime now,
+                           struct HDB_Ext_KeyRotation_periods)
+{
+    /* derive_keys_for_kr() for current kvno and install as the current keyset */
+    /* derive_keys_for_kr() for next or prev kvno add to history */
+}
+
 static krb5_error_code
 derive_keys(krb5_context context, HDB *db,
             krb5_const_principal princ,
             krb5_const_principal baseprinc,
             krb5_time now,
+            krb5int32 etype,
             krb5uint32 kvno,
             hdb_entry_ex *h)
 {
@@ -497,8 +654,8 @@ derive_keys(krb5_context context, HDB *db,
     HDB_Ext_KeySet base_keys;
     krb5_error_code ret;
     krb5_crypto crypto = NULL;
-    krb5_data p;
     size_t current_kr, last_kr, i;
+    char *p = NULL;
     Keys keys;
 
     if (baseprinc && !h->entry.flags.virtual_keys)
@@ -512,16 +669,19 @@ derive_keys(krb5_context context, HDB *db,
     /* Get the base keys from the entry, and remove them */
     base_keys.val = 0;
     base_keys.len = 0;
-    ret = hdb_get_base_keys(context, h, &base_keys);
-    if (ret == 0)
-        ret = hdb_remove_base_keys(context, h);
 
     /* Set the entry's principal name */
     if (baseprinc) {
-        krb5_data_zero(&p);
+        HDB_Ext_KeySet base_base_keys = base_keys;
+
         free_Principal(h->entry.principal);
         if (ret == 0)
             ret = copy_Principal(princ, h->entry.principal);
+        /* XXX We'll want hdb_get_and_remove_base_keys() */
+        ret = hdb_get_base_keys(context, h, &base_base_keys);
+    } else {
+        /* XXX We'll want hdb_get_and_remove_base_keys() */
+        ret = hdb_get_base_keys(context, h, &base_keys);
     }
 
     /* Sanity check key rotations, determine current & last kr */
@@ -542,6 +702,7 @@ derive_keys(krb5_context context, HDB *db,
                                    "multiple future key rotation periods");
             break;
         }
+        /* Identify current key rotation period */
         if (i == 0 && kr->periods.val[0].epoch > now) {
             if (kr->periods.len == 1) {
                 krb5_set_error_message(context, ret = HDB_ERR_NOENTRY,
@@ -565,26 +726,32 @@ derive_keys(krb5_context context, HDB *db,
      * Derive and set in `h' its current kvno and current keys
      * This will set h->entry.kvno as well.
      *
-     * This may set TWO keysets:
+     * This may set up to TWO keysets for the current key rotation period:
      *  - current keys (h->entry.keys and h->entry.kvno)
      *  - possibly one future or one past keyset in hist_keys for the current_kr
      *
+     * There may be up to ONE keyset for each of the next and precedinr key
+     * rotation periods.
      */
+
     if (ret == 0)
-        ret = derive_keys_for_current_kr(context, h, &base_keys, now,
+        ret = krb5_unparse_name(context, princ, &p);
+    if (ret == 0)
+        ret = derive_keys_for_current_kr(context, h, &base_keys, p, etype,
+                                         kvno, now,
                                          &kr->periods.val[current_kr]);
 
     /* Derive and set in `h' its future keys (key history only) */
     if (ret == 0 && current_kr != 0 &&
         now + kr->periods.val[current_kr].period +
         (kr->periods.val[current_kr].period >> 1) > kr->periods.val[0].epoch)
-        ret = derive_keys_for_kr(context, h, &base_keys,
+        ret = derive_keys_for_kr(context, h, &base_keys, p, etype, kvno,
                                  kr->periods.val[0].epoch,
                                  &kr->periods.val[0]);
 
     /* Derive and set in `h' its past keys (key history only) */
     if (ret == 0 && last_kr && last_kr != current_kr)
-        ret = derive_keys_for_kr(context, h, &base_keys,
+        ret = derive_keys_for_kr(context, h, &base_keys, p, etype, kvno,
                                  kr->periods.val[current_kr].epoch,
                                  &kr->periods.val[last_kr]);
 
@@ -596,13 +763,18 @@ derive_keys(krb5_context context, HDB *db,
      */
     if (h->entry.max_life > kr->periods.val[current_kr].period >> 1)
         h->entry.max_life = kr->periods.val[current_kr].period >> 1;
+
+    if (ret == 0)
+        ret = hdb_remove_base_keys(context, h);
     return ret;
 }
 
 static krb5_error_code
 fetch_it(krb5_context context, HDB *db,
-         krb5_const_principal princ, unsigned flags,
+         krb5_const_principal princ,
+         unsigned flags,
          krb5_timestamp now,
+         krb5int32 etype,
          krb5uint32 kvno,
          hdb_entry_ex *ent)
 {
@@ -647,8 +819,6 @@ fetch_it(krb5_context context, HDB *db,
 
     tmp = host ? host : comp1;
     while (ret == 0) {
-        /*XXX use krb5_debug()*/
-	/*log_princ(context, config, 7, "Looking up %s", tmpprinc);*/
         /*
          * First time through we lookup the principal as given.
          *
@@ -710,7 +880,8 @@ fetch_it(krb5_context context, HDB *db,
 
     /* There may not be any key derivation to do, but that's decided there */
     if (ret == 0)
-	ret = derive_keys(context, config, princ, baseprinc, now, kvno, ent);
+        ret = derive_keys(context, config, princ, baseprinc, now, etype, kvno,
+                          ent);
     if (ret)
         hdb_free_entry(context, ent);
 
@@ -731,6 +902,7 @@ hdb_fetch_kvno(krb5_context context,
                HDB *db,
                krb5_const_principal principal,
                unsigned flags,
+               krb5int32 etype,
                krb5uint32 kvno,
                hdb_entry_ex *h)
 {
@@ -742,7 +914,7 @@ hdb_fetch_kvno(krb5_context context,
 
     flags |= kvno ? HDB_F_KVNO_SPECIFIED : HDB_F_ALL_KVNOS;
     krb5_timeofday(context, &now);
-    ret = fetch_it(context, config, db, princ, flags, now, kvno, h);
+    ret = fetch_it(context, config, db, princ, flags, now, etype, kvno, h);
     if (ret == HDB_ERR_NOENTRY)
 	krb5_set_error_message(context, ret, "no such entry found in hdb");
     krb5_free_principal(context, enterprise_principal);
