@@ -26,12 +26,15 @@ gen_files_hdb = \
 	asn1_HDB_Ext_PKINIT_cert.x \
 	asn1_HDB_Ext_PKINIT_hash.x \
 	asn1_HDB_Ext_Constrained_delegation_acl.x \
+	asn1_HDB_Ext_KeyRotation.x \
 	asn1_HDB_Ext_Lan_Manager_OWF.x \
 	asn1_HDB_Ext_Password.x \
 	asn1_HDB_Ext_Aliases.x \
 	asn1_HDB_Ext_KeySet.x \
 	asn1_HDB_extension.x \
 	asn1_HDB_extensions.x \
+	asn1_KeyRotation.x \
+	asn1_KeyRotationFlags.x \
 	asn1_hdb_entry.x \
 	asn1_hdb_entry_alias.x \
 	asn1_hdb_keyset.x \
