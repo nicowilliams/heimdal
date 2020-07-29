@@ -119,6 +119,16 @@ static struct hdb_method default_dbmethod =
     { HDB_INTERFACE_VERSION, NULL, NULL, "", hdb_ndbm_create };
 #endif
 
+/**
+ * Returns the Keys of `e' for `kvno', or NULL if not found.  The Keys will
+ * remain valid provided that the entry is not mutated.
+ *
+ * @param context Context
+ * @param e The HDB entry
+ * @param kvno The kvno
+ *
+ * @return A pointer to the Keys for the requested kvno.
+ */
 const Keys *
 hdb_kvno2keys(krb5_context context,
 	      const hdb_entry *e,
@@ -164,7 +174,16 @@ dequeue_HDB_Ext_KeySet(HDB_Ext_KeySet *data, unsigned int element, hdb_keyset *k
 }
 
 
-/* Extract from `e' the keyset corresponding to `kvno', mutating `e' */
+/**
+ * Removes from `e' and optionally outputs the keyset for the requested `kvno'.
+ *
+ * @param context Context
+ * @param e The HDB entry
+ * @param kvno The key version number
+ * @param ks A pointer to a variable of type hdb_keyset (may be NULL)
+ *
+ * @return Zero on success, an error code otherwise.
+ */
 krb5_error_code
 hdb_remove_keys(krb5_context context,
                 hdb_entry *e,
@@ -217,6 +236,16 @@ hdb_remove_keys(krb5_context context,
     return HDB_ERR_NOENTRY;
 }
 
+/**
+ * Removes from `e' and outputs all the base keys for virtual principal and/or
+ * key derivation.
+ *
+ * @param context Context
+ * @param e The HDB entry
+ * @param ks A pointer to a variable of type HDB_Ext_KeySet
+ *
+ * @return Zero on success, an error code otherwise.
+ */
 krb5_error_code
 hdb_remove_base_keys(krb5_context context,
                      hdb_entry *e,
@@ -255,27 +284,37 @@ hdb_remove_base_keys(krb5_context context,
     return 0;
 }
 
+/**
+ * Removes from `e' and outputs all the base keys for virtual principal and/or
+ * key derivation.
+ *
+ * @param context Context
+ * @param e The HDB entry
+ * @param is_current_keyset Whether to make the keys the current keys for `e'
+ * @param ks A pointer to an hdb_keyset containing the keys to set
+ *
+ * @return Zero on success, an error code otherwise.
+ */
 krb5_error_code
 hdb_install_keyset(krb5_context context,
                    hdb_entry *e,
                    int is_current_keyset,
-                   krb5uint32 kvno,
-                   KerberosTime set_time,
                    const hdb_keyset *ks)
 {
     krb5_error_code ret;
 
     if (is_current_keyset) {
         if (e->keys.len) {
-            if ((ret = hdb_add_current_keys_to_history(context, e)))
-                return ret;
-            if ((ret = copy_Keys(&ks->keys, &e->keys)))
+            if ((ret = hdb_add_current_keys_to_history(context, e)) ||
+                (ret = copy_Keys(&ks->keys, &e->keys)))
                 return ret;
         }
-        e->kvno = kvno;
-        return hdb_entry_set_pw_change_time(context, e, set_time);
+        e->kvno = ks->kvno;
+        if (ks->set_time)
+            return hdb_entry_set_pw_change_time(context, e, *ks->set_time);
+        return 0;
     }
-    return 0;
+    return hdb_add_history_keyset(context, e, ks);;
 }
 
 

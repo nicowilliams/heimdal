@@ -616,7 +616,7 @@ derive_keyset(krb5_context context,
               KerberosTime set_time, /* "now" */
               hdb_keyset *dks)
 {
-    dks->keys.len = 0;
+    dks->kvno = kvno;
     dks->keys.val = 0;
     dks->set_time = malloc(sizeof(dks->set_time));
     if (dks->set_time == NULL)
@@ -698,8 +698,7 @@ derive_keys_for_kr(krb5_context context,
     ret = derive_keyset(context, &base_keys->val[i].keys, princ, etype, kvno,
                         set_time, &dks);
     if (ret == 0)
-        ret = hdb_install_keyset(context, &h->entry, is_current_keyset, kvno,
-                                 set_time, &dks);
+        ret = hdb_install_keyset(context, &h->entry, is_current_keyset, &dks);
 
     free_hdb_keyset(&dks);
     return ret;

@@ -288,7 +288,9 @@ hdb_prune_keys(krb5_context context, hdb_entry *entry)
  * @param key	    The Key to add
  */
 krb5_error_code
-hdb_add_history_keyset(krb5_context context, hdb_entry *entry, hdb_keyset *ks)
+hdb_add_history_keyset(krb5_context context,
+                       hdb_entry *entry,
+                       const hdb_keyset *ks)
 {
     size_t i;
     HDB_Ext_KeySet *hist_keys;
@@ -331,6 +333,8 @@ hdb_add_history_keyset(krb5_context context, hdb_entry *entry, hdb_keyset *ks)
  *
  * @param context   Context
  * @param entry	    HDB entry
+ *
+ * @return Zero on success, or an error code otherwise.
  */
 krb5_error_code
 hdb_add_current_keys_to_history(krb5_context context, hdb_entry *entry)
@@ -363,6 +367,8 @@ hdb_add_current_keys_to_history(krb5_context context, hdb_entry *entry)
  * @param entry	    HDB entry
  * @param kvno	    Key version number of the key to add to the history
  * @param key	    The Key to add
+ *
+ * @return Zero on success, or an error code otherwise.
  */
 krb5_error_code
 hdb_add_history_key(krb5_context context, hdb_entry *entry, krb5_kvno kvno, Key *key)
