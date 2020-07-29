@@ -549,18 +549,58 @@ hdb_entry_get_key_rotation(krb5_context context,
     return ext ? 0 : HDB_ERR_NOENTRY;
 }
 
+/* XXX Require a new hdb_keyset be given as well */
 krb5_error_code
 hdb_entry_set_key_rotation(krb5_context context,
                            HDB *db,
                            hdb_entry *entry,
-                           const HDB_Ext_KeyRotation *kr)
+                           const KeyRotation *kr)
 {
-    HDB_extension ext;
+    krb5_error_code ret;
+    HDB_extension new_ext, *ext;
+    KeyRotation tmp;
+    size_t i, sz;
 
-    ext.mandatory = TRUE;
-    ext.data.element = choice_HDB_extension_data_key_rotation;
-    copy_HDB_Ext_KeyRotation(kr, &ext.data.u.key_rotation);
-    return hdb_replace_extension(context, entry, &ext);
+    new_ext.mandatory = TRUE;
+    new_ext.data.element = choice_HDB_extension_data_key_rotation;
+    new_ext.data.u.key_rotation.len = 0;
+    new_ext.data.u.key_rotation.val = 0;
+
+    ext = hdb_find_extension(entry, choice_HDB_extension_data_key_rotation);
+    if (!ext) {
+        ext = &new_ext;
+    } else {
+        if (ext->data.u.key_rotation.val[0].epoch >= kr->epoch) {
+            krb5_set_error_message(context, EINVAL,
+                                   "New key rotation periods must start later"
+                                   "than existing ones");
+            return EINVAL;
+        }
+    }
+
+    /* First, append */
+    ret = add_HDB_Ext_KeyRotation(&ext->data.u.key_rotation, kr);
+    if (ret)
+        return ret;
+
+    /* Rotate new to front */
+    tmp = ext->data.u.key_rotation.val[ext->data.u.key_rotation.len - 1];
+    sz = sizeof(ext->data.u.key_rotation.val[0]);
+    memmove(&ext->data.u.key_rotation.val[1], &ext->data.u.key_rotation.val[0],
+            (ext->data.u.key_rotation.len - 1) * sz);
+    ext->data.u.key_rotation.val[0] = tmp;
+
+    /* Drop too old entries */
+    for (i = 3; i < ext->data.u.key_rotation.len; i++)
+        free_KeyRotation(&ext->data.u.key_rotation.val[i]);
+    ext->data.u.key_rotation.len =
+        ext->data.u.key_rotation.len > 3 ? 3 : ext->data.u.key_rotation.len;
+
+    if (ext != &new_ext)
+        return 0;
+
+    /* Install new extension */
+    return hdb_replace_extension(context, entry, ext);
 }
 
 krb5_error_code
