@@ -128,7 +128,7 @@ hdb_kvno2keys(krb5_context context,
     HDB_extension *extp;
     size_t i;
 
-    if (kvno == 0)
+    if (kvno == 0 || e->kvno == kvno)
 	return &e->keys;
 
     extp = hdb_find_extension(e, choice_HDB_extension_data_hist_keys);
@@ -143,6 +143,67 @@ hdb_kvno2keys(krb5_context context,
 
     return NULL;
 }
+
+/* Extract from `e' the keyset corresponding to `kvno', mutating `e' */
+krb5_error_code
+hdb_remove_keys(krb5_context context,
+                hdb_entry *e,
+                krb5_kvno kvno,
+                Keys **ks)
+{
+    krb5_error_code ret;
+    HDB_Ext_KeySet *hist_keys;
+    HDB_extension *extp;
+    size_t i;
+
+    *ks = NULL;
+    if (kvno == 0 || e->kvno == kvno) {
+        if (e->keys.len == 0)
+            return 0;
+        if (((*ks) = malloc(sizeof(**ks))) == NULL)
+            return krb5_enomem(context);
+        **ks = e->keys;
+        e->keys.len = 0;
+        e->keys.val = NULL;
+	return 0;
+    }
+
+    extp = hdb_find_extension(e, choice_HDB_extension_data_hist_keys);
+    if (extp == NULL)
+	return 0;
+
+    hist_keys = &extp->data.u.hist_keys;
+    for (i = 0; i < hist_keys->len; i++) {
+	if (hist_keys->val[i].kvno != kvno)
+            continue;
+        if (((*ks) = malloc(sizeof(**ks))) == NULL)
+            return krb5_enomem(context);
+        *ks = NULL;
+        /*
+         * NOTE: I'd be nice to have SEQUENCE remove functions that output the
+         * removed item.
+         */
+        ret = copy_Keys(&hist_keys->val[i].keys, *ks);
+        if (ret == 0) {
+            remove_HDB_Ext_KeySet(hist_keys, i);
+        } else {
+            free(*ks);
+            *ks = NULL;
+        }
+        return ret;
+    }
+
+    return 0;
+}
+
+krb5_error_code
+hdb_remove_base_keys(krb5_context context,
+                     const hdb_entry *e,
+                     HDB_Ext_KeySet *base_keys)
+{
+    return 0;
+}
+
 
 krb5_error_code
 hdb_next_enctype2key(krb5_context context,

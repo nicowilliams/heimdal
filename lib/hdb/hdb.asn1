@@ -168,8 +168,8 @@ KeyRotation ::= SEQUENCE {
 	-- HDB-Ext-KeyRotation will always be sorted (as stored) by `from`, in
 	-- descending order.
 	--
-	-- Max service ticket lifetime will be constrained by the applicable
-	-- KeyRotation elements of HDB-Ext-KeyRotation, and this is over time.
+	-- Max service ticket lifetime will be constrained to no more than half
+        -- the period of the the applicable KeyRotation elements.
 	--
 	flags[0]	KeyRotationFlags,	
 	epoch[1]	KerberosTime,		-- start of this period
