@@ -114,6 +114,9 @@ typedef struct HDB {
     int hdb_capability_flags;
     int lock_count;
     int lock_type;
+    int enable_virtual_hostbased_princs;
+    size_t virtual_hostbased_princ_ndots;
+    size_t virtual_hostbased_princ_maxdots;
     /**
      * Open (or create) the a Kerberos database.
      *

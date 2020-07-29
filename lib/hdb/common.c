@@ -622,9 +622,8 @@ derive_keyset(krb5_context context,
     new_keyset.keys.len = 0;
     new_keyset.keys.val = 0;
     new_keyset.set_time = 0;
-    if (ret == 0)
-        ret = derive_Keys(context, princ, kvno, etype, base_keys,
-                          &new_keyset.keys);
+    ret = derive_Keys(context, princ, kvno, etype, base_keys,
+                      &new_keyset.keys);
     if (ret == 0) {
         if ((new_keyset.set_time = malloc(sizeof(new_keyset.set_time))))
             *new_keyset.set_time = set_time;
@@ -755,16 +754,14 @@ derive_keys(krb5_context context,
     HDB_Ext_KeyRotation *kr;
     HDB_Ext_KeySet base_keys;
     krb5_error_code ret;
-    krb5_crypto crypto = NULL;
     size_t current_kr, last_kr, i;
     char *p = NULL;
-    Keys keys;
 
     if (!baseprinc && !h->entry.flags.virtual_keys)
         return 0;
     if (baseprinc && !h->entry.flags.virtual_keys)
         return HDB_ERR_NOENTRY;
-    kr = hdb_entry_get_key_rotation(context, db, h->entry);
+    kr = hdb_entry_get_key_rotation(context, db, &h->entry);
     if (!kr)
         return HDB_ERR_NOENTRY;
 
@@ -772,12 +769,10 @@ derive_keys(krb5_context context,
     base_keys.val = 0;
     base_keys.len = 0;
 
-    ret = hdb_remove_base_keys(context, h, &base_base_keys);
+    ret = hdb_remove_base_keys(context, &h->entry, &base_keys);
 
     /* Set the entry's principal name */
     if (baseprinc) {
-        HDB_Ext_KeySet base_base_keys = base_keys;
-
         free_Principal(h->entry.principal);
         if (ret == 0)
             ret = copy_Principal(princ, h->entry.principal);
@@ -833,7 +828,7 @@ derive_keys(krb5_context context,
      * rotation periods.
      */
 
-    if (ret == 0)
+    if (ret == 0 && baseprinc == NULL)
         ret = krb5_unparse_name(context, princ, &p);
     if (ret == 0)
         ret = derive_keys_for_current_kr(context, h, &base_keys, p, etype,
@@ -860,17 +855,18 @@ derive_keys(krb5_context context,
      *
      * It's OK if ret != 0 here.
      */
-    if (h->entry.max_life > kr->periods.val[current_kr].period >> 1)
-        h->entry.max_life = kr->periods.val[current_kr].period >> 1;
+    if (h->entry.max_life &&
+        *h->entry.max_life > kr->periods.val[current_kr].period >> 1)
+        *h->entry.max_life = kr->periods.val[current_kr].period >> 1;
 
-    if (ret == 0)
-        ret = hdb_remove_base_keys(context, h);
+    free(p);
     return ret;
 }
 
 /* Wrapper around db->hdb_fetch_kvno() that implements virtual princs/keys */
 static krb5_error_code
-fetch_it(krb5_context context, HDB *db,
+fetch_it(krb5_context context,
+         HDB *db,
          krb5_const_principal princ,
          unsigned flags,
          krb5_timestamp now,
@@ -881,6 +877,7 @@ fetch_it(krb5_context context, HDB *db,
     krb5_const_principal tmpprinc = princ;
     krb5_principal baseprinc = NULL;
     krb5_error_code ret;
+    const char *realm = krb5_principal_get_realm(context, princ);
     const char *comp0 = krb5_principal_get_comp_string(context, princ, 0);
     const char *comp1 = krb5_principal_get_comp_string(context, princ, 1);
     const char *comp2 = krb5_principal_get_comp_string(context, princ, 2);
@@ -960,7 +957,7 @@ fetch_it(krb5_context context, HDB *db,
 
         if (baseprinc == NULL) {
             /* First go around, need a namespace princ.  Make it! */
-            ret = krb5_build_principal(context, &tmpprinc, strlen(realm),
+            ret = krb5_build_principal(context, &baseprinc, strlen(realm),
                                        realm, "WELLKNOWN",
                                        "HOSTBASED-NAMESPACE", NULL);
             if (ret == 0 && comp2)
@@ -988,7 +985,7 @@ fetch_it(krb5_context context, HDB *db,
      * key derivation to do, but that's decided in derive_keys().
      */
     if (ret == 0 && (flags & HDB_F_DECRYPT))
-        ret = derive_keys(context, config, princ, baseprinc, now, etype, kvno,
+        ret = derive_keys(context, db, princ, baseprinc, now, etype, kvno,
                           ent);
     if (ret)
         hdb_free_entry(context, ent);
@@ -1000,9 +997,6 @@ fetch_it(krb5_context context, HDB *db,
 
 struct timeval _kdc_now;
 
-_hdb_fetch_kvno(krb5_context context, HDB *db, krb5_const_principal principal,
-		unsigned flags, krb5_kvno kvno, hdb_entry_ex *entry)
-
 krb5_error_code
 hdb_fetch_kvno(krb5_context context,
                HDB *db,
@@ -1013,14 +1007,12 @@ hdb_fetch_kvno(krb5_context context,
                hdb_entry_ex *h)
 {
     krb5_error_code ret = HDB_ERR_NOENTRY;
-    int i;
     krb5_principal enterprise_principal = NULL;
-    krb5_const_principal princ;
     krb5_timestamp now;
 
     flags |= kvno ? HDB_F_KVNO_SPECIFIED : HDB_F_ALL_KVNOS;
     krb5_timeofday(context, &now);
-    ret = fetch_it(context, config, db, princ, flags, now, etype, kvno, h);
+    ret = fetch_it(context, db, principal, flags, now, etype, kvno, h);
     if (ret == HDB_ERR_NOENTRY)
 	krb5_set_error_message(context, ret, "no such entry found in hdb");
     krb5_free_principal(context, enterprise_principal);
