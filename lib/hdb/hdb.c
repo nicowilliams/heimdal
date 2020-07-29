@@ -148,8 +148,6 @@ hdb_kvno2keys(krb5_context context,
 static int
 dequeue_HDB_Ext_KeySet(HDB_Ext_KeySet *data, unsigned int element, hdb_keyset *ks)
 {
-    hdb_keyset *ptr;
-
     if (element >= data->len) {
         ks->kvno = 0;
         ks->keys.len = 0;
@@ -159,12 +157,9 @@ dequeue_HDB_Ext_KeySet(HDB_Ext_KeySet *data, unsigned int element, hdb_keyset *k
     }
     *ks = data->val[element];
     data->len--;
+    /* XXX swap instead of memmove()... changes the order of elements */
     if (element < data->len)
-        memmove(&data->val[element], &data->val[element + 1],
-                sizeof(data->val[0]) * (data->len - element));
-    ptr = realloc(data->val, data->len * sizeof(data->val[0]));
-    if (ptr != NULL || data->len == 0)
-        data->val = ptr;
+        data->val[element] = data->val[data->len];
     return 0;
 }
 
@@ -190,7 +185,7 @@ hdb_remove_keys(krb5_context context,
         } else {
             free_Keys(&e->keys);
         }
-	return 0;
+	ks = NULL;
     }
 
     if (ks) {
@@ -212,7 +207,7 @@ hdb_remove_keys(krb5_context context,
             return dequeue_HDB_Ext_KeySet(hist_keys, i, ks);
         return remove_HDB_Ext_KeySet(hist_keys, i);
     }
-    return 0;
+    return HDB_ERR_NOENTRY;
 }
 
 krb5_error_code
@@ -222,19 +217,18 @@ hdb_remove_base_keys(krb5_context context,
 {
     krb5_error_code ret;
     const HDB_Ext_KeyRotation *kr;
-    size_t i;
+    size_t i, k;
 
     base_keys->len = 0;
-    if ((base_keys->val = calloc(3, sizeof(base_keys->val[0]))) == NULL)
+    if ((base_keys->val = calloc(kr->periods.len, sizeof(base_keys->val[0]))) == NULL)
         return krb5_enomem(context);
 
     ret = hdb_entry_get_key_rotation(context, e, &kr);
     if (ret)
         return ret;
 
-    for (i = 0; i < kr->periods.len; i++) {
+    for (k = i = 0; i < kr->periods.len; i++) {
         const KeyRotation *krp = &kr->periods.val[i];
-        hdb_keyset *ks = i < base_keys->len ? &base_keys->val[i] : 0;
 
         /*
          * WARNING: O(N * M) where M is number of keysets and N is the number
@@ -242,10 +236,15 @@ hdb_remove_base_keys(krb5_context context,
          *
          * In practice N will never be > 3, and M will generally be the same as
          * N, so this will be O(1) after all.
+         *
+         * XXX Make sure we enforce that limit of 3 when setting a krp.
          */
-        ret = hdb_remove_keys(context, e, krp->base_key_kvno, ks);
+        ret = hdb_remove_keys(context, e, krp->base_key_kvno,
+                              &base_keys->val[k]);
+        if (ret == 0)
+            k++;
     }
-    base_keys->len = i < base_keys->len ? i : base_keys->len;
+    base_keys->len = k;
     return 0;
 }
 
@@ -255,7 +254,7 @@ hdb_install_keyset(krb5_context context,
                    int is_current_keyset,
                    krb5uint32 kvno,
                    KerberosTime set_time,
-                   hdb_keyset *ks)
+                   const hdb_keyset *ks)
 {
     krb5_error_code ret;
 
@@ -263,12 +262,13 @@ hdb_install_keyset(krb5_context context,
         if (e->keys.len) {
             if ((ret = hdb_add_current_keys_to_history(context, e)))
                 return ret;
-            e->keys.len = 0;
-            e->keys.val = 0;
+            if ((ret = copy_Keys(&ks->keys, &e->keys)))
+                return ret;
         }
         e->kvno = kvno;
         return hdb_entry_set_pw_change_time(context, e, set_time);
     }
+    ...
     return 0;
 }
 

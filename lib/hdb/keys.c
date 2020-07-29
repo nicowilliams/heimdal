@@ -428,28 +428,27 @@ hdb_add_history_keyset(krb5_context context,
     extp = hdb_find_extension(entry, choice_HDB_extension_data_hist_keys);
     if (extp == NULL) {
         ext.mandatory = FALSE;
-	ext.data.element = choice_HDB_extension_data_hist_keys;
+        ext.data.element = choice_HDB_extension_data_hist_keys;
         extp->data.u.hist_keys.len = 0;
         extp->data.u.hist_keys.val = 0;
-	extp = &ext;
+        extp = &ext;
     }
     hist_keys = &extp->data.u.hist_keys;
 
     for (i = 0; i < hist_keys->len; i++) {
-	if (hist_keys->val[i].kvno == ks->kvno) {
+        if (hist_keys->val[i].kvno == ks->kvno) {
             free_hdb_keyset(&hist_keys->val[i]);
             ret = copy_hdb_keyset(ks, &hist_keys->val[i]);
-	    break;
-	}
+            break;
+        }
     }
     if (i >= hist_keys->len)
         ret = add_HDB_Ext_KeySet(hist_keys, ks);
     if (ret == 0 && extp == &ext)
-	ret = hdb_replace_extension(context, entry, &ext);
+        ret = hdb_replace_extension(context, entry, &ext);
     free_HDB_extension(&ext);
     return ret;
 }
-
 
 /**
  * This function changes an hdb_entry's kvno, swapping the current key
