@@ -404,6 +404,52 @@ out:
     return ret;
 }
 
+/**
+ * This function adds a keyset to an HDB entry's key history.
+ *
+ * @param context   Context
+ * @param entry	    HDB entry
+ * @param kvno	    Key version number of the key to add to the history
+ * @param key	    The Key to add
+ */
+krb5_error_code
+hdb_add_history_keyset(krb5_context context,
+                       hdb_entry *entry,
+                       hdb_keyset *ks)
+{
+    size_t i;
+    HDB_Ext_KeySet *hist_keys;
+    HDB_extension ext;
+    HDB_extension *extp;
+    krb5_error_code ret;
+
+    memset(&ext, 0, sizeof (ext));
+
+    extp = hdb_find_extension(entry, choice_HDB_extension_data_hist_keys);
+    if (extp == NULL) {
+        ext.mandatory = FALSE;
+	ext.data.element = choice_HDB_extension_data_hist_keys;
+        extp->data.u.hist_keys.len = 0;
+        extp->data.u.hist_keys.val = 0;
+	extp = &ext;
+    }
+    hist_keys = &extp->data.u.hist_keys;
+
+    for (i = 0; i < hist_keys->len; i++) {
+	if (hist_keys->val[i].kvno == ks->kvno) {
+            free_hdb_keyset(&hist_keys->val[i]);
+            ret = copy_hdb_keyset(ks, &hist_keys->val[i]);
+	    break;
+	}
+    }
+    if (i >= hist_keys->len)
+        ret = add_HDB_Ext_KeySet(hist_keys, ks);
+    if (ret == 0 && extp == &ext)
+	ret = hdb_replace_extension(context, entry, &ext);
+    free_HDB_extension(&ext);
+    return ret;
+}
+
 
 /**
  * This function changes an hdb_entry's kvno, swapping the current key

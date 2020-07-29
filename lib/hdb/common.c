@@ -614,24 +614,15 @@ derive_keyset(krb5_context context,
               krb5int32 etype,
               krb5uint32 kvno,
               KerberosTime set_time, /* "now" */
-              HDB_Ext_KeySet *dks)
+              hdb_keyset *dks)
 {
-    krb5_error_code ret;
-    hdb_keyset new_keyset;
-
-    new_keyset.keys.len = 0;
-    new_keyset.keys.val = 0;
-    new_keyset.set_time = 0;
-    ret = derive_Keys(context, princ, kvno, etype, base_keys,
-                      &new_keyset.keys);
-    if (ret == 0) {
-        if ((new_keyset.set_time = malloc(sizeof(new_keyset.set_time))))
-            *new_keyset.set_time = set_time;
-        /* NOTE: It'd be nice to have an add function that moves */
-        ret = add_HDB_Ext_KeySet(dks, &new_keyset);
-        free_hdb_keyset(&new_keyset);
-    }
-    return ret;
+    dks->keys.len = 0;
+    dks->keys.val = 0;
+    dks->set_time = malloc(sizeof(dks->set_time));
+    if (dks->set_time == NULL)
+        return krb5_enomem(context);
+    *dks->set_time = set_time;
+    return derive_Keys(context, princ, kvno, etype, base_keys, &dks->keys);
 }
 
 /* Derive ONE keyset and kvno from some base keys */
@@ -648,7 +639,7 @@ derive_keys_for_kr(krb5_context context,
                    struct KeyRotation *krp)
 {
     krb5_error_code ret;
-    HDB_Ext_KeySet dks;
+    hdb_keyset dks;
     KerberosTime set_time, n;
     krb5uint32 kvno;
     size_t i;
@@ -704,14 +695,13 @@ derive_keys_for_kr(krb5_context context,
         return 0;
     }
 
-    dks.len = 0;
-    dks.val = 0;
     ret = derive_keyset(context, &base_keys->val[i].keys, princ, etype, kvno,
                         set_time, &dks);
     if (ret == 0)
-        ret = hdb_install_keyset(context, h, kvno, is_current_keyset, &dks);
+        ret = hdb_install_keyset(context, &h->entry, is_current_keyset, kvno,
+                                 set_time, &dks);
 
-    free_HDB_Ext_KeySet(&dks);
+    free_hdb_keyset(&dks);
     return ret;
 }
 
@@ -761,7 +751,8 @@ derive_keys(krb5_context context,
         return 0;
     if (baseprinc && !h->entry.flags.virtual_keys)
         return HDB_ERR_NOENTRY;
-    ret = hdb_entry_get_key_rotation(context, db, &h->entry, &kr);
+
+    ret = hdb_entry_get_key_rotation(context, &h->entry, &kr);
     if (ret)
         return ret;
 

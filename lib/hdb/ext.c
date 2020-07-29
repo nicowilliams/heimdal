@@ -539,7 +539,6 @@ hdb_set_last_modified_by(krb5_context context, hdb_entry *entry,
 
 krb5_error_code
 hdb_entry_get_key_rotation(krb5_context context,
-                           HDB *db,
 	                   const hdb_entry *entry,
                            const HDB_Ext_KeyRotation **kr)
 {
