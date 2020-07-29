@@ -537,15 +537,20 @@ hdb_set_last_modified_by(krb5_context context, hdb_entry *entry,
     return 0;
 }
 
-HDB_Ext_KeyRotation *
+krb5_error_code
 hdb_entry_get_key_rotation(krb5_context context,
                            HDB *db,
-	                   const hdb_entry *entry)
+	                   const hdb_entry *entry,
+                           const HDB_Ext_KeyRotation **kr)
 {
-    return hdb_find_extension(entry, choice_HDB_extension_data_key_rotation);
+    HDB_extension *ext =
+        hdb_find_extension(entry, choice_HDB_extension_data_key_rotation);
+
+    *kr = ext ? &ext->data.u.key_rotation : NULL;
+    return ext ? 0 : HDB_ERR_NOENTRY;
 }
 
-int
+krb5_error_code
 hdb_entry_set_key_rotation(krb5_context context,
                            HDB *db,
                            hdb_entry *entry,
@@ -555,11 +560,11 @@ hdb_entry_set_key_rotation(krb5_context context,
 
     ext.mandatory = TRUE;
     ext.data.element = choice_HDB_extension_data_key_rotation;
-    ext.u.key_rotation = kr;
+    copy_HDB_Ext_KeyRotation(kr, &ext.data.u.key_rotation);
     return hdb_replace_extension(context, entry, &ext);
 }
 
-int
+krb5_error_code
 hdb_entry_clear_key_rotation(krb5_context context, hdb_entry *entry)
 {
     return hdb_clear_extension(context, entry,

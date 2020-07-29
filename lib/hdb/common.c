@@ -751,7 +751,7 @@ derive_keys(krb5_context context,
             krb5uint32 kvno,
             hdb_entry_ex *h)
 {
-    HDB_Ext_KeyRotation *kr;
+    const HDB_Ext_KeyRotation *kr;
     HDB_Ext_KeySet base_keys;
     krb5_error_code ret;
     size_t current_kr, last_kr, i;
@@ -761,9 +761,9 @@ derive_keys(krb5_context context,
         return 0;
     if (baseprinc && !h->entry.flags.virtual_keys)
         return HDB_ERR_NOENTRY;
-    kr = hdb_entry_get_key_rotation(context, db, &h->entry);
-    if (!kr)
-        return HDB_ERR_NOENTRY;
+    ret = hdb_entry_get_key_rotation(context, db, &h->entry, &kr);
+    if (ret)
+        return ret;
 
     /* Get the base keys from the entry, and remove them */
     base_keys.val = 0;
