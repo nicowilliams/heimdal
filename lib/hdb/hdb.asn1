@@ -179,15 +179,11 @@ KeyRotation ::= SEQUENCE {
 	...
 }
 
-HDB-Ext-KeyRotation ::= SEQUENCE {
-	namespace[0]	Principal OPTIONAL,
-	periods[1]	SEQUENCE OF KeyRotation, -- XXX compiler lacks support
-						 -- for SEQUENCE OF length constraints
-						 -- we'll enforce (on store) a) up to
-						 -- three so we may unroll, b)
-						 -- order.
-	...
-}
+HDB-Ext-KeyRotation ::= SEQUENCE OF KeyRotation -- the compiler lacks support
+					        -- for SEQUENCE OF length
+					        -- constraints we'll enforce
+                                                -- (on store) a) up to three so
+					        -- we may unroll, b) order
 
 HDB-extension ::= SEQUENCE {
         mandatory[0]    BOOLEAN,        -- kdc MUST understand this extension,

@@ -769,26 +769,26 @@ derive_keys(krb5_context context,
     }
 
     /* Sanity check key rotations, determine current & last kr */
-    if (kr->periods.len < 1 || kr->periods.len > 3)
+    if (kr->len < 1 || kr->len > 3)
         krb5_set_error_message(context, ret = HDB_ERR_NOENTRY,
                                "wrong number of virtual key rotation periods");
     for (current_kr = 0, last_kr = 0, i = 0;
-         ret == 0 && i < kr->periods.len; i++) {
+         ret == 0 && i < kr->len; i++) {
         /* Check order */
-        if (i && kr->periods.val[i - 1].epoch <= kr->periods.val[i].epoch) {
+        if (i && kr->val[i - 1].epoch <= kr->val[i].epoch) {
             krb5_set_error_message(context, ret = HDB_ERR_NOENTRY,
                                    "misordered key rotation periods");
             break;
         }
         /* At most one future epoch (the first one) */
-        if (i && kr->periods.val[i].epoch >= now) {
+        if (i && kr->val[i].epoch >= now) {
             krb5_set_error_message(context, ret = HDB_ERR_NOENTRY,
                                    "multiple future key rotation periods");
             break;
         }
         /* Identify current key rotation period */
-        if (i == 0 && kr->periods.val[0].epoch > now) {
-            if (kr->periods.len == 1) {
+        if (i == 0 && kr->val[0].epoch > now) {
+            if (kr->len == 1) {
                 krb5_set_error_message(context, ret = HDB_ERR_NOENTRY,
                                        "no current key rotation period");
                 break;
@@ -797,13 +797,13 @@ derive_keys(krb5_context context,
         }
         /* At most one relevant but kr older than current */
         if (i == current_kr + 1 &&
-            (now - kr->periods.val[i].period) <= (kr->periods.val[i - 1].epoch))
+            (now - kr->val[i].period) <= (kr->val[i - 1].epoch))
             last_kr = i;
     }
 
     /* Check that the principal has not been marked deleted */
-    if (kr->periods.val[current_kr].flags.deleted ||
-        !kr->periods.val[current_kr].flags.virtual)
+    if (kr->val[current_kr].flags.deleted ||
+        !kr->val[current_kr].flags.virtual)
         ret = HDB_ERR_NOENTRY;
 
     /*
@@ -823,21 +823,21 @@ derive_keys(krb5_context context,
     if (ret == 0)
         ret = derive_keys_for_current_kr(context, h, &base_keys, p, etype,
                                          kvno, now,
-                                         &kr->periods.val[current_kr]);
+                                         &kr->val[current_kr]);
 
     /* Derive and set in `h' its future keys (key history only) */
     if (ret == 0 && current_kr != 0 &&
-        now + kr->periods.val[current_kr].period +
-        (kr->periods.val[current_kr].period >> 1) > kr->periods.val[0].epoch)
+        now + kr->val[current_kr].period +
+        (kr->val[current_kr].period >> 1) > kr->val[0].epoch)
         ret = derive_keys_for_kr(context, h, &base_keys, 0, 0, p, etype, kvno,
-                                 kr->periods.val[0].epoch,
-                                 &kr->periods.val[0]);
+                                 kr->val[0].epoch,
+                                 &kr->val[0]);
 
     /* Derive and set in `h' its past keys (key history only) */
     if (ret == 0 && last_kr && last_kr != current_kr)
         ret = derive_keys_for_kr(context, h, &base_keys, 0, 0, p, etype, kvno,
-                                 kr->periods.val[current_kr].epoch,
-                                 &kr->periods.val[last_kr]);
+                                 kr->val[current_kr].epoch,
+                                 &kr->val[last_kr]);
 
     /*
      * Impose a bound on h->entry.max_life so that [when the KDC is the caller]
@@ -846,8 +846,8 @@ derive_keys(krb5_context context,
      * It's OK if ret != 0 here.
      */
     if (h->entry.max_life &&
-        *h->entry.max_life > kr->periods.val[current_kr].period >> 1)
-        *h->entry.max_life = kr->periods.val[current_kr].period >> 1;
+        *h->entry.max_life > kr->val[current_kr].period >> 1)
+        *h->entry.max_life = kr->val[current_kr].period >> 1;
 
     free(p);
     return ret;

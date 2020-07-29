@@ -256,15 +256,15 @@ hdb_remove_base_keys(krb5_context context,
     size_t i, k;
 
     base_keys->len = 0;
-    if ((base_keys->val = calloc(kr->periods.len, sizeof(base_keys->val[0]))) == NULL)
+    if ((base_keys->val = calloc(kr->len, sizeof(base_keys->val[0]))) == NULL)
         return krb5_enomem(context);
 
     ret = hdb_entry_get_key_rotation(context, e, &kr);
     if (ret)
         return ret;
 
-    for (k = i = 0; i < kr->periods.len; i++) {
-        const KeyRotation *krp = &kr->periods.val[i];
+    for (k = i = 0; i < kr->len; i++) {
+        const KeyRotation *krp = &kr->val[i];
 
         /*
          * WARNING: O(N * M) where M is number of keysets and N is the number
