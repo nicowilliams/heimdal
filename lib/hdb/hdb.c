@@ -177,9 +177,16 @@ hdb_remove_keys(krb5_context context,
 
     if (kvno == 0 || e->kvno == kvno) {
         if (ks) {
+            KerberosTime t;
+
+            (void) hdb_entry_get_pw_change_time(e, &t);
+            if (t) {
+                if ((ks->set_time = malloc(sizeof(*ks->set_time))) == NULL)
+                    return krb5_enomem(context);
+                *ks->set_time = t;
+            }
             ks->kvno = e->kvno;
             ks->keys = e->keys;
-            ks->set_time = 0;
             e->keys.len = 0;
             e->keys.val = NULL;
         } else {
@@ -268,7 +275,6 @@ hdb_install_keyset(krb5_context context,
         e->kvno = kvno;
         return hdb_entry_set_pw_change_time(context, e, set_time);
     }
-    ...
     return 0;
 }
 
