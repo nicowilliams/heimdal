@@ -308,3 +308,12 @@ add_new_key(struct add_options *opt, int argc, char **argv)
     free(kstuple);
     return ret != 0;
 }
+
+/*
+ * XXX Implement!
+ */
+int
+add_new_namespace(struct add_namespace_options *opt, int argc, char **argv)
+{
+    return 0;
+}

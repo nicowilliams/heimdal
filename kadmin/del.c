@@ -53,3 +53,25 @@ del_entry(void *opt, int argc, char **argv)
     }
     return ret != 0;
 }
+
+/*
+ * XXX Implement!
+ */
+int
+del_namespace(void *opt, int argc, char **argv)
+{
+#if 0
+    int i;
+    krb5_error_code ret = 0;
+
+    /* Format WELLKNOWN/... and then do_del_entry() it */
+    for(i = 0; i < argc; i++) {
+	ret = foreach_principal(argv[i], do_del_entry, "del_ns", NULL);
+	if (ret)
+	    break;
+    }
+    return ret != 0;
+#else
+    return 0;
+#endif
+}
