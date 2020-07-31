@@ -403,7 +403,7 @@ command = {
 	function = "del_namespace"
 	argument = "principal..."
 	min_args = "1"
-	help = "Deletes the given virtual principal namespaces'
+	help = "Deletes the given virtual principal namespaces"
 }
 command = {
 	name = "del_enctype"
