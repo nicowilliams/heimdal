@@ -398,6 +398,14 @@ command = {
 	help = "Deletes all principals matching the expressions."
 }
 command = {
+	name = "delete_namespace"
+	name = "del_ns"
+	function = "del_namespace"
+	argument = "principal..."
+	min_args = "1"
+	help = "Deletes the given virtual principal namespaces'
+}
+command = {
 	name = "del_enctype"
 	argument = "principal enctype..."
 	min_args = "2"
