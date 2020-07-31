@@ -300,7 +300,7 @@ kadm5_s_get_principal(void *server_handle,
             krb5_data buf;
             size_t len;
 
-            ASN1_MALLOC_ENCODE(hdb_entry_etypes, buf.data, buf.length,
+            ASN1_MALLOC_ENCODE(HDB_EncTypeList, buf.data, buf.length,
                                ent.entry.etypes, &len, ret);
             if (ret == 0) {
                 ret = add_tl_data(out, KRB5_TL_ETYPES, buf.data, buf.length);

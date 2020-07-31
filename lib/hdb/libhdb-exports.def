@@ -90,25 +90,25 @@ EXPORTS
 	add_Keys
 	asn1_HDBFlags_units
 	copy_Event
-	copy_hdb_entry_etypes
+	copy_HDB_EncTypeList
 	copy_HDB_extensions
 	copy_Key
 	copy_Keys
 	copy_Salt
-	decode_hdb_entry_etypes
+	decode_HDB_EncTypeList
 	decode_HDB_Ext_Aliases
 	decode_HDB_extension
 	decode_HDB_Ext_PKINIT_acl
 	decode_Key
 	decode_Keys
-	encode_hdb_entry_etypes
+	encode_HDB_EncTypeList
 	encode_HDB_Ext_Aliases
 	encode_HDB_extension
 	encode_HDB_Ext_PKINIT_acl
 	encode_Key
 	encode_Keys
 	free_Event
-	free_hdb_entry_etypes
+	free_HDB_EncTypeList
 	free_hdb_entry
 	free_HDB_Ext_Aliases
 	free_HDB_extension
@@ -119,7 +119,7 @@ EXPORTS
 	free_Keys
 	free_Salt
 	int2HDBFlags
-	length_hdb_entry_etypes
+	length_HDB_EncTypeList
 	length_HDB_Ext_Aliases
 	length_HDB_extension
 	length_HDB_Ext_PKINIT_acl
