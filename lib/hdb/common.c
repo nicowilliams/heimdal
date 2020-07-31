@@ -1005,6 +1005,13 @@ fetch_it(krb5_context context,
  * keys according to strict key rotation schedules.  If a time is given, other
  * than HDB I/O, this function is pure, thus usable for testing.
  *
+ * HDB writers should use `db->hdb_fetch_kvno()' to avoid materializing virtual
+ * principals.
+ *
+ * HDB readers should use this function rather than `db->hdb_fetch_kvno()'
+ * unless they only want to see concrete principals and not bother generating
+ * any virtual keys.
+ *
  * @param context Context
  * @param db HDB
  * @param principal Principal name
