@@ -113,7 +113,7 @@ _kdc_db_fetch(krb5_context context,
         if (!(curdb->hdb_capability_flags & HDB_CAP_F_HANDLE_ENTERPRISE_PRINCIPAL) && enterprise_principal)
             princ = enterprise_principal;
 
-        ret = hdb_fetch_kvno(context, curdb, princ, flahs, 0, 0, kvno, ent);
+        ret = hdb_fetch_kvno(context, curdb, princ, flags, 0, 0, kvno, ent);
 	curdb->hdb_close(context, curdb);
 
 	switch (ret) {
