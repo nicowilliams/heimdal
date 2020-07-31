@@ -144,9 +144,9 @@ kadm5_s_get_principal(void *server_handle,
      * For now we won't attempt to recover the log.
      */
 
-    ret = context->db->hdb_fetch_kvno(context->context, context->db, princ,
-				      HDB_F_DECRYPT|HDB_F_ALL_KVNOS|
-				      HDB_F_GET_ANY|HDB_F_ADMIN_DATA, 0, &ent);
+    ret = hdb_fetch_kvno(context->context, context->db, princ,
+                         HDB_F_DECRYPT|HDB_F_ALL_KVNOS|
+                         HDB_F_GET_ANY|HDB_F_ADMIN_DATA, 0, 0, 0, &ent);
 
     if (!context->keep_open)
 	context->db->hdb_close(context->context, context->db);

@@ -1406,6 +1406,7 @@ kadm5_log_replay_modify(kadm5_server_context *context,
 	return ret;
 
     memset(&ent, 0, sizeof(ent));
+    /* NOTE: We do not use hdb_fetch_kvno() here */
     ret = context->db->hdb_fetch_kvno(context->context, context->db,
 				      log_ent.entry.principal,
 				      HDB_F_DECRYPT|HDB_F_ALL_KVNOS|
