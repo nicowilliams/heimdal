@@ -602,10 +602,3 @@ hdb_entry_set_key_rotation(krb5_context context,
     /* Install new extension */
     return hdb_replace_extension(context, entry, ext);
 }
-
-krb5_error_code
-hdb_entry_clear_key_rotation(krb5_context context, hdb_entry *entry)
-{
-    return hdb_clear_extension(context, entry,
-			       choice_HDB_extension_data_key_rotation);
-}

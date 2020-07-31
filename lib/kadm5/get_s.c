@@ -296,6 +296,20 @@ kadm5_s_get_principal(void *server_handle,
 	const HDB_Ext_PKINIT_acl *acl;
 	const HDB_Ext_Aliases *aliases;
 
+        if (ent.entry.etypes) {
+            krb5_data buf;
+            size_t len;
+
+            ASN1_MALLOC_ENCODE(hdb_entry_etypes, buf.data, buf.length,
+                               ent.entry.etypes, &len, ret);
+            if (ret == 0) {
+                ret = add_tl_data(out, KRB5_TL_ETYPES, buf.data, buf.length);
+                free(buf.data);
+            }
+            if (ret)
+                goto out;
+        }
+
 	ret = hdb_entry_get_pw_change_time(&ent.entry, &last_pw_expire);
 	if (ret == 0 && last_pw_expire) {
 	    unsigned char buf[4];
@@ -311,6 +325,7 @@ kadm5_s_get_principal(void *server_handle,
 	if (mask & KADM5_KEY_DATA) {
 	    heim_utf8_string pw;
 
+            /* XXX But not if the client doesn't have ext-keys */
 	    ret = hdb_entry_get_password(context->context,
 					 context->db, &ent.entry, &pw);
 	    if (ret == 0) {

@@ -33,6 +33,7 @@ gen_files_hdb = \
 	asn1_HDB_Ext_KeySet.x \
 	asn1_HDB_extension.x \
 	asn1_HDB_extensions.x \
+	asn1_hdb_entry_etypes.x \
 	asn1_KeyRotation.x \
 	asn1_KeyRotationFlags.x \
 	asn1_hdb_entry.x \
