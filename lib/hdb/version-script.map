@@ -35,6 +35,7 @@ HEIMDAL_HDB_1.0 {
 		hdb_entry_get_pw_change_time;
 		hdb_entry_set_password;
 		hdb_entry_set_pw_change_time;
+		hdb_fetch_kvno;
 		hdb_find_extension;
 		hdb_foreach;
 		hdb_free_dbinfo;
