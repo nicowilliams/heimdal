@@ -151,10 +151,16 @@ HDB-Ext-KeySet ::= SEQUENCE OF hdb_keyset
 --    of losing a race condition.
 --
 KeyRotationFlags ::= BIT STRING {
-	materialized(0),	-- use base keys from this principal
-	virtual(1),		-- use base keys from containing namespace
-	deleted(2) 		-- return S_PRINC_UNKNOWN even though in
-				-- namespace
+	deleted(0),	-- if set on a materialized principal, this will mean
+			-- the principal does not exist
+			-- if set on a namespace, this will mean that
+			-- only materialized principal below it exist
+	parent(1) 	-- if set on a materialized principal, this will mean
+			-- that the keys for kvnos in this KeyRotation spec
+			-- will be derived from the parent's base keys and
+                        -- corresponding KeyRotation spec
+                        -- if set on a namespace, this flag will be ignored
+                        -- (or we could support nested namespaces?)
 }
 KeyRotation ::= SEQUENCE {
 	-- base-kvno is always computed at set time and set for the principal,

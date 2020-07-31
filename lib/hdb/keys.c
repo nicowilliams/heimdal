@@ -217,6 +217,15 @@ hdb_prune_keys_kvno(krb5_context context, hdb_entry *entry, int kvno)
     size_t nelem;
     size_t i;
 
+    /*
+     * XXX Pruning old keys for namespace principals may not be desirable, but!
+     * as long as the `set_time's of the base keys for a namespace principal
+     * match the `epoch's of the corresponding KeyRotation periods, it will be
+     * perfectly acceptable to prune old [base] keys for namespace principals
+     * just as for any other principal.  Therefore, we may not need to make any
+     * changes here w.r.t. namespace principals.
+     */
+
     ext = hdb_find_extension(entry, choice_HDB_extension_data_hist_keys);
     if (ext == NULL)
 	return 0;

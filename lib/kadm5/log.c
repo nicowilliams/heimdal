@@ -949,6 +949,12 @@ kadm5_log_create(kadm5_server_context *context, hdb_entry *entry)
     ent.entry = *entry;
 
     /*
+     * XXX Use hdb_fetch_kvno() (w/ HDB_F_DECRYPT flag unset) to check if this
+     * would be a virtual principal, and if so, reject unless the new principal
+     * has the `materialize' flag set.
+     */
+
+    /*
      * If we're not logging then we can't recover-to-perform, so just
      * perform.
      */

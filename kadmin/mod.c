@@ -337,7 +337,7 @@ modify_ns_kr(struct modify_namespace_key_rotation_options *opt,
     int i;
 
     for(i = 0; i < argc; i++) {
-	ret = foreach_principal(argv[i], do_mod_namespace, "mod", opt);
+	ret = foreach_principal(argv[i], do_mod_namespace, "mod_ns", opt);
 	if (ret)
 	    break;
     }

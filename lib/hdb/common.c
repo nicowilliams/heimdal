@@ -819,8 +819,7 @@ derive_keys(krb5_context context,
     }
 
     /* Check that the principal has not been marked deleted */
-    if (kr->val[current_kr].flags.deleted ||
-        !kr->val[current_kr].flags.virtual)
+    if (kr->val[current_kr].flags.deleted)
         ret = HDB_ERR_NOENTRY;
 
     /*
@@ -919,6 +918,11 @@ fetch_it(krb5_context context,
 
     tmp = host ? host : comp1;
     while (ret == 0) {
+        /*
+         * XXX In order to support the deleted KeyRotationFlags flag we'll have
+         * refactor some of this searching for a parent namespace into a
+         * utility function that can get called here and elsewhere above.
+         */
         /*
          * We break out of this loop with ret == 0 only if we found the HDB
          * entry we were looking for or the HDB entry for a matching namespace.
