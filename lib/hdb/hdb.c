@@ -655,6 +655,7 @@ _hdb_keytab2hdb_entry(krb5_context context,
 krb5_error_code
 hdb_create(krb5_context context, HDB **db, const char *filename)
 {
+    krb5_error_code ret;
     struct cb_s cb_ctx;
 
     if (filename == NULL)
@@ -678,9 +679,25 @@ hdb_create(krb5_context context, HDB **db, const char *filename)
 
         free(rk_UNCONST(hdb_plugin_data.name));
     }
+    /* XXX krb5_errx()?! */
     if (cb_ctx.h == NULL)
 	krb5_errx(context, 1, "No database support for %s", cb_ctx.filename);
-    return (*cb_ctx.h->create)(context, db, cb_ctx.residual);
+    ret = (*cb_ctx.h->create)(context, db, cb_ctx.residual);
+    if (ret == 0) {
+        (*db)->enable_virtual_hostbased_princs =
+            krb5_config_get_bool_default(context, NULL, FALSE, "hdb",
+                                         "enable_virtual_hostbased_princs",
+                                         NULL);
+        (*db)->virtual_hostbased_princ_ndots =
+            krb5_config_get_int_default(context, NULL, 1, "hdb",
+                                         "virtual_hostbased_princ_mindots",
+                                         NULL);
+        (*db)->virtual_hostbased_princ_maxdots =
+            krb5_config_get_int_default(context, NULL, 0, "hdb",
+                                         "virtual_hostbased_princ_maxdots",
+                                         NULL);
+    }
+    return ret;
 }
 
 uintptr_t KRB5_CALLCONV

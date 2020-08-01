@@ -247,8 +247,14 @@ make_base_key(krb5_context context, krb5_const_principal p, krb5_keyblock *k)
 #define WK_PREFIX "WELLKNOWN/HOSTBASED-NAMESPACE/"
 #define SOME_TIME 1596318329
 
+/*
+ * XXX Add a function to do some of the same key derivation that we do in
+ * hdb_fetch_kvno().
+ */
+
+/* Create a namespace principal */
 static void
-make_namespace(krb5_context context, HDB *db)
+make_namespace(krb5_context context, HDB *db, const char *name)
 {
     krb5_error_code ret = 0;
     hdb_entry_ex e;
@@ -281,6 +287,17 @@ make_namespace(krb5_context context, HDB *db)
     if (ret == 0 &&
         (e.entry.etypes = malloc(sizeof(*e.entry.etypes))) == NULL)
         ret = krb5_enomem(context);
+    if (ret == 0)
+        e.entry.etypes->len = 3;
+    if (ret == 0 &&
+        (e.entry.etypes->val = calloc(e.entry.etypes->len,
+                                     sizeof(e.entry.etypes->val[0]))) == NULL)
+        ret = krb5_enomem(context);
+    if (ret == 0) {
+        e.entry.etypes->val[0] = KRB5_ENCTYPE_AES128_CTS_HMAC_SHA256_128;
+        e.entry.etypes->val[1] = KRB5_ENCTYPE_AES256_CTS_HMAC_SHA384_192;
+        e.entry.etypes->val[2] = KRB5_ENCTYPE_AES256_CTS_HMAC_SHA1_96;
+    }
     if (ret == 0 &&
         (e.entry.max_life = malloc(sizeof(*e.entry.max_life))) == NULL)
         ret = krb5_enomem(context);
@@ -290,8 +307,7 @@ make_namespace(krb5_context context, HDB *db)
     if (ret == 0)
         *e.entry.max_renew = 2 * ((*e.entry.max_life = 15 * 24 * 3600));
     if (ret == 0)
-        ret = krb5_parse_name(context, WK_PREFIX "bar.example@BAR.EXAMPLE",
-                              &e.entry.principal);
+        ret = krb5_parse_name(context, name, &e.entry.principal);
     if (ret == 0)
         ret = krb5_parse_name(context, "admin@BAR.EXAMPLE",
                               &e.entry.created_by.principal);
@@ -299,7 +315,8 @@ make_namespace(krb5_context context, HDB *db)
         ret = make_base_key(context, e.entry.principal, &k.key);
     if (ret == 0)
         ret = hdb_entry_set_key_rotation(context, &e.entry, &kr);
-
+    if (ret == 0)
+        ret = hdb_entry_set_pw_change_time(context, &e.entry, kr.epoch);
     if (ret == 0)
         ret = db->hdb_store(context, db, 0, &e);
     if (ret)
@@ -309,7 +326,28 @@ make_namespace(krb5_context context, HDB *db)
 static void
 test_namespace(krb5_context context, HDB *db)
 {
+    krb5_error_code ret = 0;
+    krb5_principal p;
+    hdb_entry_ex e;
+
+    memset(&e, 0, sizeof(e));
+    e.ctx = 0;
+    e.free_entry = 0;
+    if (ret == 0)
+        ret = krb5_parse_name(context, "HTTP/foo.bar.example@BAR.EXAMPLE",
+                              &p);
+    ret = hdb_fetch_kvno(context, db, p, HDB_F_DECRYPT, SOME_TIME + 3, 0, 0, &e);
+#if 0
+    if (ret)
+        krb5_err(context, 1, ret, "failed to fetch a virtual principal");
+#endif
 }
+
+#define CONF                                        \
+    "[hdb]\n"                                       \
+    "\tenable_virtual_hostbased_princs = true\n"    \
+    "\tvirtual_hostbased_princ_mindots = 1\n"       \
+    "\tvirtual_hostbased_princ_maxdots = 3\n"       \
 
 int
 main(int argc, char **argv)
@@ -319,21 +357,22 @@ main(int argc, char **argv)
     HDB *db;
 
     setprogname(argv[0]);
-
     ret = krb5_init_context(&context);
+    if (ret == 0)
+        ret = krb5_set_config(context, CONF);
+    if (ret == 0)
+        ret = krb5_plugin_register(context, PLUGIN_TYPE_DATA, "hdb_test_interface",
+                                   &hdb_test);
+    if (ret == 0)
+        ret = hdb_create(context, &db, "test:mem");
     if (ret)
-        errx(1, "krb5_init_context");
+        krb5_err(context, 1, ret, "failed to setup HDB driver and test");
 
-    ret = krb5_plugin_register(context, PLUGIN_TYPE_DATA, "hdb_test_interface",
-                               &hdb_test);
-    if (ret)
-        krb5_err(context, 1, ret, "krb5_plugin_register");
+    assert(db->enable_virtual_hostbased_princs);
+    assert(db->virtual_hostbased_princ_ndots == 1);
+    assert(db->virtual_hostbased_princ_maxdots == 3);
 
-    ret = hdb_create(context, &db, "test:mem");
-    if (ret)
-        krb5_err(context, 1, ret, "hdb_create");
-
-    make_namespace(context, db);
+    make_namespace(context, db, WK_PREFIX "bar.example@BAR.EXAMPLE");
     test_namespace(context, db);
     krb5_free_context(context);
     return 0;

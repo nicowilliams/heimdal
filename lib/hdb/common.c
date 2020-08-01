@@ -908,16 +908,16 @@ fetch_it(krb5_context context,
                 htmp = NULL;
             } else {
                 *htmp = '\0';
-                /* Count dots in `host' */
-                for (hdots = 0, htmp = host; htmp && *htmp; htmp++)
-                    if (*htmp == '.')
-                        hdots++;
             }
         }
+        /* Count dots in `host' */
+        for (hdots = 0, htmp = host; htmp && *htmp; htmp++)
+            if (*htmp == '.')
+                hdots++;
     }
 
     tmp = host ? host : comp1;
-    while (ret == 0) {
+    for (;;) {
         /*
          * XXX In order to support the deleted KeyRotationFlags flag we'll have
          * refactor some of this searching for a parent namespace into a
