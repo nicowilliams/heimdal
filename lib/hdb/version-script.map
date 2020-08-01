@@ -31,6 +31,7 @@ HEIMDAL_HDB_1.0 {
 		hdb_entry_clear_password;
 		hdb_entry_get_ConstrainedDelegACL;
 		hdb_entry_get_aliases;
+		hdb_entry_get_key_rotation;
 		hdb_entry_get_password;
 		hdb_entry_get_pkinit_acl;
 		hdb_entry_get_pkinit_cert;
@@ -68,6 +69,7 @@ HEIMDAL_HDB_1.0 {
 		hdb_seal_key_mkey;
 		hdb_seal_keys;
 		hdb_seal_keys_mkey;
+		hdb_entry_set_key_rotation;
                 hdb_set_last_modified_by;
 		hdb_set_master_key;
 		hdb_set_master_keyfile;
@@ -127,6 +129,8 @@ HEIMDAL_HDB_1.0 {
 		free_Salt;
 		HDBFlags2int;
 		int2HDBFlags;
+		int2KeyRotationFlags;
+		KeyRotationFlags2int;
 		length_HDB_EncTypeList;
 		length_HDB_Ext_Aliases;
 		length_HDB_extension;

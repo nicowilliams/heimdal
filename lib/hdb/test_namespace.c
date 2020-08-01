@@ -237,9 +237,73 @@ struct hdb_method hdb_test =
 #endif
 };
 
+static krb5_error_code
+make_base_key(krb5_context context, krb5_const_principal p, krb5_keyblock *k)
+{
+    return krb5_string_to_key(context, KRB5_ENCTYPE_AES128_CTS_HMAC_SHA256_128,
+                              "Testing123...", p, k);
+}
+
+#define WK_PREFIX "WELLKNOWN/HOSTBASED-NAMESPACE/"
+#define SOME_TIME 1596318329
+
 static void
 make_namespace(krb5_context context, HDB *db)
 {
+    krb5_error_code ret = 0;
+    hdb_entry_ex e;
+    KeyRotation kr;
+    Key k;
+
+    memset(&kr, 0, sizeof(kr));
+    kr.flags = int2KeyRotationFlags(0);
+    kr.epoch = SOME_TIME - (7 * 24 * 3600) - (SOME_TIME % (7 * 24 * 3600));
+    kr.period = 60;
+    kr.base_kvno = 150;
+    kr.base_key_kvno = 1;
+
+    memset(&k, 0, sizeof(k));
+    k.mkvno = 0;
+    k.salt = 0;
+
+    /* Setup the HDB entry */
+    memset(&e, 0, sizeof(e));
+    e.ctx = 0;
+    e.free_entry = 0;
+    e.entry.kvno = 1;
+    e.entry.created_by.time = SOME_TIME;
+    e.entry.valid_start = e.entry.valid_end = e.entry.pw_end = 0;
+    e.entry.generation = 0;
+    e.entry.flags = int2HDBFlags(0);
+    e.entry.flags.server = e.entry.flags.client = 1;
+    e.entry.flags.virtual = 1;
+
+    if (ret == 0 &&
+        (e.entry.etypes = malloc(sizeof(*e.entry.etypes))) == NULL)
+        ret = krb5_enomem(context);
+    if (ret == 0 &&
+        (e.entry.max_life = malloc(sizeof(*e.entry.max_life))) == NULL)
+        ret = krb5_enomem(context);
+    if (ret == 0 &&
+        (e.entry.max_renew = malloc(sizeof(*e.entry.max_renew))) == NULL)
+        ret = krb5_enomem(context);
+    if (ret == 0)
+        *e.entry.max_renew = 2 * ((*e.entry.max_life = 15 * 24 * 3600));
+    if (ret == 0)
+        ret = krb5_parse_name(context, WK_PREFIX "bar.example@BAR.EXAMPLE",
+                              &e.entry.principal);
+    if (ret == 0)
+        ret = krb5_parse_name(context, "admin@BAR.EXAMPLE",
+                              &e.entry.created_by.principal);
+    if (ret == 0)
+        ret = make_base_key(context, e.entry.principal, &k.key);
+    if (ret == 0)
+        ret = hdb_entry_set_key_rotation(context, &e.entry, &kr);
+
+    if (ret == 0)
+        ret = db->hdb_store(context, db, 0, &e);
+    if (ret)
+        krb5_err(context, 1, ret, "failed to setup a namespace principal");
 }
 
 static void

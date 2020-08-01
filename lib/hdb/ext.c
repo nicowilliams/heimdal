@@ -552,7 +552,6 @@ hdb_entry_get_key_rotation(krb5_context context,
 /* XXX Require a new hdb_keyset be given as well */
 krb5_error_code
 hdb_entry_set_key_rotation(krb5_context context,
-                           HDB *db,
                            hdb_entry *entry,
                            const KeyRotation *kr)
 {

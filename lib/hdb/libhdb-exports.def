@@ -28,11 +28,13 @@ EXPORTS
 	hdb_entry_clear_password
 	hdb_entry_get_ConstrainedDelegACL
 	hdb_entry_get_aliases
+	hdb_entry_get_key_rotation
 	hdb_entry_get_password
 	hdb_entry_get_pkinit_acl
 	hdb_entry_get_pkinit_cert
 	hdb_entry_get_pkinit_hash
 	hdb_entry_get_pw_change_time
+	hdb_entry_set_key_rotation
 	hdb_entry_set_password
 	hdb_entry_set_pw_change_time
 	hdb_fetch_kvno
@@ -122,6 +124,8 @@ EXPORTS
 	free_Keys
 	free_Salt
 	int2HDBFlags
+	int2KeyRotationFlags
+	KeyRotationFlags2int
 	length_HDB_EncTypeList
 	length_HDB_Ext_Aliases
 	length_HDB_extension
