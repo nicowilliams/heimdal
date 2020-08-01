@@ -337,10 +337,8 @@ test_namespace(krb5_context context, HDB *db)
         ret = krb5_parse_name(context, "HTTP/foo.bar.example@BAR.EXAMPLE",
                               &p);
     ret = hdb_fetch_kvno(context, db, p, HDB_F_DECRYPT, SOME_TIME + 3, 0, 0, &e);
-#if 0
     if (ret)
         krb5_err(context, 1, ret, "failed to fetch a virtual principal");
-#endif
 }
 
 #define CONF                                        \
