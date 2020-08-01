@@ -255,13 +255,11 @@ hdb_remove_base_keys(krb5_context context,
     const HDB_Ext_KeyRotation *kr;
     size_t i, k;
 
-    base_keys->len = 0;
-    if ((base_keys->val = calloc(kr->len, sizeof(base_keys->val[0]))) == NULL)
-        return krb5_enomem(context);
-
     ret = hdb_entry_get_key_rotation(context, e, &kr);
-    if (ret)
-        return ret;
+    base_keys->len = 0;
+    if (ret == 0 &&
+        (base_keys->val = calloc(kr->len, sizeof(base_keys->val[0]))) == NULL)
+        return krb5_enomem(context);
 
     for (k = i = 0; i < kr->len; i++) {
         const KeyRotation *krp = &kr->val[i];
