@@ -127,6 +127,8 @@ ALL_OBJECTS += $(test_namespace_OBJECTS)
 
 $(ALL_OBJECTS): $(HDB_PROTOS) hdb_asn1.h hdb_asn1-priv.h hdb_err.h
 
+test_namespace_LDADD = $(LDADD) $(test_hdbkeys_LIBS) $(LIB_heimbase)
+
 $(srcdir)/hdb-protos.h: $(dist_libhdb_la_SOURCES)
 	cd $(srcdir); perl ../../cf/make-proto.pl -q -P comment -o hdb-protos.h $(dist_libhdb_la_SOURCES) || rm -f hdb-protos.h
 
@@ -140,13 +142,6 @@ hdb_asn1_files: $(ASN1_COMPILE_DEP) $(srcdir)/hdb.asn1
 			--sequence=HDB-Ext-KeyRotation	\
 			--sequence=HDB-Ext-KeySet	\
 			--sequence=Keys $(srcdir)/hdb.asn1 hdb_asn1
-
-test_dbinfo_LIBS = libhdb.la
-
-test_hdbkeys_LIBS = ../krb5/libkrb5.la libhdb.la
-test_mkey_LIBS = $(test_hdbkeys_LIBS)
-test_hdbplugin_LIBS = $(test_hdbkeys_LIBS)
-test_namespace_LIBS = $(test_hdbkeys_LIBS)
 
 # to help stupid solaris make
 

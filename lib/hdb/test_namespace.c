@@ -35,8 +35,13 @@
 
 typedef struct {
     HDB hdb;            /* generic members */
-    hdb_entry *entries;
-    size_t nentries;
+    /*
+     * Make this dict a global, add a mutex lock around it, and a .finit and/or
+     * atexit() handler to free it, and we'd have a first-class MEMORY HDB.
+     *
+     * What would a first-class MEMORY HDB be good for though, besides testing?
+     */
+    heim_dict_t dict;
 } TEST_HDB;
 
 struct hdb_called {
@@ -54,6 +59,11 @@ TDB_close(krb5_context context, HDB *db)
 static krb5_error_code
 TDB_destroy(krb5_context context, HDB *db)
 {
+    TEST_HDB *tdb = (void *)db;
+
+    heim_release(tdb->dict);
+    free(tdb->hdb.hdb_name);
+    free(tdb);
     return 0;
 }
 
@@ -80,39 +90,79 @@ TDB_unlock(krb5_context context, HDB *db)
 static krb5_error_code
 TDB_firstkey(krb5_context context, HDB *db, unsigned flags, hdb_entry_ex *entry)
 {
+    /* XXX Implement */
+    /* Tricky thing: heim_dict_iterate_f() is inconvenient here */
+    /* We need this to check that virtual principals aren't created */
     return 0;
 }
-
 
 static krb5_error_code
 TDB_nextkey(krb5_context context, HDB *db, unsigned flags, hdb_entry_ex *entry)
 {
+    /* XXX Implement */
+    /* Tricky thing: heim_dict_iterate_f() is inconvenient here */
+    /* We need this to check that virtual principals aren't created */
     return 0;
 }
 
 static krb5_error_code
 TDB_rename(krb5_context context, HDB *db, const char *new_name)
 {
-    return 0;
+    return EEXIST;
 }
 
 static krb5_error_code
 TDB__get(krb5_context context, HDB *db, krb5_data key, krb5_data *reply)
 {
-    return 0;
+    krb5_error_code ret = 0;
+    TEST_HDB *tdb = (void *)db;
+    heim_object_t k, v;
+
+    if ((k = heim_data_create(key.data, key.length)) == NULL)
+        ret = krb5_enomem(context);
+    if (ret == 0 && (v = heim_dict_get_value(tdb->dict, k)) == NULL)
+        ret = HDB_ERR_NOENTRY;
+    if (ret == 0)
+        ret = krb5_data_copy(reply, heim_data_get_ptr(v), heim_data_get_length(v));
+    heim_release(k);
+    return ret;
 }
 
 static krb5_error_code
-TDB__put(krb5_context context, HDB *db, int replace,
-	krb5_data key, krb5_data value)
+TDB__put(krb5_context context, HDB *db, int rplc, krb5_data kd, krb5_data vd)
 {
-    return 0;
+    krb5_error_code ret = 0;
+    TEST_HDB *tdb = (void *)db;
+    heim_object_t e = NULL;
+    heim_object_t k, v;
+
+    if ((k = heim_data_create(kd.data, kd.length)) == NULL ||
+        (v = heim_data_create(vd.data, vd.length)) == NULL)
+        ret = krb5_enomem(context);
+    if (ret == 0 && !rplc && (e = heim_dict_get_value(tdb->dict, k)) != NULL)
+        ret = HDB_ERR_EXISTS;
+    if (ret == 0 && heim_dict_set_value(tdb->dict, k, v))
+        ret = krb5_enomem(context);
+    heim_release(k);
+    heim_release(v);
+    return ret;
 }
 
 static krb5_error_code
 TDB__del(krb5_context context, HDB *db, krb5_data key)
 {
-    return 0;
+    krb5_error_code ret = 0;
+    TEST_HDB *tdb = (void *)db;
+    heim_object_t k, v;
+
+    if ((k = heim_data_create(key.data, key.length)) == NULL)
+        ret = krb5_enomem(context);
+    if (ret == 0 && (v = heim_dict_get_value(tdb->dict, k)) == NULL)
+        ret = HDB_ERR_NOENTRY;
+    if (ret == 0)
+        heim_dict_delete_key(tdb->dict, k);
+    heim_release(k);
+    return ret;
 }
 
 static krb5_error_code
@@ -127,7 +177,9 @@ hdb_test_create(krb5_context context, struct HDB **db, const char *arg)
     TEST_HDB *tdb;
 
     if ((tdb = calloc(1, sizeof(**db))) == NULL ||
-        (tdb->hdb.hdb_name = strdup(arg)) == NULL) {
+        (tdb->hdb.hdb_name = strdup(arg)) == NULL ||
+        (tdb->dict = heim_dict_create(10)) == NULL) {
+        free(tdb->hdb.hdb_name);
         free(tdb);
         return krb5_enomem(context);
     }
@@ -185,6 +237,16 @@ struct hdb_method hdb_test =
 #endif
 };
 
+static void
+make_namespace(krb5_context context, HDB *db)
+{
+}
+
+static void
+test_namespace(krb5_context context, HDB *db)
+{
+}
+
 int
 main(int argc, char **argv)
 {
@@ -207,6 +269,8 @@ main(int argc, char **argv)
     if (ret)
         krb5_err(context, 1, ret, "hdb_create");
 
+    make_namespace(context, db);
+    test_namespace(context, db);
     krb5_free_context(context);
     return 0;
 }
