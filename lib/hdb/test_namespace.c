@@ -176,7 +176,7 @@ hdb_test_create(krb5_context context, struct HDB **db, const char *arg)
 {
     TEST_HDB *tdb;
 
-    if ((tdb = calloc(1, sizeof(**db))) == NULL ||
+    if ((tdb = calloc(1, sizeof(tdb[0]))) == NULL ||
         (tdb->hdb.hdb_name = strdup(arg)) == NULL ||
         (tdb->dict = heim_dict_create(10)) == NULL) {
         free(tdb->hdb.hdb_name);
@@ -328,17 +328,47 @@ test_namespace(krb5_context context, HDB *db)
 {
     krb5_error_code ret = 0;
     krb5_principal p;
-    hdb_entry_ex e;
+    const char *expected[] = {
+        WK_PREFIX "bar.example@BAR.EXAMPLE",
+        "HTTP/bar.example@BAR.EXAMPLE",
+        "HTTP/foo.bar.example@BAR.EXAMPLE",
+        "HTTP/blah.foo.bar.example@BAR.EXAMPLE",
+    };
+    const char *unexpected[] = {
+        WK_PREFIX "no.example@BAZ.EXAMPLE",
+        "HTTP/no.example@BAR.EXAMPLE",
+        "HTTP/foo.no.example@BAR.EXAMPLE",
+        "HTTP/blah.foo.no.example@BAR.EXAMPLE",
+    };
+    hdb_entry_ex e[sizeof(expected) / sizeof(expected[0])];
+    hdb_entry_ex no;
+    size_t i;
 
-    memset(&e, 0, sizeof(e));
-    e.ctx = 0;
-    e.free_entry = 0;
-    if (ret == 0)
-        ret = krb5_parse_name(context, "HTTP/foo.bar.example@BAR.EXAMPLE",
-                              &p);
-    ret = hdb_fetch_kvno(context, db, p, HDB_F_DECRYPT, SOME_TIME + 3, 0, 0, &e);
+    memset(e, 0, sizeof(e));
+
+    for (i = 0; ret == 0 && i < sizeof(expected) / sizeof(expected[0]); i++) {
+        if (ret == 0)
+            ret = krb5_parse_name(context, expected[i], &p);
+        if (ret == 0)
+            ret = hdb_fetch_kvno(context, db, p, HDB_F_DECRYPT, 0, 0, 0, &e[i]);
+        if (ret == 0 &&
+            !krb5_principal_compare(context, p, e[i].entry.principal))
+            krb5_errx(context, 1, "wrong principal in fetched entry");
+        krb5_free_principal(context, p);
+    }
     if (ret)
-        krb5_err(context, 1, ret, "failed to fetch a virtual principal");
+        krb5_err(context, 1, ret, "virtual principal test failed");
+
+    for (i = 0; i < sizeof(unexpected) / sizeof(unexpected[0]); i++) {
+        if (ret == 0)
+            ret = krb5_parse_name(context, unexpected[i], &p);
+        if (ret == 0)
+            ret = hdb_fetch_kvno(context, db, p, HDB_F_DECRYPT, 0, 0, 0, &no);
+        if (ret == 0)
+            krb5_errx(context, 1, "bogus principal exists, wat");
+        krb5_free_principal(context, p);
+        ret = 0;
+    }
 }
 
 #define CONF                                        \
