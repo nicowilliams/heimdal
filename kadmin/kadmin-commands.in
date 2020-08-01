@@ -507,6 +507,7 @@ command = {
 }
 command = {
 	name = "modify"
+	name = "mod"
 	function = "mod_entry"
 	option = {
 		long = "max-ticket-life"
