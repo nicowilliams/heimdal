@@ -994,11 +994,12 @@ fetch_it(krb5_context context,
      * If unencrypted keys were requested, derive them.  There may not be any
      * key derivation to do, but that's decided in derive_keys().
      */
-    if (ret == 0)
+    if (ret == 0) {
         ret = derive_keys(context, flags, princ, !!baseprinc, t, etype, kvno,
                           ent);
-    if (ret)
-        hdb_free_entry(context, ent);
+        if (ret)
+            hdb_free_entry(context, ent);
+    }
 
     krb5_free_principal(context, baseprinc);
     free(host);
