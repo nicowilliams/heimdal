@@ -313,8 +313,8 @@ hdb_add_history_keyset(krb5_context context,
     if (extp == NULL) {
         ext.mandatory = FALSE;
         ext.data.element = choice_HDB_extension_data_hist_keys;
-        extp->data.u.hist_keys.len = 0;
-        extp->data.u.hist_keys.val = 0;
+        ext.data.u.hist_keys.len = 0;
+        ext.data.u.hist_keys.val = 0;
         extp = &ext;
     }
     hist_keys = &extp->data.u.hist_keys;
