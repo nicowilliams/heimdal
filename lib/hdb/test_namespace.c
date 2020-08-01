@@ -177,7 +177,7 @@ struct hdb_method hdb_test =
     "test",
     hdb_test_create
 #else
-        .version = HDB_INTERFACE_VERSION,
+    .version = HDB_INTERFACE_VERSION,
     .init = hdb_test_init,
     .fini = hdb_test_fini,
     .prefix = "test",
@@ -198,7 +198,7 @@ main(int argc, char **argv)
     if (ret)
         errx(1, "krb5_init_context");
 
-    ret = krb5_plugin_register(context, PLUGIN_TYPE_DATA, "hdb_test_namespace",
+    ret = krb5_plugin_register(context, PLUGIN_TYPE_DATA, "hdb_test_interface",
                                &hdb_test);
     if (ret)
         krb5_err(context, 1, ret, "krb5_plugin_register");
