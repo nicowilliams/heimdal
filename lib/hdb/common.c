@@ -880,7 +880,7 @@ fetch_it(krb5_context context,
 {
     krb5_const_principal tmpprinc = princ;
     krb5_principal baseprinc = NULL;
-    krb5_error_code ret;
+    krb5_error_code ret = 0;
     const char *realm = krb5_principal_get_realm(context, princ);
     const char *comp0 = krb5_principal_get_comp_string(context, princ, 0);
     const char *comp1 = krb5_principal_get_comp_string(context, princ, 1);
