@@ -918,6 +918,7 @@ fetch_it(krb5_context context,
 
     tmp = host ? host : comp1;
     for (;;) {
+        krb5_error_code ret2 = 0;
         /*
          * XXX In order to support the deleted KeyRotationFlags flag we'll have
          * refactor some of this searching for a parent namespace into a
@@ -966,17 +967,17 @@ fetch_it(krb5_context context,
 
         if (baseprinc == NULL) {
             /* First go around, need a namespace princ.  Make it! */
-            ret = krb5_build_principal(context, &baseprinc, strlen(realm),
-                                       realm, "WELLKNOWN",
-                                       "HOSTBASED-NAMESPACE", NULL);
-            if (ret == 0 && comp2)
+            ret2 = krb5_build_principal(context, &baseprinc, strlen(realm),
+                                        realm, "WELLKNOWN",
+                                        "HOSTBASED-NAMESPACE", NULL);
+            if (ret2 == 0 && comp2)
                 /* Support domain-based names */
-                ret = krb5_principal_set_comp_string(context, baseprinc, 3, comp2);
+                ret2 = krb5_principal_set_comp_string(context, baseprinc, 3, comp2);
         }
 
         /* Update the hostname component */
-        if (ret == 0)
-            ret = krb5_principal_set_comp_string(context, baseprinc, 2, tmp);
+        if (ret2 == 0)
+            ret2 = krb5_principal_set_comp_string(context, baseprinc, 2, tmp);
         tmpprinc = baseprinc;
 
         /* Strip off left-most label for the next go-around */
