@@ -3,6 +3,9 @@
 HEIMDAL_HDB_1.0 {
 	global:
 		encode_hdb_keyset;
+		_hdb_fetch_kvno;
+		_hdb_remove;
+		_hdb_store;
 		hdb_add_master_key;
 		hdb_add_current_keys_to_history;
 		hdb_change_kvno;

@@ -76,7 +76,7 @@ if versionscript
 libhdb_la_LDFLAGS += $(LDFLAGS_VERSION_SCRIPT)$(srcdir)/version-script.map
 endif
 
-noinst_PROGRAMS = test_dbinfo test_hdbkeys test_mkey test_hdbplugin
+noinst_PROGRAMS = test_dbinfo test_hdbkeys test_mkey test_hdbplugin test_namespace
 
 dist_libhdb_la_SOURCES =			\
 	common.c				\
@@ -123,6 +123,7 @@ ALL_OBJECTS += $(test_dbinfo_OBJECTS)
 ALL_OBJECTS += $(test_hdbkeys_OBJECTS)
 ALL_OBJECTS += $(test_mkey_OBJECTS)
 ALL_OBJECTS += $(test_hdbplugin_OBJECTS)
+ALL_OBJECTS += $(test_namespace_OBJECTS)
 
 $(ALL_OBJECTS): $(HDB_PROTOS) hdb_asn1.h hdb_asn1-priv.h hdb_err.h
 
@@ -145,6 +146,7 @@ test_dbinfo_LIBS = libhdb.la
 test_hdbkeys_LIBS = ../krb5/libkrb5.la libhdb.la
 test_mkey_LIBS = $(test_hdbkeys_LIBS)
 test_hdbplugin_LIBS = $(test_hdbkeys_LIBS)
+test_namespace_LIBS = $(test_hdbkeys_LIBS)
 
 # to help stupid solaris make
 
