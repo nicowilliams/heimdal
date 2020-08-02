@@ -314,6 +314,8 @@ make_namespace(krb5_context context, HDB *db, const char *name)
     if (ret == 0)
         ret = make_base_key(context, e.entry.principal, &k.key);
     if (ret == 0)
+        add_Keys(&e.entry.keys, &k);
+    if (ret == 0)
         ret = hdb_entry_set_key_rotation(context, &e.entry, &kr);
     if (ret == 0)
         ret = hdb_entry_set_pw_change_time(context, &e.entry, kr.epoch);
@@ -321,6 +323,8 @@ make_namespace(krb5_context context, HDB *db, const char *name)
         ret = db->hdb_store(context, db, 0, &e);
     if (ret)
         krb5_err(context, 1, ret, "failed to setup a namespace principal");
+    free_Key(&k);
+    hdb_free_entry(context, &e);
 }
 
 static void
@@ -369,6 +373,9 @@ test_namespace(krb5_context context, HDB *db)
         krb5_free_principal(context, p);
         ret = 0;
     }
+
+    for (i = 0; ret == 0 && i < sizeof(expected) / sizeof(expected[0]); i++)
+        hdb_free_entry(context, &e[i]);
 }
 
 #define CONF                                        \
@@ -402,6 +409,7 @@ main(int argc, char **argv)
 
     make_namespace(context, db, WK_PREFIX "bar.example@BAR.EXAMPLE");
     test_namespace(context, db);
+    db->hdb_destroy(context, db);
     krb5_free_context(context);
     return 0;
 }
