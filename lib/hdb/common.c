@@ -657,7 +657,9 @@ derive_keys_for_kr(krb5_context context,
      * tolerant of signed 32-bit time_t here near 2038.  Of course, we have
      * signed 32-bit time_t dragons elsewhere.
      */
-    n = (t - krp->epoch < 0) ? (t - krp->epoch) / krp->period : 0;
+    if (t - krp->epoch < 0)
+        return 0; /* This KR is not relevant yet */
+    n = (t - krp->epoch) / krp->period;
     n += rotation_period_offset;
     set_time = krp->epoch + krp->period * n;
     kvno = krp->base_kvno + n;

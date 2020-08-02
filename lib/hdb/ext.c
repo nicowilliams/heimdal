@@ -560,6 +560,12 @@ hdb_entry_set_key_rotation(krb5_context context,
     KeyRotation tmp;
     size_t i, sz;
 
+    if (kr->period < 1) {
+        krb5_set_error_message(context, EINVAL,
+                               "Key rotation period cannot be zero");
+        return EINVAL;
+    }
+
     new_ext.mandatory = TRUE;
     new_ext.data.element = choice_HDB_extension_data_key_rotation;
     new_ext.data.u.key_rotation.len = 0;
