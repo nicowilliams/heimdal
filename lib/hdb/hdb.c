@@ -299,14 +299,15 @@ hdb_install_keyset(krb5_context context,
                    int is_current_keyset,
                    const hdb_keyset *ks)
 {
-    krb5_error_code ret;
+    krb5_error_code ret = 0;
 
     if (is_current_keyset) {
-        if (e->keys.len) {
-            if ((ret = hdb_add_current_keys_to_history(context, e)) ||
-                (ret = copy_Keys(&ks->keys, &e->keys)))
-                return ret;
-        }
+        if (e->keys.len &&
+            (ret = hdb_add_current_keys_to_history(context, e)))
+            return ret;
+        free_Keys(&e->keys);
+        if (ret == 0)
+            ret = copy_Keys(&ks->keys, &e->keys);
         e->kvno = ks->kvno;
         if (ks->set_time)
             return hdb_entry_set_pw_change_time(context, e, *ks->set_time);
