@@ -461,6 +461,9 @@ test_namespace(krb5_context context, HDB *db, int toffset)
      * XXX Add check that derived keys are a) different, b) as expected, using
      * a set of test vectors or else by computing the expected keys here with
      * code that's not shared with lib/hdb/common.c.
+     *
+     * XXX Add check that we get expected past and/or future keys, not just
+     * current keys.
      */
     for (i = 1; ret == 0 && i < sizeof(expected) / sizeof(expected[0]); i++) {
         uint32_t kvno;
