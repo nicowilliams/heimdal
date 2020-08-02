@@ -860,6 +860,8 @@ derive_keys(krb5_context context,
      *
      * It's OK if ret != 0 here.
      */
+    if (!h->entry.max_life)
+        h->entry.max_life = malloc(sizeof(h->entry.max_life[0]));
     if (h->entry.max_life &&
         *h->entry.max_life > kr->val[current_kr].period >> 1)
         *h->entry.max_life = kr->val[current_kr].period >> 1;
