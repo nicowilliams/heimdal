@@ -271,7 +271,7 @@ derive_key(krb5_context context,
      * NOTE: No 2038 signed 32-bit time issues here because `SOME_TIME' is in
      *       2020.  The math can be a bit simpler than in derive_keys_for_kr().
      */
-    n = toffset / SOME_PERIOD;
+    n = (SOME_TIME - SOME_EPOCH + toffset) / SOME_PERIOD;
     *set_time = SOME_EPOCH + SOME_PERIOD * n;
     *kvno = SOME_BASE_KVNO + n;
 
@@ -408,6 +408,7 @@ test_namespace(krb5_context context, HDB *db, int toffset)
         WK_PREFIX "bar.example@BAR.EXAMPLE",
         "HTTP/bar.example@BAR.EXAMPLE",
         "HTTP/foo.bar.example@BAR.EXAMPLE",
+        "host/foo.bar.example@BAR.EXAMPLE",
         "HTTP/blah.foo.bar.example@BAR.EXAMPLE",
     };
     const char *unexpected[] = {
@@ -432,7 +433,8 @@ test_namespace(krb5_context context, HDB *db, int toffset)
         if (ret == 0 && i == 0)
             ret = make_base_key(context, p, &base_key);
         if (ret == 0)
-            ret = hdb_fetch_kvno(context, db, p, HDB_F_DECRYPT, 0, 0, 0, &e[i]);
+            ret = hdb_fetch_kvno(context, db, p, HDB_F_DECRYPT,
+                                 SOME_TIME + toffset, 0, 0, &e[i]);
         if (ret == 0 &&
             !krb5_principal_compare(context, p, e[i].entry.principal))
             krb5_errx(context, 1, "wrong principal in fetched entry");
@@ -445,7 +447,8 @@ test_namespace(krb5_context context, HDB *db, int toffset)
         if (ret == 0)
             ret = krb5_parse_name(context, unexpected[i], &p);
         if (ret == 0)
-            ret = hdb_fetch_kvno(context, db, p, HDB_F_DECRYPT, 0, 0, 0, &no);
+            ret = hdb_fetch_kvno(context, db, p, HDB_F_DECRYPT,
+                                 SOME_TIME + toffset, 0, 0, &no);
         if (ret == 0)
             krb5_errx(context, 1, "bogus principal exists, wat");
         krb5_free_principal(context, p);
@@ -479,9 +482,14 @@ test_namespace(krb5_context context, HDB *db, int toffset)
             if (memcmp(e[i].entry.keys.val[0].key.keyvalue.data,
                        dk.keyvalue.data, dk.keyvalue.length))
                 krb5_errx(context, 1, "key mismatch!");
+            if (memcmp(e[i].entry.keys.val[0].key.keyvalue.data,
+                       e[i - 1].entry.keys.val[0].key.keyvalue.data,
+                       dk.keyvalue.length) == 0)
+                krb5_errx(context, 1, "different virtual principals have the same keys!");
         }
-        hdb_free_entry(context, &e[i]);
     }
+    for (i = 0; ret == 0 && i < sizeof(expected) / sizeof(expected[0]); i++)
+        hdb_free_entry(context, &e[i]);
     free_EncryptionKey(&base_key);
 }
 
