@@ -331,6 +331,8 @@ make_namespace(krb5_context context, HDB *db, const char *name)
     KeyRotation kr;
     Key k;
 
+    /* XXX We need at least TWO key rotations to test with */
+    /* XXX And we need to test that adding a "fourth" KR works */
     memset(&kr, 0, sizeof(kr));
     kr.flags = int2KeyRotationFlags(0);
     kr.epoch = SOME_EPOCH;
@@ -523,6 +525,19 @@ main(int argc, char **argv)
     assert(db->virtual_hostbased_princ_maxdots == 3);
 
     make_namespace(context, db, WK_PREFIX "bar.example@BAR.EXAMPLE");
+
+    /*
+     * XXX We need more than just a time offset argument to test_namespace.  We
+     * need a time offset off an epoch.
+     *
+     * XXX We need to call it with multiple {epoch, offset} pairs.  Using
+     * sufficiently negative offsets to the earliest epoch must yield no keys!
+     *
+     * XXX Since we need to check that keys for a principal are different at
+     * sufficiently different times, we should probably do the time offset
+     * thing in test_namespace(), accumulating entries for N_test_princ_names x
+     * N_times, then checking that all the keys are different.
+     */
     test_namespace(context, db, 0);
     db->hdb_destroy(context, db);
     krb5_free_context(context);
