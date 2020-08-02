@@ -246,6 +246,76 @@ make_base_key(krb5_context context, krb5_const_principal p, krb5_keyblock *k)
 
 #define WK_PREFIX "WELLKNOWN/HOSTBASED-NAMESPACE/"
 #define SOME_TIME 1596318329
+#define SOME_BASE_KVNO 150
+#define SOME_EPOCH (SOME_TIME - (7 * 24 * 3600) - (SOME_TIME % (7 * 24 * 3600)))
+#define SOME_PERIOD 60
+
+static krb5_error_code
+derive_key(krb5_context context,
+           const char *p,
+           int toffset,
+           krb5_keyblock *base,
+           krb5int32 etype,
+           krb5_keyblock *k,
+           uint32_t *kvno,
+           time_t *set_time)
+{
+    krb5_error_code ret = 0;
+    krb5_crypto crypto = NULL;
+    EncryptionKey intermediate;
+    krb5_data pad, out;
+    size_t len;
+    int n;
+
+    /*
+     * NOTE: No 2038 signed 32-bit time issues here because `SOME_TIME' is in
+     *       2020.  The math can be a bit simpler than in derive_keys_for_kr().
+     */
+    n = toffset / SOME_PERIOD;
+    *set_time = SOME_EPOCH + SOME_PERIOD * n;
+    *kvno = SOME_BASE_KVNO + n;
+
+    out.data = 0;
+    out.length = 0;
+
+    /* Derive intermediate key */
+    pad.data = (void *)(uintptr_t)p;
+    pad.length = strlen(p);
+    ret = krb5_enctype_keysize(context, base->keytype, &len);
+    if (ret == 0)
+        ret = krb5_crypto_init(context, base, 0, &crypto);
+    if (ret == 0)
+        ret = krb5_crypto_prfplus(context, crypto, &pad, len, &out);
+    if (crypto)
+        krb5_crypto_destroy(context, crypto);
+    crypto = NULL;
+    if (ret == 0)
+        ret = krb5_random_to_key(context, etype, out.data, out.length,
+                                 &intermediate);
+    krb5_data_free(&out);
+
+    /* Derive final key */
+    pad.data = kvno;
+    pad.length = sizeof(*kvno);
+    if (ret == 0)
+    ret = krb5_enctype_keysize(context, etype, &len);
+    if (ret == 0)
+        ret = krb5_crypto_init(context, &intermediate, 0, &crypto);
+
+    if (ret == 0) {
+        *kvno = htonl(*kvno);
+        ret = krb5_crypto_prfplus(context, crypto, &pad, len, &out);
+        *kvno = ntohl(*kvno);
+    }
+
+    if (crypto)
+        krb5_crypto_destroy(context, crypto);
+    if (ret == 0)
+        ret = krb5_random_to_key(context, etype, out.data, out.length, k);
+    krb5_data_free(&out);
+
+    return ret;
+}
 
 /*
  * XXX Add a function to do some of the same key derivation that we do in
@@ -263,9 +333,9 @@ make_namespace(krb5_context context, HDB *db, const char *name)
 
     memset(&kr, 0, sizeof(kr));
     kr.flags = int2KeyRotationFlags(0);
-    kr.epoch = SOME_TIME - (7 * 24 * 3600) - (SOME_TIME % (7 * 24 * 3600));
-    kr.period = 60;
-    kr.base_kvno = 150;
+    kr.epoch = SOME_EPOCH;
+    kr.period = SOME_PERIOD;
+    kr.base_kvno = SOME_BASE_KVNO;
     kr.base_key_kvno = 1;
 
     memset(&k, 0, sizeof(k));
@@ -305,6 +375,7 @@ make_namespace(krb5_context context, HDB *db, const char *name)
         (e.entry.max_renew = malloc(sizeof(*e.entry.max_renew))) == NULL)
         ret = krb5_enomem(context);
     if (ret == 0)
+        /* Make it long, so we see the clamped max */
         *e.entry.max_renew = 2 * ((*e.entry.max_life = 15 * 24 * 3600));
     if (ret == 0)
         ret = krb5_parse_name(context, name, &e.entry.principal);
@@ -328,11 +399,11 @@ make_namespace(krb5_context context, HDB *db, const char *name)
 }
 
 static void
-test_namespace(krb5_context context, HDB *db)
+test_namespace(krb5_context context, HDB *db, int toffset)
 {
     krb5_error_code ret = 0;
     krb5_principal p;
-    krb5_keyblock base_key;
+    krb5_keyblock base_key, dk;
     const char *expected[] = {
         WK_PREFIX "bar.example@BAR.EXAMPLE",
         "HTTP/bar.example@BAR.EXAMPLE",
@@ -386,8 +457,31 @@ test_namespace(krb5_context context, HDB *db)
      * a set of test vectors or else by computing the expected keys here with
      * code that's not shared with lib/hdb/common.c.
      */
-    for (i = 0; ret == 0 && i < sizeof(expected) / sizeof(expected[0]); i++)
+    for (i = 1; ret == 0 && i < sizeof(expected) / sizeof(expected[0]); i++) {
+        uint32_t kvno;
+        time_t set_time, chg_time;
+
+        ret = derive_key(context, expected[i], toffset, &base_key,
+                         base_key.keytype, &dk, &kvno, &set_time);
+        if (ret == 0) {
+            if (kvno != e[i].entry.kvno)
+                krb5_errx(context, 1, "kvno mismatch (%u != %u)", kvno, e[i].entry.kvno);
+            (void) hdb_entry_get_pw_change_time(&e[i].entry, &chg_time);
+            if (set_time != chg_time)
+                krb5_errx(context, 1, "key change time mismatch");
+            if (e[i].entry.keys.len == 0)
+                krb5_errx(context, 1, "no keys!");
+            if (e[i].entry.keys.val[0].key.keytype != dk.keytype)
+                krb5_errx(context, 1, "enctype mismatch!");
+            if (e[i].entry.keys.val[0].key.keyvalue.length !=
+                dk.keyvalue.length)
+                krb5_errx(context, 1, "key length mismatch!");
+            if (memcmp(e[i].entry.keys.val[0].key.keyvalue.data,
+                       dk.keyvalue.data, dk.keyvalue.length))
+                krb5_errx(context, 1, "key mismatch!");
+        }
         hdb_free_entry(context, &e[i]);
+    }
     free_EncryptionKey(&base_key);
 }
 
@@ -421,7 +515,7 @@ main(int argc, char **argv)
     assert(db->virtual_hostbased_princ_maxdots == 3);
 
     make_namespace(context, db, WK_PREFIX "bar.example@BAR.EXAMPLE");
-    test_namespace(context, db);
+    test_namespace(context, db, 0);
     db->hdb_destroy(context, db);
     krb5_free_context(context);
     return 0;
