@@ -762,7 +762,7 @@ derive_keys(krb5_context context,
             krb5uint32 kvno,
             hdb_entry_ex *h)
 {
-    const HDB_Ext_KeyRotation *kr;
+    HDB_Ext_KeyRotation kr;
     HDB_Ext_KeySet base_keys;
     krb5_error_code ret;
     size_t current_kr, last_kr, i;
@@ -776,8 +776,16 @@ derive_keys(krb5_context context,
         ret = copy_Principal(princ, h->entry.principal);
     }
 
-    if (ret == 0)
-        ret = hdb_entry_get_key_rotation(context, &h->entry, &kr);
+    kr.len = 0;
+    kr.val = 0;
+    if (ret == 0) {
+        const HDB_Ext_KeyRotation *ckr;
+
+        /* Installing keys invalidates `ckr', so we copy it */
+        ret = hdb_entry_get_key_rotation(context, &h->entry, &ckr);
+        if (ret == 0)
+            ret = copy_HDB_Ext_KeyRotation(ckr, &kr);
+    }
 
     /* Get the base keys from the entry, and remove them */
     base_keys.val = 0;
@@ -790,26 +798,26 @@ derive_keys(krb5_context context,
         return ret;
 
     /* Sanity check key rotations, determine current & last kr */
-    if (kr->len < 1 || kr->len > 3)
+    if (kr.len < 1)
         krb5_set_error_message(context, ret = HDB_ERR_NOENTRY,
-                               "wrong number of virtual key rotation periods");
+                               "no key rotation periods");
     for (current_kr = 0, last_kr = 0, i = 0;
-         ret == 0 && i < kr->len; i++) {
+         ret == 0 && i < kr.len; i++) {
         /* Check order */
-        if (i && kr->val[i - 1].epoch <= kr->val[i].epoch) {
+        if (i && kr.val[i - 1].epoch <= kr.val[i].epoch) {
             krb5_set_error_message(context, ret = HDB_ERR_NOENTRY,
                                    "misordered key rotation periods");
             break;
         }
         /* At most one future epoch (the first one) */
-        if (i && kr->val[i].epoch >= t) {
+        if (i && kr.val[i].epoch >= t) {
             krb5_set_error_message(context, ret = HDB_ERR_NOENTRY,
                                    "multiple future key rotation periods");
             break;
         }
         /* Identify current key rotation period */
-        if (i == 0 && kr->val[0].epoch > t) {
-            if (kr->len == 1) {
+        if (i == 0 && kr.val[0].epoch > t) {
+            if (kr.len == 1) {
                 krb5_set_error_message(context, ret = HDB_ERR_NOENTRY,
                                        "no current key rotation period");
                 break;
@@ -818,12 +826,12 @@ derive_keys(krb5_context context,
         }
         /* At most one relevant but kr older than current */
         if (i == current_kr + 1 &&
-            (t - kr->val[i].period) <= (kr->val[i - 1].epoch))
+            (t - kr.val[i].period) <= (kr.val[i - 1].epoch))
             last_kr = i;
     }
 
     /* Check that the principal has not been marked deleted */
-    if (kr->val[current_kr].flags.deleted)
+    if (kr.val[current_kr].flags.deleted)
         ret = HDB_ERR_NOENTRY;
 
     /*
@@ -842,19 +850,19 @@ derive_keys(krb5_context context,
         ret = krb5_unparse_name(context, princ, &p);
     if (ret == 0)
         ret = derive_keys_for_current_kr(context, h, &base_keys, p, etype,
-                                         kvno, t, &kr->val[current_kr]);
+                                         kvno, t, &kr.val[current_kr]);
 
     /* Derive and set in `h' its future keys (key history only) */
     if (ret == 0 && current_kr != 0 &&
-        t + kr->val[current_kr].period +
-        (kr->val[current_kr].period >> 1) > kr->val[0].epoch)
+        t + kr.val[current_kr].period +
+        (kr.val[current_kr].period >> 1) > kr.val[0].epoch)
         ret = derive_keys_for_kr(context, h, &base_keys, 0, 0, p, etype, kvno,
-                                 kr->val[0].epoch, &kr->val[0]);
+                                 kr.val[0].epoch, &kr.val[0]);
 
     /* Derive and set in `h' its past keys (key history only) */
     if (ret == 0 && last_kr && last_kr != current_kr)
         ret = derive_keys_for_kr(context, h, &base_keys, 0, 0, p, etype, kvno,
-                                 kr->val[current_kr].epoch, &kr->val[last_kr]);
+                                 kr.val[current_kr].epoch, &kr.val[last_kr]);
 
     /*
      * Impose a bound on h->entry.max_life so that [when the KDC is the caller]
@@ -865,10 +873,11 @@ derive_keys(krb5_context context,
     if (!h->entry.max_life)
         h->entry.max_life = malloc(sizeof(h->entry.max_life[0]));
     if (h->entry.max_life &&
-        *h->entry.max_life > kr->val[current_kr].period >> 1)
-        *h->entry.max_life = kr->val[current_kr].period >> 1;
+        *h->entry.max_life > kr.val[current_kr].period >> 1)
+        *h->entry.max_life = kr.val[current_kr].period >> 1;
 
     free(p);
+    free_HDB_Ext_KeyRotation(&kr);
     free_HDB_Ext_KeySet(&base_keys);
     return ret;
 }
