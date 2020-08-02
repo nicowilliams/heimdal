@@ -599,5 +599,7 @@ hdb_entry_set_key_rotation(krb5_context context,
         return 0;
 
     /* Install new extension */
-    return hdb_replace_extension(context, entry, ext);
+    ret = hdb_replace_extension(context, entry, ext);
+    free_HDB_extension(&new_ext);
+    return ret;
 }
