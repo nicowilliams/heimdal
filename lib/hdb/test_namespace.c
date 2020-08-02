@@ -474,8 +474,12 @@ fetch_entries(krb5_context context, HDB *db, size_t kr, size_t t)
         ep = &e[b + i];
         if (ret == 0)
             ret = krb5_parse_name(context, expected[i], &p);
-        if (ret == 0 && i == 0)
-            ret = make_base_key(context, p, base_pw[kr], &base_key);
+        if (ret == 0 && i == 0) {
+            if (toffset < 0 && kr)
+                ret = make_base_key(context, p, base_pw[kr - 1], &base_key);
+            else
+                ret = make_base_key(context, p, base_pw[kr], &base_key);
+        }
         if (ret == 0)
             ret = hdb_fetch_kvno(context, db, p, HDB_F_DECRYPT,
                                  krs[kr].epoch + toffset, 0, 0, ep);
@@ -641,18 +645,20 @@ main(int argc, char **argv)
 #if 0
     fetch_entries(context, db, 0, 4);
 #endif
+
     fetch_entries(context, db, 1, 0);
     fetch_entries(context, db, 1, 1);
     fetch_entries(context, db, 1, 2);
     fetch_entries(context, db, 1, 3);
 
     /*
-     * XXX This should pass but fails for some as yet unknown reason.  We get
-     * the right kvno and set_time for these keys, but the wrong key values.
+     * XXX This should pass but fails because in lib/hdb/common.c we must be
+     * using the wrong base key for deriving keys for a period before the epoch
+     * of a KR.
      */
-#if 0
+
     fetch_entries(context, db, 1, 4);
-#endif
+
 
     /*
      * XXX Sort all the entries by memcmp() of first current key, then run over
