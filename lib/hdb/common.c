@@ -676,10 +676,12 @@ derive_keys_for_kr(krb5_context context,
      * fetch their future keys frequently enough that they'll never miss having
      * the keys they need.
      */
-    if ((kvno_wanted && kvno != kvno_wanted) ||
-        t - (set_time + krp->period + (krp->period >> 1)) > 0 ||
-        (set_time - t > 0 && (set_time - t) > (krp->period >> 2)))
-        return 0;
+    if (!is_current_keyset || rotation_period_offset != 0) {
+        if ((kvno_wanted && kvno != kvno_wanted) ||
+            t - (set_time + krp->period + (krp->period >> 1)) > 0 ||
+            (set_time - t > 0 && (set_time - t) > (krp->period >> 2)))
+            return 0;
+    }
 
     for (i = 0; i < base_keys->len; i++) {
         if (base_keys->val[i].kvno == krp->base_key_kvno)
