@@ -694,7 +694,7 @@ derive_keys_for_kr(krb5_context context,
         if (kvno_wanted || is_current_keyset) {
             krb5_set_error_message(context, ret = HDB_ERR_KVNO_NOT_FOUND,
                                    "Base key version %u not found for %s",
-                                   kvno, princ);
+                                   krp->base_key_kvno, princ);
             return ret;
         }
         return 0;

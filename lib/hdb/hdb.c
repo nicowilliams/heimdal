@@ -211,7 +211,7 @@ hdb_remove_keys(krb5_context context,
         } else {
             free_Keys(&e->keys);
         }
-	ks = NULL;
+        return 0;
     }
 
     if (ks) {
@@ -252,17 +252,26 @@ hdb_remove_base_keys(krb5_context context,
                      HDB_Ext_KeySet *base_keys)
 {
     krb5_error_code ret;
-    const HDB_Ext_KeyRotation *kr;
+    const HDB_Ext_KeyRotation *ckr;
+    HDB_Ext_KeyRotation kr;
     size_t i, k;
 
-    ret = hdb_entry_get_key_rotation(context, e, &kr);
+    ret = hdb_entry_get_key_rotation(context, e, &ckr);
+    if (ret == 0) {
+        /*
+         * Changing the entry's extensions invalidates extensions obtained
+         * before the change.
+         */
+        ret = copy_HDB_Ext_KeyRotation(ckr, &kr);
+        ckr = NULL;
+    }
     base_keys->len = 0;
     if (ret == 0 &&
-        (base_keys->val = calloc(kr->len, sizeof(base_keys->val[0]))) == NULL)
-        return krb5_enomem(context);
+        (base_keys->val = calloc(kr.len, sizeof(base_keys->val[0]))) == NULL)
+        ret = krb5_enomem(context);
 
-    for (k = i = 0; i < kr->len; i++) {
-        const KeyRotation *krp = &kr->val[i];
+    for (k = i = 0; ret == 0 && i < kr.len; i++) {
+        const KeyRotation *krp = &kr.val[i];
 
         /*
          * WARNING: O(N * M) where M is number of keysets and N is the number
@@ -277,8 +286,14 @@ hdb_remove_base_keys(krb5_context context,
                               &base_keys->val[k]);
         if (ret == 0)
             k++;
+        else if (ret == HDB_ERR_NOENTRY)
+            ret = 0;
     }
-    base_keys->len = k;
+    if (ret == 0)
+        base_keys->len = k;
+    else
+        free_HDB_Ext_KeySet(base_keys);
+    free_HDB_Ext_KeyRotation(&kr);
     return 0;
 }
 
