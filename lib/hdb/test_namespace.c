@@ -332,6 +332,7 @@ test_namespace(krb5_context context, HDB *db)
 {
     krb5_error_code ret = 0;
     krb5_principal p;
+    krb5_keyblock base_key;
     const char *expected[] = {
         WK_PREFIX "bar.example@BAR.EXAMPLE",
         "HTTP/bar.example@BAR.EXAMPLE",
@@ -350,9 +351,15 @@ test_namespace(krb5_context context, HDB *db)
 
     memset(e, 0, sizeof(e));
 
+    /*
+     * XXX Add test over multiple time values.
+     */
+
     for (i = 0; ret == 0 && i < sizeof(expected) / sizeof(expected[0]); i++) {
         if (ret == 0)
             ret = krb5_parse_name(context, expected[i], &p);
+        if (ret == 0 && i == 0)
+            ret = make_base_key(context, p, &base_key);
         if (ret == 0)
             ret = hdb_fetch_kvno(context, db, p, HDB_F_DECRYPT, 0, 0, 0, &e[i]);
         if (ret == 0 &&
@@ -374,8 +381,14 @@ test_namespace(krb5_context context, HDB *db)
         ret = 0;
     }
 
+    /*
+     * XXX Add check that derived keys are a) different, b) as expected, using
+     * a set of test vectors or else by computing the expected keys here with
+     * code that's not shared with lib/hdb/common.c.
+     */
     for (i = 0; ret == 0 && i < sizeof(expected) / sizeof(expected[0]); i++)
         hdb_free_entry(context, &e[i]);
+    free_EncryptionKey(&base_key);
 }
 
 #define CONF                                        \
