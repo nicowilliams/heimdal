@@ -313,11 +313,6 @@ tderive_key(krb5_context context,
     return ret;
 }
 
-/*
- * XXX Add a function to do some of the same key derivation that we do in
- * hdb_fetch_kvno().
- */
-
 /* Create a namespace principal */
 static void
 make_namespace(krb5_context context, HDB *db, const char *name)
@@ -547,27 +542,29 @@ fetch_entries(krb5_context context, HDB *db, size_t kr, size_t t)
                               krs[kr].epoch - krs[kr - 1].epoch + toffset,
                               &base_key, base_key.keytype, &dk, &kvno, &set_time);
         }
-        if (ret == 0) {
-            if (kvno != ep->entry.kvno)
-                krb5_errx(context, 1, "kvno mismatch (%u != %u)", kvno, ep->entry.kvno);
-            (void) hdb_entry_get_pw_change_time(&ep->entry, &chg_time);
-            if (set_time != chg_time)
-                krb5_errx(context, 1, "key change time mismatch");
-            if (ep->entry.keys.len == 0)
-                krb5_errx(context, 1, "no keys!");
-            if (ep->entry.keys.val[0].key.keytype != dk.keytype)
-                krb5_errx(context, 1, "enctype mismatch!");
-            if (ep->entry.keys.val[0].key.keyvalue.length !=
-                dk.keyvalue.length)
-                krb5_errx(context, 1, "key length mismatch!");
-            if (memcmp(ep->entry.keys.val[0].key.keyvalue.data,
-                       dk.keyvalue.data, dk.keyvalue.length))
-                krb5_errx(context, 1, "key mismatch!");
-            if (memcmp(ep->entry.keys.val[0].key.keyvalue.data,
-                       e[b + i - 1].entry.keys.val[0].key.keyvalue.data,
-                       dk.keyvalue.length) == 0)
-                krb5_errx(context, 1, "different virtual principals have the same keys!");
-        }
+        if (ret)
+            krb5_err(context, 1, ret, "deriving keys for comparison");
+
+        if (kvno != ep->entry.kvno)
+            krb5_errx(context, 1, "kvno mismatch (%u != %u)", kvno, ep->entry.kvno);
+        (void) hdb_entry_get_pw_change_time(&ep->entry, &chg_time);
+        if (set_time != chg_time)
+            krb5_errx(context, 1, "key change time mismatch");
+        if (ep->entry.keys.len == 0)
+            krb5_errx(context, 1, "no keys!");
+        if (ep->entry.keys.val[0].key.keytype != dk.keytype)
+            krb5_errx(context, 1, "enctype mismatch!");
+        if (ep->entry.keys.val[0].key.keyvalue.length !=
+            dk.keyvalue.length)
+            krb5_errx(context, 1, "key length mismatch!");
+        if (memcmp(ep->entry.keys.val[0].key.keyvalue.data,
+                   dk.keyvalue.data, dk.keyvalue.length))
+            krb5_errx(context, 1, "key mismatch!");
+        if (memcmp(ep->entry.keys.val[0].key.keyvalue.data,
+                   e[b + i - 1].entry.keys.val[0].key.keyvalue.data,
+                   dk.keyvalue.length) == 0)
+            krb5_errx(context, 1, "different virtual principals have the same keys!");
+        /* XXX Add check that we have the expected number of history keys */
         free_EncryptionKey(&dk);
     }
     free_EncryptionKey(&base_key);
@@ -622,18 +619,6 @@ main(int argc, char **argv)
 
     make_namespace(context, db, WK_PREFIX "bar.example@BAR.EXAMPLE");
 
-    /*
-     * XXX We need more than just a time offset argument to test_namespace.  We
-     * need a time offset off an epoch.
-     *
-     * XXX We need to call it with multiple {epoch, offset} pairs.  Using
-     * sufficiently negative offsets to the earliest epoch must yield no keys!
-     *
-     * XXX Since we need to check that keys for a principal are different at
-     * sufficiently different times, we should probably do the time offset
-     * thing in test_namespace(), accumulating entries for N_test_princ_names x
-     * N_times, then checking that all the keys are different.
-     */
     fetch_entries(context, db, 0, 0);
     fetch_entries(context, db, 0, 1);
     fetch_entries(context, db, 0, 2);
@@ -650,20 +635,22 @@ main(int argc, char **argv)
     fetch_entries(context, db, 1, 1);
     fetch_entries(context, db, 1, 2);
     fetch_entries(context, db, 1, 3);
-
-    /*
-     * XXX This should pass but fails because in lib/hdb/common.c we must be
-     * using the wrong base key for deriving keys for a period before the epoch
-     * of a KR.
-     */
-
     fetch_entries(context, db, 1, 4);
 
 
     /*
-     * XXX Sort all the entries by memcmp() of first current key, then run over
-     * all the entries checking that each is different to the preceding one
-     * except when the principal name _and_ current kvno match.
+     * XXX Add various tests here, checking `e[]':
+     *
+     *  - Check that for every virtual principal in `expected[]' in the second
+     *    batch of entries we have the number of history keys we'd expect based
+     *    on the `t' argument to the fetch_entries() that fetched it.
+     *
+     *  - Sort all the entries by memcmp() of first current key, then run over
+     *    all the entries checking that each is different to the preceding one
+     *    except when the principal name _and_ current kvno match.
+     *
+     *  - Check that for every {principal, kvno} keys are the same in all
+     *    cases, even when they are in the history keysets.
      */
 
     /* Cleanup */
