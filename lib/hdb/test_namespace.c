@@ -585,13 +585,17 @@ check_kvnos(krb5_context context)
         free_HDB_Ext_KeySet(&keysets);
 
         /* For every entry we've fetched for it */
-        for (k = 0; k < sizeof(krs)/sizeof(krs[0]) * NUM_OFFSETS; k++) {
+        for (k = 0; k < sizeof(e)/sizeof(e[0]); k++) {
             HDB_Ext_KeySet *hist_keys;
             HDB_extension *ext;
-            hdb_entry_ex *ep = &e[k * sizeof(expected)/sizeof(expected[0]) + i];
+            hdb_entry_ex *ep;
             int match = 0;
 
-            if (e->entry.principal == NULL)
+            if ((k % NUM_OFFSETS) != i)
+                continue;
+
+            ep = &e[k];
+            if (ep->entry.principal == NULL)
                 continue; /* Didn't fetch this one */
 
             /*
@@ -599,7 +603,7 @@ check_kvnos(krb5_context context)
              * or else add them to `keysets'.
              */
             for (m = 0; m < keysets.len; m++) {
-                if (ep->entry.kvno == keysets.val[m].kvno)
+                if (ep->entry.kvno == keysets.val[m].kvno) {
                     /* Check the key is the same */
                     if (ep->entry.keys.val[0].key.keytype !=
                         keysets.val[m].keys.val[0].key.keytype ||
@@ -610,6 +614,8 @@ check_kvnos(krb5_context context)
                                ep->entry.keys.val[0].key.keyvalue.length))
                         krb5_errx(context, 1,
                                   "key mismatch for same princ & kvno");
+                    match = 1;
+                }
             }
             if (m == keysets.len) {
                 hdb_keyset ks;
@@ -656,6 +662,38 @@ check_kvnos(krb5_context context)
     }
     free_HDB_Ext_KeySet(&keysets);
 }
+
+#if 0
+static void
+check_expected_kvnos(krb5_context context)
+{
+    HDB_Ext_KeySet *hist_keys;
+    HDB_extension *ext;
+    size_t i, k, m, p;
+
+    for (i = 0; i < sizeof(expected)/sizeof(expected[0]); i++) {
+        for (k = 0; k < sizeof(krs)/sizeof(krs[0]); k++) {
+            hdb_entry_ex *ep = &e[k * sizeof(expected)/sizeof(expected[0]) + i];
+
+            if (ep->entry.principal == NULL)
+                continue;
+            for (m = 0; m < NUM_OFFSETS; m++) {
+                ext = hdb_find_extension(&ep->entry,
+                                         choice_HDB_extension_data_hist_keys);
+                if (!ext)
+                    continue;
+                hist_keys = &ext->data.u.hist_keys;
+                for (p = 0; p < hist_keys->len; p++) {
+                    fprintf(stderr, "%s at %lu, %lu: history kvno %u\n",
+                            expected[i], k, m, hist_keys->val[p].kvno);
+                }
+            }
+            fprintf(stderr, "%s at %lu: kvno %u\n", expected[i], k,
+                    ep->entry.kvno);
+        }
+    }
+}
+#endif
 
 #define SOME_TIME 1596318329
 #define SOME_BASE_KVNO 150
@@ -731,16 +769,21 @@ main(int argc, char **argv)
      */
     check_kvnos(context);
 
+#if 0
+    /*
+     * Check that for every virtual principal in `expected[]' we have the
+     * expected key history.
+     */
+    check_expected_kvnos(context);
+#endif
+
     /*
      * XXX Add various tests here, checking `e[]':
      *
-     *  - Check that for every virtual principal in `expected[]' in the second
-     *    batch of entries we have the number of history keys we'd expect based
-     *    on the `t' argument to the fetch_entries() that fetched it.
-     *
-     *  - Sort all the entries by memcmp() of first current key, then run over
-     *    all the entries checking that each is different to the preceding one
-     *    except when the principal name _and_ current kvno match.
+     *  - Extract all {principal, kvno, key} for all keys, current and
+     *    otherwise, then sort by {key, kvno, principal}, then check that the
+     *    only time we have matching keys is when the kvno and principal also
+     *    match.
      */
 
     /* Cleanup */
