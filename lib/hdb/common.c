@@ -715,6 +715,7 @@ derive_keys_for_current_kr(krb5_context context,
                            hdb_entry_ex *h, 
                            HDB_Ext_KeySet *base_keys,
                            const char *princ,
+                           unsigned int flags,
                            krb5int32 etype,
                            krb5uint32 kvno_wanted,
                            KerberosTime t,
@@ -725,6 +726,8 @@ derive_keys_for_current_kr(krb5_context context,
     /* derive_keys_for_kr() for current kvno and install as the current keyset */
     ret = derive_keys_for_kr(context, h, base_keys, 1, 0, princ, etype,
                              kvno_wanted, t, krp);
+    if (!(flags & HDB_F_ALL_KVNOS))
+        return ret;
     /* derive_keys_for_kr() for prev kvno if still needed, add to history */
     if (ret == 0)
         ret = derive_keys_for_kr(context, h, base_keys, 0, -1, princ, etype,
@@ -849,18 +852,19 @@ derive_keys(krb5_context context,
     if (ret == 0 && h_is_namespace)
         ret = krb5_unparse_name(context, princ, &p);
     if (ret == 0)
-        ret = derive_keys_for_current_kr(context, h, &base_keys, p, etype,
-                                         kvno, t, &kr.val[current_kr]);
+        ret = derive_keys_for_current_kr(context, h, &base_keys, p, flags,
+                                         etype, kvno, t, &kr.val[current_kr]);
 
     /* Derive and set in `h' its future keys (key history only) */
-    if (ret == 0 && current_kr != 0 &&
+    if (ret == 0 && current_kr != 0 && (flags & HDB_F_ALL_KVNOS) &&
         t + kr.val[current_kr].period +
         (kr.val[current_kr].period >> 1) > kr.val[0].epoch)
         ret = derive_keys_for_kr(context, h, &base_keys, 0, 0, p, etype, kvno,
                                  kr.val[0].epoch, &kr.val[0]);
 
     /* Derive and set in `h' its past keys (key history only) */
-    if (ret == 0 && last_kr && last_kr != current_kr)
+    if (ret == 0 && last_kr && last_kr != current_kr &&
+        (flags & HDB_F_ALL_KVNOS))
         ret = derive_keys_for_kr(context, h, &base_keys, 0, 0, p, etype, kvno,
                                  kr.val[current_kr].epoch, &kr.val[last_kr]);
 
@@ -1048,7 +1052,7 @@ krb5_error_code
 hdb_fetch_kvno(krb5_context context,
                HDB *db,
                krb5_const_principal principal,
-               unsigned flags,
+               unsigned int flags,
                krb5_timestamp t,
                krb5int32 etype,
                krb5uint32 kvno,
@@ -1056,7 +1060,7 @@ hdb_fetch_kvno(krb5_context context,
 {
     krb5_error_code ret = HDB_ERR_NOENTRY;
 
-    flags |= kvno ? HDB_F_KVNO_SPECIFIED : HDB_F_ALL_KVNOS;
+    flags |= kvno ? HDB_F_KVNO_SPECIFIED : 0; /* XXX is this needed */
     if (t == 0)
         krb5_timeofday(context, &t);
     ret = fetch_it(context, db, principal, flags, t, etype, kvno, h);
