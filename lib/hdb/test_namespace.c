@@ -32,6 +32,7 @@
  */
 
 #include "hdb_locl.h"
+#include <hex.h>
 
 static KeyRotation krs[2];
 static const char *base_pw[2] = { "Testing123...", "Tested123..." };
@@ -438,6 +439,15 @@ static hdb_entry_ex e[
     NUM_OFFSETS
 ];
 
+static int
+hist_key_compar(const void *va, const void *vb)
+{
+    const hdb_keyset *a = va;
+    const hdb_keyset *b = vb;
+
+    return a->kvno - b->kvno;
+}
+
 static void
 fetch_entries(krb5_context context, HDB *db, size_t kr, size_t t)
 {
@@ -501,6 +511,20 @@ fetch_entries(krb5_context context, HDB *db, size_t kr, size_t t)
                 !krb5_principal_compare(context, p, ep->entry.principal))
             krb5_errx(context, 1, "wrong principal in fetched entry");
         }
+
+        {
+            HDB_Ext_KeySet *hist_keys;
+            HDB_extension *ext;
+            ext = hdb_find_extension(&ep->entry,
+                                     choice_HDB_extension_data_hist_keys);
+            if (ext) {
+                /* Sort key history by kvno, why not */
+                hist_keys = &ext->data.u.hist_keys;
+                qsort(hist_keys->val, hist_keys->len,
+                      sizeof(hist_keys->val[0]), hist_key_compar);
+            }
+        }
+
         krb5_free_principal(context, p);
     }
     if (ret)
@@ -670,23 +694,29 @@ print_em(krb5_context context)
     HDB_extension *ext;
     size_t i, p;
 
-    for (i = 0; i < sizeof(e)/sizeof(e[0]); fprintf(stderr, "\n"), i++) {
+    for (i = 0; i < sizeof(e)/sizeof(e[0]); i++) {
+        const char *name = expected[i % (sizeof(expected)/sizeof(expected[0]))];
+        char *x;
+
         if (0 == i % (sizeof(expected)/sizeof(expected[0])))
             continue;
-        fprintf(stderr, "%s i=%lu",
-                expected[i%(sizeof(expected)/sizeof(expected[0]))], i);
-        if (e[i].entry.principal == NULL) {
-            fprintf(stderr, " (missing)");
+        if (e[i].entry.principal == NULL)
             continue;
-        }
-        fprintf(stderr, " kvnos: %u", e[i].entry.kvno);
+        hex_encode(e[i].entry.keys.val[0].key.keyvalue.data,
+                   e[i].entry.keys.val[0].key.keyvalue.length, &x);
+        printf("%s %u %s\n", x, e[i].entry.kvno, name);
+        free(x);
+
         ext = hdb_find_extension(&e[i].entry,
                                  choice_HDB_extension_data_hist_keys);
         if (!ext)
             continue;
         hist_keys = &ext->data.u.hist_keys;
-        for (p = 0; p < hist_keys->len; p++)
-            fprintf(stderr, " %u", hist_keys->val[p].kvno);
+        for (p = 0; p < hist_keys->len; p++) {
+            hex_encode(hist_keys->val[p].keys.val[0].key.keyvalue.data,
+                       hist_keys->val[p].keys.val[0].key.keyvalue.length, &x);
+            printf("%s %u %s\n", x, hist_keys->val[p].kvno, name);
+        }
     }
 }
 
