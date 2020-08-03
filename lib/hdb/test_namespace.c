@@ -663,6 +663,33 @@ check_kvnos(krb5_context context)
     free_HDB_Ext_KeySet(&keysets);
 }
 
+static void
+print_em(krb5_context context)
+{
+    HDB_Ext_KeySet *hist_keys;
+    HDB_extension *ext;
+    size_t i, p;
+
+    for (i = 0; i < sizeof(e)/sizeof(e[0]); fprintf(stderr, "\n"), i++) {
+        if (0 == i % (sizeof(expected)/sizeof(expected[0])))
+            continue;
+        fprintf(stderr, "%s i=%lu",
+                expected[i%(sizeof(expected)/sizeof(expected[0]))], i);
+        if (e[i].entry.principal == NULL) {
+            fprintf(stderr, " (missing)");
+            continue;
+        }
+        fprintf(stderr, " kvnos: %u", e[i].entry.kvno);
+        ext = hdb_find_extension(&e[i].entry,
+                                 choice_HDB_extension_data_hist_keys);
+        if (!ext)
+            continue;
+        hist_keys = &ext->data.u.hist_keys;
+        for (p = 0; p < hist_keys->len; p++)
+            fprintf(stderr, " %u", hist_keys->val[p].kvno);
+    }
+}
+
 #if 0
 static void
 check_expected_kvnos(krb5_context context)
@@ -739,7 +766,7 @@ main(int argc, char **argv)
     krs[0].base_key_kvno = 1;
     krs[1].epoch = SOME_TIME;
     krs[1].period = SOME_PERIOD;
-    krs[1].base_kvno = krs[0].base_kvno + 20 * 24 * 3600 / (SOME_PERIOD >> 1);
+    krs[1].base_kvno = krs[0].base_kvno + 1 + (krs[1].epoch - krs[0].epoch) / krs[0].period;
     krs[1].base_key_kvno = 2;
 
     make_namespace(context, db, WK_PREFIX "bar.example@BAR.EXAMPLE");
@@ -785,6 +812,8 @@ main(int argc, char **argv)
      *    only time we have matching keys is when the kvno and principal also
      *    match.
      */
+
+    print_em(context);
 
     /* Cleanup */
     for (i = 0; ret == 0 && i < sizeof(e) / sizeof(e[0]); i++)
