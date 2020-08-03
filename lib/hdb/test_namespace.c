@@ -418,7 +418,7 @@ make_namespace(krb5_context context, HDB *db, const char *name)
     hdb_free_entry(context, &e);
 }
 
-#define WK_PREFIX "WELLKNOWN/HOSTBASED-NAMESPACE/"
+#define WK_PREFIX "WELLKNOWN/" HDB_WK_NAMESPACE "/"
 
 static const char *expected[] = {
     WK_PREFIX "bar.example@BAR.EXAMPLE",

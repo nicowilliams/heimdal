@@ -81,6 +81,12 @@ enum hdb_lockop{ HDB_RLOCK, HDB_WLOCK };
 /* key usage for master key */
 #define HDB_KU_MKEY	0x484442
 
+/*
+ * Second component of WELLKNOWN namespace principals, the third component is
+ * the common DNS suffix of the implied virtual hosts.
+ */
+#define HDB_WK_NAMESPACE "HOSTBASED-NAMESPACE"
+
 typedef struct hdb_master_key_data *hdb_master_key;
 
 /**

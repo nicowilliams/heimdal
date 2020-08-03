@@ -988,7 +988,7 @@ fetch_it(krb5_context context,
             /* First go around, need a namespace princ.  Make it! */
             ret2 = krb5_build_principal(context, &baseprinc, strlen(realm),
                                         realm, "WELLKNOWN",
-                                        "HOSTBASED-NAMESPACE", NULL);
+                                        HDB_WK_NAMESPACE, NULL);
             if (ret2 == 0 && comp2)
                 /* Support domain-based names */
                 ret2 = krb5_principal_set_comp_string(context, baseprinc, 3, comp2);
