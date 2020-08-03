@@ -729,7 +729,7 @@ derive_keys_for_current_kr(krb5_context context,
     if (!(flags & HDB_F_ALL_KVNOS))
         return ret;
     /* derive_keys_for_kr() for prev kvno if still needed, add to history */
-    if (ret == 0)
+    if (ret == 0 && t - krp->epoch > krp->period)
         ret = derive_keys_for_kr(context, h, base_keys, 0, -1, princ, etype,
                                  kvno_wanted, t, krp);
     /* derive_keys_for_kr() for next kvno if near enough, add to history */
