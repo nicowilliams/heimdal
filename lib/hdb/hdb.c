@@ -170,6 +170,10 @@ dequeue_HDB_Ext_KeySet(HDB_Ext_KeySet *data, unsigned int element, hdb_keyset *k
     /* XXX swap instead of memmove()... changes the order of elements */
     if (element < data->len)
         data->val[element] = data->val[data->len];
+    if (data->len == 0) {
+        free(data->val);
+        data->val = 0;
+    }
     return 0;
 }
 
@@ -208,6 +212,7 @@ hdb_remove_keys(krb5_context context,
             ks->keys = e->keys;
             e->keys.len = 0;
             e->keys.val = NULL;
+            e->kvno = 0;
         } else {
             free_Keys(&e->keys);
         }
@@ -277,10 +282,9 @@ hdb_remove_base_keys(krb5_context context,
          * WARNING: O(N * M) where M is number of keysets and N is the number
          *          of base keysets.
          *
-         * In practice N will never be > 3, and M will generally be the same as
-         * N, so this will be O(1) after all.
-         *
-         * XXX Make sure we enforce that limit of 3 when setting a krp.
+         * In practice N will never be > 3 because the ASN.1 module imposes
+         * that as a constraint, and M will generally be the same as N, so this
+         * will be O(1) after all.
          */
         ret = hdb_remove_keys(context, e, krp->base_key_kvno,
                               &base_keys->val[k]);
