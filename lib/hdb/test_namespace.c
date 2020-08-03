@@ -31,6 +31,13 @@
  * SUCH DAMAGE.
  */
 
+/*
+ * This program implements an ephemeral, memory-based HDB backend, stores into
+ * it just one HDB entry -one for a namespace- then checks that virtual
+ * principals are returned below that namespace by hdb_fetch_kvno(), and that
+ * the logic for automatic key rotation of virtual principals is correct.
+ */
+
 #include "hdb_locl.h"
 #include <hex.h>
 
