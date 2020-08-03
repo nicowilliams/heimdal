@@ -719,20 +719,44 @@ derive_keys_for_current_kr(krb5_context context,
                            krb5int32 etype,
                            krb5uint32 kvno_wanted,
                            KerberosTime t,
-                           struct KeyRotation *krp)
+                           struct KeyRotation *krp,
+                           KerberosTime future_epoch)
 {
     krb5_error_code ret;
 
-    /* derive_keys_for_kr() for current kvno and install as the current keyset */
+    /* derive_keys_for_kr() for current kvno and install as the current keys */
     ret = derive_keys_for_kr(context, h, base_keys, 1, 0, princ, etype,
                              kvno_wanted, t, krp);
     if (!(flags & HDB_F_ALL_KVNOS))
         return ret;
-    /* derive_keys_for_kr() for prev kvno if still needed, add to history */
-    if (ret == 0 && t - krp->epoch > krp->period)
+
+    /* */
+
+
+    /*
+     * derive_keys_for_kr() for prev kvno if still needed -- it can only be
+     * needed if the prev kvno's start time is within this KR's epoch.
+     *
+     * Note that derive_keys_for_kr() can return without doing anything if this
+     * is isn't the current keyset.  So these conditions need not be
+     * sufficiently narrow.
+     */
+    if (ret == 0 && t - krp->epoch >= krp->period)
         ret = derive_keys_for_kr(context, h, base_keys, 0, -1, princ, etype,
                                  kvno_wanted, t, krp);
-    /* derive_keys_for_kr() for next kvno if near enough, add to history */
+    /*
+     * derive_keys_for_kr() for next kvno if near enough, but only if it
+     * doesn't start after the next KR's epoch.
+     */
+    if (future_epoch &&
+        t - krp->epoch >= 0 /* We know!  Hint to the compiler */) {
+        KerberosTime next_kvno_start, n;
+
+        n = (t - krp->epoch) / krp->period;
+        next_kvno_start = krp->epoch + krp->period * (n + 1);
+        if (future_epoch - next_kvno_start <= 0)
+            return ret;
+    }
     if (ret == 0)
         ret = derive_keys_for_kr(context, h, base_keys, 0, 1, princ, etype,
                                  kvno_wanted, t, krp);
@@ -768,7 +792,8 @@ derive_keys(krb5_context context,
     HDB_Ext_KeyRotation kr;
     HDB_Ext_KeySet base_keys;
     krb5_error_code ret;
-    size_t current_kr, last_kr, i;
+    unsigned int n;
+    size_t current_kr, past_kr, i;
     char *p = NULL;
 
     if (!h_is_namespace && !h->entry.flags.virtual_keys)
@@ -804,8 +829,7 @@ derive_keys(krb5_context context,
     if (kr.len < 1)
         krb5_set_error_message(context, ret = HDB_ERR_NOENTRY,
                                "no key rotation periods");
-    for (current_kr = 0, last_kr = 0, i = 0;
-         ret == 0 && i < kr.len; i++) {
+    for (current_kr = 0, past_kr = 0, i = 0; ret == 0 && i < kr.len; i++) {
         /* Check order */
         if (i && kr.val[i - 1].epoch <= kr.val[i].epoch) {
             krb5_set_error_message(context, ret = HDB_ERR_NOENTRY,
@@ -813,24 +837,33 @@ derive_keys(krb5_context context,
             break;
         }
         /* At most one future epoch (the first one) */
-        if (i && kr.val[i].epoch >= t) {
+        if (i && kr.val[i].epoch - t > 0) {
             krb5_set_error_message(context, ret = HDB_ERR_NOENTRY,
                                    "multiple future key rotation periods");
             break;
         }
         /* Identify current key rotation period */
-        if (i == 0 && kr.val[0].epoch > t) {
+        if (i == 0 && kr.val[0].epoch - t > 0) {
             if (kr.len == 1) {
                 krb5_set_error_message(context, ret = HDB_ERR_NOENTRY,
-                                       "no current key rotation period");
+                                       "sole key rotation period is in the "
+                                       "future");
                 break;
             }
             current_kr = 1;
         }
-        /* At most one relevant but kr older than current */
+        /*
+         * At most one relevant but kr older than current.
+         *
+         * If `t' is close enough to the current KR's epoch that extant service
+         * tickets for the last kvno of the previous KR are still unexpired,
+         * then this KR is relevant and we must generate keys for its last
+         * kvno.  The max life of the previous KR's last kvno is at most half
+         * the previous KR's period.
+         */
         if (i == current_kr + 1 &&
-            (t - kr.val[i].period) <= (kr.val[i - 1].epoch))
-            last_kr = i;
+            (t - kr.val[current_kr].epoch) < (kr.val[i].period >> 1))
+            past_kr = i;
     }
 
     /* Check that the principal has not been marked deleted */
@@ -853,20 +886,28 @@ derive_keys(krb5_context context,
         ret = krb5_unparse_name(context, princ, &p);
     if (ret == 0)
         ret = derive_keys_for_current_kr(context, h, &base_keys, p, flags,
-                                         etype, kvno, t, &kr.val[current_kr]);
+                                         etype, kvno, t, &kr.val[current_kr],
+                                         current_kr ? kr.val[0].epoch : 0);
 
-    /* Derive and set in `h' its future keys (key history only) */
-    if (ret == 0 && current_kr != 0 && (flags & HDB_F_ALL_KVNOS) &&
-        t + kr.val[current_kr].period +
-        (kr.val[current_kr].period >> 1) > kr.val[0].epoch)
+    /*
+     * Derive and set in `h' its future keys (key history only).
+     *
+     * We want to derive keys for the first kvno of the next (future) KR if
+     * it's sufficiently close to `t', meaning within 1 period of the current
+     * KR, but we want these keys to be available sooner, so 1.5 of the current
+     * period.
+     */
+    n = kr.val[current_kr].period;
+    n += n >> 1;
+    if (ret == 0 && current_kr && (flags & HDB_F_ALL_KVNOS) &&
+        kr.val[0].epoch - t < 0)
         ret = derive_keys_for_kr(context, h, &base_keys, 0, 0, p, etype, kvno,
                                  kr.val[0].epoch, &kr.val[0]);
 
     /* Derive and set in `h' its past keys (key history only) */
-    if (ret == 0 && last_kr && last_kr != current_kr &&
-        (flags & HDB_F_ALL_KVNOS))
+    if (ret == 0 && past_kr && (flags & HDB_F_ALL_KVNOS))
         ret = derive_keys_for_kr(context, h, &base_keys, 0, 0, p, etype, kvno,
-                                 kr.val[current_kr].epoch, &kr.val[last_kr]);
+                                 kr.val[current_kr].epoch - 1, &kr.val[past_kr]);
 
     /*
      * Impose a bound on h->entry.max_life so that [when the KDC is the caller]

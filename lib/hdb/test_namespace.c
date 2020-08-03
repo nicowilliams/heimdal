@@ -796,14 +796,14 @@ main(int argc, char **argv)
     assert(db->virtual_hostbased_princ_maxdots == 3);
 
     /* Setup key rotation metadata in a convenient way */
-    krs[0].flags = krs[1].flags = krs[2].flags = int2KeyRotationFlags(0);
+    krs[0].flags = krs[1].flags = int2KeyRotationFlags(0);
     krs[0].epoch = SOME_EPOCH - 20 * 24 * 3600;
     krs[0].period = SOME_PERIOD >> 1;
     krs[0].base_kvno = 150;
     krs[0].base_key_kvno = 1;
     krs[1].epoch = SOME_TIME;
     krs[1].period = SOME_PERIOD;
-    krs[1].base_kvno = krs[0].base_kvno + 1 + (krs[1].epoch - krs[0].epoch) / krs[0].period;
+    krs[1].base_kvno = krs[0].base_kvno + 1 + (krs[1].epoch + (krs[0].period - 1) - krs[0].epoch) / krs[0].period;
     krs[1].base_key_kvno = 2;
 
     make_namespace(context, db, WK_PREFIX "bar.example@BAR.EXAMPLE");
