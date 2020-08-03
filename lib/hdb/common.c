@@ -1055,7 +1055,6 @@ hdb_fetch_kvno(krb5_context context,
                hdb_entry_ex *h)
 {
     krb5_error_code ret = HDB_ERR_NOENTRY;
-    krb5_principal enterprise_principal = NULL;
 
     flags |= kvno ? HDB_F_KVNO_SPECIFIED : HDB_F_ALL_KVNOS;
     if (t == 0)
@@ -1063,6 +1062,5 @@ hdb_fetch_kvno(krb5_context context,
     ret = fetch_it(context, db, principal, flags, t, etype, kvno, h);
     if (ret == HDB_ERR_NOENTRY)
 	krb5_set_error_message(context, ret, "no such entry found in hdb");
-    krb5_free_principal(context, enterprise_principal);
     return ret;
 }
