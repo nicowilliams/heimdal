@@ -118,6 +118,7 @@ EXPORTS
 	free_HDB_Ext_Aliases
 	free_HDB_extension
 	free_HDB_extensions
+	free_HDB_Ext_KeySet
 	free_HDB_Ext_PKINIT_acl
 	free_hdb_keyset
 	free_Key

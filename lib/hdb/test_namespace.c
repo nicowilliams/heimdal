@@ -476,7 +476,8 @@ fetch_entries(krb5_context context, HDB *db, size_t kr, size_t t)
                 ret = make_base_key(context, p, base_pw[kr], &base_key);
         }
         if (ret == 0)
-            ret = hdb_fetch_kvno(context, db, p, HDB_F_DECRYPT,
+            ret = hdb_fetch_kvno(context, db, p,
+                                 HDB_F_DECRYPT | HDB_F_ALL_KVNOS,
                                  krs[kr].epoch + toffset, 0, 0, ep);
         if (kr == 0 && toffset < 0 && ret == HDB_ERR_NOENTRY)
             continue;
@@ -570,6 +571,92 @@ fetch_entries(krb5_context context, HDB *db, size_t kr, size_t t)
     free_EncryptionKey(&base_key);
 }
 
+static void
+check_kvnos(krb5_context context)
+{
+    HDB_Ext_KeySet keysets;
+    size_t i, k, m, p; /* iterator indices */
+
+    keysets.len = 0;
+    keysets.val = 0;
+
+    /* For every principal name */
+    for (i = 0; i < sizeof(expected)/sizeof(expected[0]); i++) {
+        free_HDB_Ext_KeySet(&keysets);
+
+        /* For every entry we've fetched for it */
+        for (k = 0; k < sizeof(krs)/sizeof(krs[0]) * NUM_OFFSETS; k++) {
+            HDB_Ext_KeySet *hist_keys;
+            HDB_extension *ext;
+            hdb_entry_ex *ep = &e[k * sizeof(expected)/sizeof(expected[0]) + i];
+            int match = 0;
+
+            if (e->entry.principal == NULL)
+                continue; /* Didn't fetch this one */
+
+            /*
+             * Check that the current keys for it match what we've seen already
+             * or else add them to `keysets'.
+             */
+            for (m = 0; m < keysets.len; m++) {
+                if (ep->entry.kvno == keysets.val[m].kvno)
+                    /* Check the key is the same */
+                    if (ep->entry.keys.val[0].key.keytype !=
+                        keysets.val[m].keys.val[0].key.keytype ||
+                        ep->entry.keys.val[0].key.keyvalue.length !=
+                        keysets.val[m].keys.val[0].key.keyvalue.length ||
+                        memcmp(ep->entry.keys.val[0].key.keyvalue.data,
+                               keysets.val[m].keys.val[0].key.keyvalue.data,
+                               ep->entry.keys.val[0].key.keyvalue.length))
+                        krb5_errx(context, 1,
+                                  "key mismatch for same princ & kvno");
+            }
+            if (m == keysets.len) {
+                hdb_keyset ks;
+
+                ks.kvno = ep->entry.kvno;
+                ks.keys = ep->entry.keys;
+                ks.set_time = 0;
+                if (add_HDB_Ext_KeySet(&keysets, &ks))
+                    krb5_err(context, 1, ENOMEM, "out of memory");
+                match = 1;
+            }
+            if (match)
+                continue;
+
+            /* For all non-current keysets, repeat the above */
+            ext = hdb_find_extension(&ep->entry,
+                                     choice_HDB_extension_data_hist_keys);
+            if (!ext)
+                continue;
+            hist_keys = &ext->data.u.hist_keys;
+            for (p = 0; p < hist_keys->len; p++) {
+                for (m = 0; m < keysets.len; m++) {
+                    if (keysets.val[m].kvno == hist_keys->val[p].kvno)
+                        if (ep->entry.keys.val[0].key.keytype !=
+                            keysets.val[m].keys.val[0].key.keytype ||
+                            ep->entry.keys.val[0].key.keyvalue.length !=
+                            keysets.val[m].keys.val[0].key.keyvalue.length ||
+                            memcmp(ep->entry.keys.val[0].key.keyvalue.data,
+                                   keysets.val[m].keys.val[0].key.keyvalue.data,
+                                   ep->entry.keys.val[0].key.keyvalue.length))
+                            krb5_errx(context, 1,
+                                      "key mismatch for same princ & kvno");
+                }
+                if (m == keysets.len) {
+                    hdb_keyset ks;
+                    ks.kvno = ep->entry.kvno;
+                    ks.keys = ep->entry.keys;
+                    ks.set_time = 0;
+                    if (add_HDB_Ext_KeySet(&keysets, &ks))
+                        krb5_err(context, 1, ENOMEM, "out of memory");
+                }
+            }
+        }
+    }
+    free_HDB_Ext_KeySet(&keysets);
+}
+
 #define SOME_TIME 1596318329
 #define SOME_BASE_KVNO 150
 #define SOME_EPOCH (SOME_TIME - (7 * 24 * 3600) - (SOME_TIME % (7 * 24 * 3600)))
@@ -637,6 +724,12 @@ main(int argc, char **argv)
     fetch_entries(context, db, 1, 3);
     fetch_entries(context, db, 1, 4);
 
+    /*
+     * Check that for every virtual principal in `expected[]', all the keysets
+     * with the same kvno, in all the entries fetched for different times,
+     * match.
+     */
+    check_kvnos(context);
 
     /*
      * XXX Add various tests here, checking `e[]':
@@ -648,9 +741,6 @@ main(int argc, char **argv)
      *  - Sort all the entries by memcmp() of first current key, then run over
      *    all the entries checking that each is different to the preceding one
      *    except when the principal name _and_ current kvno match.
-     *
-     *  - Check that for every {principal, kvno} keys are the same in all
-     *    cases, even when they are in the history keysets.
      */
 
     /* Cleanup */
