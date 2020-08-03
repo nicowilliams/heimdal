@@ -241,7 +241,7 @@ command = {
 		long = "key-rotation-epoch"
 		type = "string"
 		argument = "time"
-		help = "start time relative to now"
+		help = "absolute start time (or +timespec for relative to now with default unit of month)"
 	}
 	option = {
 		long = "key-rotation-period"

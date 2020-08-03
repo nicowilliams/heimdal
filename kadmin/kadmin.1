@@ -141,12 +141,12 @@ The only policy supported by Heimdal servers is
 .Ed
 .Pp
 .Nm add_namespace
+.Ar Fl Fl key-rotation-epoch= Ns Ar time
+.Ar Fl Fl key-rotation-period= Ns Ar time
 .Op Fl Fl enctypes= Ns Ar string
 .Op Fl Fl max-ticket-life= Ns Ar lifetime
 .Op Fl Fl max-renewable-life= Ns Ar lifetime
 .Op Fl Fl attributes= Ns Ar attributes
-.Op Fl Fl key-rotation-epoch= Ns Ar time
-.Op Fl Fl key-rotation-period= Ns Ar time
 .Ar principal...
 .Bd -ragged -offset indent
 Adds a new namespace of virtual host-based or domain-based
@@ -172,7 +172,16 @@ or otherwise re-fetch their keytabs at least as often as one
 quarter of the key rotation period, otherwise they risk not
 having keys they need to decrypt tickets with.
 .Pp
-The default key rotation epoch is now, or if given, now +/- that.
+The epoch must be given as either an absolute time,
+.Ar "now",
+or as
+.Ar "+<N>[<unit>]"
+where
+.Ar N
+is a natural and
+.Ar unit
+is one "s", "m", "h", "day", "week", "month", defaulting to
+"month".
 The default key rotation period is
 .Ar 7d .
 The default enctypes is as for the
