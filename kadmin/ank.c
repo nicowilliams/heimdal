@@ -377,9 +377,9 @@ add_one_namespace(const char *name,
         ret = krb5_principal_set_comp_string(context, princ_ent, 2, comp0);
     if (ret == 0)
         ret = krb5_principal_set_comp_string(context, princ_ent, 0,
-                "WELLKNOWN");
+                                             "WELLKNOWN");
     if (ret == 0)
-        ret = krb5_principal_set_comp_string(context, princ_ent, 0,
+        ret = krb5_principal_set_comp_string(context, princ_ent, 1,
                                              HDB_WK_NAMESPACE);
 
     /* Set up initial key rotation extension */
@@ -409,6 +409,7 @@ add_one_namespace(const char *name,
         ASN1_MALLOC_ENCODE(HDB_extension, buf.data, buf.length,
                            &ext, &size, ret);
         add_tl(&princ, KRB5_TL_EXTENSION, &buf);
+        mask |= KADM5_TL_DATA;
     }
 
     if (ret == 0) {
@@ -450,7 +451,7 @@ add_new_namespace(struct add_namespace_options *opt, int argc, char **argv)
     const char *enctypes;
     size_t i, nkstuple;
 
-    if (argc != 0) {
+    if (argc < 1) {
         fprintf(stderr, "at least one namespace name required\n");
         return 1;
     }
