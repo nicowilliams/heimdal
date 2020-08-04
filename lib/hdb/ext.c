@@ -575,10 +575,24 @@ hdb_entry_set_key_rotation(krb5_context context,
     if (!ext) {
         ext = &new_ext;
     } else {
-        if (ext->data.u.key_rotation.val[0].epoch >= kr->epoch) {
+        const KeyRotation *prev_kr = &ext->data.u.key_rotation.val[0];
+        unsigned int last_kvno;
+
+        if (kr->epoch - prev_kr->epoch <= 0) {
             krb5_set_error_message(context, EINVAL,
-                                   "New key rotation periods must start later"
+                                   "New key rotation periods must start later "
                                    "than existing ones");
+            return EINVAL;
+        }
+
+        if (kr->base_kvno <= prev_kr->base_kvno ||
+            kr->base_kvno - prev_kr->base_kvno <=
+                (last_kvno = 1 +
+                 ((kr->epoch - prev_kr->epoch) / prev_kr->period))) {
+            krb5_set_error_message(context, EINVAL,
+                                   "New key rotation base kvno must be larger "
+                                   "the last kvno for the current key "
+                                   "rotation (%u)", last_kvno);
             return EINVAL;
         }
     }
