@@ -824,18 +824,100 @@ derive_keys_for_current_kr(krb5_context context,
 /*
  * Derive and install all keysets in `h' that `princ' needs at time `now'.
  *
- * This mutates the entry `h' to a) not have base keys, b) have keys derived
- * from the base keys according to c) the key rotation periods for the base
- * principal, and the requested time, enctype, and kvno (all of which are
- * optional, with zero implying some default).
+ * This mutates the entry `h' to
  *
- *  - `princ' is the name of the principal we'll end up with in `h'
+ * a) not have base keys,
+ * b) have keys derived from the base keys according to
+ * c) the key rotation periods for the base principal (possibly the same
+ *    principal if it's a concrete principal with virtual keys), and the
+ *    requested time, enctype, and kvno (all of which are optional, with zero
+ *    implying some default).
+ *
+ * Arguments:
+ *
+ *  - `flags' is the flags passed to `hdb_fetch_kvno()'
+ *  - `princ' is the name of the principal we'll end up with in `h->entry'
  *  - `h_is_namespace' indicates whether `h' is for a namespace or a concrete
  *     principal (that might nonetheless have virtual/derived keys)
  *  - `t' is the time such that the derived keys are for kvnos needed at `t'
  *  - `etype' indicates what enctype to derive keys for (0 for all enctypes in
- *    `h->entry.etypes'
+ *    `h->entry.etypes')
  *  - `kvno' requests a particular kvno, or all if zero
+ *
+ * The caller doesn't know if the principal needs key derivation -- we make
+ * that determination in this function.
+ *
+ * Note that this function is fully deterministic for any given set of
+ * arguments and HDB contents.
+ *
+ * Definitions:
+ *
+ *  - A keyset is a set of keys for a single kvno.
+ *  - A keyset is relevant IFF:
+ *     - it is the keyset for a time period identified by `t' in a
+ *       corresponding KR
+ *     - it is a keyset for a past time period for which there may be extant,
+ *       not-yet-expired tickets that a service may need to decrypt
+ *     - it is a keyset for an upcoming time period that a service will need to
+ *       fetch before that time period becomes current, that way the service
+ *       can have keytab entries for those keys in time for when the KDC starts
+ *       encrypting service tickets to those keys
+ *
+ * Invariants:
+ *
+ *  - KR metadata is sane because sanity is checked for when storing HDB
+ *    entries
+ *  - KRs are sorted by epoch in descending order; KR #0's epoch is the most
+ *    recent
+ *  - KR periods are non-zero (we divide by period)
+ *  - kvnos are numerically ordered and correspond to time periods
+ *     - within each KR, the kvnos for larger times are larger than (or equal
+ *       to) the kvnos of earlier times
+ *     - at KR boundaries, the first kvno of the newer boundary is larger than
+ *       the kvno of the last time period of the previous KR
+ *  - the time `t' must fall into exactly one KR period
+ *  - the time `t' must fall into exactly one period within a KR period
+ *  - at most two kvnos will be relevant from the KR that `t' falls into
+ *    (the current kvno for `t', and possibly either the preceding, or the
+ *    next)
+ *  - at most one kvno from non-current KRs will be derived: possibly one for a
+ *    preceding KR, and possibly one from an upcoming KR
+ *
+ * There can be:
+ *
+ *  - no KR extension (not a namespace principal, and no virtual keys)
+ *  - 1, 2, or 3 KRs (see above)
+ *  - the newest KR may have the `deleted' flag, meaning "does not exist after
+ *    this epoch"
+ *
+ * Note that the last time period in any older KR can be partial.
+ *
+ * Timeline diagram:
+ *
+ *   .......|--+--+...+--|---+---+---+...+--|----+...
+ *         T20          T10 T11 RT12    T1n     T01
+ *     ^    ^  ^  ^   ^  ^               ^ T00
+ *     |    |  | T22 T2n |               |  ^
+ *     ^    | T21        |               |  |
+ *   princ  |  |        epoch of         | epoch of
+ *    did   |  |        middle KR        | newest epoch
+ *    not   |  |                         |
+ *   exist! | start of                  Note that T1n
+ *          | second kvno               is shown as shorter
+ *          | in 1st epoch              than preceding periods
+ *          |
+ *          ^
+ *         first KR's
+ *         epoch, and start
+ *         of its first kvno
+ *
+ * Tmn == the start of the Mth KR's Nth time period.
+ * T20 == start of oldest KR -- no keys before this time will be derived.
+ * T2n == last time period in oldest KR
+ * T10 == start of middle KR
+ * T1n == last time period in middle KR
+ * T00 == start of newest KR
+ * T0n == current time period in newest KR for wall clock time
  */
 static krb5_error_code
 derive_keys(krb5_context context,
