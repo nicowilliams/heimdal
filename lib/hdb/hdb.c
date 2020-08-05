@@ -167,7 +167,7 @@ dequeue_HDB_Ext_KeySet(HDB_Ext_KeySet *data, unsigned int element, hdb_keyset *k
     }
     *ks = data->val[element];
     data->len--;
-    /* XXX swap instead of memmove()... changes the order of elements */
+    /* Swap instead of memmove()... changes the order of elements */
     if (element < data->len)
         data->val[element] = data->val[data->len];
     if (data->len == 0) {
