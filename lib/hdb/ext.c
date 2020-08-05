@@ -86,7 +86,6 @@ hdb_replace_extension(krb5_context context,
 		      const HDB_extension *ext)
 {
     HDB_extension *ext2;
-    HDB_extension *es;
     int ret;
 
     ext2 = NULL;
@@ -157,27 +156,7 @@ hdb_replace_extension(krb5_context context,
 	return ret;
     }
 
-    /*
-     * XXX Use add_HDB_extensions() to simplify this code!
-     *
-     * ret = add_HDB_extensions(entry->extensions, ext);
-     */
-    es = realloc(entry->extensions->val,
-		 (entry->extensions->len+1)*sizeof(entry->extensions->val[0]));
-    if (es == NULL) {
-	krb5_set_error_message(context, ENOMEM, "malloc: out of memory");
-	return ENOMEM;
-    }
-    entry->extensions->val = es;
-
-    ret = copy_HDB_extension(ext,
-			     &entry->extensions->val[entry->extensions->len]);
-    if (ret == 0)
-	entry->extensions->len++;
-    else
-	krb5_set_error_message(context, ret, "hdb: failed to copy new extension");
-
-    return ret;
+    return add_HDB_extensions(entry->extensions, ext);
 }
 
 krb5_error_code
@@ -191,15 +170,8 @@ hdb_clear_extension(krb5_context context,
 	return 0;
 
     for (i = 0; i < entry->extensions->len; i++) {
-	if (entry->extensions->val[i].data.element == (unsigned)type) {
-            /* XXX Use remove_HDB_extensions(entry->extensions, i)! */
-	    free_HDB_extension(&entry->extensions->val[i]);
-	    memmove(&entry->extensions->val[i],
-		    &entry->extensions->val[i + 1],
-		    sizeof(entry->extensions->val[i]) * (entry->extensions->len - i - 1));
-	    entry->extensions->len--;
-            /* XXX break?  break! */
-	}
+	if (entry->extensions->val[i].data.element == (unsigned)type)
+            (void) remove_HDB_extensions(entry->extensions, i);
     }
     if (entry->extensions->len == 0) {
 	free(entry->extensions->val);
@@ -571,6 +543,15 @@ hdb_validate_key_rotation(krb5_context context,
     if (!prev_kr)
         return 0;
 
+    if (prev_kr->base_key_kvno == kr->base_key_kvno) {
+        /*
+         * The new base keys can be the same as the old, but must have
+         * different kvnos.  (Well, not must must.  It's a convention for now.)
+         */
+        krb5_set_error_message(context, EINVAL,
+                               "Base key version numbers for KRs must differ");
+        return EINVAL;
+    }
     if (kr->epoch - prev_kr->epoch <= 0) {
         krb5_set_error_message(context, EINVAL,
                                "New key rotation periods must start later "
@@ -716,11 +697,17 @@ hdb_validate_new_key_rotation(krb5_context context,
     return hdb_validate_key_rotation(context, &krs->val[0], kr);
 }
 
-/* XXX Require a new hdb_keyset be given as well? */
-/*
- * XXX Maybe this should take a HDB_Ext_KeyRotation * and alter it rather than
- * take an hdb_entry *, or maybe either, and one must be NULL and the other
- * not.
+/**
+ * This function adds a KeyRotation value to an entry, validating the
+ * change.  One of `entry' and `krs' must be NULL, and the other non-NULL, and
+ * whichever is given will be altered.
+ *
+ * @param context Context
+ * @param entry An HDB entry
+ * @param krs A key rotation extension for hdb_entry
+ * @param kr A new KeyRotation value
+ *
+ * @return Zero on success, an error otherwise.
  */
 krb5_error_code
 hdb_entry_add_key_rotation(krb5_context context,
@@ -753,8 +740,7 @@ hdb_entry_add_key_rotation(krb5_context context,
             ext = &new_ext;
         else
             krs = &ext->data.u.key_rotation;
-    }
-    if (krs) {
+    } else {
         const KeyRotation *prev_kr = &ext->data.u.key_rotation.val[0];
         unsigned int last_kvno;
 
@@ -799,7 +785,8 @@ hdb_entry_add_key_rotation(krb5_context context,
         return 0;
 
     /* Install new extension */
-    ret = hdb_replace_extension(context, entry, ext);
+    if (ret == 0 && entry)
+        ret = hdb_replace_extension(context, entry, ext);
     free_HDB_extension(&new_ext);
     return ret;
 }
