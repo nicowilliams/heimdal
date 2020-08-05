@@ -863,6 +863,10 @@ derive_keys_for_current_kr(krb5_context context,
  *       can have keytab entries for those keys in time for when the KDC starts
  *       encrypting service tickets to those keys
  *
+ * This function derives the keyset(s) for the current KR first.  The idea is
+ * to optimize the order of resulting keytabs so that the most likely keys to
+ * be used come first.
+ *
  * Invariants:
  *
  *  - KR metadata is sane because sanity is checked for when storing HDB
@@ -912,6 +916,8 @@ derive_keys_for_current_kr(krb5_context context,
  *         of its first kvno
  *
  * Tmn == the start of the Mth KR's Nth time period.
+ *        (higher M -> older KR; lower M -> newer KR)
+ *        (N is the reverse: lower N -> older time period in KR)
  * T20 == start of oldest KR -- no keys before this time will be derived.
  * T2n == last time period in oldest KR
  * T10 == start of middle KR
@@ -972,21 +978,35 @@ derive_keys(krb5_context context,
         return ret;
     }
 
+    /* The principal name will be used in key derivation and error messages */
+    if (ret == 0 && h_is_namespace)
+        ret = krb5_unparse_name(context, princ, &p);
+
     /* Sanity check key rotations, determine current & last kr */
-    if (kr.len < 1)
+    if (ret == 0 && kr.len < 1)
         krb5_set_error_message(context, ret = HDB_ERR_NOENTRY,
-                               "no key rotation periods");
+                               "no key rotation periods for %s", p);
     for (current_kr = 0, past_kr = 0, i = 0; ret == 0 && i < kr.len; i++) {
+        /*
+         * XXX We validate KRs before storing HDB entries with the KR
+         *     extension.  We also validate here for safety, but maybe we
+         *     should not fail in case of invalidity.  Try to keep going
+         *     instead.  E.g., sort the entries if they're not sorted.  Or pick
+         *     a sane KR with epoch in the past of `t'.
+         */
         /* Check order */
         if (i && kr.val[i - 1].epoch <= kr.val[i].epoch) {
             krb5_set_error_message(context, ret = HDB_ERR_NOENTRY,
-                                   "misordered key rotation periods");
+                                   "misordered key rotation periods for %s",
+                                   p);
             break;
         }
         /* At most one future epoch (the first one) */
+        /* XXX No.  This does not allow one to test enough of the past */
         if (i && kr.val[i].epoch - t > 0) {
             krb5_set_error_message(context, ret = HDB_ERR_NOENTRY,
-                                   "multiple future key rotation periods");
+                                   "multiple future key rotation periods "
+                                   "for %s", p);
             break;
         }
         /* Identify current key rotation period */
@@ -994,7 +1014,7 @@ derive_keys(krb5_context context,
             if (kr.len == 1) {
                 krb5_set_error_message(context, ret = HDB_ERR_NOENTRY,
                                        "sole key rotation period is in the "
-                                       "future");
+                                       "future for %s", p);
                 break;
             }
             current_kr = 1;
@@ -1015,29 +1035,30 @@ derive_keys(krb5_context context,
 
     /* Check that the principal has not been marked deleted */
     if (ret == 0 && kr.val[current_kr].flags.deleted)
-        ret = HDB_ERR_NOENTRY;
+        krb5_set_error_message(context, ret = HDB_ERR_NOENTRY,
+                               "virtual principal %s does not exist "
+                               "because last key rotation period "
+                               "marks deletion", p);
 
     /*
-     * Derive and set in `h' its current kvno and current keys
+     * Derive and set in `h' its current kvno and current keys.
+     *
      * This will set h->entry.kvno as well.
      *
      * This may set up to TWO keysets for the current key rotation period:
      *  - current keys (h->entry.keys and h->entry.kvno)
-     *  - possibly one future or one past keyset in hist_keys for the current_kr
-     *
-     * There may be up to ONE keyset for each of the next and precedinr key
-     * rotation periods.
+     *  - possibly one future
+     *    OR
+     *    possibly one past keyset in hist_keys for the current_kr
      */
-
-    if (ret == 0 && h_is_namespace)
-        ret = krb5_unparse_name(context, princ, &p);
     if (ret == 0)
         ret = derive_keys_for_current_kr(context, h, &base_keys, p, flags,
                                          etype, kvno, t, &kr.val[current_kr],
                                          current_kr ? kr.val[0].epoch : 0);
 
     /*
-     * Derive and set in `h' its future keys (key history only).
+     * Derive and set in `h' its future keys for next KR if it is soon to be
+     * current.
      *
      * We want to derive keys for the first kvno of the next (future) KR if
      * it's sufficiently close to `t', meaning within 1 period of the current
@@ -1051,7 +1072,11 @@ derive_keys(krb5_context context,
         ret = derive_keys_for_kr(context, h, &base_keys, 0, 0, p, etype, kvno,
                                  kr.val[0].epoch, &kr.val[0]);
 
-    /* Derive and set in `h' its past keys (key history only) */
+    /*
+     * Derive and set in `h' its past keys for the previous KR if its last time
+     * period could still have extant, unexpired service tickets encrypted in
+     * its keys.
+     */
     if (ret == 0 && past_kr && (flags & HDB_F_ALL_KVNOS))
         ret = derive_keys_for_kr(context, h, &base_keys, 0, 0, p, etype, kvno,
                                  kr.val[current_kr].epoch - 1, &kr.val[past_kr]);
@@ -1059,18 +1084,16 @@ derive_keys(krb5_context context,
     /*
      * Impose a bound on h->entry.max_life so that [when the KDC is the caller]
      * the KDC won't issue tickets longer lived than this.
-     *
-     * It's OK if ret != 0 here.
      */
-    if (ret == 0 && !h->entry.max_life)
-        h->entry.max_life = malloc(sizeof(h->entry.max_life[0]));
-    if (ret == 0 && h->entry.max_life &&
-        *h->entry.max_life > kr.val[current_kr].period >> 1)
+    if (ret == 0 && !h->entry.max_life &&
+        (h->entry.max_life = malloc(sizeof(h->entry.max_life[0]))) == NULL)
+        ret = krb5_enomem(context);
+    if (ret == 0 && *h->entry.max_life > kr.val[current_kr].period >> 1)
         *h->entry.max_life = kr.val[current_kr].period >> 1;
 
-    free(p);
     free_HDB_Ext_KeyRotation(&kr);
     free_HDB_Ext_KeySet(&base_keys);
+    free(p);
     return ret;
 }
 
