@@ -407,9 +407,9 @@ make_namespace(krb5_context context, HDB *db, const char *name)
 
     /* Add the key rotation metadata */
     if (ret == 0)
-        ret = hdb_entry_set_key_rotation(context, &e.entry, &krs[0]);
+        ret = hdb_entry_add_key_rotation(context, &e.entry, 0, &krs[0]);
     if (ret == 0)
-        ret = hdb_entry_set_key_rotation(context, &e.entry, &krs[1]);
+        ret = hdb_entry_add_key_rotation(context, &e.entry, 0, &krs[1]);
 
     if (ret == 0)
         ret = db->hdb_store(context, db, 0, &e);

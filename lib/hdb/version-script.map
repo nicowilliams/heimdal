@@ -6,8 +6,10 @@ HEIMDAL_HDB_1.0 {
 		_hdb_fetch_kvno;
 		_hdb_remove;
 		_hdb_store;
-		hdb_add_master_key;
 		hdb_add_current_keys_to_history;
+		hdb_add_history_key;
+		hdb_add_history_keyset;
+		hdb_add_master_key;
 		hdb_change_kvno;
 		hdb_check_db_format;
 		hdb_clear_extension;
@@ -23,9 +25,11 @@ HEIMDAL_HDB_1.0 {
 		hdb_dbinfo_get_next;
 		hdb_dbinfo_get_realm;
 		hdb_default_db;
+		hdb_derive_etypes;
 		hdb_enctype2key;
 		hdb_entry2string;
 		hdb_entry2value;
+		hdb_entry_add_key_rotation;
 		hdb_entry_alias2value;
 		hdb_entry_check_mandatory;
 		hdb_entry_clear_password;
@@ -53,6 +57,7 @@ HEIMDAL_HDB_1.0 {
 		hdb_get_dbinfo;
 		hdb_get_instance;
 		hdb_init_db;
+		hdb_install_keyset;
 		hdb_key2principal;
 		hdb_kvno2keys;
 		hdb_list_builtin;
@@ -64,12 +69,13 @@ HEIMDAL_HDB_1.0 {
 		hdb_prune_keys;
 		hdb_prune_keys_kvno;
 		hdb_read_master_key;
+		hdb_remove_base_keys;
+		hdb_remove_keys;
 		hdb_replace_extension;
 		hdb_seal_key;
 		hdb_seal_key_mkey;
 		hdb_seal_keys;
 		hdb_seal_keys_mkey;
-		hdb_entry_set_key_rotation;
                 hdb_set_last_modified_by;
 		hdb_set_master_key;
 		hdb_set_master_keyfile;
@@ -77,7 +83,11 @@ HEIMDAL_HDB_1.0 {
 		hdb_unseal_key;
 		hdb_unseal_key_mkey;
 		hdb_unseal_keys;
+		hdb_unseal_keys_kvno;
 		hdb_unseal_keys_mkey;
+		hdb_validate_key_rotation;
+		hdb_validate_key_rotations;
+		hdb_validate_new_key_rotation;
 		hdb_value2entry;
 		hdb_value2entry_alias;
 		hdb_write_master_key;
