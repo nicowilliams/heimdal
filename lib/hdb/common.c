@@ -380,6 +380,71 @@ hdb_check_aliases(krb5_context context, HDB *db, hdb_entry_ex *entry)
     return 0;
 }
 
+/*
+ * Many HDB entries don't have `etypes' setup.  Historically we use the
+ * enctypes of the selected keyset as the entry's supported enctypes, but that
+ * is problematic.  By doing this at store time and, if need be, at fetch time,
+ * we can make sure to stop deriving supported etypes from keys in the long
+ * run.  We also need kadm5/kadmin support for etypes.  We'll use this function
+ * there to derive etypes when using a kadm5_principal_ent_t that lacks the new
+ * TL data for etypes.
+ */
+krb5_error_code
+hdb_derive_etypes(krb5_context context, hdb_entry *e, HDB_Ext_KeySet *base_keys)
+{
+    krb5_error_code ret = 0;
+    size_t i, k, netypes;
+    HDB_extension *ext;
+
+    if (!base_keys &&
+        (ext = hdb_find_extension(e, choice_HDB_extension_data_hist_keys)))
+        base_keys = &ext->data.u.hist_keys;
+
+    for (netypes = 0; netypes < e->keys.len; )
+        netypes++;
+    if (base_keys) {
+        for (i = 0; netypes == 0 && i < base_keys->len; i++)
+            for (netypes = 0; netypes < base_keys->val[i].keys.len; )
+                netypes++;
+    }
+
+    if (e->etypes != NULL) {
+        free(e->etypes->val);
+        e->etypes->len = 0;
+        e->etypes->val = 0;
+    }
+
+    if (e->etypes == NULL &&
+        (e->etypes = malloc(sizeof(e->etypes[0]))) == NULL)
+        ret = krb5_enomem(context);
+    if (ret == 0) {
+        e->etypes->len = 0;
+        e->etypes->val = 0;
+    }
+    if (ret == 0 &&
+        (e->etypes->val = calloc(netypes, sizeof(e->etypes->val[0]))) == NULL)
+        ret = krb5_enomem(context);
+    if (ret) {
+        free(e->etypes);
+        e->etypes = 0;
+        return ret;
+    }
+    e->etypes->len = netypes;
+    for (i = 0; i < e->keys.len && i < netypes; i++)
+        e->etypes->val[i] = e->keys.val[i].key.keytype;
+    if (base_keys) {
+        if (i == 0) {
+            for (k = 0; i == 0 && k < base_keys->len; k++) {
+                if (!base_keys->val[k].keys.len)
+                    continue;
+                for (i = 0; i < base_keys->val[i].keys.len; i++)
+                    e->etypes->val[i] = base_keys->val[i].keys.val[i].key.keytype;
+            }
+        }
+    }
+    return 0;
+}
+
 krb5_error_code
 _hdb_store(krb5_context context, HDB *db, unsigned flags, hdb_entry_ex *entry)
 {
@@ -410,7 +475,11 @@ _hdb_store(krb5_context context, HDB *db, unsigned flags, hdb_entry_ex *entry)
         return code ? code : HDB_ERR_EXISTS;
     }
 
-    if(entry->entry.generation == NULL) {
+    if ((entry->entry.etypes == NULL || entry->entry.etypes->len == 0) &&
+        (code = hdb_derive_etypes(context, &entry->entry, NULL)))
+        return code;
+
+    if (entry->entry.generation == NULL) {
 	struct timeval t;
 	entry->entry.generation = malloc(sizeof(*entry->entry.generation));
 	if(entry->entry.generation == NULL) {
@@ -908,6 +977,10 @@ derive_keys(krb5_context context,
     base_keys.len = 0;
     if (ret == 0)
         ret = hdb_remove_base_keys(context, &h->entry, &base_keys);
+
+    /* Make sure we have h->entry.etypes */
+    if (ret == 0 && !h->entry.etypes)
+        ret = hdb_derive_etypes(context, &h->entry, &base_keys);
 
     /* Keys not desired?  Don't derive them! */
     if (ret || !(flags & HDB_F_DECRYPT)) {
