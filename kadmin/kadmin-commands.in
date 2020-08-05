@@ -315,26 +315,21 @@ command = {
 		help = "delete base keys older than this to revoke old tickets"
 	}
 	option = {
-		long = "key-rotation-epoch"
+		long = "new-key-rotation-epoch"
 		type = "string"
 		argument = "time"
 		help = "new start time relative to now"
 	}
 	option = {
-		long = "key-rotation-period"
+		long = "new-key-rotation-period"
 		type = "string"
 		argument = "time"
 		help = "new automatic key rotation period"
 	}
-	option = {
-		long = "attributes"
-		type = "string"
-		argument = "attributes"
-		help = "principal attributes"
-	}
 	argument = "principal..."
 	min_args = "1"
-	help = "Adds a new key rotation schedule to the given namespaces."
+	max_args = "1"
+	help = "Adds or changes new key rotation schedule for the given namespace."
 }
 command = {
 	name = "passwd"
