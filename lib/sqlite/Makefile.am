@@ -6,6 +6,8 @@ if ENABLE_PTHREAD_SUPPORT
 AM_CPPFLAGS += -DSQLITE_THREADSAFE=1
 endif
 
+WFLAGS =
+
 lib_LTLIBRARIES = libheimsqlite.la
 
 noinst_HEADERS = sqlite3.h sqlite3ext.h
