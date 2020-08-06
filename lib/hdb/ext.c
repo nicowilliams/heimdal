@@ -697,6 +697,8 @@ hdb_validate_new_key_rotation(krb5_context context,
     return hdb_validate_key_rotation(context, &krs->val[0], kr);
 }
 
+/* XXX We need a function to "revoke" the past */
+
 /**
  * This function adds a KeyRotation value to an entry, validating the
  * change.  One of `entry' and `krs' must be NULL, and the other non-NULL, and
