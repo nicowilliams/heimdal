@@ -51,6 +51,13 @@ typedef struct {
      * atexit() handler to free it, and we'd have a first-class MEMORY HDB.
      *
      * What would a first-class MEMORY HDB be good for though, besides testing?
+     *
+     * However, we could move this dict into `HDB' and then have _hdb_store()
+     * and friends support it as a cache for frequently-used & seldom-changing
+     * entries, such as: K/M, namespaces, and krbtgt principals.  That would
+     * speed up lookups, especially for backends with poor reader-writer
+     * concurrency (DB, LMDB) and LDAP.  Such entries could be cached for a
+     * minute or three at a time.
      */
     heim_dict_t dict;
 } TEST_HDB;
@@ -330,8 +337,6 @@ make_namespace(krb5_context context, HDB *db, const char *name)
     hdb_entry_ex e;
     Key k;
 
-    /* XXX We need to test that adding a "fourth" KR works */
-
     memset(&k, 0, sizeof(k));
     k.mkvno = 0;
     k.salt = 0;
@@ -456,8 +461,19 @@ hist_key_compar(const void *va, const void *vb)
     return a->kvno - b->kvno;
 }
 
+/*
+ * Fetch keys for some decent time in the given kr.
+ *
+ * `kr' is an index into the global `krs[]'.
+ * `t' is a number 0..4 inclusive that identifies a time period relative to the
+ * epoch of `krs[kr]' (see code below).
+ */
 static void
-fetch_entries(krb5_context context, HDB *db, size_t kr, size_t t)
+fetch_entries(krb5_context context,
+              HDB *db,
+              size_t kr,
+              size_t t,
+              int must_fail)
 {
     krb5_error_code ret = 0;
     krb5_principal p;
@@ -476,11 +492,11 @@ fetch_entries(krb5_context context, HDB *db, size_t kr, size_t t)
            (sizeof(expected) / sizeof(expected[0])));
 
     switch (t) {
-    case 0: toffset = 1;                            break;
-    case 1: toffset = 1 + (krs[kr].period >> 1);    break;
-    case 2: toffset = 1 + (krs[kr].period >> 2);    break;
-    case 3: toffset = 1 + (krs[kr].period >> 3);    break;
-    case 4: toffset = 1 - (krs[kr].period >> 3);    break; /* negative */
+    case 0: toffset = 1;                         break; /* epoch + 1s */
+    case 1: toffset = 1 + (krs[kr].period >> 1); break; /* epoch + period/2 */
+    case 2: toffset = 1 + (krs[kr].period >> 2); break; /* epoch + period/4 */
+    case 3: toffset = 1 + (krs[kr].period >> 3); break; /* epoch + period/8 */
+    case 4: toffset = 1 - (krs[kr].period >> 3); break; /* epoch - period/8 */
     }
 
     for (i = 0; ret == 0 && i < sizeof(expected) / sizeof(expected[0]); i++) {
@@ -497,6 +513,9 @@ fetch_entries(krb5_context context, HDB *db, size_t kr, size_t t)
             ret = hdb_fetch_kvno(context, db, p,
                                  HDB_F_DECRYPT | HDB_F_ALL_KVNOS,
                                  krs[kr].epoch + toffset, 0, 0, ep);
+        if (i && must_fail && ret == 0)
+            krb5_errx(context, 1,
+                      "virtual principal that shouldn't exist does");
         if (kr == 0 && toffset < 0 && ret == HDB_ERR_NOENTRY)
             continue;
         if (kr == 0 && toffset < 0) {
@@ -506,10 +525,12 @@ fetch_entries(krb5_context context, HDB *db, size_t kr, size_t t)
              */
             if (i == 0) {
                 if (ret)
-                    krb5_errx(context, 1, "namespace principal does not exist before its time");
+                    krb5_errx(context, 1,
+                              "namespace principal does not exist before its time");
             } else if (i != 0) {
                 if (ret == 0)
-                    krb5_errx(context, 1, "virtual principal exists before its time");
+                    krb5_errx(context, 1,
+                              "virtual principal exists before its time");
                 if (ret != HDB_ERR_NOENTRY)
                     krb5_errx(context, 1, "wrong error code");
                 ret = 0;
@@ -535,6 +556,10 @@ fetch_entries(krb5_context context, HDB *db, size_t kr, size_t t)
 
         krb5_free_principal(context, p);
     }
+    if (ret && must_fail) {
+        free_EncryptionKey(&base_key);
+        return;
+    }
     if (ret)
         krb5_err(context, 1, ret, "virtual principal test failed");
 
@@ -554,12 +579,14 @@ fetch_entries(krb5_context context, HDB *db, size_t kr, size_t t)
         return;
 
     /*
-     * XXX Add check that derived keys are a) different, b) as expected, using
-     * a set of test vectors or else by computing the expected keys here with
+     * XXX
+     *
+     * Add check that derived keys are a) different, b) as expected, using a
+     * set of test vectors or else by computing the expected keys here with
      * code that's not shared with lib/hdb/common.c.
      *
-     * XXX Add check that we get expected past and/or future keys, not just
-     * current keys.
+     * Add check that we get expected past and/or future keys, not just current
+     * keys.
      */
     for (i = 1; ret == 0 && i < sizeof(expected) / sizeof(expected[0]); i++) {
         uint32_t kvno;
@@ -569,7 +596,8 @@ fetch_entries(krb5_context context, HDB *db, size_t kr, size_t t)
         if (toffset > 0) {
             ret = tderive_key(context, expected[i], &krs[kr], toffset,
                               &base_key, base_key.keytype, &dk, &kvno, &set_time);
-        } else {
+        } else /* XXX */{
+            /* XXX */
             assert(kr);
             ret = tderive_key(context, expected[i], &krs[kr - 1],
                               krs[kr].epoch - krs[kr - 1].epoch + toffset,
@@ -797,6 +825,10 @@ main(int argc, char **argv)
     assert(db->virtual_hostbased_princ_maxdots == 3);
 
     /* Setup key rotation metadata in a convenient way */
+    /*
+     * FIXME Reorder these two KRs to match how we store them to avoid
+     * confusion.  #0 should be future-most, #1 should past-post.
+     */
     krs[0].flags = krs[1].flags = int2KeyRotationFlags(0);
     krs[0].epoch = SOME_EPOCH - 20 * 24 * 3600;
     krs[0].period = SOME_PERIOD >> 1;
@@ -809,23 +841,17 @@ main(int argc, char **argv)
 
     make_namespace(context, db, WK_PREFIX "bar.example@BAR.EXAMPLE");
 
-    fetch_entries(context, db, 0, 0);
-    fetch_entries(context, db, 0, 1);
-    fetch_entries(context, db, 0, 2);
-    fetch_entries(context, db, 0, 3);
-    /*
-     * XXX This should pass, but fails because we're missing a check that `t'
-     * is not in the past of the earlier KR in lib/hdb/common.c
-     */
-#if 0
-    fetch_entries(context, db, 0, 4);
-#endif
+    fetch_entries(context, db, 1, 0, 0);
+    fetch_entries(context, db, 1, 1, 0);
+    fetch_entries(context, db, 1, 2, 0);
+    fetch_entries(context, db, 1, 3, 0);
+    fetch_entries(context, db, 1, 4, 0); /* Just before newest KR */
 
-    fetch_entries(context, db, 1, 0);
-    fetch_entries(context, db, 1, 1);
-    fetch_entries(context, db, 1, 2);
-    fetch_entries(context, db, 1, 3);
-    fetch_entries(context, db, 1, 4);
+    fetch_entries(context, db, 0, 0, 0);
+    fetch_entries(context, db, 0, 1, 0);
+    fetch_entries(context, db, 0, 2, 0);
+    fetch_entries(context, db, 0, 3, 0);
+    fetch_entries(context, db, 0, 4, 1); /* Must fail: just before 1st KR */
 
     /*
      * Check that for every virtual principal in `expected[]', all the keysets
@@ -852,6 +878,10 @@ main(int argc, char **argv)
      */
 
     print_em(context);
+
+    /*
+     * XXX Test adding a third KR, a 4th KR, dropping KRs...
+     */
 
     /* Cleanup */
     for (i = 0; ret == 0 && i < sizeof(e) / sizeof(e[0]); i++)

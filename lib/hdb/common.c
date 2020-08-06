@@ -942,9 +942,9 @@ derive_keys(krb5_context context,
     HDB_Ext_KeyRotation kr;
     HDB_Ext_KeySet base_keys;
     krb5_error_code ret = 0;
-    unsigned int n;
-    size_t current_kr, past_kr, i;
+    size_t current_kr, future_kr, past_kr, i;
     char *p = NULL;
+    int valid = 1;
 
     if (!h_is_namespace && !h->entry.flags.virtual_keys)
         return 0;
@@ -990,55 +990,69 @@ derive_keys(krb5_context context,
     if (ret == 0 && kr.len < 1)
         krb5_set_error_message(context, ret = HDB_ERR_NOENTRY,
                                "no key rotation periods for %s", p);
-    for (current_kr = 0, past_kr = 0, i = 0; ret == 0 && i < kr.len; i++) {
-        /*
-         * XXX We validate KRs before storing HDB entries with the KR
-         *     extension.  We also validate here for safety, but maybe we
-         *     should not fail in case of invalidity.  Try to keep going
-         *     instead.  E.g., sort the entries if they're not sorted.  Or pick
-         *     a sane KR with epoch in the past of `t'.
-         */
-        /* Check order */
-        if (i && kr.val[i - 1].epoch <= kr.val[i].epoch) {
-            krb5_set_error_message(context, ret = HDB_ERR_NOENTRY,
-                                   "misordered key rotation periods for %s",
-                                   p);
-            break;
+    if (ret == 0)
+        current_kr = future_kr = past_kr = kr.len;
+    else
+        current_kr = future_kr = past_kr = 1;
+
+    /*
+     * Identify a current, next, and previous KRs if there are any
+     *
+     * There can be up to three KRs, ordered by epoch, descending, making up a
+     * timeline like:
+     *
+     *   ...|---------|--------|------>
+     *   ^  |         |        |
+     *   |  |         |        |
+     *   |  |         |        Newest KR (kr.val[0])
+     *   |  |         Middle KR (kr.val[1])
+     *   |  Oldest (last) KR (kr.val[2])
+     *   |
+     *   Before the begging of time for this namespace
+     *
+     * We step through these from future towards past looking for the best
+     * future, current, and past KRs.  The best current KR is one that has its
+     * epoch nearest to `t' but in the past of `t'.
+     *
+     * We validate KRs before storing HDB entries with the KR extension, so we
+     * can assume they are valid here.  However, we do some validity checking,
+     * and if they're not valid, we pick the best current KR and ignore the
+     * others.
+     */
+    for (i = 0; ret == 0 && i < kr.len; i++) {
+        /* Minimal validation: order and period */
+        if (i && kr.val[i - 1].epoch - kr.val[i].epoch <= 0) {
+            future_kr = past_kr = kr.len;
+            valid = 0;
         }
-        /* At most one future epoch (the first one) */
-        /* XXX No.  This does not allow one to test enough of the past */
-        if (i && kr.val[i].epoch - t > 0) {
-            krb5_set_error_message(context, ret = HDB_ERR_NOENTRY,
-                                   "multiple future key rotation periods "
-                                   "for %s", p);
-            break;
+        if (!kr.val[i].period) {
+            future_kr = past_kr = kr.len;
+            valid = 0;
+            continue;
         }
-        /* Identify current key rotation period */
-        if (i == 0 && kr.val[0].epoch - t > 0) {
-            if (kr.len == 1) {
-                krb5_set_error_message(context, ret = HDB_ERR_NOENTRY,
-                                       "sole key rotation period is in the "
-                                       "future for %s", p);
-                break;
-            }
-            current_kr = 1;
+        if (t - kr.val[i].epoch >= 0) {
+            /*
+             * `t' is in the future of this KR's epoch, so it's a candidate for
+             * either current or past KR.
+             */
+            if (current_kr == kr.len)
+                current_kr = i; /* First curr KR candidate; should be best */
+            else if (kr.val[current_kr].epoch - kr.val[i].epoch < 0)
+                current_kr = i; /* Invalid KRs, but better curr KR cand. */
+            else if (valid && past_kr == kr.len)
+                past_kr = i;
+        } else if (valid) {
+            /* This KR is in the future of `t', a candidate for next KR */
+            future_kr = i;
         }
-        /*
-         * At most one relevant but kr older than current.
-         *
-         * If `t' is close enough to the current KR's epoch that extant service
-         * tickets for the last kvno of the previous KR are still unexpired,
-         * then this KR is relevant and we must generate keys for its last
-         * kvno.  The max life of the previous KR's last kvno is at most half
-         * the previous KR's period.
-         */
-        if (i == current_kr + 1 &&
-            (t - kr.val[current_kr].epoch) < (kr.val[i].period >> 1))
-            past_kr = i;
     }
+    if (ret == 0 && current_kr == kr.len)
+        /* No current KR -> too soon */
+        krb5_set_error_message(context, ret = HDB_ERR_NOENTRY,
+                               "Too soon for virtual principal to exist");
 
     /* Check that the principal has not been marked deleted */
-    if (ret == 0 && kr.val[current_kr].flags.deleted)
+    if (ret == 0 && current_kr < kr.len && kr.val[current_kr].flags.deleted)
         krb5_set_error_message(context, ret = HDB_ERR_NOENTRY,
                                "virtual principal %s does not exist "
                                "because last key rotation period "
@@ -1055,7 +1069,7 @@ derive_keys(krb5_context context,
      *    OR
      *    possibly one past keyset in hist_keys for the current_kr
      */
-    if (ret == 0)
+    if (ret == 0 && current_kr < kr.len)
         ret = derive_keys_for_current_kr(context, h, &base_keys, p, flags,
                                          etype, kvno, t, &kr.val[current_kr],
                                          current_kr ? kr.val[0].epoch : 0);
@@ -1069,19 +1083,16 @@ derive_keys(krb5_context context,
      * KR, but we want these keys to be available sooner, so 1.5 of the current
      * period.
      */
-    n = kr.val[current_kr].period;
-    n += n >> 1;
-    if (ret == 0 && current_kr && (flags & HDB_F_ALL_KVNOS) &&
-        kr.val[0].epoch - t < 0)
+    if (ret == 0 && future_kr < kr.len && (flags & HDB_F_ALL_KVNOS))
         ret = derive_keys_for_kr(context, h, &base_keys, 0, 0, p, etype, kvno,
-                                 kr.val[0].epoch, &kr.val[0]);
+                                 kr.val[future_kr].epoch, &kr.val[future_kr]);
 
     /*
      * Derive and set in `h' its past keys for the previous KR if its last time
      * period could still have extant, unexpired service tickets encrypted in
      * its keys.
      */
-    if (ret == 0 && past_kr && (flags & HDB_F_ALL_KVNOS))
+    if (ret == 0 && past_kr < kr.len && (flags & HDB_F_ALL_KVNOS))
         ret = derive_keys_for_kr(context, h, &base_keys, 0, 0, p, etype, kvno,
                                  kr.val[current_kr].epoch - 1, &kr.val[past_kr]);
 
