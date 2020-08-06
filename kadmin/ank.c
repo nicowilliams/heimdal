@@ -312,12 +312,35 @@ add_new_key(struct add_options *opt, int argc, char **argv)
     return ret != 0;
 }
 
+static krb5_error_code
+kstuple2etypes(kadm5_principal_ent_rec *rec,
+               int *maskp,
+               size_t nkstuple,
+               krb5_key_salt_tuple *kstuple)
+{
+    krb5_error_code ret;
+    HDB_EncTypeList etypes;
+    krb5_data buf;
+    size_t len, i;
+
+    etypes.len = 0;
+    if ((etypes.val = calloc(nkstuple, sizeof(etypes.val[0]))) == NULL)
+        return krb5_enomem(context);
+    for (i = 0; i < nkstuple; i++)
+        etypes.val[i] = kstuple[i].ks_enctype;
+    ASN1_MALLOC_ENCODE(HDB_EncTypeList, buf.data, buf.length,
+                       &etypes, &len, ret);
+    if (ret == 0)
+        add_tl(rec, KRB5_TL_ETYPES, &buf);
+    free(etypes.val);
+    if (ret == 0)
+        (*maskp) |= KADM5_TL_DATA;
+    return ret;
+}
+
 /*
  * Add the namespace `name' to the database.
  * Prompt for all data not given by the input parameters.
- *
- * XXX: When etypes support in the KDC is done, just gen
- * a single base key internally.
  */
 static krb5_error_code
 add_one_namespace(const char *name,
@@ -419,11 +442,11 @@ add_one_namespace(const char *name,
                         max_ticket_life, max_renewable_life,
                         "never", "never", attributes, NSPOLICY);
     }
-    if (ret)
-        goto out;
+    if (ret == 0)
+        ret = edit_entry(&princ, &mask, default_ent, default_mask);
 
-    if ((ret = edit_entry(&princ, &mask, default_ent, default_mask)))
-        goto out;
+    if (ret == 0)
+        ret = kstuple2etypes(&princ, &mask, nkstuple, kstuple);
 
     /* XXX Shouldn't need a password for this */
     random_password(pwbuf, sizeof(pwbuf));
@@ -432,7 +455,6 @@ add_one_namespace(const char *name,
     if (ret)
 	krb5_warn(context, ret, "kadm5_create_principal_3");
 
-out:
     kadm5_free_principal_ent(kadm_handle, &princ); /* frees princ_ent */
     if (default_ent)
 	kadm5_free_principal_ent(kadm_handle, default_ent);
