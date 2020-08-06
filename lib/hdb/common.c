@@ -402,9 +402,11 @@ hdb_derive_etypes(krb5_context context, hdb_entry *e, HDB_Ext_KeySet *base_keys)
 
     for (netypes = 0; netypes < e->keys.len; )
         netypes++;
-    for (i = 0; netypes == 0 && i < base_keys->len; i++)
-        for (netypes = 0; netypes < base_keys->val[i].keys.len; )
-            netypes++;
+    if (base_keys) {
+        for (i = 0; netypes == 0 && i < base_keys->len; i++)
+            for (netypes = 0; netypes < base_keys->val[i].keys.len; )
+                netypes++;
+    }
 
     if ((e->etypes = malloc(sizeof(e->etypes[0]))) == NULL)
         ret = krb5_enomem(context);
@@ -423,12 +425,14 @@ hdb_derive_etypes(krb5_context context, hdb_entry *e, HDB_Ext_KeySet *base_keys)
     e->etypes->len = netypes;
     for (i = 0; i < e->keys.len && i < netypes; i++)
         e->etypes->val[i] = e->keys.val[i].key.keytype;
-    if (i == 0) {
-        for (k = 0; i == 0 && k < base_keys->len; k++) {
-            if (!base_keys->val[k].keys.len)
-                continue;
-            for (i = 0; i < base_keys->val[i].keys.len; i++)
-                e->etypes->val[i] = base_keys->val[i].keys.val[i].key.keytype;
+    if (base_keys) {
+        if (i == 0) {
+            for (k = 0; i == 0 && k < base_keys->len; k++) {
+                if (!base_keys->val[k].keys.len)
+                    continue;
+                for (i = 0; i < base_keys->val[i].keys.len; i++)
+                    e->etypes->val[i] = base_keys->val[i].keys.val[i].key.keytype;
+            }
         }
     }
     return 0;
