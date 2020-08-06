@@ -131,6 +131,10 @@ modify_principal(void *server_handle,
 				0, princ, mask);
     if (ret)
 	goto out3;
+    /*
+     * XXX Make sure that _kadm5_setup_entry() checks that the time of last
+     * change in `ent' matches the one in `princ'.
+     */
     ret = _kadm5_setup_entry(context, &ent, mask, princ, mask, NULL, 0);
     if (ret)
 	goto out3;
