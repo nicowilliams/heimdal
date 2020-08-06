@@ -740,9 +740,10 @@ hdb_entry_add_key_rotation(krb5_context context,
             ext = &new_ext;
         else
             krs = &ext->data.u.key_rotation;
-    } else {
-        const KeyRotation *prev_kr = &ext->data.u.key_rotation.val[0];
-        unsigned int last_kvno;
+    }
+    if (krs) {
+        const KeyRotation *prev_kr = &krs->val[0];
+        unsigned int last_kvno = 0;
 
         if (kr->epoch - prev_kr->epoch <= 0) {
             krb5_set_error_message(context, EINVAL,
