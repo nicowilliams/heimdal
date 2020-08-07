@@ -996,7 +996,7 @@ derive_keys(krb5_context context,
         current_kr = future_kr = past_kr = 1;
 
     /*
-     * Identify a current, next, and previous KRs if there are any
+     * Identify a current, next, and previous KRs if there are any.
      *
      * There can be up to three KRs, ordered by epoch, descending, making up a
      * timeline like:
@@ -1018,6 +1018,10 @@ derive_keys(krb5_context context,
      * can assume they are valid here.  However, we do some validity checking,
      * and if they're not valid, we pick the best current KR and ignore the
      * others.
+     *
+     * In principle there cannot be two future KRs, but this function is
+     * deterministic and takes a time value, so it should not enforce this just
+     * so we can test.  Enforcement of such rules should be done at store time.
      */
     for (i = 0; ret == 0 && i < kr.len; i++) {
         /* Minimal validation: order and period */
