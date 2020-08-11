@@ -1153,7 +1153,7 @@ make_namespace_princ(krb5_context context,
             break;
         }
     }
-    if (svcs && !svcs[i])
+    if (!svcs || !svcs[i])
         comp0 = "*";
 
     /* First go around, need a namespace princ.  Make it! */
@@ -1266,7 +1266,7 @@ fetch_it(krb5_context context,
             ret2 = make_namespace_princ(context, db, tmpprinc, &baseprinc);
         else
             /* Update the hostname component */
-            ret2 = krb5_principal_set_comp_string(context, baseprinc, 2, tmp);
+            ret2 = krb5_principal_set_comp_string(context, baseprinc, 3, tmp);
         if (ret2)
             ret = ret2;
 
