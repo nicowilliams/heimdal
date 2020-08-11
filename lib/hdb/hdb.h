@@ -121,8 +121,9 @@ typedef struct HDB {
     int lock_count;
     int lock_type;
     int enable_virtual_hostbased_princs;
-    size_t virtual_hostbased_princ_ndots;
-    size_t virtual_hostbased_princ_maxdots;
+    size_t virtual_hostbased_princ_ndots;   /* Min. # of .s in hostname */
+    size_t virtual_hostbased_princ_maxdots; /* Max. # of .s in namespace */
+    char **virtual_hostbased_princ_svcs;     /* Which svcs are not wildcarded */
     /**
      * Open (or create) the a Kerberos database.
      *
