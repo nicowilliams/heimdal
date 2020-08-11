@@ -361,6 +361,7 @@ add_one_namespace(const char *name,
     HDB_extension ext;
     krb5_data buf;
     const char *comp0;
+    const char *comp1;
     time_t kre;
     char pwbuf[1024];
     krb5_deltat krp;
@@ -390,13 +391,18 @@ add_one_namespace(const char *name,
      * Check that namespace has exactly one component, and prepend
      * WELLKNOWN/HOSTBASED-NAMESPACE
      */
-    if (krb5_principal_get_num_comp(context, princ_ent) != 1
+    if (krb5_principal_get_num_comp(context, princ_ent) != 2
         || (comp0 = krb5_principal_get_comp_string(context, princ_ent, 0)) == 0
-        || *comp0 == 0)
-	krb5_warn(context, ret=1,
-                  "namespaces must have exactly one non-empty component");
+        || (comp1 = krb5_principal_get_comp_string(context, princ_ent, 1)) == 0
+        || *comp0 == 0 || *comp1 == 0
+        || strcmp(comp0, "krbtgt") == 0)
+	krb5_warn(context, ret = EINVAL,
+                  "namespaces must have exactly two non-empty components "
+                  "like host-base principal names");
     if (ret == 0)
         ret = krb5_principal_set_comp_string(context, princ_ent, 2, comp0);
+    if (ret == 0)
+        ret = krb5_principal_set_comp_string(context, princ_ent, 3, comp1);
     if (ret == 0)
         ret = krb5_principal_set_comp_string(context, princ_ent, 0,
                                              "WELLKNOWN");
