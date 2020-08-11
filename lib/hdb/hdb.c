@@ -676,6 +676,7 @@ hdb_create(krb5_context context, HDB **db, const char *filename)
     krb5_error_code ret;
     struct cb_s cb_ctx;
 
+    *db = NULL;
     if (filename == NULL)
 	filename = HDB_DEFAULT_DB;
     cb_ctx.h = find_method (filename, &cb_ctx.residual);
@@ -714,6 +715,21 @@ hdb_create(krb5_context context, HDB **db, const char *filename)
             krb5_config_get_int_default(context, NULL, 0, "hdb",
                                          "virtual_hostbased_princ_maxdots",
                                          NULL);
+        /*
+         * XXX Needs freeing in the HDB backends because we don't have a
+         * first-class hdb_close() :(
+         */
+        (*db)->virtual_hostbased_princ_svcs =
+            krb5_config_get_strings(context, NULL, "hdb",
+                                    "virtual_hostbased_princ_svcs", NULL);
+        /* Check for ENOMEM */
+        if ((*db)->virtual_hostbased_princ_svcs == NULL
+            && krb5_config_get_string(context, NULL, "hdb",
+                                      "virtual_hostbased_princ_svcs", NULL)) {
+            (*db)->hdb_destroy(context, *db);
+            *db = NULL;
+            ret = krb5_enomem(context);
+        }
     }
     return ret;
 }

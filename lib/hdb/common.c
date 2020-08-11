@@ -1116,6 +1116,59 @@ derive_keys(krb5_context context,
     return ret;
 }
 
+/*
+ * Make a WELLKNOWN/HOSTBASED-NAMESPACE/${svc}/${hostname} or
+ * WELLKNOWN/HOSTBASED-NAMESPACE/${svc}/${hostname}/${domainname} principal
+ * object, with the service and hostname components take from `wanted', but if
+ * the service name is not in the list `db->virtual_hostbased_princ_svcs[]'
+ * then use "*" (wildcard) instead.  This way we can have different attributes
+ * for different services in the same namespaces.
+ *
+ * For example, virtual hostbased service names for the "host" service might
+ * have ok-as-delegate set, but ones for the "HTTP" service might not.
+ */
+static krb5_error_code
+make_namespace_princ(krb5_context context,
+                     HDB *db,
+                     krb5_const_principal wanted,
+                     krb5_principal *namespace)
+{
+    krb5_error_code ret = 0;
+    const char *realm = krb5_principal_get_realm(context, wanted);
+    const char *comp0 = krb5_principal_get_comp_string(context, wanted, 0);
+    const char *comp1 = krb5_principal_get_comp_string(context, wanted, 1);
+    const char *comp2 = krb5_principal_get_comp_string(context, wanted, 2);
+    char * const *svcs = db->virtual_hostbased_princ_svcs;
+    size_t i;
+
+    *namespace = NULL;
+    if (comp0 == NULL || comp1 == NULL)
+        return EINVAL;
+    if (strcmp(comp0, "krbtgt") == 0)
+        return 0;
+
+    for (i = 0; svcs && svcs[i]; i++) {
+        if (strcmp(comp0, svcs[i]) == 0) {
+            comp0 = svcs[i];
+            break;
+        }
+    }
+    if (svcs && !svcs[i])
+        comp0 = "*";
+
+    /* First go around, need a namespace princ.  Make it! */
+    ret = krb5_build_principal(context, namespace, strlen(realm),
+                                realm, "WELLKNOWN",
+                                HDB_WK_NAMESPACE, comp0, NULL);
+    if (ret == 0)
+        ret = krb5_principal_set_comp_string(context, *namespace, 3, comp1);
+    if (ret == 0 && comp2)
+        /* Support domain-based names */
+        ret = krb5_principal_set_comp_string(context, *namespace, 4, comp2);
+    /* Caller frees `*namespace' on error */
+    return ret;
+}
+
 /* Wrapper around db->hdb_fetch_kvno() that implements virtual princs/keys */
 static krb5_error_code
 fetch_it(krb5_context context,
@@ -1130,10 +1183,8 @@ fetch_it(krb5_context context,
     krb5_const_principal tmpprinc = princ;
     krb5_principal baseprinc = NULL;
     krb5_error_code ret = 0;
-    const char *realm = krb5_principal_get_realm(context, princ);
     const char *comp0 = krb5_principal_get_comp_string(context, princ, 0);
     const char *comp1 = krb5_principal_get_comp_string(context, princ, 1);
-    const char *comp2 = krb5_principal_get_comp_string(context, princ, 2);
     const char *tmp;
     size_t mindots = db->virtual_hostbased_princ_ndots;
     size_t maxdots = db->virtual_hostbased_princ_maxdots;
@@ -1166,13 +1217,9 @@ fetch_it(krb5_context context,
     }
 
     tmp = host ? host : comp1;
-    for (;;) {
+    for (ret = HDB_ERR_NOENTRY; ret == HDB_ERR_NOENTRY; tmpprinc = baseprinc) {
         krb5_error_code ret2 = 0;
-        /*
-         * XXX In order to support the deleted KeyRotationFlags flag we'll have
-         * refactor some of this searching for a parent namespace into a
-         * utility function that can get called here and elsewhere above.
-         */
+
         /*
          * We break out of this loop with ret == 0 only if we found the HDB
          * entry we were looking for or the HDB entry for a matching namespace.
@@ -1186,10 +1233,8 @@ fetch_it(krb5_context context,
          * of labels.
          */
 	ret = db->hdb_fetch_kvno(context, db, tmpprinc, flags, kvno, ent);
-	if (ret != HDB_ERR_NOENTRY || hdots == 0 || hdots < mindots)
+	if (ret != HDB_ERR_NOENTRY || hdots == 0 || hdots < mindots || !tmp)
 	    break;
-
-        /* Here ret == 0 || ret == HDB_ERR_NOENTRY; we'll clobber ret */
 
         /*
          * Breadcrumb:
@@ -1198,6 +1243,8 @@ fetch_it(krb5_context context,
          *    as now-virtual, then we must keep going
          *
          * But this will be coded in the future.
+         *
+         * Maybe we can take attributes from the concrete principal...
          */
 
         /*
@@ -1207,36 +1254,28 @@ fetch_it(krb5_context context,
          * Example: with maxdots == 3,
          *          foo.bar.baz.app.blah.example -> baz.app.blah.example
          */
-        while (maxdots && hdots > maxdots) {
+        while (maxdots && hdots > maxdots && tmp) {
             tmp = strchr(tmp, '.');
             /* tmp != NULL because maxdots > 0 */
             tmp++;
             hdots--;
         }
 
-        if (baseprinc == NULL) {
+        if (baseprinc == NULL)
             /* First go around, need a namespace princ.  Make it! */
-            ret2 = krb5_build_principal(context, &baseprinc, strlen(realm),
-                                        realm, "WELLKNOWN",
-                                        HDB_WK_NAMESPACE, NULL);
-            if (ret2 == 0 && comp2)
-                /* Support domain-based names */
-                ret2 = krb5_principal_set_comp_string(context, baseprinc, 3, comp2);
-        }
-
-        /* Update the hostname component */
-        if (ret2 == 0)
+            ret2 = make_namespace_princ(context, db, tmpprinc, &baseprinc);
+        else
+            /* Update the hostname component */
             ret2 = krb5_principal_set_comp_string(context, baseprinc, 2, tmp);
-        tmpprinc = baseprinc;
+        if (ret2)
+            ret = ret2;
 
-        /* Strip off left-most label for the next go-around */
-	tmp = strchr(tmp, '.');
-	if (!tmp) {
-            ret = HDB_ERR_NOENTRY;
-	    break;
-        }
-	tmp++;
-	hdots--;
+        if (tmp) {
+            /* Strip off left-most label for the next go-around */
+            if ((tmp = strchr(tmp, '.')))
+                tmp++;
+            hdots--;
+        } /* else we'll break out after the next db->hdb_fetch_kvno() call */
     }
 
     /*
