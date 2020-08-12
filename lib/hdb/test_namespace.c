@@ -427,14 +427,14 @@ make_namespace(krb5_context context, HDB *db, const char *name)
 #define WK_PREFIX "WELLKNOWN/" HDB_WK_NAMESPACE "/"
 
 static const char *expected[] = {
-    WK_PREFIX "bar.example@BAR.EXAMPLE",
+    WK_PREFIX "*/bar.example@BAR.EXAMPLE",
     "HTTP/bar.example@BAR.EXAMPLE",
     "HTTP/foo.bar.example@BAR.EXAMPLE",
     "host/foo.bar.example@BAR.EXAMPLE",
     "HTTP/blah.foo.bar.example@BAR.EXAMPLE",
 };
 static const char *unexpected[] = {
-    WK_PREFIX "no.example@BAZ.EXAMPLE",
+    WK_PREFIX "*/no.example@BAZ.EXAMPLE",
     "HTTP/no.example@BAR.EXAMPLE",
     "HTTP/foo.no.example@BAR.EXAMPLE",
     "HTTP/blah.foo.no.example@BAR.EXAMPLE",
@@ -839,7 +839,7 @@ main(int argc, char **argv)
     krs[1].base_kvno = krs[0].base_kvno + 1 + (krs[1].epoch + (krs[0].period - 1) - krs[0].epoch) / krs[0].period;
     krs[1].base_key_kvno = 2;
 
-    make_namespace(context, db, WK_PREFIX "bar.example@BAR.EXAMPLE");
+    make_namespace(context, db, WK_PREFIX "*/bar.example@BAR.EXAMPLE");
 
     fetch_entries(context, db, 1, 0, 0);
     fetch_entries(context, db, 1, 1, 0);
