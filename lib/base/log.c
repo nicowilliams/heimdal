@@ -276,7 +276,7 @@ static void HEIM_CALLCONV
 close_file(void *data)
 {
     struct file_data *f = data;
-    if (f->fd != stdout && f->fd != stderr)
+    if (f->fd && f->fd != stdout && f->fd != stderr)
         fclose(f->fd);
     free(f->filename);
     free(data);
