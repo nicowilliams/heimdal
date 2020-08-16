@@ -251,7 +251,7 @@ log_file(heim_context context, const char *timestr, const char *msg, void *data)
     }
     if (f->fd == NULL && (f->disp & FILEDISP_KEEPOPEN))
         f->fd = logf;
-    if (logf == NULL || timestr == NULL || msg == NULL)
+    if (logf == NULL)
         return;
     /*
      * make sure the log doesn't contain special chars:
@@ -261,13 +261,13 @@ log_file(heim_context context, const char *timestr, const char *msg, void *data)
      * been quoted such as what krb5_unparse_principal() gives us.
      * So, we change here to eat the special characters, instead.
      */
-    if ((msgclean = strdup(msg))) {
+    if (msg && (msgclean = strdup(msg))) {
         for (i = 0, j = 0; msg[i]; i++)
             if (msg[i] >= 32 || msg[i] == '\t')
                 msgclean[j++] = msg[i];
-        fprintf(logf, "%s %s\n", timestr, msgclean);
+        fprintf(logf, "%s %s\n", timestr ? timestr : "", msgclean);
+        free(msgclean);
     }
-    free(msgclean);
     if (logf != f->fd)
         fclose(logf);
 }
@@ -287,7 +287,7 @@ open_file(heim_context context, heim_log_facility *fac, int min, int max,
           const char *filename, const char *mode, FILE *f, int disp,
           int exp_tokens)
 {
-    heim_error_code ret;
+    heim_error_code ret = 0;
     struct file_data *fd;
 
     if ((fd = calloc(1, sizeof(*fd))) == NULL)
@@ -355,7 +355,8 @@ heim_addlog_dest(heim_context context, heim_log_facility *f, const char *orig)
         p++;
     }
     if (strcmp(p, "STDERR") == 0) {
-        ret = open_file(context, f, min, max, NULL, NULL, stderr, 1, 0);
+        ret = open_file(context, f, min, max, NULL, NULL, stderr,
+                        FILEDISP_KEEPOPEN, 0);
     } else if (strcmp(p, "CONSOLE") == 0) {
         /* XXX WIN32 */
         ret = open_file(context, f, min, max, "/dev/console", "w", NULL,
