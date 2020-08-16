@@ -297,10 +297,13 @@ open_file(heim_context context, heim_log_facility *fac, int min, int max,
     fd->mode = mode;
     fd->fd = f;
     fd->disp = disp;
-    if (exp_tokens)
-        ret = heim_expand_path_tokens(context, filename, 1, &fd->filename, NULL);
-    else if ((fd->filename = strdup(filename)) == NULL)
-        ret = heim_enomem(context);
+
+    if (filename) {
+        if (exp_tokens)
+            ret = heim_expand_path_tokens(context, filename, 1, &fd->filename, NULL);
+        else if ((fd->filename = strdup(filename)) == NULL)
+            ret = heim_enomem(context);
+    }
     if (ret == 0)
         ret = heim_addlog_func(context, fac, min, max, log_file, close_file, fd);
     if (ret) {
@@ -354,6 +357,7 @@ heim_addlog_dest(heim_context context, heim_log_facility *f, const char *orig)
     if (strcmp(p, "STDERR") == 0) {
         ret = open_file(context, f, min, max, NULL, NULL, stderr, 1, 0);
     } else if (strcmp(p, "CONSOLE") == 0) {
+        /* XXX WIN32 */
         ret = open_file(context, f, min, max, "/dev/console", "w", NULL,
                         FILEDISP_KEEPOPEN, 0);
     } else if (strncmp(p, "EFILE:", 5) == 0) {
