@@ -1072,9 +1072,9 @@ _hx509_unparse_kerberos_name(struct rk_strpool *strpool, KRB5PrincipalName *kn)
             }
         }
     }
-    strpool = rk_strpoolprintf(strpool, "@");
     if (!kn->realm)
         return strpool;
+    strpool = rk_strpoolprintf(strpool, "@");
 
     s = kn->realm;
     len = strlen(kn->realm);
