@@ -368,16 +368,16 @@ heim_addlog_dest(heim_context context, heim_log_facility *f, const char *orig)
         ret = open_file(context, f, min, max, p + sizeof("EFILE=") - 1, "a",
                         NULL, FILEDISP_IFEXISTS | FILEDISP_KEEPOPEN, 1);
     } else if (strncmp(p, "FILE:", sizeof("FILE:") - 1) == 0) {
-        ret = open_file(context, f, min, max, p + sizeof("FILE:") - 1, "w",
+        ret = open_file(context, f, min, max, p + sizeof("FILE:") - 1, "a",
                         NULL, FILEDISP_REOPEN, 1);
     } else if (strncmp(p, "FILE=", sizeof("FILE=") - 1) == 0) {
-        ret = open_file(context, f, min, max, p + sizeof("FILE=") - 1, "w",
+        ret = open_file(context, f, min, max, p + sizeof("FILE=") - 1, "a",
                         NULL, FILEDISP_KEEPOPEN, 1);
     } else if (strncmp(p, "DEVICE:", sizeof("DEVICE:") - 1) == 0) {
-        ret = open_file(context, f, min, max, p + sizeof("DEVICE:") - 1, "w",
+        ret = open_file(context, f, min, max, p + sizeof("DEVICE:") - 1, "a",
                         NULL, FILEDISP_REOPEN, 0);
     } else if (strncmp(p, "DEVICE=", sizeof("DEVICE=") - 1) == 0) {
-        ret = open_file(context, f, min, max, p + sizeof("DEVICE=") - 1, "w",
+        ret = open_file(context, f, min, max, p + sizeof("DEVICE=") - 1, "a",
                         NULL, FILEDISP_KEEPOPEN, 0);
     } else if (strncmp(p, "SYSLOG", 6) == 0 && (p[6] == '\0' || p[6] == ':')) {
         char severity[128] = "";
