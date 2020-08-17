@@ -797,7 +797,7 @@ do_CA(struct bx509_request_desc *r, const char *csr)
     }
 
     /* Issue the certificate */
-    ret = kdc_issue_certificate(r->context, "bx509d", logfac, r->req, p,
+    ret = kdc_issue_certificate(r->context, "bx509", logfac, r->req, p,
                                 &r->token_times, 1 /* send_chain */, &certs);
     krb5_free_principal(r->context, p);
     if (ret) {
@@ -1267,7 +1267,7 @@ bnegotiate_do_CA(struct bx509_request_desc *r)
 
     /* Issue the certificate */
     if (ret == 0)
-        ret = kdc_issue_certificate(r->context, "bx509d", logfac, req, p,
+        ret = kdc_issue_certificate(r->context, "bx509", logfac, req, p,
                                     &r->token_times, 1 /* send_chain */,
                                     &certs);
     krb5_free_principal(r->context, p);
