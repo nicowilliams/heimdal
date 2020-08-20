@@ -126,11 +126,14 @@ typedef struct kadmin_request_desc {
     char *realm;
     char *keytab_name;
     char *freeme1;
-    char frombuf[128];
+    char *enctypes;
     unsigned int materialize:1;
-    unsigned int revoke:1;
+    unsigned int rotate_now:1;
     unsigned int rotate:1;
+    unsigned int revoke:1;
+    unsigned int create:1;
     unsigned int ro:1;
+    char frombuf[128];
 } *kadmin_request_desc;
 
 static void
@@ -235,11 +238,11 @@ get_kadm_handle(krb5_context context, void **kadm_handle, int primary)
     
     /* Configure kadmin connection */
     memset(&conf, 0, sizeof(conf));
-    if (primary && primary_admin_server)
+    if (primary || !admin_server)
         server = primary_admin_server;
-    else if (admin_server)
+    else
         server = admin_server;
-    if ((pstr = strrchr(server, ':'))) {
+    if (server && (pstr = strrchr(server, ':'))) {
         int32_t n;
         char *ends;
 
@@ -272,6 +275,13 @@ get_kadm_handle(krb5_context context, void **kadm_handle, int primary)
         if (conf.dbname == NULL)
             err(1, "Out of memory");
     }
+    if (realm) {
+        krb5_set_default_realm(context, realm); /* XXX ??? */
+        conf.realm = strdup(realm);
+        conf.mask |= KADM5_CONFIG_REALM;
+        if (conf.stash_file == NULL)
+            err(1, "Out of memory");
+    }
     if (stash_file) {
         conf.stash_file = strdup(stash_file);
         conf.mask |= KADM5_CONFIG_KADMIND_PORT;
@@ -298,24 +308,24 @@ get_kadm_handle(krb5_context context, void **kadm_handle, int primary)
     return ret;
 }
 
-static krb5_error_code resp(struct kadmin_request_desc *, int,
-                            enum MHD_ResponseMemoryMode, const void *, size_t,
-                            const char *);
-static krb5_error_code bad_req(struct kadmin_request_desc *, krb5_error_code, int,
+static krb5_error_code resp(kadmin_request_desc, int,
+                            enum MHD_ResponseMemoryMode, const char *,
+                            const void *, size_t, const char *);
+static krb5_error_code bad_req(kadmin_request_desc, krb5_error_code, int,
                                const char *, ...)
                                HEIMDAL_PRINTF_ATTRIBUTE((__printf__, 4, 5));
 
-static krb5_error_code bad_enomem(struct kadmin_request_desc *, krb5_error_code);
-static krb5_error_code bad_400(struct kadmin_request_desc *, krb5_error_code, char *);
-static krb5_error_code bad_401(struct kadmin_request_desc *, char *);
-static krb5_error_code bad_403(struct kadmin_request_desc *, krb5_error_code, char *);
-static krb5_error_code bad_404(struct kadmin_request_desc *, const char *);
-static krb5_error_code bad_405(struct kadmin_request_desc *, const char *);
-/*static krb5_error_code bad_500(struct kadmin_request_desc *, krb5_error_code, const char *);*/
-static krb5_error_code bad_503(struct kadmin_request_desc *, krb5_error_code, const char *);
+static krb5_error_code bad_enomem(kadmin_request_desc, krb5_error_code);
+static krb5_error_code bad_400(kadmin_request_desc, krb5_error_code, char *);
+static krb5_error_code bad_401(kadmin_request_desc, char *);
+static krb5_error_code bad_403(kadmin_request_desc, krb5_error_code, char *);
+static krb5_error_code bad_404(kadmin_request_desc, const char *);
+static krb5_error_code bad_405(kadmin_request_desc, const char *);
+/*static krb5_error_code bad_500(kadmin_request_desc, krb5_error_code, const char *);*/
+static krb5_error_code bad_503(kadmin_request_desc, krb5_error_code, const char *);
 
 static int
-validate_token(struct kadmin_request_desc *r)
+validate_token(kadmin_request_desc r)
 {
     krb5_error_code ret;
     const char *token;
@@ -425,9 +435,10 @@ rm_cache_dir(void)
  * response status message though, just the body.
  */
 static krb5_error_code
-resp(struct kadmin_request_desc *r,
+resp(kadmin_request_desc r,
      int http_status_code,
      enum MHD_ResponseMemoryMode rmmode,
+     const char *content_type,
      const void *body,
      size_t bodylen,
      const char *token)
@@ -453,17 +464,14 @@ resp(struct kadmin_request_desc *r,
                                            MHD_HTTP_HEADER_WWW_AUTHENTICATE,
                                            "Negotiate");
     } else if (http_status_code == MHD_HTTP_TEMPORARY_REDIRECT) {
-        const char *redir;
-
-        /* XXX Move this */
-        redir = MHD_lookup_connection_value(r->connection, MHD_GET_ARGUMENT_KIND,
-                                            "redirect");
         mret = MHD_add_response_header(response, MHD_HTTP_HEADER_LOCATION,
-                                       redir);
-        if (mret != MHD_NO && token)
-            mret = MHD_add_response_header(response,
-                                           MHD_HTTP_HEADER_AUTHORIZATION,
-                                           token);
+                                       primary_server);
+    }
+
+    if (content_type) {
+        mret = MHD_add_response_header(response,
+                                       MHD_HTTP_HEADER_CONTENT_TYPE,
+                                       content_type);
     }
     if (mret != MHD_NO)
         mret = MHD_queue_response(r->connection, http_status_code, response);
@@ -472,7 +480,7 @@ resp(struct kadmin_request_desc *r,
 }
 
 static krb5_error_code
-bad_reqv(struct kadmin_request_desc *r,
+bad_reqv(kadmin_request_desc r,
          krb5_error_code code,
          int http_status_code,
          const char *fmt,
@@ -493,7 +501,7 @@ bad_reqv(struct kadmin_request_desc *r,
             krb5_log_msg(r->context, logfac, 1, NULL, "Out of memory");
         audit_trail(r, code);
         return resp(r, http_status_code, MHD_RESPMEM_PERSISTENT,
-                    fmt, strlen(fmt), NULL);
+                    NULL, fmt, strlen(fmt), NULL);
     }
 
     if (code) {
@@ -519,19 +527,19 @@ bad_reqv(struct kadmin_request_desc *r,
         if (context)
             krb5_log_msg(r->context, logfac, 1, NULL, "Out of memory");
         return resp(r, MHD_HTTP_SERVICE_UNAVAILABLE,
-                    MHD_RESPMEM_PERSISTENT,
+                    MHD_RESPMEM_PERSISTENT, NULL,
                     "Out of memory", sizeof("Out of memory") - 1, NULL);
     }
 
     ret = resp(r, http_status_code, MHD_RESPMEM_MUST_COPY,
-               msg, strlen(msg), NULL);
+               NULL, msg, strlen(msg), NULL);
     free(formatted);
     free(msg);
     return ret == -1 ? -1 : code;
 }
 
 static krb5_error_code
-bad_req(struct kadmin_request_desc *r,
+bad_req(kadmin_request_desc r,
         krb5_error_code code,
         int http_status_code,
         const char *fmt,
@@ -547,39 +555,39 @@ bad_req(struct kadmin_request_desc *r,
 }
 
 static krb5_error_code
-bad_enomem(struct kadmin_request_desc *r, krb5_error_code ret)
+bad_enomem(kadmin_request_desc r, krb5_error_code ret)
 {
     return bad_req(r, ret, MHD_HTTP_SERVICE_UNAVAILABLE,
                    "Out of memory");
 }
 
 static krb5_error_code
-bad_400(struct kadmin_request_desc *r, int ret, char *reason)
+bad_400(kadmin_request_desc r, int ret, char *reason)
 {
     return bad_req(r, ret, MHD_HTTP_BAD_REQUEST, "%s", reason);
 }
 
 static krb5_error_code
-bad_401(struct kadmin_request_desc *r, char *reason)
+bad_401(kadmin_request_desc r, char *reason)
 {
     return bad_req(r, EACCES, MHD_HTTP_UNAUTHORIZED, "%s", reason);
 }
 
 static krb5_error_code
-bad_403(struct kadmin_request_desc *r, krb5_error_code ret, char *reason)
+bad_403(kadmin_request_desc r, krb5_error_code ret, char *reason)
 {
     return bad_req(r, ret, MHD_HTTP_FORBIDDEN, "%s", reason);
 }
 
 static krb5_error_code
-bad_404(struct kadmin_request_desc *r, const char *name)
+bad_404(kadmin_request_desc r, const char *name)
 {
     return bad_req(r, ENOENT, MHD_HTTP_NOT_FOUND,
                    "Resource not found: %s", name);
 }
 
 static krb5_error_code
-bad_405(struct kadmin_request_desc *r, const char *method)
+bad_405(kadmin_request_desc r, const char *method)
 {
     return bad_req(r, EPERM, MHD_HTTP_METHOD_NOT_ALLOWED,
                    "Method not supported: %s", method);
@@ -587,7 +595,7 @@ bad_405(struct kadmin_request_desc *r, const char *method)
 
 #if 0
 static krb5_error_code
-bad_500(struct kadmin_request_desc *r,
+bad_500(kadmin_request_desc r,
         krb5_error_code ret,
         const char *reason)
 {
@@ -597,7 +605,7 @@ bad_500(struct kadmin_request_desc *r,
 #endif
 
 static krb5_error_code
-bad_503(struct kadmin_request_desc *r,
+bad_503(kadmin_request_desc r,
         krb5_error_code ret,
         const char *reason)
 {
@@ -606,7 +614,7 @@ bad_503(struct kadmin_request_desc *r,
 }
 
 static krb5_error_code
-good_ext_keytab(struct kadmin_request_desc *r)
+good_ext_keytab(kadmin_request_desc r)
 {
     krb5_error_code ret;
     size_t bodylen;
@@ -618,8 +626,8 @@ good_ext_keytab(struct kadmin_request_desc *r)
                        "from PKIX store");
 
     (void) gettimeofday(&r->tv_end, NULL);
-    ret = resp(r, MHD_HTTP_OK, MHD_RESPMEM_MUST_COPY, body, bodylen,
-               NULL);
+    ret = resp(r, MHD_HTTP_OK, MHD_RESPMEM_MUST_COPY,
+               "application/octet-stream", body, bodylen, NULL);
     free(body);
     return ret;
 }
@@ -637,17 +645,19 @@ param_cb(void *d,
     /*
      * Multi-valued params:
      *
+     *  - spn=<service>/<hostname>
      *  - dNSName=<hostname>
      *  - service=<service>
-     *  - spn=<service>/<hostname>
      *
      * Single-valued params:
      *
      *  - realm=<REALM>
-     *  - materialize=true
-     *  - revoke=true
-     *  - rotate=true
-     *  - ro=true
+     *  - materialize=true  -- create a concrete princ where it's virtual
+     *  - enctypes=...      -- key-salt types
+     *  - revoke=true       -- delete old keys (concrete princs only)
+     *  - rotate=true       -- change keys (no-op for virtual princs)
+     *  - create=true       -- create a concrete princ
+     *  - ro=true           -- perform no writes
      */
 
     if (strcmp(key, "realm") == 0 && val) {
@@ -656,6 +666,7 @@ param_cb(void *d,
     } else if (strcmp(key, "materialize") == 0  ||
                strcmp(key, "revoke") == 0       ||
                strcmp(key, "rotate") == 0       ||
+               strcmp(key, "create") == 0       ||
                strcmp(key, "ro") == 0) {
         if (!val || strcmp(val, "true") != 0)
             krb5_set_error_message(r->context, ret = EINVAL,
@@ -667,11 +678,13 @@ param_cb(void *d,
             r->revoke = 1;
         else if (strcmp(key, "rotate") == 0)
             r->rotate = 1;
+        else if (strcmp(key, "create") == 0)
+            r->create = 1;
         else if (strcmp(key, "ro") == 0)
             r->ro = 1;
         if (ret == 0)
             heim_audit_addkv((heim_svc_req_desc)r, KDC_AUDIT_VIS,
-                             "requested_bool", "%s=%s", key, val);
+                             "requested_option", "%s", key);
     } else if (strcmp(key, "dNSName") == 0 && val) {
         s = heim_string_create(val);
         if (!s)
@@ -681,6 +694,20 @@ param_cb(void *d,
         heim_audit_addkv((heim_svc_req_desc)r, KDC_AUDIT_VIS,
                          "requested_dNSName", "%s", val);
         ret = hx509_request_add_dns_name(r->context->hx509ctx, r->req, val);
+    } else if (strcmp(key, "service") == 0 && val) {
+        s = heim_string_create(val);
+        if (!s)
+            ret = krb5_enomem(r->context);
+        else
+            ret = heim_array_append_value(r->service_names, s);
+        heim_audit_addkv((heim_svc_req_desc)r, KDC_AUDIT_VIS,
+                         "requested_service", "%s", val);
+    } else if (strcmp(key, "enctypes") == 0 && val) {
+        r->enctypes = strdup(val);
+        if (!(r->enctypes = strdup(val)))
+            ret = krb5_enomem(r->context);
+        heim_audit_addkv((heim_svc_req_desc)r, KDC_AUDIT_VIS,
+                         "requested_enctypes", "%s", val);
     } else if (strcmp(key, "spn") == 0 && val) {
         krb5_principal p;
         const char *hostname = "";
@@ -722,7 +749,7 @@ param_cb(void *d,
 }
 
 static krb5_error_code
-authorize_req(struct kadmin_request_desc *r)
+authorize_req(kadmin_request_desc r)
 {
     krb5_error_code ret;
 
@@ -803,47 +830,157 @@ write_keytab(kadmin_request_desc r,
     return ret;
 }
 
+static void
+random_password(krb5_context context, char *buf, size_t buflen)
+{
+    static const char chars[] =
+        "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789.,";
+    char p[32];
+    size_t i;
+    char b;
+
+    buflen--;
+    for (i = 0; i < buflen; i++) {
+        if (i % sizeof(p) == 0)
+            krb5_generate_random_block(p, sizeof(p));
+        b = p[i % sizeof(p)];
+        buf[i] = chars[b % (sizeof(chars) - 1)];
+    }
+    buf[i] = '\0';
+}
+
 /* Setup a CSR for ext_keytab() */
 static krb5_error_code
-do_ext_keytab1(struct kadmin_request_desc *r, const char *pname)
+do_ext_keytab1(kadmin_request_desc r, const char *pname)
 {
     kadm5_principal_ent_rec princ;
+    krb5_key_salt_tuple *kstuple = NULL;
     krb5_error_code ret = 0;
     krb5_principal p = NULL;
-    int change = !r->ro && (r->rotate || r->revoke);
+    uint32_t mask =
+        KADM5_PRINCIPAL | KADM5_KVNO | KADM5_MAX_LIFE | KADM5_MAX_RLIFE |
+        KADM5_ATTRIBUTES | KADM5_KEY_DATA | KADM5_TL_DATA;
+    uint32_t create_mask = mask & ~(KADM5_KEY_DATA | KADM5_TL_DATA);
+    size_t nkstuple = 0;
+    int change = 0;
+    int refetch = 0;
     int freeit = 0;
 
     memset(&princ, 0, sizeof(princ));
+    princ.key_data = NULL;
+    princ.tl_data = NULL;
+
     ret = krb5_parse_name(r->context, pname, &p);
+    if (ret == 0 && r->enctypes)
+        ret = krb5_string_to_keysalts2(r->context, r->enctypes,
+                                       &nkstuple, &kstuple);
     if (ret == 0)
-        ret = kadm5_get_principal(r->kadm_handle, p, &princ,
-                                  KADM5_PRINCIPAL | KADM5_KVNO |
-                                  KADM5_KEY_DATA | KADM5_TL_DATA);
-    if (ret == 0)
+        ret = kadm5_get_principal(r->kadm_handle, p, &princ, mask);
+    if (ret == 0) {
         freeit = 1;
+        
+        /*
+         * If princ is virtual and we're not asked to materialize, ignore
+         * requests to rotate.
+         */
+        if (!r->materialize &&
+            (princ.attributes & (KRB5_KDB_VIRTUAL_KEYS | KRB5_KDB_VIRTUAL))) {
+            r->rotate = 0;
+            r->revoke = 0;
+        }
+    }
+
+    change = !r->ro && (r->rotate || r->revoke);
+
+    /* Handle create / materialize options */
+    if (ret == KADM5_UNK_PRINC && r->create) {
+        char pw[128];
+
+        /* XXX We should require that the method be POST for this */
+
+        ret = 0;
+        /*
+         * We're writing, but maybe we can't (not a primary) or have to
+         * reconnect to a primary kadmind.
+         */
+        if (primary_server && !primary_admin_server) {
+            /* Local DB, not a primary -> redirect */
+            ret = KADM5_READ_ONLY;
+        } else if (primary_admin_server && admin_server) {
+            /* Connected to replica -> reconnect to primary */
+            kadm5_destroy(r->kadm_handle);
+            ret = get_kadm_handle(r->context, &r->kadm_handle, 1);
+        }
+        memset(&princ, 0, sizeof(princ));
+        princ.kvno = 1;
+        princ.tl_data = NULL;
+        princ.key_data = NULL;
+        princ.max_life = 24 * 3600;                /* XXX Make configurable */
+        princ.max_renewable_life = princ.max_life; /* XXX Make configurable */
+
+        random_password(r->context, pw, sizeof(pw));
+        princ.principal = p;     /* Borrow */
+        if (ret == 0)
+            ret = kadm5_create_principal(r->kadm_handle, &princ, create_mask,
+                                         pw);
+        princ.principal = NULL;  /* Return */
+        refetch = 1;
+    } else if (ret == 0 && r->materialize &&
+               (princ.attributes & KRB5_KDB_VIRTUAL)) {
+
+        /* XXX We should require that the method be POST for this */
+
+        /*
+         * We're writing, but maybe we can't (not a primary) or have to
+         * reconnect to a primary kadmind.
+         */
+        if (primary_server && !primary_admin_server) {
+            /* Local DB, not a primary -> redirect */
+            ret = KADM5_READ_ONLY;
+        } else if (primary_admin_server && admin_server) {
+            /* Connected to replica -> reconnect to primary */
+            kadm5_destroy(r->kadm_handle);
+            ret = get_kadm_handle(r->context, &r->kadm_handle, 1);
+        }
+        /*
+         * kadm5_s_create_principal() will not use the password argument if
+         * keys are set in the entry and KADM5_KEY_DATA is in the mask and the
+         * password is the empty string.
+         */
+        princ.attributes |= ~KRB5_KDB_MATERIALIZE;
+        princ.attributes &= ~KRB5_KDB_VIRTUAL;
+        if (ret == 0)
+            ret = kadm5_create_principal(r->kadm_handle, &princ, mask, "");
+        refetch = 1;
+    }
+
+    /* Handle rotate / revoke options */
     if (ret == 0 && change) {
         krb5_keyblock *k = NULL;
         size_t i;
         int n_k = 0;
         int keepold = r->revoke ? 0 : 1;
 
+        /* XXX We should require that the method be POST */
+
         /* Set new keys */
         ret = kadm5_randkey_principal_3(r->kadm_handle, p, keepold,
                                         0 /* nkstuple */,
                                         0 /* kstuple */,
                                         &k, &n_k);
-        kadm5_free_principal_ent(r->kadm_handle, &princ);
-        freeit = 0;
+        refetch = 1;
         for (i = 0; n_k > 0 && i < n_k; i++)
             if (k[i].keyvalue.length)
                 memset(k[i].keyvalue.data, 0, k[i].keyvalue.length);
         free(k);
     }
-    if (ret == 0 && change) {
+
+    if (ret == 0 && refetch) {
         /* Refetch changed principal */
-        ret = kadm5_get_principal(r->kadm_handle, r->cprinc, &princ,
-                                  KADM5_PRINCIPAL | KADM5_KVNO |
-                                  KADM5_KEY_DATA | KADM5_TL_DATA);
+        if (freeit)
+            kadm5_free_principal_ent(r->kadm_handle, &princ);
+        freeit = 0;
+        ret = kadm5_get_principal(r->kadm_handle, r->cprinc, &princ, mask);
         if (ret == 0)
             freeit = 1;
     }
@@ -857,18 +994,22 @@ do_ext_keytab1(struct kadmin_request_desc *r, const char *pname)
 }
 
 static krb5_error_code
-do_ext_keytab(struct kadmin_request_desc *r)
+do_ext_keytab(kadmin_request_desc r)
 {
     krb5_error_code ret;
-    size_t nhosts = heim_array_get_length(r->hostnames);
-    size_t nsvcs = heim_array_get_length(r->service_names);
-    size_t nspns = heim_array_get_length(r->spns);
+    size_t nhosts;
+    size_t nsvcs;
+    size_t nspns;
     size_t i, k;
 
     /* Parses and validates the request, then checks authorization */
     ret = authorize_req(r);
     if (ret)
         return ret; /* authorize_req() calls bad_req() */
+
+    nhosts = heim_array_get_length(r->hostnames);
+    nsvcs = heim_array_get_length(r->service_names);
+    nspns = heim_array_get_length(r->spns);
     if (!nhosts && !nsvcs && !nspns) {
         krb5_set_error_message(r->context, ret = EINVAL,
                                "No service principals requested");
@@ -937,7 +1078,7 @@ addr_to_string(krb5_context context,
 static krb5_error_code
 set_req_desc(struct MHD_Connection *connection,
              const char *url,
-             struct kadmin_request_desc *r)
+             kadmin_request_desc r)
 {
     const union MHD_ConnectionInfo *ci;
     const char *token;
@@ -970,6 +1111,7 @@ set_req_desc(struct MHD_Connection *connection,
     r->hostnames = heim_array_create();
     r->spns = heim_array_create();
     r->keytab_name = NULL;
+    r->enctypes = NULL;
     r->freeme1 = NULL;
     r->cprinc = NULL;
     r->req = NULL;
@@ -1006,22 +1148,24 @@ set_req_desc(struct MHD_Connection *connection,
 }
 
 static void
-clean_req_desc(struct kadmin_request_desc *r)
+clean_req_desc(kadmin_request_desc r)
 {
     if (!r)
         return;
 
-    if (r->keytab) {
+    if (r->keytab)
         krb5_kt_destroy(r->context, r->keytab);
-        krb5_kt_close(r->context, r->keytab);
-    }
+    if (r->kadm_handle)
+        kadm5_destroy(r->kadm_handle);
     hx509_request_free(&r->req);
     heim_release(r->service_names);
     heim_release(r->hostnames);
     heim_release(r->reason);
+    heim_release(r->spns);
     heim_release(r->kv);
     krb5_free_principal(r->context, r->cprinc);
     free(r->keytab_name);
+    free(r->enctypes);
     free(r->freeme1);
     free(r->cname);
     free(r->sname);
@@ -1029,30 +1173,39 @@ clean_req_desc(struct kadmin_request_desc *r)
 
 /* Implements GETs of /ext_keytab */
 static krb5_error_code
-ext_keytab(struct kadmin_request_desc *r)
+ext_keytab(kadmin_request_desc r)
 {
     krb5_error_code ret;
 
     if ((ret = validate_token(r)))
         return ret; /* validate_token() calls bad_req() */
-    if (r->cname == NULL || r->cprinc)
+    if (r->cname == NULL || r->cprinc == NULL)
         return bad_403(r, EINVAL,
                        "Could not extract principal name from token");
-    if ((ret = do_ext_keytab(r)))
-        return ret;
+    switch ((ret = do_ext_keytab(r))) {
+    case KADM5_READ_ONLY:
+        krb5_log_msg(r->context, logfac, 1, NULL,
+                     "Redirect for %s to primary server to "
+                     "materialize or rotate principal", r->cname);
+        return resp(r, MHD_HTTP_TEMPORARY_REDIRECT, MHD_RESPMEM_PERSISTENT,
+                    NULL, "", 0, NULL);
+    case 0:
+        /* Read and send the contents of the PKIX store */
+        krb5_log_msg(r->context, logfac, 1, NULL,
+                     "Issued service principal keys to %s", r->cname);
+        return good_ext_keytab(r);
+    default:
+        return bad_503(r, ret, "Could not get keys");
+    }
 
-    /* Read and send the contents of the PKIX store */
-    krb5_log_msg(r->context, logfac, 1, NULL,
-                 "Issued service principal keys to %s", r->cname);
-    return good_ext_keytab(r);
 }
 
 static krb5_error_code
-health(const char *method, struct kadmin_request_desc *r)
+health(const char *method, kadmin_request_desc r)
 {
     if (strcmp(method, "HEAD") == 0)
-        return resp(r, MHD_HTTP_OK, MHD_RESPMEM_PERSISTENT, "", 0, NULL);
-    return resp(r, MHD_HTTP_OK, MHD_RESPMEM_PERSISTENT,
+        return resp(r, MHD_HTTP_OK, MHD_RESPMEM_PERSISTENT, NULL, "", 0, NULL);
+    return resp(r, MHD_HTTP_OK, MHD_RESPMEM_PERSISTENT, NULL,
                 "To determine the health of the service, use the /ext_keytab "
                 "end-point.\n",
                 sizeof("To determine the health of the service, use the "
@@ -1099,7 +1252,7 @@ route(void *cls,
         ret = health(method, &r);
     else if (strcmp(method, "GET") != 0)
         ret = bad_405(&r, method);
-    else if (strcmp(url, "/ext_keytab") == 0)
+    else if (strcmp(url, "/get-keys") == 0)
         ret = ext_keytab(&r);
     else
         ret = bad_404(&r, url);
@@ -1131,7 +1284,7 @@ static struct getargs args[] = {
         "Name of client principal for kadmin connection", "PRINC" },
     { "admin-server", 0, arg_string, &admin_server,
         "Name of kadmin server", "HOST[:PORT]" },
-    { "primary-admin-server", 0, arg_string, &admin_server,
+    { "primary-admin-server", 0, arg_string, &primary_admin_server,
         "Name of primary kadmin server", "HOST[:PORT]" },
     { "primary-server", 0, arg_string, &primary_server,
         "Name of primary ext_keytab server for redirects", "URL" },
