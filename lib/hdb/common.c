@@ -1271,8 +1271,8 @@ fetch_it(krb5_context context,
         if (baseprinc == NULL)
             /* First go around, need a namespace princ.  Make it! */
             ret2 = make_namespace_princ(context, db, tmpprinc, &baseprinc);
-        else
             /* Update the hostname component */
+        if (ret2 == 0)
             ret2 = krb5_principal_set_comp_string(context, baseprinc, 3, tmp);
         if (ret2)
             ret = ret2;
