@@ -243,6 +243,7 @@ kadm5_s_create_principal(void *server_handle,
     kadm5_ret_t ret;
     hdb_entry_ex ent;
     kadm5_server_context *context = server_handle;
+    int use_pw = 1;
 
     if ((mask & KADM5_ATTRIBUTES) &&
         (princ->attributes & (KRB5_KDB_VIRTUAL_KEYS | KRB5_KDB_VIRTUAL)) &&
@@ -262,7 +263,11 @@ kadm5_s_create_principal(void *server_handle,
         (princ->attributes & KRB5_KDB_MATERIALIZE))
         princ->attributes &= ~(KRB5_KDB_MATERIALIZE | KRB5_KDB_VIRTUAL);
 
-    if (_kadm5_enforce_pwqual_on_admin_set_p(context)) {
+    if (password[0] == '\0' && (mask & KADM5_KEY_DATA) && princ->n_key_data && 
+        !kadm5_all_keys_are_bogus(princ->n_key_data, princ->key_data))
+        use_pw = 0;
+
+    if (use_pw && _kadm5_enforce_pwqual_on_admin_set_p(context)) {
 	krb5_data pwd_data;
 	const char *pwd_reason;
 
@@ -313,9 +318,11 @@ kadm5_s_create_principal(void *server_handle,
     ent.entry.keys.len = 0;
     ent.entry.keys.val = NULL;
 
-    ret = _kadm5_set_keys(context, &ent.entry, n_ks_tuple, ks_tuple, password);
-    if (ret)
-	goto out2;
+    if (use_pw) {
+        ret = _kadm5_set_keys(context, &ent.entry, n_ks_tuple, ks_tuple, password);
+        if (ret)
+            goto out2;
+    }
 
     ret = hdb_seal_keys(context->context, context->db, &ent.entry);
     if (ret)
