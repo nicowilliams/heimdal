@@ -366,16 +366,24 @@ add_one_namespace(const char *name,
     char pwbuf[1024];
     krb5_deltat krp;
 
-    if (!key_rotation_epoch || !key_rotation_period) {
-	krb5_warn(context, 1, "key rotation epoch and period are required");
-	return 1;
+    if (!key_rotation_epoch) {
+	krb5_warn(context, 1, "key rotation epoch defaulted to \"now\"");
+        key_rotation_epoch = "now";
     }
-    if ((ret = str2time_t(key_rotation_epoch, &kre)) != 0)
+    if (!key_rotation_period) {
+	krb5_warn(context, 1, "key rotation period defaulted to \"5d\"");
+        key_rotation_epoch = "5d";
+    }
+    if ((ret = str2time_t(key_rotation_epoch, &kre)) != 0) {
 	krb5_warn(context, ret, "invalid rotation epoch: %s",
                   key_rotation_epoch);
-    if (ret == 0 && (ret = str2deltat(key_rotation_period, &krp)) != 0)
+        return ret;
+    }
+    if (ret == 0 && (ret = str2deltat(key_rotation_period, &krp)) != 0) {
 	krb5_warn(context, ret, "invalid rotation period: %s",
                   key_rotation_period);
+        return ret;
+    }
 
     if (ret == 0) {
         memset(&princ, 0, sizeof(princ));
