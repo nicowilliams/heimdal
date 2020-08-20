@@ -1,0 +1,223 @@
+#!/bin/sh
+#
+# Copyright (c) 2019 Kungliga Tekniska Högskolan
+# (Royal Institute of Technology, Stockholm, Sweden). 
+# All rights reserved. 
+#
+# Redistribution and use in source and binary forms, with or without 
+# modification, are permitted provided that the following conditions 
+# are met: 
+#
+# 1. Redistributions of source code must retain the above copyright 
+#    notice, this list of conditions and the following disclaimer. 
+#
+# 2. Redistributions in binary form must reproduce the above copyright 
+#    notice, this list of conditions and the following disclaimer in the 
+#    documentation and/or other materials provided with the distribution. 
+#
+# 3. Neither the name of the Institute nor the names of its contributors 
+#    may be used to endorse or promote products derived from this software 
+#    without specific prior written permission. 
+#
+# THIS SOFTWARE IS PROVIDED BY THE INSTITUTE AND CONTRIBUTORS ``AS IS'' AND 
+# ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE 
+# IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE 
+# ARE DISCLAIMED.  IN NO EVENT SHALL THE INSTITUTE OR CONTRIBUTORS BE LIABLE 
+# FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL 
+# DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS 
+# OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) 
+# HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT 
+# LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY 
+# OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF 
+# SUCH DAMAGE. 
+
+top_builddir="@top_builddir@"
+env_setup="@env_setup@"
+objdir="@objdir@"
+
+testfailed="echo test failed; cat messages.log; exit 1"
+
+. ${env_setup}
+
+# If there is no useful db support compiled in, disable test
+${have_db} || exit 77
+
+if ! which curl; then
+    echo "curl is not available -- not testing httpkadmind"
+    exit 77
+fi
+if ! test -x ${objdir}/../../kdc/httpkadmind; then
+    echo "Configured w/o libmicrohttpd -- not testing httpkadmind"
+    exit 77
+fi
+
+R=TEST.H5L.SE
+domain=test.h5l.se
+
+port=@port@
+restport=@restport@
+
+kadmin="${kadmin} -l -r $R"
+httpkadmind="${httpkadmind} --reverse-proxied -p $restport"
+kdc="${kdc} --addresses=localhost -P $port"
+
+server=datan.test.h5l.se
+otherserver=other.test.h5l.se
+cache="FILE:${objdir}/cache.krb5"
+keyfile="${hx509_data}/key.der"
+keyfile2="${hx509_data}/key2.der"
+kt=${objdir}/kt
+keytab=FILE:${kt}
+ukt=${objdir}/ukt
+ukeytab=FILE:${ukt}
+
+kinit="${kinit} -c $cache ${afs_no_afslog}"
+klist="${klist} --hidden -v -c $cache"
+kgetcred="${kgetcred} -c $cache"
+kdestroy="${kdestroy} -c $cache ${afs_no_unlog}"
+kx509="${kx509} -c $cache"
+
+KRB5_CONFIG="${objdir}/krb5-httpkadmind.conf"
+export KRB5_CONFIG
+
+rm -f current-db*
+rm -f out-*
+rm -f mkey.file*
+rm -f *.pem *.crt *.der
+rm -rf simple_csr_authz
+rm -f extracted_keytab*
+
+mkdir -p simple_csr_authz
+
+> messages.log
+
+# We'll avoid using a KDC for now.  For testing /httpkadmind we only need keys
+# for Negotiate tokens, and we'll use ktutil and kimpersonate to make it
+# possible to create and accept those without a KDC.
+
+# grant ext-type value grantee_principal
+grant() {
+    mkdir -p "${objdir}/simple_csr_authz/${3}"
+    touch "${objdir}/simple_csr_authz/${3}/${1}-${2}"
+}
+
+revoke() {
+    rm -rf "${objdir}/simple_csr_authz"
+    mkdir -p "${objdir}/simple_csr_authz"
+}
+
+# get_keytab ""         curl-opts
+# get_keytab "&qparams" curl-opts
+get_keytab() {
+    token=$(KRB5CCNAME=$cache $gsstoken HTTP@$server)
+    url="http://${server}:${restport}/get-keys?$1"
+    shift
+    echo ready?
+    curl -g --resolve ${server}:${restport}:127.0.0.1                   \
+         -H "Authorization: Negotiate $token"                           \
+         "$@" "$url"
+}
+
+rm -f extracted_keytab
+
+echo "Creating database"
+rm -f $kt $ukt
+${kadmin} init \
+    --realm-max-ticket-life=1day \
+    --realm-max-renewable-life=1month \
+    ${R} || exit 1
+${kadmin} add -r --use-defaults foo@${R} || exit 1
+${kadmin} add -r --use-defaults HTTP/xyz.${domain}@${R} || exit 1
+${kadmin} add_ns --key-rotation-epoch=-1d --key-rotation-period=15s \
+                 --max-ticket-life=1d --max-renewable-life=5d       \
+                 --attributes= HTTP/ns.${domain}@${R} || exit 1
+${kadmin} add -r --use-defaults HTTP/${server}@${R} || exit 1
+${kadmin} ext_keytab -r -k $keytab  HTTP/${server}@${R} || exit 1
+${kadmin} add -r --use-defaults HTTP/${otherserver}@${R} || exit 1
+${kadmin} ext_keytab -r -k $ukeytab foo@${R} || exit 1
+${kdestroy}
+
+$kimpersonate --ccache=$cache -k $keytab -R -t aes128-cts-hmac-sha1-96  \
+   -c foo@${R} -s HTTP/datan.test.h5l.se@${R} ||
+    { echo "failed to setup kimpersonate credentials"; exit 2; }
+$klist ||
+    { echo "failed to setup kimpersonate credentials"; exit 2; }
+
+echo "Starting httpkadmind"
+${httpkadmind} -H $server -t --daemon ||
+    { echo "httpkadmind failed to start"; exit 2; }
+httpkadmindpid=`getpid httpkadmind`
+trap "kill -9 ${httpkadmindpid}; echo signal killing httpkadmind; exit 1;" EXIT
+ec=0
+
+echo "Checking that desired principals exist"
+${kadmin} get HTTP/xyz.${domain}
+${kadmin} get HTTP/foo.ns.${domain}
+
+echo "Fetching keytab for concrete principal"
+rm -f extracted_keytab*
+grant dnsname xyz.${domain} foo@${R}
+${kadmin} ext_keytab -k extracted_keytab HTTP/xyz.${domain}
+${ktutil} -k "${objdir}/extracted_keytab" list --keys
+${ktutil} -k "${objdir}/extracted_keytab" list --keys > extracted_keytab.kadmin
+if (set -vx; get_keytab "dNSName=xyz.${domain}" -sf -o "${objdir}/extracted_keytab"); then
+    ${ktutil} -k "${objdir}/extracted_keytab" list --keys
+    ${ktutil} -k "${objdir}/extracted_keytab" list --keys > extracted_keytab.rest
+else
+    echo "Failed to get a keytab for HTTP/xyz.${domain}!"
+    exit 1
+fi
+cmp extracted_keytab.kadmin extracted_keytab.rest ||
+    { echo "Keytabs for HTTP/xyz.${domain} don't match!"; exit 1; }
+
+echo "Fetching keytab for virtual principal"
+rm -f extracted_keytab*
+${kadmin} ext_keytab -k extracted_keytab HTTP/foo.ns.${domain}
+${ktutil} -k "${objdir}/extracted_keytab" list --keys
+${ktutil} -k "${objdir}/extracted_keytab" list --keys > extracted_keytab.kadmin
+grant dnsname foo.ns.${domain} foo@${R}
+if (set -vx; get_keytab "dNSName=foo.ns.${domain}" -sf -o "${objdir}/extracted_keytab"); then
+    ${ktutil} -k "${objdir}/extracted_keytab" list --keys
+    ${ktutil} -k "${objdir}/extracted_keytab" list --keys > extracted_keytab.rest
+else
+    echo "Failed to get a keytab for HTTP/foo.ns.${domain}!"
+    exit 1
+fi
+cmp extracted_keytab.kadmin extracted_keytab.rest ||
+    { echo "Keytabs for HTTP/foo.ns.${domain} don't match!"; exit 1; }
+
+echo "Checking that some principals don't exist"
+if (set -vx; get_keytab "svc=host&dNSName=foo.ns.${domain}" -sf -o "${objdir}/extracted_keytab.rest"); then
+    echo "Got a keytab for host/foo.ns.${domain} when not namespaced!"
+    exit 1
+fi
+
+echo "Checking that authorization is enforced"
+revoke
+if (set -vx; get_keytab "dNSName=xyz.${domain}" -sf -o "${objdir}/extracted_keytab"); then
+    echo "Got a keytab for HTTP/xyz.${domain} when not authorized!"
+    exit 1
+fi
+if (set -vx; get_keytab "dNSName=foo.ns.${domain}" -sf -o "${objdir}/extracted_keytab"); then
+    echo "Got a keytab for HTTP/foo.ns.${domain} when not authorized!"
+    exit 1
+fi
+
+# TODO
+#
+#  - test more service names
+#  - test write operations for concrete principals
+#  - test materialization of virtual principals
+#  - test with kadmind instead of direct local HDB access
+#  - test with read-only kadmind and primary kadmind, and check that we
+#    reconnect to primary to do writes
+#  - test with local access but primary HTTP given, then check that writes
+#    elicit a redirect
+
+echo "killing httpkadmind (${httpkadmindpid})"
+#sh ${leaks_kill} kdc $kdcpid || ec=1
+sh ${leaks_kill} httpkadmind $httpkadmindpid || ec=1
+
+trap "" EXIT
+
+exit $ec
