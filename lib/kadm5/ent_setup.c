@@ -60,6 +60,9 @@ attr_to_flags(unsigned attr, HDBFlags *flags)
     flags->trusted_for_delegation = !!(attr & KRB5_KDB_TRUSTED_FOR_DELEGATION);
     flags->allow_kerberos4 =   !!(attr & KRB5_KDB_ALLOW_KERBEROS4);
     flags->allow_digest =      !!(attr & KRB5_KDB_ALLOW_DIGEST);
+    flags->materialize =       !!(attr & KRB5_KDB_MATERIALIZE);
+    flags->virtual_keys =      !!(attr & KRB5_KDB_VIRTUAL_KEYS);
+    flags->virtual =           !!(attr & KRB5_KDB_VIRTUAL);
 }
 
 /*
