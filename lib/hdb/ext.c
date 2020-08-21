@@ -226,6 +226,33 @@ hdb_entry_get_pkinit_cert(const hdb_entry *entry, const HDB_Ext_PKINIT_cert **a)
 }
 
 krb5_error_code
+hdb_entry_get_krb5_config(const hdb_entry *entry, heim_octet_string *c)
+{
+    const HDB_extension *ext;
+
+    c->data = NULL;
+    c->length = 0;
+    ext = hdb_find_extension(entry, choice_HDB_extension_data_krb5_config);
+    if (ext)
+	*c = ext->data.u.krb5_config;
+    return 0;
+}
+
+krb5_error_code
+hdb_entry_set_krb5_config(krb5_context context,
+                          hdb_entry *entry,
+                          heim_octet_string *s)
+{
+    HDB_extension ext;
+
+    ext.mandatory = FALSE;
+    ext.data.element = choice_HDB_extension_data_last_pw_change;
+    /* hdb_replace_extension() copies this, so no need to copy it here */
+    ext.data.u.krb5_config = *s;
+    return hdb_replace_extension(context, entry, &ext);
+}
+
+krb5_error_code
 hdb_entry_get_pw_change_time(const hdb_entry *entry, time_t *t)
 {
     const HDB_extension *ext;

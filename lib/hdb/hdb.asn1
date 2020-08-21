@@ -194,7 +194,7 @@ HDB-extension ::= SEQUENCE {
         data[1]          CHOICE {
 	        pkinit-acl[0]			HDB-Ext-PKINIT-acl,
 	        pkinit-cert-hash[1]  		HDB-Ext-PKINIT-hash,
-		allowed-to-delegate-to[2]   HDB-Ext-Constrained-delegation-acl,
+		allowed-to-delegate-to[2]       HDB-Ext-Constrained-delegation-acl,
 --		referral-info[3]		HDB-Ext-Referrals,
 		lm-owf[4]			HDB-Ext-Lan-Manager-OWF,
 		password[5]			HDB-Ext-Password,
@@ -207,6 +207,7 @@ HDB-extension ::= SEQUENCE {
 	        policy[12]			UTF8String,
 		principal-id[13]		INTEGER(-9223372036854775808..9223372036854775807),
 		key-rotation[14]		HDB-Ext-KeyRotation,
+		krb5-config[15]		        OCTET STRING,
 		...
 	},
 	...
