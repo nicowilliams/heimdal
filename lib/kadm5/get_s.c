@@ -302,6 +302,7 @@ kadm5_s_get_principal(void *server_handle,
 	const HDB_Ext_PKINIT_acl *acl;
 	const HDB_Ext_Aliases *aliases;
         const HDB_Ext_KeyRotation *kr;
+        heim_octet_string krb5_config;
 
         if (ent.entry.etypes) {
             krb5_data buf;
@@ -323,6 +324,12 @@ kadm5_s_get_principal(void *server_handle,
 	    _krb5_put_int(buf, last_pw_expire, sizeof(buf));
 	    ret = add_tl_data(out, KRB5_TL_LAST_PWD_CHANGE, buf, sizeof(buf));
 	}
+        if (ret == 0)
+            ret = hdb_entry_get_krb5_config(&ent.entry, &krb5_config);
+        if (ret == 0 && krb5_config.length) {
+            ret = add_tl_data(out, KRB5_TL_KRB5_CONFIG, krb5_config.data,
+                              krb5_config.length);
+        }
 	if (ret)
 	    goto out;
 	/*

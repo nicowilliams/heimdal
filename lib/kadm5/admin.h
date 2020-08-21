@@ -146,6 +146,7 @@ typedef struct _krb5_tl_data {
 #define KRB5_TL_HIST_KVNO_DIFF_SVC	0x000c
 #define KRB5_TL_ETYPES			0x000d
 #define KRB5_TL_KEY_ROTATION		0x000e
+#define KRB5_TL_KRB5_CONFIG		0x000f
 
 typedef struct _kadm5_principal_ent_t {
     krb5_principal principal;
