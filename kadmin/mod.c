@@ -185,6 +185,43 @@ add_pkinit_acl(krb5_context contextp, kadm5_principal_ent_rec *princ,
     add_tl(princ, KRB5_TL_EXTENSION, &buf);
 }
 
+static krb5_error_code
+add_etypes(krb5_context contextp,
+           kadm5_principal_ent_rec *princ,
+	   struct getarg_strings *strings)
+{
+    krb5_error_code ret = 0;
+    HDB_EncTypeList etypes;
+    krb5_data buf;
+    size_t i, size;
+
+    etypes.len = strings->num_strings;
+    if ((etypes.val = calloc(strings->num_strings,
+                             sizeof(etypes.val[0]))) == NULL)
+        krb5_err(contextp, 1, ret, "Out of memory");
+
+    for (i = 0; i < strings->num_strings; i++) {
+        krb5_enctype etype;
+
+        ret = krb5_string_to_enctype(contextp, strings->strings[i], &etype);
+        if (ret) {
+            krb5_warn(contextp, ret, "Could not parse enctype %s",
+                      strings->strings[i]);
+            return ret;
+        }
+        etypes.val[i] = etype;
+    }
+
+    if (ret == 0) {
+        ASN1_MALLOC_ENCODE(HDB_EncTypeList, buf.data, buf.length,
+                           &etypes, &size, ret);
+    }
+    if (ret || buf.length != size)
+        abort();
+    add_tl(princ, KRB5_TL_ETYPES, &buf);
+    return 0;
+}
+
 static void
 add_kvno_diff(krb5_context contextp, kadm5_principal_ent_rec *princ,
 	      int is_svc_diff, krb5_kvno kvno_diff)
@@ -269,6 +306,7 @@ do_mod_entry(krb5_principal principal, void *data)
        e->attributes_string ||
        e->policy_string ||
        e->kvno_integer != -1 ||
+       e->service_enctypes_strings.num_strings ||
        e->constrained_delegation_strings.num_strings ||
        e->alias_strings.num_strings ||
        e->pkinit_acl_strings.num_strings ||
@@ -299,6 +337,10 @@ do_mod_entry(krb5_principal principal, void *data)
 	    add_pkinit_acl(context, &princ, &e->pkinit_acl_strings);
 	    mask |= KADM5_TL_DATA;
 	}
+        if (e->service_enctypes_strings.num_strings) {
+            ret = add_etypes(context, &princ, &e->service_enctypes_strings);
+	    mask |= KADM5_TL_DATA;
+        }
 	if (e->hist_kvno_diff_clnt_integer != -1) {
 	    add_kvno_diff(context, &princ, 0, e->hist_kvno_diff_clnt_integer);
 	    mask |= KADM5_TL_DATA;
@@ -357,10 +399,15 @@ do_mod_ns_entry(krb5_principal principal, void *data)
     if(e->max_ticket_life_string ||
        e->max_renewable_life_string ||
        e->attributes_string ||
+       e->enctypes_strings.num_strings ||
        e->krb5_config_file_string) {
         ret = set_entry(context, &princ, &mask, e->max_ticket_life_string,
                         e->max_renewable_life_string, NULL, NULL,
                         e->attributes_string, NULL);
+        if (e->enctypes_strings.num_strings) {
+            ret = add_etypes(context, &princ, &e->enctypes_strings);
+	    mask |= KADM5_TL_DATA;
+        }
         if (e->krb5_config_file_string) {
             add_krb5_config(&princ, e->krb5_config_file_string);
 	    mask |= KADM5_TL_DATA;

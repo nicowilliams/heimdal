@@ -266,7 +266,7 @@ command = {
 	option = {
 		long = "enctypes"
 		short = "e"
-		type = "string"
+		type = "strings"
 		help = "encryption type(s)"
 	}
 	option = {
@@ -576,6 +576,13 @@ command = {
 		type = "string"
 		argument = "policy"
 		help = "policy name"
+	}
+	option = {
+		long = "service-enctypes"
+                short = "e"
+		type = "strings"
+		argument = "enctype"
+		help = "set enctypes supported by service"
 	}
 	option = {
 		long = "hist-kvno-diff-clnt"
