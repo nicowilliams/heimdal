@@ -1571,17 +1571,19 @@ kadm5_log_replay_modify(kadm5_server_context *context,
 	HDB_extensions *es = ent.entry.extensions;
 
 
-        ent.entry.etypes = calloc(1, sizeof(*ent.entry.etypes));
-        if (ent.entry.etypes == NULL)
-            ret = ENOMEM;
-        if (ret == 0)
-            ret = copy_HDB_EncTypeList(log_ent.entry.etypes, ent.entry.etypes);
-	if (ret) {
-	    ret = krb5_enomem(context->context);
-	    free(ent.entry.etypes);
-	    ent.entry.etypes = el;
-	    goto out;
-	}
+        if (log_ent.entry.etypes) {
+            ent.entry.etypes = calloc(1, sizeof(*ent.entry.etypes));
+            if (ent.entry.etypes == NULL)
+                ret = ENOMEM;
+            if (ret == 0)
+                ret = copy_HDB_EncTypeList(log_ent.entry.etypes, ent.entry.etypes);
+            if (ret) {
+                ret = krb5_enomem(context->context);
+                free(ent.entry.etypes);
+                ent.entry.etypes = el;
+                goto out;
+            }
+        }
 
 	ent.entry.extensions = calloc(1, sizeof(*ent.entry.extensions));
 	if (ent.entry.extensions == NULL)

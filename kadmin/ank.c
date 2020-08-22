@@ -367,12 +367,12 @@ add_one_namespace(const char *name,
     krb5_deltat krp;
 
     if (!key_rotation_epoch) {
-	krb5_warn(context, 1, "key rotation epoch defaulted to \"now\"");
+	krb5_warnx(context, "key rotation epoch defaulted to \"now\"");
         key_rotation_epoch = "now";
     }
     if (!key_rotation_period) {
-	krb5_warn(context, 1, "key rotation period defaulted to \"5d\"");
-        key_rotation_epoch = "5d";
+	krb5_warnx(context, "key rotation period defaulted to \"5d\"");
+        key_rotation_period = "5d";
     }
     if ((ret = str2time_t(key_rotation_epoch, &kre)) != 0) {
 	krb5_warn(context, ret, "invalid rotation epoch: %s",
