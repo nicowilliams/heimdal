@@ -1566,24 +1566,42 @@ kadm5_log_replay_modify(kadm5_server_context *context,
 	    }
 	}
     }
+    if ((mask & KADM5_TL_DATA) && log_ent.entry.etypes) {
+        if (ent.entry.etypes)
+            free_HDB_EncTypeList(ent.entry.etypes);
+        free(ent.entry.etypes);
+        ent.entry.etypes = calloc(1, sizeof(*ent.entry.etypes));
+        if (ent.entry.etypes == NULL)
+            ret = ENOMEM;
+        if (ret == 0)
+            ret = copy_HDB_EncTypeList(log_ent.entry.etypes, ent.entry.etypes);
+        if (ret) {
+            ret = krb5_enomem(context->context);
+            free(ent.entry.etypes);
+            ent.entry.etypes = NULL;
+            goto out;
+        }
+    }
+
     if ((mask & KADM5_TL_DATA) && log_ent.entry.extensions) {
-	HDB_extensions *es = ent.entry.extensions;
+	if (ent.entry.extensions) {
+	    free_HDB_extensions(ent.entry.extensions);
+	    free(ent.entry.extensions);
+            ent.entry.extensions = NULL;
+	}
 
 	ent.entry.extensions = calloc(1, sizeof(*ent.entry.extensions));
 	if (ent.entry.extensions == NULL)
-	    goto out;
+	    ret = ENOMEM;
 
-	ret = copy_HDB_extensions(log_ent.entry.extensions,
-				  ent.entry.extensions);
+        if (ret == 0)
+            ret = copy_HDB_extensions(log_ent.entry.extensions,
+                                      ent.entry.extensions);
 	if (ret) {
-	    krb5_set_error_message(context->context, ret, "out of memory");
+	    ret = krb5_enomem(context->context);
 	    free(ent.entry.extensions);
-	    ent.entry.extensions = es;
+	    ent.entry.extensions = NULL;
 	    goto out;
-	}
-	if (es) {
-	    free_HDB_extensions(es);
-	    free(es);
 	}
     }
     ret = context->db->hdb_store(context->context, context->db,
