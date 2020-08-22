@@ -408,7 +408,14 @@ hdb_derive_etypes(krb5_context context, hdb_entry *e, HDB_Ext_KeySet *base_keys)
                 netypes++;
     }
 
-    if ((e->etypes = malloc(sizeof(e->etypes[0]))) == NULL)
+    if (e->etypes != NULL) {
+        free(e->etypes->val);
+        e->etypes->len = 0;
+        e->etypes->val = 0;
+    }
+
+    if (e->etypes == NULL &&
+        (e->etypes = malloc(sizeof(e->etypes[0]))) == NULL)
         ret = krb5_enomem(context);
     if (ret == 0) {
         e->etypes->len = 0;
@@ -468,7 +475,7 @@ _hdb_store(krb5_context context, HDB *db, unsigned flags, hdb_entry_ex *entry)
         return code ? code : HDB_ERR_EXISTS;
     }
 
-    if (entry->entry.etypes == NULL &&
+    if ((entry->entry.etypes == NULL || entry->entry.etypes->len == 0) &&
         (code = hdb_derive_etypes(context, &entry->entry, NULL)))
         return code;
 
