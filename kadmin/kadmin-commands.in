@@ -572,6 +572,13 @@ command = {
 		help = "policy name"
 	}
 	option = {
+		long = "service-enctypes"
+                short = "e"
+		type = "strings"
+		argument = "enctype"
+		help = "set enctypes supported by service"
+	}
+	option = {
 		long = "hist-kvno-diff-clnt"
 		type = "integer"
 		argument = "kvno diff"
