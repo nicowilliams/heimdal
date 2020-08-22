@@ -715,6 +715,9 @@ hdb_create(krb5_context context, HDB **db, const char *filename)
             krb5_config_get_int_default(context, NULL, 0, "hdb",
                                          "virtual_hostbased_princ_maxdots",
                                          NULL);
+        (*db)->new_service_key_delay =
+            krb5_config_get_time_default(context, NULL, 0, "hdb",
+                                         "new_service_key_delay", NULL);
         /*
          * XXX Needs freeing in the HDB backends because we don't have a
          * first-class hdb_close() :(

@@ -957,6 +957,12 @@ The default PKINIT mapping file if one is not specified in
 and other files related to
 .Nm iprop
 operation.
+.It Li new_service_key_delay = Va time
+Sets a bias such that new keys are not taken into service until
+after the given time has passed since they were set.
+This is useful for key rotation on concrete principals shared by
+multiple instances of an application: set this time to twice or
+more the keytab fetch period used by applications.
 .It Li enable_virtual_hostbased_princs = Va boolean
 Heimdal supports a notion of virtual host-based service
 principals whose keys are derived from those of a base namespace
