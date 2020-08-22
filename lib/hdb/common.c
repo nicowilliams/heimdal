@@ -1124,6 +1124,108 @@ derive_keys(krb5_context context,
 }
 
 /*
+ * In order for disparate keytab provisioning systems such as OSKT and our own
+ * kadmin ext_keytab and httpkadmind's get-keys to coexist, we need to be able
+ * to force keys set by the former to not become current keys until users of
+ * the latter have had a chance to fetch those keys into their keytabs.  To do
+ * this we have to search the list of keys in the entry looking for the newest
+ * keys older than `now - db->new_service_key_delay'.
+ *
+ * The context is that OSKT's krb5_keytab is very happy to change keys in a way
+ * that requires all members of a cluster to rekey together.  If one also
+ * wishes to have cluster members that opt out of this and just fetch current,
+ * past, and future keys periodically, then the keys set by OSKT need to not
+ * come into effect until all the opt-out members have had a chance to fetch
+ * the new keys.
+ *
+ * The assumption is that services will fetch new keys periodically, say, every
+ * four hours.  Then one can set `[hdb] new_service_key_delay = 8h' in the
+ * configuration and new keys set by OSKT will not be used until 8h after they
+ * are set.
+ *
+ * Naturally, this applies only to concrete principals with concrete keys.
+ */
+static krb5_error_code
+fix_keys(krb5_context context,
+         HDB *db,
+         unsigned flags,
+         krb5_timestamp now,
+         krb5uint32 kvno,
+         hdb_entry_ex *h)
+{
+    HDB_extension *ext;
+    HDB_Ext_KeySet keys;
+    time_t current = 0;
+    time_t best;
+    size_t i;
+
+    /*
+     * If we want a specific kvno, or if we're not decrypting the keys, or if
+     * there's no new-key delay, then we're out.
+     */
+    if (!(flags & HDB_F_DECRYPT) || kvno || h->entry.flags.virtual ||
+        h->entry.flags.virtual_keys || db->new_service_key_delay <= 0)
+        return 0;
+
+    /* No history -> current keyset is the only one and therefore the best */
+    ext = hdb_find_extension(&h->entry, choice_HDB_extension_data_hist_keys);
+    if (!ext)
+        return 0;
+
+    /* Assume the current keyset is the best to start with */
+    (void) hdb_entry_get_pw_change_time(&h->entry, &current);
+    if (current == 0 && h->entry.modified_by)
+        current = h->entry.modified_by->time;
+    if (current == 0)
+        current = h->entry.created_by.time;
+
+    /* Current keyset starts out as best */
+    best = current;
+    kvno = h->entry.kvno;
+
+    /* Look for a better keyset in the history */
+    keys = ext->data.u.hist_keys;
+    for (i = 0; i < keys.len; i++) {
+        /* No set_time?  Ignore.  Too new?  Ignore */
+        if (!keys.val[i].set_time ||
+            keys.val[i].set_time[0] + db->new_service_key_delay > now)
+            continue;
+
+        /*
+         * Ignore the keyset with kvno 1 when the entry is at 2 because
+         * kadmin's `ank -r' command immediately changes the keys.
+         */
+        if (h->entry.kvno == 2 && keys.val[i].kvno == 1 &&
+            keys.val[i].set_time[0] - best < 30)
+            continue;
+
+        /*
+         * This keyset's set_time older than the previous best?  Ignore.
+         * However, if the current best is the entry's current and that one
+         * is too new, then don't ignore this one.
+         */
+        if (keys.val[i].set_time[0] < best &&
+            (best != current || current + db->new_service_key_delay < now))
+            continue;
+
+        /*
+         * If two good enough keysets have the same set_time, take the keyset
+         * with the highest kvno.
+         */
+        if (keys.val[i].set_time[0] == best && keys.val[i].kvno <= kvno)
+            continue;
+
+        /*
+         * This keyset is clearly more current than the previous best keyset
+         * but still old enough to use for encrypting tickets with.
+         */
+        best = keys.val[i].set_time[0];
+        kvno = keys.val[i].kvno;
+    }
+    return hdb_change_kvno(context, kvno, &h->entry);
+}
+
+/*
  * Make a WELLKNOWN/HOSTBASED-NAMESPACE/${svc}/${hostname} or
  * WELLKNOWN/HOSTBASED-NAMESPACE/${svc}/${hostname}/${domainname} principal
  * object, with the service and hostname components take from `wanted', but if
@@ -1197,9 +1299,10 @@ fetch_it(krb5_context context,
     size_t maxdots = db->virtual_hostbased_princ_maxdots;
     size_t hdots = 0;
     char *host = NULL;
+    int do_search = 0;
 
     if (db->enable_virtual_hostbased_princs && comp1 &&
-        strcmp("krbtgt", comp0) != 0) {
+        strcmp("krbtgt", comp0) != 0 && strcmp("WELLKNOWN", comp0) != 0) {
         char *htmp;
 
         if ((host = strdup(comp1)) == NULL)
@@ -1221,6 +1324,8 @@ fetch_it(krb5_context context,
         for (hdots = 0, htmp = host; htmp && *htmp; htmp++)
             if (*htmp == '.')
                 hdots++;
+
+        do_search = 1;
     }
 
     tmp = host ? host : comp1;
@@ -1240,7 +1345,8 @@ fetch_it(krb5_context context,
          * of labels.
          */
 	ret = db->hdb_fetch_kvno(context, db, tmpprinc, flags, kvno, ent);
-	if (ret != HDB_ERR_NOENTRY || hdots == 0 || hdots < mindots || !tmp)
+	if (ret != HDB_ERR_NOENTRY || hdots == 0 || hdots < mindots || !tmp ||
+            !do_search)
 	    break;
 
         /*
@@ -1292,10 +1398,11 @@ fetch_it(krb5_context context,
     if (ret == 0) {
         ret = derive_keys(context, flags, princ, !!baseprinc, t, etype, kvno,
                           ent);
+        if (ret == 0)
+            ret = fix_keys(context, db, flags, t, kvno, ent);
         if (ret)
             hdb_free_entry(context, ent);
     }
-
     krb5_free_principal(context, baseprinc);
     free(host);
     return ret;
