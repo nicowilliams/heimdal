@@ -262,6 +262,7 @@ behavior is the default if none of these are given.
 .Op Fl s | Fl Fl short
 .Op Fl t | Fl Fl terse
 .Op Fl o Ar string | Fl Fl column-info= Ns Ar string
+.Op Fl C Ar path | Fl Fl krb5-config-file= Ns Ar path
 .Ar principal...
 .Bd -ragged -offset indent
 Lists the matching principals, short prints the result as a table,
@@ -277,6 +278,16 @@ slightly between short and long output.
 The default terse output format is similar to
 .Fl s o Ar principal= ,
 just printing the names of matched principals.
+.Pp
+If
+.Fl C
+or
+.Fl Fl krb5-config-file
+is given and the principal has krb5 config file contents saved
+in its HDB entry, then that will be saved in the given file.
+Note that if multiple principals are requested, then the second,
+third, and so on will have -1, -2, and so on appended to the
+given filename unless the given filename is a device name.
 .Pp
 Possible column names include:
 .Li principal ,
@@ -309,14 +320,17 @@ and
 .Op Fl Fl pw-expiration-time= Ns Ar time
 .Op Fl Fl kvno= Ns Ar number
 .Op Fl Fl policy= Ns Ar policy-name
+.Op Fl C Ar path | Fl Fl krb5-config-file= Ns Ar path
 .Ar principal...
 .Bd -ragged -offset indent
 Modifies certain attributes of a principal. If run without command
 line options, you will be prompted. With command line options, it will
 only change the ones specified.
 .Pp
-Only policy supported by Heimdal is
+The only policy supported by Heimdal is
 .Ql default .
+.Pp
+If a krb5 config file is given, it will be saved in the entry.
 .Pp
 Possible attributes are:
 .Li new-princ ,

@@ -216,6 +216,37 @@ add_kvno_diff(krb5_context contextp, kadm5_principal_ent_rec *princ,
     add_tl(princ, KRB5_TL_EXTENSION, &buf);
 }
 
+static void
+add_krb5_config(kadm5_principal_ent_rec *princ, const char *fname)
+{
+    HDB_extension ext;
+    krb5_data buf;
+    size_t size;
+    int ret;
+
+    memset(&ext, 0, sizeof(ext));
+    ext.mandatory = FALSE;
+    ext.data.element = choice_HDB_extension_data_krb5_config;
+
+    if ((ret = rk_undumpdata(fname,
+                             &ext.data.u.krb5_config.data,
+                             &ext.data.u.krb5_config.length))) {
+        krb5_warn(context, ret, "Could not read %s", fname);
+        return;
+    }
+
+    ASN1_MALLOC_ENCODE(HDB_extension, buf.data, buf.length,
+		       &ext, &size, ret);
+    free_HDB_extension(&ext);
+    if (ret)
+	abort();
+    if (buf.length != size)
+	abort();
+
+    add_tl(princ, KRB5_TL_EXTENSION, &buf);
+    free(buf.data);
+}
+
 static int
 do_mod_entry(krb5_principal principal, void *data)
 {
@@ -243,6 +274,7 @@ do_mod_entry(krb5_principal principal, void *data)
        e->constrained_delegation_strings.num_strings ||
        e->alias_strings.num_strings ||
        e->pkinit_acl_strings.num_strings ||
+       e->krb5_config_file_string ||
        e->hist_kvno_diff_clnt_integer != -1 ||
        e->hist_kvno_diff_svc_integer != -1) {
 	ret = set_entry(context, &princ, &mask,
@@ -277,6 +309,10 @@ do_mod_entry(krb5_principal principal, void *data)
 	    add_kvno_diff(context, &princ, 1, e->hist_kvno_diff_svc_integer);
 	    mask |= KADM5_TL_DATA;
 	}
+        if (e->krb5_config_file_string) {
+            add_krb5_config(&princ, e->krb5_config_file_string);
+	    mask |= KADM5_TL_DATA;
+        }
     } else
 	ret = edit_entry(&princ, &mask, NULL, 0);
     if(ret == 0) {

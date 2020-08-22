@@ -488,6 +488,12 @@ command = {
 		type = "string"
 		help = "columns to print for short output"
 	}
+	option = {
+		long = "krb5-config-file"
+		short = "C"
+		type = "string"
+		help = "filename to save the principal's krb5.confg in"
+	}
 	argument = "principal..."
 	min_args = "1"
 	help = "Shows information about principals matching the expressions."
@@ -579,6 +585,12 @@ command = {
 		help = "historic keys allowed for service"
 		default = "-1"
 	}
+	option = {
+		long = "krb5-config-file"
+		short = "C"
+		type = "string"
+		help = "krb5.conf to save in principal record"
+	}
 	argument = "principal"
 	min_args = "1"
 	max_args = "1"
@@ -631,6 +643,10 @@ command = {
 		short = "o"
 		type = "string"
 		help = "columns to print for short output"
+	}
+	option = {
+		long = "krb5-config-file"
+		type = "string"
 	}
 	argument = "principal..."
 	min_args = "1"
