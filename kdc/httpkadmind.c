@@ -127,6 +127,7 @@ typedef struct kadmin_request_desc {
     char *keytab_name;
     char *freeme1;
     char *enctypes;
+    const char *method;
     unsigned int materialize:1;
     unsigned int rotate_now:1;
     unsigned int rotate:1;
@@ -593,6 +594,13 @@ bad_405(kadmin_request_desc r, const char *method)
                    "Method not supported: %s", method);
 }
 
+static krb5_error_code
+bad_method_want_POST(kadmin_request_desc r)
+{
+    return bad_req(r, EPERM, MHD_HTTP_METHOD_NOT_ALLOWED,
+                   "Use POST for making changes to principals");
+}
+
 #if 0
 static krb5_error_code
 bad_500(kadmin_request_desc r,
@@ -850,6 +858,30 @@ random_password(krb5_context context, char *buf, size_t buflen)
     buf[i] = '\0';
 }
 
+static krb5_error_code
+make_kstuple(krb5_context context,
+             kadm5_principal_ent_rec *p,
+             krb5_key_salt_tuple **kstuple,
+             size_t *n_kstuple)
+{
+    size_t i;
+
+    *kstuple = 0;
+    *n_kstuple = 0;
+
+    if (p->n_key_data < 1)
+        return 0;
+    *kstuple = calloc(p->n_key_data, sizeof (*kstuple));
+    for (i = 0; *kstuple && i < p->n_key_data; i++) {
+        if (p->key_data[i].key_data_kvno == p->kvno) {
+            (*kstuple)[i].ks_enctype = p->key_data[i].key_data_type[0];
+            (*kstuple)[i].ks_salttype = p->key_data[i].key_data_type[1];
+            (*n_kstuple)++;
+        }
+    }
+    return *kstuple ? 0 :krb5_enomem(context);
+}
+
 /* Setup a CSR for ext_keytab() */
 static krb5_error_code
 do_ext_keytab1(kadmin_request_desc r, const char *pname)
@@ -897,17 +929,16 @@ do_ext_keytab1(kadmin_request_desc r, const char *pname)
     if (ret == KADM5_UNK_PRINC && r->create) {
         char pw[128];
 
-        /* XXX We should require that the method be POST for this */
+        ret = strcmp(r->method, "POST") == 0 ? 0 : ENOSYS; /* XXX */
 
-        ret = 0;
         /*
          * We're writing, but maybe we can't (not a primary) or have to
          * reconnect to a primary kadmind.
          */
-        if (primary_server && !primary_admin_server) {
+        if (ret == 0 && primary_server && !primary_admin_server) {
             /* Local DB, not a primary -> redirect */
             ret = KADM5_READ_ONLY;
-        } else if (primary_admin_server && admin_server) {
+        } else if (ret == 0 && primary_admin_server && admin_server) {
             /* Connected to replica -> reconnect to primary */
             kadm5_destroy(r->kadm_handle);
             ret = get_kadm_handle(r->context, &r->kadm_handle, 1);
@@ -929,16 +960,16 @@ do_ext_keytab1(kadmin_request_desc r, const char *pname)
     } else if (ret == 0 && r->materialize &&
                (princ.attributes & KRB5_KDB_VIRTUAL)) {
 
-        /* XXX We should require that the method be POST for this */
+        ret = strcmp(r->method, "POST") == 0 ? 0 : ENOSYS; /* XXX */
 
         /*
          * We're writing, but maybe we can't (not a primary) or have to
          * reconnect to a primary kadmind.
          */
-        if (primary_server && !primary_admin_server) {
+        if (ret == 0 && primary_server && !primary_admin_server) {
             /* Local DB, not a primary -> redirect */
             ret = KADM5_READ_ONLY;
-        } else if (primary_admin_server && admin_server) {
+        } else if (ret == 0 && primary_admin_server && admin_server) {
             /* Connected to replica -> reconnect to primary */
             kadm5_destroy(r->kadm_handle);
             ret = get_kadm_handle(r->context, &r->kadm_handle, 1);
@@ -962,17 +993,21 @@ do_ext_keytab1(kadmin_request_desc r, const char *pname)
         int n_k = 0;
         int keepold = r->revoke ? 0 : 1;
 
-        /* XXX We should require that the method be POST */
+        ret = strcmp(r->method, "POST") == 0 ? 0 : ENOSYS; /* XXX */
+
+        /* Use requested enctypes or same ones as princ already had keys for */
+        if (ret == 0 && kstuple == NULL)
+            ret = make_kstuple(r->context, &princ, &kstuple, &nkstuple);
 
         /* Set new keys */
-        ret = kadm5_randkey_principal_3(r->kadm_handle, p, keepold,
-                                        0 /* nkstuple */,
-                                        0 /* kstuple */,
-                                        &k, &n_k);
+        if (ret == 0)
+            ret = kadm5_randkey_principal_3(r->kadm_handle, p, keepold,
+                                            nkstuple, kstuple, &k, &n_k);
         refetch = 1;
         for (i = 0; n_k > 0 && i < n_k; i++)
             if (k[i].keyvalue.length)
                 memset(k[i].keyvalue.data, 0, k[i].keyvalue.length);
+        free(kstuple);
         free(k);
     }
 
@@ -1078,6 +1113,7 @@ addr_to_string(krb5_context context,
 
 static krb5_error_code
 set_req_desc(struct MHD_Connection *connection,
+             const char *method,
              const char *url,
              kadmin_request_desc r)
 {
@@ -1114,6 +1150,7 @@ set_req_desc(struct MHD_Connection *connection,
     r->keytab_name = NULL;
     r->enctypes = NULL;
     r->freeme1 = NULL;
+    r->method = method;
     r->cprinc = NULL;
     r->req = NULL;
     ci = MHD_get_connection_info(connection,
@@ -1184,6 +1221,8 @@ ext_keytab(kadmin_request_desc r)
         return bad_403(r, EINVAL,
                        "Could not extract principal name from token");
     switch ((ret = do_ext_keytab(r))) {
+    case ENOSYS: /* XXX */
+        return bad_method_want_POST(r);
     case KADM5_READ_ONLY:
         krb5_log_msg(r->context, logfac, 1, NULL,
                      "Redirect for %s to primary server to "
@@ -1246,12 +1285,12 @@ route(void *cls,
         return MHD_YES;
     }
 
-    if ((ret = set_req_desc(connection, url, &r)))
+    if ((ret = set_req_desc(connection, method, url, &r)))
         return bad_503(&r, ret, "Could not initialize request state");
     if ((strcmp(method, "HEAD") == 0 || strcmp(method, "GET") == 0) &&
         (strcmp(url, "/health") == 0 || strcmp(url, "/") == 0))
         ret = health(method, &r);
-    else if (strcmp(method, "GET") != 0)
+    else if (strcmp(method, "GET") != 0 && strcmp(method, "POST") != 0)
         ret = bad_405(&r, method);
     else if (strcmp(url, "/get-keys") == 0)
         ret = ext_keytab(&r);
