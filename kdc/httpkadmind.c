@@ -236,7 +236,7 @@ get_kadm_handle(krb5_context context, void **kadm_handle, int primary)
     const char *pstr;
     const char *server = NULL;
     char *s = NULL;
-    
+
     /* Configure kadmin connection */
     memset(&conf, 0, sizeof(conf));
     if (primary || !admin_server)
@@ -911,7 +911,7 @@ do_ext_keytab1(kadmin_request_desc r, const char *pname)
         ret = kadm5_get_principal(r->kadm_handle, p, &princ, mask);
     if (ret == 0) {
         freeit = 1;
-        
+
         /*
          * If princ is virtual and we're not asked to materialize, ignore
          * requests to rotate.
@@ -974,17 +974,21 @@ do_ext_keytab1(kadmin_request_desc r, const char *pname)
             kadm5_destroy(r->kadm_handle);
             ret = get_kadm_handle(r->context, &r->kadm_handle, 1);
         }
-        /*
-         * kadm5_s_create_principal() will not use the password argument if
-         * keys are set in the entry and KADM5_KEY_DATA is in the mask and the
-         * password is the empty string.
-         */
-        princ.attributes |= ~KRB5_KDB_MATERIALIZE;
+        princ.attributes |= KRB5_KDB_MATERIALIZE;
         princ.attributes &= ~KRB5_KDB_VIRTUAL;
+        /*
+         * XXX If there are TL data which should be re-encoded and sent as
+         * KRB5_TL_EXTENSION, then this call will fail with KADM5_BAD_TL_TYPE.
+         *
+         * We should either drop those TLs, re-encode them, or make
+         * perform_tl_data() handle them.  (New extensions should generally go
+         * as KRB5_TL_EXTENSION so that non-critical ones can be set on
+         * principals via old kadmind programs that don't support them.)
+         */
         if (ret == 0)
             ret = kadm5_create_principal(r->kadm_handle, &princ, mask, "");
         refetch = 1;
-    }
+    } /* else create/materialize q-params are superfluous */
 
     /* Handle rotate / revoke options */
     if (ret == 0 && change) {
@@ -1054,7 +1058,7 @@ do_ext_keytab(kadmin_request_desc r)
 
     if (nhosts && !nsvcs) {
         heim_string_t s;
-        
+
         if ((s = heim_string_create("HTTP")) == NULL)
             ret = krb5_enomem(r->context);
         if (ret == 0)
