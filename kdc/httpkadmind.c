@@ -797,13 +797,14 @@ write_keytab(kadmin_request_desc r,
              const char *unparsed)
 {
     krb5_error_code ret = 0;
+    krb5_keytab_entry key;
     size_t i;
 
     if (princ->n_key_data <= 0)
         return 0;
 
+    memset(&key, 0, sizeof(key));
     for (i = 0; ret == 0 && i < princ->n_key_data; i++) {
-        krb5_keytab_entry key;
         krb5_key_data *kd = &princ->key_data[i];
 
         if (kadm5_all_keys_are_bogus(1, kd))
@@ -980,7 +981,7 @@ do_ext_keytab1(kadmin_request_desc r, const char *pname)
         if (freeit)
             kadm5_free_principal_ent(r->kadm_handle, &princ);
         freeit = 0;
-        ret = kadm5_get_principal(r->kadm_handle, r->cprinc, &princ, mask);
+        ret = kadm5_get_principal(r->kadm_handle, p, &princ, mask);
         if (ret == 0)
             freeit = 1;
     }
