@@ -112,7 +112,6 @@ get_keytab() {
     token=$(KRB5CCNAME=$cache $gsstoken HTTP@$server)
     url="http://${server}:${restport}/get-keys?$1"
     shift
-    echo ready?
     curl -g --resolve ${server}:${restport}:127.0.0.1                   \
          -H "Authorization: Negotiate $token"                           \
          "$@" "$url"
@@ -154,65 +153,75 @@ echo "Checking that desired principals exist"
 ${kadmin} get HTTP/xyz.${domain}
 ${kadmin} get HTTP/foo.ns.${domain}
 
-echo "Fetching keytab for concrete principal"
+hn=xyz.${domain}
+p=HTTP/$hn
+echo "Fetching keytab for concrete principal $p"
 rm -f extracted_keytab*
-grant dnsname xyz.${domain} foo@${R}
-${kadmin} ext_keytab -k extracted_keytab HTTP/xyz.${domain}
-${ktutil} -k "${objdir}/extracted_keytab" list --keys
-${ktutil} -k "${objdir}/extracted_keytab" list --keys > extracted_keytab.kadmin
-if (set -vx; get_keytab "dNSName=xyz.${domain}" -sf -o "${objdir}/extracted_keytab"); then
-    ${ktutil} -k "${objdir}/extracted_keytab" list --keys
-    ${ktutil} -k "${objdir}/extracted_keytab" list --keys > extracted_keytab.rest
-else
-    echo "Failed to get a keytab for HTTP/xyz.${domain}!"
-    exit 1
-fi
+grant dnsname $hn foo@${R}
+${kadmin} ext_keytab -k extracted_keytab $p ||
+    { echo "Failed to get a keytab for $p with kadmin"; exit 1; }
+${ktutil} -k "${objdir}/extracted_keytab" list --keys > extracted_keytab.kadmin ||
+    { echo "Failed to list keytab for $p"; exit 1; }
+get_keytab "dNSName=${hn}" -sf -o "${objdir}/extracted_keytab" ||
+    { echo "Failed to get a keytab for $p with curl"; exit 1; }
+${ktutil} -k "${objdir}/extracted_keytab" list --keys > extracted_keytab.rest ||
+    { echo "Failed to list keytab for $p"; exit 1; }
 cmp extracted_keytab.kadmin extracted_keytab.rest ||
-    { echo "Keytabs for HTTP/xyz.${domain} don't match!"; exit 1; }
+    { echo "Keytabs for $p don't match!"; exit 1; }
 
+hn=foo.ns.${domain}
+p=HTTP/$hn
 echo "Fetching keytab for virtual principal"
 rm -f extracted_keytab*
-${kadmin} ext_keytab -k extracted_keytab HTTP/foo.ns.${domain}
-${ktutil} -k "${objdir}/extracted_keytab" list --keys
-${ktutil} -k "${objdir}/extracted_keytab" list --keys > extracted_keytab.kadmin
-grant dnsname foo.ns.${domain} foo@${R}
-if (set -vx; get_keytab "dNSName=foo.ns.${domain}" -sf -o "${objdir}/extracted_keytab"); then
-    ${ktutil} -k "${objdir}/extracted_keytab" list --keys
-    ${ktutil} -k "${objdir}/extracted_keytab" list --keys > extracted_keytab.rest
-else
-    echo "Failed to get a keytab for HTTP/foo.ns.${domain}!"
-    exit 1
-fi
+grant dnsname $hn foo@${R}
+${kadmin} ext_keytab -k extracted_keytab $p ||
+    { echo "Failed to get a keytab for $p with kadmin"; exit 1; }
+${ktutil} -k "${objdir}/extracted_keytab" list --keys > extracted_keytab.kadmin ||
+    { echo "Failed to list keytab for $p"; exit 1; }
+get_keytab "dNSName=${hn}" -sf -o "${objdir}/extracted_keytab" ||
+    { echo "Failed to get a keytab for $p with curl"; exit 1; }
+${ktutil} -k "${objdir}/extracted_keytab" list --keys > extracted_keytab.rest ||
+    { echo "Failed to list keytab for $p"; exit 1; }
 cmp extracted_keytab.kadmin extracted_keytab.rest ||
-    { echo "Keytabs for HTTP/foo.ns.${domain} don't match!"; exit 1; }
+    { echo "Keytabs for $p don't match!"; exit 1; }
 
 echo "Checking that some principals don't exist"
-if (set -vx; get_keytab "svc=host&dNSName=foo.ns.${domain}" -sf -o "${objdir}/extracted_keytab.rest"); then
-    echo "Got a keytab for host/foo.ns.${domain} when not namespaced!"
-    exit 1
-fi
+get_keytab "svc=host&dNSName=foo.ns.${domain}" -sf -o "${objdir}/extracted_keytab.rest" &&
+    { echo "Got a keytab for host/foo.ns.${domain} when not namespaced!"; }
 
 echo "Checking that authorization is enforced"
 revoke
-if (set -vx; get_keytab "dNSName=xyz.${domain}" -sf -o "${objdir}/extracted_keytab"); then
-    echo "Got a keytab for HTTP/xyz.${domain} when not authorized!"
-    exit 1
-fi
-if (set -vx; get_keytab "dNSName=foo.ns.${domain}" -sf -o "${objdir}/extracted_keytab"); then
-    echo "Got a keytab for HTTP/foo.ns.${domain} when not authorized!"
-    exit 1
-fi
+get_keytab "dNSName=xyz.${domain}" -sf -o "${objdir}/extracted_keytab" &&
+    { echo "Got a keytab for HTTP/xyz.${domain} when not authorized!"; exit 1; }
+get_keytab "dNSName=foo.ns.${domain}" -sf -o "${objdir}/extracted_keytab" &&
+    { echo "Got a keytab for HTTP/foo.ns.${domain} when not authorized!"; exit 1; } 
+
+hn=xyz.${domain}
+p=HTTP/$hn
+echo "Checking key rotation"
+grant dnsname $hn foo@${R}
+get_keytab "dNSName=${hn}" -sf -o "${objdir}/extracted_keytab" ||
+    { echo "Failed to get a keytab for $p with curl"; exit 1; }
+${ktutil} -k "${objdir}/extracted_keytab" list --keys > extracted_keytab.rest1 ||
+    { echo "Failed to list keytab for $p"; exit 1; }
+get_keytab "dNSName=${hn}&rotate=true" -sf -o "${objdir}/extracted_keytab2" ||
+    { echo "Failed to get a keytab for $p with curl"; exit 1; }
+${ktutil} -k "${objdir}/extracted_keytab2" list --keys > extracted_keytab.rest2 ||
+    { echo "Failed to list keytab for $p"; exit 1; }
+cmp extracted_keytab.rest1 extracted_keytab.rest2 &&
+    { echo "Keys for $p did not change!"; exit 1; }
 
 # TODO
 #
 #  - test more service names
-#  - test write operations for concrete principals
+#  - test more write operations for concrete principals
 #  - test materialization of virtual principals
 #  - test with kadmind instead of direct local HDB access
 #  - test with read-only kadmind and primary kadmind, and check that we
 #    reconnect to primary to do writes
 #  - test with local access but primary HTTP given, then check that writes
 #    elicit a redirect
+#  - test new key delay?  this one is tricky
 
 echo "killing httpkadmind (${httpkadmindpid})"
 #sh ${leaks_kill} kdc $kdcpid || ec=1
