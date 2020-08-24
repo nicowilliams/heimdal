@@ -46,9 +46,11 @@ TESTS = $(SCRIPT_TESTS)
 
 port = 49188
 admport = 49189
-pwport = 49190
-restport = 49191
-ipropport = 49192
+admport2 = 49190
+pwport = 49191
+restport = 49192
+restport2 = 49193
+ipropport = 49194
 
 if HAVE_DLOPEN
 do_dlopen = -e 's,[@]DLOPEN[@],true,g'

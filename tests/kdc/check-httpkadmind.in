@@ -59,7 +59,6 @@ restport=@restport@
 
 kadmin="${kadmin} -l -r $R"
 httpkadmind="${httpkadmind} --reverse-proxied -p $restport"
-kdc="${kdc} --addresses=localhost -P $port"
 
 server=datan.test.h5l.se
 otherserver=other.test.h5l.se
@@ -257,10 +256,30 @@ ${ktutil} -k "${objdir}/extracted_keytab" list --keys > extracted_keytab.kadmin 
 cmp extracted_keytab.kadmin extracted_keytab.rest ||
     { echo "Keytabs for $p don't match!"; exit 1; }
 
+hn=bar.ns.${domain}
+p=HTTP/$hn
+echo "Checking principal materialization"
+rm -f extracted_keytab
+grant dnsname $hn foo@${R}
+get_keytab "dNSName=${hn}&materialize=true" -sf -o "${objdir}/extracted_keytab" &&
+    { echo "GET succeeded for write operation!"; exit 1; }
+get_keytab "dNSName=${hn}&materialize=true" -X POST --data-binary @/dev/null -sf -o "${objdir}/extracted_keytab" ||
+    { echo "Failed to get a keytab for $p with curl"; exit 1; }
+${ktutil} -k "${objdir}/extracted_keytab" list --keys > extracted_keytab.rest ||
+    { echo "Failed to list keytab for $p"; exit 1; }
+rm -f extracted_keytab
+${kadmin} ext_keytab -k extracted_keytab $p ||
+    { echo "Failed to get a keytab for $p with kadmin"; exit 1; }
+${ktutil} -k "${objdir}/extracted_keytab" list --keys > extracted_keytab.kadmin ||
+    { echo "Failed to list keytab for $p"; exit 1; }
+cmp extracted_keytab.kadmin extracted_keytab.rest ||
+    { echo "Keytabs for $p don't match!"; exit 1; }
+
 # TODO
 #
 #  - test more service names, more namespaces
-#  - test materialization of virtual principals
+#  - test materialization of virtual principals but leaving them with virtual
+#    keys
 #  - test with kadmind instead of direct local HDB access
 #  - test with read-only kadmind and primary kadmind, and check that we
 #    reconnect to primary to do writes
@@ -269,7 +288,6 @@ cmp extracted_keytab.kadmin extracted_keytab.rest ||
 #  - test new key delay?  this one is tricky
 
 echo "killing httpkadmind (${httpkadmindpid})"
-#sh ${leaks_kill} kdc $kdcpid || ec=1
 sh ${leaks_kill} httpkadmind $httpkadmindpid || ec=1
 
 trap "" EXIT
