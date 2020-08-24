@@ -325,7 +325,7 @@ kadm5_s_get_principal(void *server_handle,
 	}
         if (ret == 0)
             ret = hdb_entry_get_krb5_config(&ent.entry, &krb5_config);
-        if (ret == 0) {
+        if (ret == 0 && krb5_config.length) {
             ret = add_tl_data(out, KRB5_TL_KRB5_CONFIG, krb5_config.data,
                               krb5_config.length);
         }
