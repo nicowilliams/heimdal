@@ -955,6 +955,7 @@ derive_keys(krb5_context context,
 
     if (!h_is_namespace && !h->entry.flags.virtual_keys)
         return 0;
+    h->entry.flags.virtual = 1;
     if (h_is_namespace) {
         /* Set the entry's principal name */
         free_Principal(h->entry.principal);
