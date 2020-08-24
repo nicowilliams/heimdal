@@ -672,9 +672,7 @@ hdb_generate_key_set(krb5_context context, krb5_principal principal,
     char **ks_tuple_strs;
     char **config_ktypes = NULL;
     static const char *default_keytypes[] = {
-	"aes256-cts-hmac-sha1-96:pw-salt",
-	"des3-cbc-sha1:pw-salt",
-	"arcfour-hmac-md5:pw-salt",
+	"aes128-cts-hmac-sha1-96:pw-salt",
 	NULL
     };
 
