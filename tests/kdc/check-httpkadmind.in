@@ -113,7 +113,27 @@ get_keytab() {
     shift
     curl -g --resolve ${server}:${restport}:127.0.0.1                   \
          -H "Authorization: Negotiate $token"                           \
-         "$@" "$url"
+         -vvv "$@" "$url"
+}
+
+# get_keytab_POST ""         curl-opts
+# get_keytab_POST "&qparams" curl-opts
+get_keytab_POST() {
+    # Curl is awful, so if you don't use -f, you don't get non-zero exit codes on
+    # error responses, but if you do use -f then -D doesn't work.  Ugh.
+    #
+    # So first we check that POST w/o CSRF token fails:
+    q=$1
+    shift
+
+    get_keytab "$q" -X POST --data-binary @/dev/null -f "$@" && 
+        { echo "POST succeeded w/o CSRF token!"; return 1; }
+    get_keytab "$q" -X POST --data-binary @/dev/null -D response-headers "$@"
+    grep ^X-CSRF-Token: response-headers >/dev/null ||
+        { echo "POST w/o CSRF token had response w/o CSRF token!"; return 1; }
+    get_keytab "$q" -X POST --data-binary @/dev/null -f              \
+        -H "$(sed -e 's/\r//' response-headers | grep ^X-CSRF-Token:)" "$@"
+    return $?
 }
 
 rm -f extracted_keytab
@@ -125,6 +145,7 @@ ${kadmin} init \
     --realm-max-renewable-life=1month \
     ${R} || exit 1
 ${kadmin} add -r --use-defaults foo@${R} || exit 1
+${kadmin} add -r --use-defaults WELLKNOWN/CSRFTOKEN@${R} || exit 1
 ${kadmin} add -r --use-defaults HTTP/xyz.${domain}@${R} || exit 1
 ${kadmin} add_ns --key-rotation-epoch=-1d --key-rotation-period=15s \
                  --max-ticket-life=1d --max-renewable-life=5d       \
@@ -208,8 +229,8 @@ test "$(grep $p extracted_keytab.rest1 | wc -l)" -eq 1 ||
     { echo "Wrong number of new keys!"; exit 1; }
 get_keytab "dNSName=${hn}&rotate=true" -sf -o "${objdir}/extracted_keytab" &&
     { echo "GET succeeded for write operation!"; exit 1; }
-get_keytab "dNSName=${hn}&rotate=true" -X POST --data-binary @/dev/null -sf -o "${objdir}/extracted_keytab" ||
-    { echo "Failed to get a keytab for $p with curl"; exit 1; }
+get_keytab_POST "dNSName=${hn}&rotate=true" -s -o "${objdir}/extracted_keytab" ||
+    { echo "Failed to rotate keys for $p"; exit 1; }
 ${ktutil} -k "${objdir}/extracted_keytab" list --keys > extracted_keytab.rest2 ||
     { echo "Failed to list keytab for $p"; exit 1; }
 cmp extracted_keytab.rest1 extracted_keytab.rest2 > /dev/null &&
@@ -228,7 +249,7 @@ ${ktutil} -k "${objdir}/extracted_keytab" list --keys > extracted_keytab.rest1 |
     { echo "Failed to list keytab for $p"; exit 1; }
 get_keytab "dNSName=${hn}&revoke=true" -sf -o "${objdir}/extracted_keytab" &&
     { echo "GET succeeded for write operation!"; exit 1; }
-get_keytab "dNSName=${hn}&revoke=true" -X POST --data-binary @/dev/null -sf -o "${objdir}/extracted_keytab" ||
+get_keytab_POST "dNSName=${hn}&revoke=true" -s -o "${objdir}/extracted_keytab" ||
     { echo "Failed to get a keytab for $p with curl"; exit 1; }
 ${ktutil} -k "${objdir}/extracted_keytab" list --keys > extracted_keytab.rest2 ||
     { echo "Failed to list keytab for $p"; exit 1; }
@@ -244,7 +265,7 @@ rm -f extracted_keytab
 grant dnsname $hn foo@${R}
 get_keytab "dNSName=${hn}&create=true" -sf -o "${objdir}/extracted_keytab" &&
     { echo "GET succeeded for write operation!"; exit 1; }
-get_keytab "dNSName=${hn}&create=true" -X POST --data-binary @/dev/null -sf -o "${objdir}/extracted_keytab" ||
+get_keytab_POST "dNSName=${hn}&create=true" -s -o "${objdir}/extracted_keytab" ||
     { echo "Failed to get a keytab for $p with curl"; exit 1; }
 ${ktutil} -k "${objdir}/extracted_keytab" list --keys > extracted_keytab.rest ||
     { echo "Failed to list keytab for $p"; exit 1; }
@@ -263,7 +284,7 @@ rm -f extracted_keytab
 grant dnsname $hn foo@${R}
 get_keytab "dNSName=${hn}&materialize=true" -sf -o "${objdir}/extracted_keytab" &&
     { echo "GET succeeded for write operation!"; exit 1; }
-get_keytab "dNSName=${hn}&materialize=true" -X POST --data-binary @/dev/null -sf -o "${objdir}/extracted_keytab" ||
+get_keytab_POST "dNSName=${hn}&materialize=true" -s -o "${objdir}/extracted_keytab" ||
     { echo "Failed to get a keytab for $p with curl"; exit 1; }
 ${ktutil} -k "${objdir}/extracted_keytab" list --keys > extracted_keytab.rest ||
     { echo "Failed to list keytab for $p"; exit 1; }
