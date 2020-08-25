@@ -940,13 +940,31 @@ kadm5_log_create(kadm5_server_context *context, hdb_entry *entry)
     krb5_ssize_t bytes;
     kadm5_ret_t ret;
     krb5_data value;
-    hdb_entry_ex ent;
+    hdb_entry_ex ent, existing;
     kadm5_log_context *log_context = &context->log_context;
 
     memset(&ent, 0, sizeof(ent));
     ent.ctx = 0;
     ent.free_entry = 0;
     ent.entry = *entry;
+    existing = ent;
+
+    /*
+     * Do not allow creation of concrete entries within namespaces unless
+     * explicitly requested.
+     */
+    ret = hdb_fetch_kvno(context->context, context->db, entry->principal, 0,
+                         0, 0, 0, &existing);
+    if (ret != 0 && ret != HDB_ERR_NOENTRY)
+        return ret;
+    if (ret == 0 && !ent.entry.flags.materialize &&
+        (existing.entry.flags.virtual || existing.entry.flags.virtual_keys)) {
+        hdb_free_entry(context->context, &existing);
+        return HDB_ERR_EXISTS;
+    }
+    if (ret == 0)
+        hdb_free_entry(context->context, &existing);
+    ent.entry.flags.materialize = 0; /* Clear in stored entry */
 
     /*
      * If we're not logging then we can't recover-to-perform, so just
@@ -1406,6 +1424,7 @@ kadm5_log_replay_modify(kadm5_server_context *context,
 	return ret;
 
     memset(&ent, 0, sizeof(ent));
+    /* NOTE: We do not use hdb_fetch_kvno() here */
     ret = context->db->hdb_fetch_kvno(context->context, context->db,
 				      log_ent.entry.principal,
 				      HDB_F_DECRYPT|HDB_F_ALL_KVNOS|

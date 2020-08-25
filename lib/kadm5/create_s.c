@@ -207,7 +207,12 @@ kadm5_s_create_principal_with_key(void *server_handle,
     if (ret)
 	goto out2;
 
-    /* This logs the change for iprop and writes to the HDB */
+    /*
+     * This logs the change for iprop and writes to the HDB.
+     *
+     * Creation of would-be virtual principals w/o the materialize flag will be
+     * rejected in kadm5_log_create().
+     */
     ret = kadm5_log_create(context, &ent.entry);
 
     (void) create_principal_hook(context, KADM5_HOOK_STAGE_POSTCOMMIT,
@@ -238,6 +243,24 @@ kadm5_s_create_principal(void *server_handle,
     kadm5_ret_t ret;
     hdb_entry_ex ent;
     kadm5_server_context *context = server_handle;
+
+    if ((mask & KADM5_ATTRIBUTES) &&
+        (princ->attributes & (KRB5_KDB_VIRTUAL_KEYS | KRB5_KDB_VIRTUAL)) &&
+        !(princ->attributes & KRB5_KDB_MATERIALIZE)) {
+        ret = KADM5_DUP; /* XXX */
+        goto out;
+    }
+    if ((mask & KADM5_ATTRIBUTES) &&
+        (princ->attributes & KRB5_KDB_VIRTUAL_KEYS) &&
+        (princ->attributes & KRB5_KDB_VIRTUAL)) {
+        ret = KADM5_DUP; /* XXX */
+        goto out;
+    }
+
+    if ((mask & KADM5_ATTRIBUTES) &&
+        (princ->attributes & KRB5_KDB_VIRTUAL) &&
+        (princ->attributes & KRB5_KDB_MATERIALIZE))
+        princ->attributes &= ~(KRB5_KDB_MATERIALIZE | KRB5_KDB_VIRTUAL);
 
     if (_kadm5_enforce_pwqual_on_admin_set_p(context)) {
 	krb5_data pwd_data;
