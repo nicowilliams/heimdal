@@ -81,6 +81,12 @@ enum hdb_lockop{ HDB_RLOCK, HDB_WLOCK };
 /* key usage for master key */
 #define HDB_KU_MKEY	0x484442
 
+/*
+ * Second component of WELLKNOWN namespace principals, the third component is
+ * the common DNS suffix of the implied virtual hosts.
+ */
+#define HDB_WK_NAMESPACE "HOSTBASED-NAMESPACE"
+
 typedef struct hdb_master_key_data *hdb_master_key;
 
 /**
@@ -114,6 +120,9 @@ typedef struct HDB {
     int hdb_capability_flags;
     int lock_count;
     int lock_type;
+    int enable_virtual_hostbased_princs;
+    size_t virtual_hostbased_princ_ndots;
+    size_t virtual_hostbased_princ_maxdots;
     /**
      * Open (or create) the a Kerberos database.
      *
