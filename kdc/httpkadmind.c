@@ -458,7 +458,9 @@ resp(kadmin_request_desc r,
                                                rmmode);
     if (response == NULL)
         return -1;
-    if (http_status_code == MHD_HTTP_UNAUTHORIZED) {
+    mret = MHD_add_response_header(response, MHD_HTTP_HEADER_CACHE_CONTROL,
+                                   "no-cache");
+    if (mret == MHD_YES && http_status_code == MHD_HTTP_UNAUTHORIZED) {
         mret = MHD_add_response_header(response,
                                        MHD_HTTP_HEADER_WWW_AUTHENTICATE,
                                        "Bearer");
@@ -1291,32 +1293,14 @@ mac_csrf_token(kadmin_request_desc r, krb5_storage *sp)
         krb5_data_free(&data);
         data.length = maclen;
         data.data = mac;
-        ret = krb5_store_data(sp, data);
+        if (krb5_storage_write(sp, mac, maclen) != maclen)
+            ret = krb5_enomem(r->context);
     }
     krb5_free_principal(r->context, p);
     if (freeit)
         kadm5_free_principal_ent(r->kadm_handle, &princ);
     return ret;
 }
-
-static int
-csrf_param_cb(void *d,
-              enum MHD_ValueKind kind,
-              const char *key,
-              const char *val)
-{
-    kadmin_request_desc r = d;
-    krb5_error_code ret = 0;
-
-    if (key)
-        ret = krb5_store_stringz(r->sp, key);
-    if (val)
-        ret = krb5_store_stringz(r->sp, val);
-    if (r->ret == 0)
-        r->ret = ret;
-    return ret ? MHD_NO /* Stop iterating */ : MHD_YES;
-}
-
 
 static krb5_error_code
 make_csrf_token(kadmin_request_desc r,
@@ -1330,8 +1314,9 @@ make_csrf_token(kadmin_request_desc r,
     krb5_storage *sp = NULL;
     krb5_data data;
     ssize_t dlen = -1;
-    int64_t given_time = 0;
-    time_t now = time(NULL);
+    uint64_t nonce;
+    int64_t t = 0;
+
 
     *age = 0;
     data.data = NULL;
@@ -1347,24 +1332,24 @@ make_csrf_token(kadmin_request_desc r,
             (sp = krb5_storage_from_mem(given_decoded, dlen)) == NULL)
             ret = krb5_enomem(r->context);
         if (ret == 0)
-            ret = krb5_ret_int64(sp, &given_time);
+            ret = krb5_ret_int64(sp, &t);
+        if (ret == 0)
+            ret = krb5_ret_uint64(sp, &nonce);
         krb5_storage_free(sp);
         sp = NULL;
         if (ret == 0)
-            *age = now - given_time;
+            *age = time(NULL) - t;
+    } else {
+        t = time(NULL);
+        krb5_generate_random_block((void *)&nonce, sizeof(nonce));
     }
 
     if (ret == 0 && (sp = krb5_storage_emem()) == NULL)
         ret = krb5_enomem(r->context);
     if (ret == 0)
-        ret = krb5_store_int64(sp, given_time ? given_time : now);
-    if (ret == 0) {
-        r->sp = sp;
-        (void) MHD_get_connection_values(r->connection, MHD_GET_ARGUMENT_KIND,
-                                         csrf_param_cb, r);
-        ret = r->ret;
-        r->sp = NULL;
-    }
+        ret = krb5_store_int64(sp, t);
+    if (ret == 0)
+        ret = krb5_store_uint64(sp, nonce);
     if (ret == 0)
         ret = mac_csrf_token(r, sp);
     if (ret == 0)
