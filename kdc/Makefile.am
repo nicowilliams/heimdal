@@ -55,6 +55,7 @@ httpkadmind_LDADD =	-ldl \
 		 $(MICROHTTPD_LIBS) \
 		 $(LIB_roken) \
 		 $(LIB_heimbase) \
+		 $(LIB_hcrypto) \
 		 $(top_builddir)/lib/sl/libsl.la \
 		 $(top_builddir)/lib/asn1/libasn1.la \
 		 $(top_builddir)/lib/krb5/libkrb5.la \

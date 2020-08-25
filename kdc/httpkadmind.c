@@ -122,6 +122,7 @@ typedef struct kadmin_request_desc {
     heim_array_t spns;
     krb5_principal cprinc;
     krb5_keytab keytab;
+    krb5_storage *sp;
     void *kadm_handle;
     char *realm;
     char *keytab_name;
@@ -311,15 +312,15 @@ get_kadm_handle(krb5_context context, void **kadm_handle, int primary)
 
 static krb5_error_code resp(kadmin_request_desc, int,
                             enum MHD_ResponseMemoryMode, const char *,
-                            const void *, size_t, const char *);
+                            const void *, size_t, const char *, const char *);
 static krb5_error_code bad_req(kadmin_request_desc, krb5_error_code, int,
                                const char *, ...)
                                HEIMDAL_PRINTF_ATTRIBUTE((__printf__, 4, 5));
 
 static krb5_error_code bad_enomem(kadmin_request_desc, krb5_error_code);
-static krb5_error_code bad_400(kadmin_request_desc, krb5_error_code, char *);
-static krb5_error_code bad_401(kadmin_request_desc, char *);
-static krb5_error_code bad_403(kadmin_request_desc, krb5_error_code, char *);
+static krb5_error_code bad_400(kadmin_request_desc, krb5_error_code, const char *);
+static krb5_error_code bad_401(kadmin_request_desc, const char *);
+static krb5_error_code bad_403(kadmin_request_desc, krb5_error_code, const char *);
 static krb5_error_code bad_404(kadmin_request_desc, const char *);
 static krb5_error_code bad_405(kadmin_request_desc, const char *);
 /*static krb5_error_code bad_500(kadmin_request_desc, krb5_error_code, const char *);*/
@@ -442,7 +443,8 @@ resp(kadmin_request_desc r,
      const char *content_type,
      const void *body,
      size_t bodylen,
-     const char *token)
+     const char *token,
+     const char *csrf)
 {
     struct MHD_Response *response;
     int mret = MHD_YES;
@@ -469,7 +471,12 @@ resp(kadmin_request_desc r,
                                        primary_server);
     }
 
-    if (content_type) {
+    if (mret == MHD_YES && csrf)
+        mret = MHD_add_response_header(response,
+                                       "X-CSRF-Token",
+                                       csrf);
+
+    if (mret == MHD_YES && content_type) {
         mret = MHD_add_response_header(response,
                                        MHD_HTTP_HEADER_CONTENT_TYPE,
                                        content_type);
@@ -502,7 +509,7 @@ bad_reqv(kadmin_request_desc r,
             krb5_log_msg(r->context, logfac, 1, NULL, "Out of memory");
         audit_trail(r, code);
         return resp(r, http_status_code, MHD_RESPMEM_PERSISTENT,
-                    NULL, fmt, strlen(fmt), NULL);
+                    NULL, fmt, strlen(fmt), NULL, NULL);
     }
 
     if (code) {
@@ -529,11 +536,11 @@ bad_reqv(kadmin_request_desc r,
             krb5_log_msg(r->context, logfac, 1, NULL, "Out of memory");
         return resp(r, MHD_HTTP_SERVICE_UNAVAILABLE,
                     MHD_RESPMEM_PERSISTENT, NULL,
-                    "Out of memory", sizeof("Out of memory") - 1, NULL);
+                    "Out of memory", sizeof("Out of memory") - 1, NULL, NULL);
     }
 
     ret = resp(r, http_status_code, MHD_RESPMEM_MUST_COPY,
-               NULL, msg, strlen(msg), NULL);
+               NULL, msg, strlen(msg), NULL, NULL);
     free(formatted);
     free(msg);
     return ret == -1 ? -1 : code;
@@ -563,19 +570,19 @@ bad_enomem(kadmin_request_desc r, krb5_error_code ret)
 }
 
 static krb5_error_code
-bad_400(kadmin_request_desc r, int ret, char *reason)
+bad_400(kadmin_request_desc r, int ret, const char *reason)
 {
     return bad_req(r, ret, MHD_HTTP_BAD_REQUEST, "%s", reason);
 }
 
 static krb5_error_code
-bad_401(kadmin_request_desc r, char *reason)
+bad_401(kadmin_request_desc r, const char *reason)
 {
     return bad_req(r, EACCES, MHD_HTTP_UNAUTHORIZED, "%s", reason);
 }
 
 static krb5_error_code
-bad_403(kadmin_request_desc r, krb5_error_code ret, char *reason)
+bad_403(kadmin_request_desc r, krb5_error_code ret, const char *reason)
 {
     return bad_req(r, ret, MHD_HTTP_FORBIDDEN, "%s", reason);
 }
@@ -635,7 +642,7 @@ good_ext_keytab(kadmin_request_desc r)
 
     (void) gettimeofday(&r->tv_end, NULL);
     ret = resp(r, MHD_HTTP_OK, MHD_RESPMEM_MUST_COPY,
-               "application/octet-stream", body, bodylen, NULL);
+               "application/octet-stream", body, bodylen, NULL, NULL);
     free(body);
     return ret;
 }
@@ -1157,6 +1164,7 @@ set_req_desc(struct MHD_Connection *connection,
     r->method = method;
     r->cprinc = NULL;
     r->req = NULL;
+    r->sp = NULL;
     ci = MHD_get_connection_info(connection,
                                  MHD_CONNECTION_INFO_CLIENT_ADDRESS);
     if (ci) {
@@ -1232,7 +1240,7 @@ ext_keytab(kadmin_request_desc r)
                      "Redirect for %s to primary server to "
                      "materialize or rotate principal", r->cname);
         return resp(r, MHD_HTTP_TEMPORARY_REDIRECT, MHD_RESPMEM_PERSISTENT,
-                    NULL, "", 0, NULL);
+                    NULL, "", 0, NULL, NULL);
     case 0:
         /* Read and send the contents of the PKIX store */
         krb5_log_msg(r->context, logfac, 1, NULL,
@@ -1245,15 +1253,194 @@ ext_keytab(kadmin_request_desc r)
 }
 
 static krb5_error_code
+mac_csrf_token(kadmin_request_desc r, krb5_storage *sp)
+{
+    kadm5_principal_ent_rec princ;
+    krb5_error_code ret;
+    krb5_principal p = NULL;
+    krb5_data data;
+    char mac[EVP_MAX_MD_SIZE];
+    unsigned int maclen;
+    size_t i;
+    int freeit = 0;
+
+    memset(&princ, 0, sizeof(princ));
+    ret = krb5_storage_to_data(sp, &data);
+    if (ret == 0)
+        ret = krb5_parse_name(r->context, "WELLKNOWN/CSRFTOKEN", &p);
+    if (ret == 0)
+        ret = kadm5_get_principal(r->kadm_handle, p, &princ, 
+                                  KADM5_PRINCIPAL | KADM5_KVNO |
+                                  KADM5_KEY_DATA);
+    if (ret == 0)
+        freeit = 1;
+    if (ret == 0 && princ.n_key_data < 1)
+        ret = KADM5_UNK_PRINC;
+    if (ret == 0)
+        for (i = 0; i < princ.n_key_data; i++)
+            if (princ.key_data[i].key_data_kvno == princ.kvno)
+                break;
+    if (i == princ.n_key_data)
+        i = 0; /* Weird, but can't happen */
+
+    if (ret == 0) {
+        (void) HMAC(EVP_sha256(),
+                    princ.key_data[i].key_data_contents[0],
+                    princ.key_data[i].key_data_length[0],
+                    data.data, data.length, mac, &maclen);
+        krb5_data_free(&data);
+        data.length = maclen;
+        data.data = mac;
+        ret = krb5_store_data(sp, data);
+    }
+    krb5_free_principal(r->context, p);
+    if (freeit)
+        kadm5_free_principal_ent(r->kadm_handle, &princ);
+    return ret;
+}
+
+static int
+csrf_param_cb(void *d,
+              enum MHD_ValueKind kind,
+              const char *key,
+              const char *val)
+{
+    kadmin_request_desc r = d;
+    krb5_error_code ret = 0;
+
+    if (key)
+        ret = krb5_store_stringz(r->sp, key);
+    if (val)
+        ret = krb5_store_stringz(r->sp, val);
+    if (r->ret == 0)
+        r->ret = ret;
+    return ret ? MHD_NO /* Stop iterating */ : MHD_YES;
+}
+
+
+static krb5_error_code
+make_csrf_token(kadmin_request_desc r,
+                const char *given,
+                char **token,
+                int64_t *age)
+{
+    static HEIMDAL_THREAD_LOCAL char tokenbuf[128]; /* See below, be sad */
+    krb5_error_code ret = 0;
+    unsigned char given_decoded[128];
+    krb5_storage *sp = NULL;
+    krb5_data data;
+    ssize_t dlen = -1;
+    int64_t given_time = 0;
+    time_t now = time(NULL);
+
+    *age = 0;
+    data.data = NULL;
+    data.length = 0;
+    if (given) {
+        size_t len = strlen(given);
+
+        if (len >= sizeof(given_decoded))
+            ret = ERANGE;
+        if (ret == 0 && (dlen = rk_base64_decode(given, &given_decoded)) <= 0)
+            ret = errno;
+        if (ret == 0 &&
+            (sp = krb5_storage_from_mem(given_decoded, dlen)) == NULL)
+            ret = krb5_enomem(r->context);
+        if (ret == 0)
+            ret = krb5_ret_int64(sp, &given_time);
+        krb5_storage_free(sp);
+        sp = NULL;
+        if (ret == 0)
+            *age = now - given_time;
+    }
+
+    if (ret == 0 && (sp = krb5_storage_emem()) == NULL)
+        ret = krb5_enomem(r->context);
+    if (ret == 0)
+        ret = krb5_store_int64(sp, given_time ? given_time : now);
+    if (ret == 0) {
+        r->sp = sp;
+        (void) MHD_get_connection_values(r->connection, MHD_GET_ARGUMENT_KIND,
+                                         csrf_param_cb, r);
+        ret = r->ret;
+        r->sp = NULL;
+    }
+    if (ret == 0)
+        ret = mac_csrf_token(r, sp);
+    if (ret == 0)
+        ret = krb5_storage_to_data(sp, &data);
+    if (ret == 0 && data.length > INT_MAX)
+        ret = ERANGE;
+    if (ret == 0 &&
+        (dlen = rk_base64_encode(data.data, data.length, token)) < 0)
+        ret = errno;
+    if (ret == 0 && dlen >= sizeof(tokenbuf))
+        ret = ERANGE;
+    if (ret == 0) {
+        /*
+         * Work around for older versions of libmicrohttpd do not strdup()ing
+         * response header values.
+         */
+        memcpy(tokenbuf, *token, dlen);
+        free(*token);
+        *token = tokenbuf;
+    }
+    krb5_data_free(&data);
+    return ret;
+}
+
+static krb5_error_code
+check_csrf(kadmin_request_desc r)
+{
+    krb5_error_code ret;
+    const char *given;
+    int64_t age;
+    size_t givenlen, expectedlen;
+    char *expected = NULL;
+
+    given = MHD_lookup_connection_value(r->connection, MHD_HEADER_KIND,
+                                        "X-CSRF-Token");
+    ret = make_csrf_token(r, given, &expected, &age);
+    if (ret)
+        bad_503(r, ret, "Could not create a CSRF token");
+    if (given == NULL) {
+        (void) resp(r, MHD_HTTP_FORBIDDEN, MHD_RESPMEM_PERSISTENT, NULL,
+                    "Request missing a CSRF token",
+                    sizeof("Request missing a CSRF token"), NULL,
+                    expected);
+        /*
+         * XXX Some versions of libmicrohttpd don't strdup() header values
+         * added to responses, so we can't free expected.
+         */
+        /*free(expected); */
+        return EACCES;
+    }
+
+    /* Validate the CSRF token for this request */
+    givenlen = strlen(given);
+    expectedlen = strlen(expected);
+    if (givenlen != expectedlen || ct_memcmp(given, expected, givenlen)) {
+        (void) bad_403(r, EACCES, "Invalid CSRF token");
+        return EACCES;
+    }
+    if (age > 300) { /* XXX */
+        (void) bad_403(r, EACCES, "CSRF token too old");
+        return EACCES;
+    }
+    return 0;
+}
+
+static krb5_error_code
 health(const char *method, kadmin_request_desc r)
 {
     if (strcmp(method, "HEAD") == 0)
-        return resp(r, MHD_HTTP_OK, MHD_RESPMEM_PERSISTENT, NULL, "", 0, NULL);
+        return resp(r, MHD_HTTP_OK, MHD_RESPMEM_PERSISTENT, NULL, "", 0, NULL,
+                    NULL);
     return resp(r, MHD_HTTP_OK, MHD_RESPMEM_PERSISTENT, NULL,
                 "To determine the health of the service, use the /ext_keytab "
                 "end-point.\n",
                 sizeof("To determine the health of the service, use the "
-                       "/ext_keytab end-point.\n") - 1, NULL);
+                       "/ext_keytab end-point.\n") - 1, NULL, NULL);
 
 }
 
@@ -1296,6 +1483,8 @@ route(void *cls,
         ret = health(method, &r);
     else if (strcmp(method, "GET") != 0 && strcmp(method, "POST") != 0)
         ret = bad_405(&r, method);
+    else if (strcmp(method, "POST") == 0 && (ret = check_csrf(&r)))
+        ;
     else if (strcmp(url, "/get-keys") == 0)
         ret = ext_keytab(&r);
     else
