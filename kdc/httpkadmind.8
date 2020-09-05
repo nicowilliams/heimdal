@@ -47,14 +47,16 @@
 .Op Fl Fl cert=HX509-STORE
 .Op Fl Fl private-key=HX509-STORE
 .Op Fl Fl realm=REALM
+.Op Fl Fl read-only
+.Op Fl Fl local
+.Op Fl Fl local-read-only
 .Op Fl Fl hdb=HDB
 .Op Fl Fl stash-file=FILENAME
-.Op Fl Fl primary-server=URI
-.Op Fl Fl admin-server=HOSTNAME[:PORT]
-.Op Fl Fl primary-admin-server=HOSTNAME[:PORT]
+.Op Fl Fl primary-server-uri=URI
+.Op Fl Fl read-only-admin-server=HOSTNAME[:PORT]
+.Op Fl Fl writable-admin-server=HOSTNAME[:PORT]
 .Op Fl Fl kadmin-client-name=PRINCIPAL
 .Op Fl Fl kadmin-client-keytab=KEYTAB
-.Op Fl Fl local-read-only
 .Op Fl t | Fl Fl thread-per-client
 .Oo Fl v \*(Ba Xo
 .Fl Fl verbose= Ns Ar run verbosely
@@ -82,9 +84,9 @@ via the
 .Nm kadmind(8)
 protocol.
 Read operations are always allowed, but write operations can be
-preformed either against a given primary
+preformed either against writable
 .Nm kadmind(8)
-server or redirected to another
+server(s) or redirected to another
 .Nm httpkadmind(8).
 .Pp
 The
@@ -200,26 +202,50 @@ Uses a thread per-client instead of as many threads as there are CPUs.
 .It Xo
 .Fl Fl realm= Ns Ar REALM
 .Xc
-The realm to serve, if not the default one.
+The realm to serve, if not the default realm.
+Note that clients can request keys for principals in other realms, and
+.Nm httpkadmind
+will attempt to satisfy those requests too.
+.It Xo
+.Fl Fl read-only
+.Xc
+Do not perform write operations.
+Write operations will either fail or if a primary
+.Nm httpkadmind
+URI is configured, then they will be redirected there.
+.It Xo
+.Fl Fl local
+.Xc
+Use a local HDB, at least for read operations, and, if
+.Fl Fl local-read-only
+is not given, then also write operations.
+.It Xo
+.Fl Fl local-read-only
+.Xc
+Do not perform writes on a local HDB.
+Either redirect write operations if a primary
+.Nm httpkadmind
+URI is configured, or use a writable remote
+.Nm kadmind
+server.
 .It Xo
 .Fl Fl hdb=HDB
 .Xc
 A local HDB to serve.
+Note that this can be obtained from the
+.Nm krb5.conf .
 .It Xo
 .Fl Fl stash-file=FILENAME
 .Xc
 A stash file containing a master key for a local HDB.
+Note that this can be obtained from the
+.Nm krb5.conf .
 .It Xo
-.Fl Fl local-read-only
-.Xc
-Do not perform writes to the given local
-.Ar HDB .
-.It Xo
-.Fl Fl primary-server=URI
+.Fl Fl primary-server-uri=URI
 .Xc
 The URL of an httpkadmind to which to redirect write operations.
 .It Xo
-.Fl Fl admin-server=HOSTNAME[:PORT]
+.Fl Fl read-only-admin-server=HOSTNAME[:PORT]
 .Xc
 The hostname (and possibly port number) of a
 .Nm kadmind(8)
@@ -235,23 +261,36 @@ the
 .Nm kadmind(8)
 services for the
 .Ar REALM .
+If not specified, but needed, this will be obtained by performing
+DNS lookups for SRV resource records named
+.Ar _kerberos-adm-readonly._tcp.<realm> .
 .It Xo
-.Fl Fl primary-admin-server=HOSTNAME[:PORT]
+.Fl Fl writable-admin-server=HOSTNAME[:PORT]
 .Xc
 The hostname (and possibly port number) of a
 .Nm kadmind(8)
 service to use for write operations.
+If not specified, but needed, this will be obtained by performing
+DNS lookups for SRV resource records named
+.Ar _kerberos-adm._tcp.<realm> .
 .It Xo
 .Fl Fl kadmin-client-name=PRINCIPAL
 .Xc
 The client principal name to use when connecting to a
 .Nm kadmind(8)
 server.
+Defaults to
+.Ar httpkadmind/admin .
 .It Xo
 .Fl Fl kadmin-client-keytab=KEYTAB
 .Xc
 The keytab containing keys for the
 .Ar kadmin-client-name .
+Note that you may use an
+.Ar HDB
+as a keytab as
+.Ar HDBGET:/var/heimdal/heimdal.db
+(or whatever the HDB specification is).
 .It Xo
 .Fl v ,
 .Fl Fl verbose= Ns Ar run verbosely
@@ -270,7 +309,32 @@ the default being
 .Bl -tag -width Ds
 .It Pa /etc/krb5.conf
 .El
-.\".Sh EXAMPLES
+.Sh EXAMPLES
+To start
+.Nm httpkadmind
+on a primary KDC:
+.Pp
+.Ar httpkadmind -d --cert=PEM-FILE:/etc/httpkadmind.pem --local
+.Pp
+To start
+.Nm httpkadmind
+on a secondary KDC, using redirects for write operations:
+.Pp
+.Ar httpkadmind -d --cert=PEM-FILE:/etc/httpkadmind.pem --local-read-only --primary-server-uri=https://the-primary-server.fqdn/
+.Pp
+To start
+.Nm httpkadmind
+on a secondary KDC, proxying kadmin to perform writes at the primary KDC, using
+DNS to discover the kadmin server:
+.Pp
+.Ar httpkadmind -d --cert=PEM-FILE:/etc/httpkadmind.pem --local-read-only --kadmin-client-keytab=FILE:/etc/krb5.keytab
+.Pp
+To start
+.Nm httpkadmind
+on a non-KDC:
+.Pp
+.Ar httpkadmind -d --cert=PEM-FILE:/etc/httpkadmind.pem --kadmin-client-keytab=FILE:/etc/krb5.keytab
+.Pp
 .Sh DIAGNOSTICS
 See logging section of
 .Nm krb5.conf.5

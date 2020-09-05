@@ -48,9 +48,9 @@ libexec_PROGRAMS += bx509d
 httpkadmind_SOURCES = httpkadmind.c
 httpkadmind_AM_CPPFLAGS = $(AM_CPPFLAGS) $(MICROHTTPD_CFLAGS)
 httpkadmind_LDADD =	-ldl \
-                 $(top_builddir)/lib/hdb/libhdb.la \
-                 $(top_builddir)/lib/kadm5/libkadm5clnt.la \
-                 $(top_builddir)/lib/kadm5/libkadm5srv.la \
+		 $(top_builddir)/lib/hdb/libhdb.la \
+		 $(top_builddir)/lib/kadm5/libkadm5clnt.la \
+		 $(top_builddir)/lib/kadm5/libkadm5srv.la \
 		 libkdc.la \
 		 $(MICROHTTPD_LIBS) \
 		 $(LIB_roken) \

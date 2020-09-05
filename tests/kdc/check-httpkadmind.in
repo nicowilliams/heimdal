@@ -232,7 +232,7 @@ $klist -t >/dev/null ||
     { echo "failed to setup kimpersonate credentials"; exit 2; }
 
 echo "Starting httpkadmind"
-${httpkadmind} -H $server -H localhost -t --daemon ||
+${httpkadmind} -H $server -H localhost --local -t --daemon ||
     { echo "httpkadmind failed to start"; exit 2; }
 httpkadmindpid=`getpid httpkadmind`
 ec=0
@@ -418,7 +418,8 @@ cmp extracted_keytab.kadmin extracted_keytab.rest ||
     { echo "Keytabs for $p don't match!"; exit 1; }
 
 echo "Starting secondary httpkadmind to test HTTP redirection"
-${httpkadmind2} --primary-server=http://localhost:$restport -H $server -t --daemon ||
+${httpkadmind2} --primary-server-uri=http://localhost:$restport         \
+    -H $server --local-read-only -t --daemon ||
     { echo "httpkadmind failed to start"; exit 2; }
 httpkadmind2pid=`getpid httpkadmind`
 ec=0
@@ -472,8 +473,8 @@ kdcpid=`getpid kdc`
 echo "Starting httpkadmind with remote HDBs only"
 restport=$restport1
 ${httpkadmind} -H $server -H localhost -t --daemon              \
-    --primary-admin-server=$(uname -n):$admport                 \
-    --admin-server=$(uname -n):$admport2                        \
+    --writable-admin-server=$(uname -n):$admport                \
+    --read-only-admin-server=$(uname -n):$admport2              \
     --kadmin-client-name=httpkadmind/admin@${R}                 \
     --kadmin-client-keytab=$keytab ||
     { echo "httpkadmind failed to start"; exit 2; }
@@ -524,7 +525,7 @@ httpkadmindpid=
 echo "Starting httpkadmind with local read-only HDB and remote read-write HDB"
 ${httpkadmind} -H $server -H localhost -t --daemon              \
     --local-read-only                                           \
-    --primary-admin-server=$(uname -n):$admport                 \
+    --writable-admin-server=$(uname -n):$admport                \
     --kadmin-client-name=httpkadmind/admin@${R}                 \
     --kadmin-client-keytab=$keytab ||
     { echo "httpkadmind failed to start"; exit 2; }

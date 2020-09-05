@@ -72,6 +72,7 @@ _kdc_db_fetch(krb5_context context,
     if (!name_type_ok(context, config, principal))
         goto out2;
 
+    flags |= HDB_F_DECRYPT;
     if (kvno_ptr != NULL && *kvno_ptr != 0) {
 	kvno = *kvno_ptr;
 	flags |= HDB_F_KVNO_SPECIFIED;

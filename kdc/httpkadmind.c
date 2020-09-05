@@ -143,7 +143,12 @@ audit_trail(kadmin_request_desc r, krb5_error_code ret)
 {
     const char *retname = NULL;
 
-    /* Get a symbolic name for some error codes */
+    /*
+     * Get a symbolic name for some error codes.
+     *
+     * Really, libcom_err should have a primitive for this, and ours could, but
+     * we can't use a system libcom_err if we extend ours.
+     */
 #define CASE(x) case x : retname = #x; break
     switch (ret) {
     CASE(ENOMEM);
@@ -154,27 +159,70 @@ audit_trail(kadmin_request_desc r, krb5_error_code ret)
     CASE(HDB_ERR_KVNO_NOT_FOUND);
     CASE(HDB_ERR_NOENTRY);
     CASE(HDB_ERR_NO_MKEY);
-    CASE(KRB5KDC_ERR_BADOPTION);
-    CASE(KRB5KDC_ERR_CANNOT_POSTDATE);
-    CASE(KRB5KDC_ERR_CLIENT_NOTYET);
-    CASE(KRB5KDC_ERR_C_PRINCIPAL_UNKNOWN);
-    CASE(KRB5KDC_ERR_ETYPE_NOSUPP);
-    CASE(KRB5KDC_ERR_KEY_EXPIRED);
-    CASE(KRB5KDC_ERR_NAME_EXP);
-    CASE(KRB5KDC_ERR_NEVER_VALID);
-    CASE(KRB5KDC_ERR_NONE);
-    CASE(KRB5KDC_ERR_NULL_KEY);
-    CASE(KRB5KDC_ERR_PADATA_TYPE_NOSUPP);
-    CASE(KRB5KDC_ERR_POLICY);
-    CASE(KRB5KDC_ERR_PREAUTH_FAILED);
-    CASE(KRB5KDC_ERR_PREAUTH_REQUIRED);
-    CASE(KRB5KDC_ERR_SERVER_NOMATCH);
-    CASE(KRB5KDC_ERR_SERVICE_EXP);
-    CASE(KRB5KDC_ERR_SERVICE_NOTYET);
-    CASE(KRB5KDC_ERR_S_PRINCIPAL_UNKNOWN);
-    CASE(KRB5KDC_ERR_TRTYPE_NOSUPP);
-    CASE(KRB5KRB_ERR_RESPONSE_TOO_BIG);
-    /* XXX Add relevant error codes */
+    CASE(KADM5_FAILURE);
+    CASE(KADM5_AUTH_GET);
+    CASE(KADM5_AUTH_ADD);
+    CASE(KADM5_AUTH_MODIFY);
+    CASE(KADM5_AUTH_DELETE);
+    CASE(KADM5_AUTH_INSUFFICIENT);
+    CASE(KADM5_BAD_DB);
+    CASE(KADM5_DUP);
+    CASE(KADM5_RPC_ERROR);
+    CASE(KADM5_NO_SRV);
+    CASE(KADM5_BAD_HIST_KEY);
+    CASE(KADM5_NOT_INIT);
+    CASE(KADM5_UNK_PRINC);
+    CASE(KADM5_UNK_POLICY);
+    CASE(KADM5_BAD_MASK);
+    CASE(KADM5_BAD_CLASS);
+    CASE(KADM5_BAD_LENGTH);
+    CASE(KADM5_BAD_POLICY);
+    CASE(KADM5_BAD_PRINCIPAL);
+    CASE(KADM5_BAD_AUX_ATTR);
+    CASE(KADM5_BAD_HISTORY);
+    CASE(KADM5_BAD_MIN_PASS_LIFE);
+    CASE(KADM5_PASS_Q_TOOSHORT);
+    CASE(KADM5_PASS_Q_CLASS);
+    CASE(KADM5_PASS_Q_DICT);
+    CASE(KADM5_PASS_REUSE);
+    CASE(KADM5_PASS_TOOSOON);
+    CASE(KADM5_POLICY_REF);
+    CASE(KADM5_INIT);
+    CASE(KADM5_BAD_PASSWORD);
+    CASE(KADM5_PROTECT_PRINCIPAL);
+    CASE(KADM5_BAD_SERVER_HANDLE);
+    CASE(KADM5_BAD_STRUCT_VERSION);
+    CASE(KADM5_OLD_STRUCT_VERSION);
+    CASE(KADM5_NEW_STRUCT_VERSION);
+    CASE(KADM5_BAD_API_VERSION);
+    CASE(KADM5_OLD_LIB_API_VERSION);
+    CASE(KADM5_OLD_SERVER_API_VERSION);
+    CASE(KADM5_NEW_LIB_API_VERSION);
+    CASE(KADM5_NEW_SERVER_API_VERSION);
+    CASE(KADM5_SECURE_PRINC_MISSING);
+    CASE(KADM5_NO_RENAME_SALT);
+    CASE(KADM5_BAD_CLIENT_PARAMS);
+    CASE(KADM5_BAD_SERVER_PARAMS);
+    CASE(KADM5_AUTH_LIST);
+    CASE(KADM5_AUTH_CHANGEPW);
+    CASE(KADM5_BAD_TL_TYPE);
+    CASE(KADM5_MISSING_CONF_PARAMS);
+    CASE(KADM5_BAD_SERVER_NAME);
+    CASE(KADM5_KS_TUPLE_NOSUPP);
+    CASE(KADM5_SETKEY3_ETYPE_MISMATCH);
+    CASE(KADM5_DECRYPT_USAGE_NOSUPP);
+    CASE(KADM5_POLICY_OP_NOSUPP);
+    CASE(KADM5_KEEPOLD_NOSUPP);
+    CASE(KADM5_AUTH_GET_KEYS);
+    CASE(KADM5_ALREADY_LOCKED);
+    CASE(KADM5_NOT_LOCKED);
+    CASE(KADM5_LOG_CORRUPT);
+    CASE(KADM5_LOG_NEEDS_UPGRADE);
+    CASE(KADM5_BAD_SERVER_HOOK);
+    CASE(KADM5_SERVER_HOOK_NOT_FOUND);
+    CASE(KADM5_OLD_SERVER_HOOK_VERSION);
+    CASE(KADM5_NEW_SERVER_HOOK_VERSION);
+    CASE(KADM5_READ_ONLY);
     case 0:
         retname = "SUCCESS";
         break;
@@ -182,11 +230,6 @@ audit_trail(kadmin_request_desc r, krb5_error_code ret)
         retname = NULL;
         break;
     }
-
-    /* Let's save a few bytes */
-    if (retname && !strncmp("KRB5KDC_", retname, sizeof("KRB5KDC_") - 1))
-        retname += sizeof("KRB5KDC_") - 1;
-#undef PREFIX
     heim_audit_trail((heim_svc_req_desc)r, ret, retname);
 }
 
@@ -212,7 +255,9 @@ static int port = -1;
 static int help_flag;
 static int daemonize;
 static int daemon_child_fd = -1;
-static int local_read_only;
+static int local_hdb;
+static int local_hdb_read_only;
+static int read_only;
 static int verbose_counter;
 static int version_flag;
 static int reverse_proxied_flag;
@@ -223,98 +268,89 @@ static const char *priv_key_file;
 static const char *cache_dir;
 static const char *realm;
 static const char *hdb;
-static const char *primary_server;
-static const char *admin_server;
-static const char *primary_admin_server;
+static const char *primary_server_URI;
+static const char *kadmin_server;
+static const char *writable_kadmin_server;
 static const char *stash_file;
-static const char *kadmin_client_name = "keytab_service";
+static const char *kadmin_client_name = "httpkadmind/admin";
 static const char *kadmin_client_keytab;
+static struct getarg_strings auth_types;
+
+#define set_conf(c, f, v, b) \
+    if (v) { \
+        if (((c).f = strdup(v)) == NULL) \
+            goto enomem; \
+        conf.mask = b; \
+    }
 
 static krb5_error_code
-get_kadm_handle(krb5_context context, void **kadm_handle, int primary)
+get_kadm_handle(krb5_context context,
+                const char *want_realm,
+                int want_write,
+                void **kadm_handle)
 {
     kadm5_config_params conf;
-    krb5_error_code ret = 0;
-    const char *pstr;
-    const char *server = NULL;
-    char *s = NULL;
 
-    /* Configure kadmin connection */
-    memset(&conf, 0, sizeof(conf));
-    if (primary && local_read_only && !primary_admin_server)
+    /*
+     * If the caller wants to write and we are configured to redirect in that
+     * case, then trigger a redirect by returning KADM5_READ_ONLY.
+     */
+    if (want_write && local_hdb_read_only && primary_server_URI)
         return KADM5_READ_ONLY;
-    if (primary || !admin_server)
-        server = primary_admin_server;
-    else
-        server = admin_server;
-    if (server && (pstr = strrchr(server, ':'))) {
-        int32_t n;
-        char *ends;
+    if (want_write && read_only)
+        return KADM5_READ_ONLY;
 
-        if ((s = strdup(server)) == NULL)
-            return krb5_enomem(context);
+    /*
+     * Configure kadm5 connection.
+     *
+     * Note that all of these are optional, and will be found in krb5.conf or,
+     * in some cases, in DNS, as needed.
+     */
+    memset(&conf, 0, sizeof(conf));
+    conf.realm = NULL;
+    conf.dbname = NULL;
+    conf.stash_file = NULL;
+    conf.admin_server = NULL;
+    conf.readonly_admin_server = NULL;
+    set_conf(conf, realm, want_realm, KADM5_CONFIG_REALM);
+    set_conf(conf, dbname, hdb, KADM5_CONFIG_DBNAME);
+    set_conf(conf, stash_file, stash_file, KADM5_CONFIG_STASH_FILE);
+    set_conf(conf, admin_server, writable_kadmin_server, KADM5_CONFIG_ADMIN_SERVER);
+    set_conf(conf, readonly_admin_server, kadmin_server,
+             KADM5_CONFIG_READONLY_ADMIN_SERVER);
 
-        errno = 0;
-        s[pstr - server] = '\0';
-        if ((n = strtol(++pstr, &ends, 10)) < 0 ||
-            n > UINT16_MAX || errno || *ends != '\0') {
-            errno = errno ? errno : ERANGE;
-            err(1, "Port number invalid in: %s", server);
-            free(s);
-            return ERANGE;
-        }
-        conf.kadmind_port = htons(n);
-        conf.mask |= KADM5_CONFIG_KADMIND_PORT;
-        server = s;
-    }
-    if (server) {
-        conf.admin_server = s ? strdup(server) : strdup(server);
-        conf.mask |= KADM5_CONFIG_ADMIN_SERVER;
-        free(s);
-        s = NULL;
-
-        if (conf.admin_server == NULL)
-            err(1, "Out of memory");
-    } else if (hdb) {
-        conf.dbname = strdup(hdb);
-        conf.mask |= KADM5_CONFIG_DBNAME;
-        if (conf.dbname == NULL)
-            err(1, "Out of memory");
-    }
-    if (realm) {
-        krb5_set_default_realm(context, realm); /* XXX ??? */
-        conf.realm = strdup(realm);
-        conf.mask |= KADM5_CONFIG_REALM;
-        if (conf.stash_file == NULL)
-            err(1, "Out of memory");
-    }
-    if (stash_file) {
-        conf.stash_file = strdup(stash_file);
-        conf.mask |= KADM5_CONFIG_KADMIND_PORT;
-        if (conf.stash_file == NULL)
-            err(1, "Out of memory");
-    }
-
-    if (!server) {
-        /* Local */
-        free(s);
+    /*
+     * If we have a local HDB we'll use it if we can.  If the local HDB is
+     * read-only and the caller wants to write, then we won't use the local
+     * HDB, naturally.
+     */
+    if (local_hdb && (!local_hdb_read_only || !want_write))
         return kadm5_s_init_with_password_ctx(context,
                                               kadmin_client_name,
-                                              NULL,
-                                              NULL,
-                                              &conf, 0, 0,
+                                              NULL, /* password */
+                                              NULL, /* service_name */
+                                              &conf,
+                                              0,    /* struct_version */
+                                              0,    /* api_version */
                                               kadm_handle);
-    }
 
-    /* Remote */
-    ret = kadm5_c_init_with_skey_ctx(context,
-                                     kadmin_client_name,
-                                     kadmin_client_keytab,
-                                     KADM5_ADMIN_SERVICE,
-                                     &conf, 0, 0,
-                                     kadm_handle);
-    free(s);
-    return ret;
+    /* Note that kadmin_client_keytab can be an HDB: or HDBGET: keytab */
+    return kadm5_c_init_with_skey_ctx(context,
+                                      kadmin_client_name,
+                                      kadmin_client_keytab,
+                                      KADM5_ADMIN_SERVICE,
+                                      &conf,
+                                      0, /* struct_version */
+                                      0, /* api_version */
+                                      kadm_handle);
+
+enomem:
+    free(conf.readonly_admin_server);
+    free(conf.admin_server);
+    free(conf.stash_file);
+    free(conf.dbname);
+    free(conf.realm);
+    return krb5_enomem(context);
 }
 
 static krb5_error_code resp(kadmin_request_desc, int,
@@ -439,10 +475,10 @@ rm_cache_dir(void)
 }
 
 /*
- * Work around older libmircohttpd not strduping response header values when
+ * Work around older libmicrohttpd not strduping response header values when
  * set.
  */
-static HEIMDAL_THREAD_LOCAL struct redirect_uri_s {
+static HEIMDAL_THREAD_LOCAL struct redirect_uri {
     char uri[4096];
     size_t len;
     size_t first_param;
@@ -450,7 +486,7 @@ static HEIMDAL_THREAD_LOCAL struct redirect_uri_s {
 } redirect_uri;
 
 static void
-redirect_uri_appends(struct redirect_uri_s *redirect,
+redirect_uri_appends(struct redirect_uri *redirect,
                      const char *s)
 {
     size_t sz, len;
@@ -475,7 +511,7 @@ make_redirect_uri_param_cb(void *d,
                            const char *key,
                            const char *val)
 {
-    struct redirect_uri_s *redirect = d;
+    struct redirect_uri *redirect = d;
 
     redirect_uri_appends(redirect, redirect->first_param ? "?" : "&");
     redirect_uri_appends(redirect, key);
@@ -495,8 +531,8 @@ make_redirect_uri(kadmin_request_desc r, const char *base)
     redirect_uri.valid = 1;
     redirect_uri.first_param = 1;
 
-    redirect_uri_appends(&redirect_uri, base);
-    redirect_uri_appends(&redirect_uri, r->reqtype);
+    redirect_uri_appends(&redirect_uri, base); /* Redirect to primary URI base */
+    redirect_uri_appends(&redirect_uri, r->reqtype); /* URI local-part */
     (void) MHD_get_connection_values(r->connection, MHD_GET_ARGUMENT_KIND,
                                      make_redirect_uri_param_cb,
                                      &redirect_uri);
@@ -533,15 +569,17 @@ resp(kadmin_request_desc r,
     mret = MHD_add_response_header(response, MHD_HTTP_HEADER_CACHE_CONTROL,
                                    "no-cache");
     if (mret == MHD_YES && http_status_code == MHD_HTTP_UNAUTHORIZED) {
-        mret = MHD_add_response_header(response,
-                                       MHD_HTTP_HEADER_WWW_AUTHENTICATE,
-                                       "Bearer");
-        if (mret == MHD_YES)
-            mret = MHD_add_response_header(response,
-                                           MHD_HTTP_HEADER_WWW_AUTHENTICATE,
-                                           "Negotiate");
+        size_t i;
+
+        if (auth_types.num_strings < 1)
+            http_status_code = MHD_HTTP_SERVICE_UNAVAILABLE;
+        else
+            for (i = 0; mret == MHD_YES && i < auth_types.num_strings; i++)
+                mret = MHD_add_response_header(response,
+                                               MHD_HTTP_HEADER_WWW_AUTHENTICATE,
+                                               auth_types.strings[i]);
     } else if (http_status_code == MHD_HTTP_TEMPORARY_REDIRECT) {
-        const char *redir = make_redirect_uri(r, primary_server);
+        const char *redir = make_redirect_uri(r, primary_server_URI);
 
         if (redir)
             mret = MHD_add_response_header(response, MHD_HTTP_HEADER_LOCATION,
@@ -723,7 +761,10 @@ good_ext_keytab(kadmin_request_desc r)
 
     if (!r->keytab_name || !(p = strchr(r->keytab_name, ':')))
         return bad_503(r, EINVAL, "Internal error (no keytab produced)");
-    ret = rk_undumpdata(p + 1, &body, &bodylen);
+    p++;
+    if (strncmp(p, cache_dir, strlen(cache_dir)))
+        return bad_503(r, EINVAL, "Internal error");
+    ret = rk_undumpdata(p, &body, &bodylen);
     if (ret)
         return bad_503(r, ret, "Could not recover keytab from temp file");
 
@@ -731,6 +772,38 @@ good_ext_keytab(kadmin_request_desc r)
                "application/octet-stream", body, bodylen, NULL, NULL);
     free(body);
     return ret;
+}
+
+static krb5_error_code
+check_service_name(kadmin_request_desc r, const char *name)
+{
+    if (name == NULL || name[0] == '\0' ||
+        strchr(name, '/') || strchr(name, '\\') || strchr(name, '@') ||
+        strcmp(name, "krbtgt") == 0 ||
+        strcmp(name, "iprop") == 0 ||
+        strcmp(name, "kadmin") == 0 ||
+        strcmp(name, "hprop") == 0 ||
+        strcmp(name, "WELLKNOWN") == 0 ||
+        strcmp(name, "K") == 0) {
+        krb5_set_error_message(r->context, EACCES,
+                               "None is allowed to fetch keys for "
+                               "Heimdal service %s", name);
+        return EACCES;
+    }
+    if (strcmp(name, "root") != 0 &&
+        strcmp(name, "host") != 0 &&
+        strcmp(name, "exceed") != 0)
+        return 0;
+    if (krb5_config_get_bool_default(r->context, NULL, FALSE,
+                                     "ext_keytab",
+                                     "csr_authorizer_handles_svc_names",
+                                     NULL))
+        return 0;
+    krb5_set_error_message(r->context, EACCES,
+                           "None is allowed to fetch keys for "
+                           "Heimdal service %s because of authorizer "
+                           "limitations", name);
+    return EACCES;
 }
 
 static int
@@ -796,13 +869,16 @@ param_cb(void *d,
                          "requested_dNSName", "%s", val);
         ret = hx509_request_add_dns_name(r->context->hx509ctx, r->req, val);
     } else if (strcmp(key, "service") == 0 && val) {
-        s = heim_string_create(val);
-        if (!s)
-            ret = krb5_enomem(r->context);
-        else
-            ret = heim_array_append_value(r->service_names, s);
-        heim_audit_addkv((heim_svc_req_desc)r, KDC_AUDIT_VIS,
-                         "requested_service", "%s", val);
+        ret = check_service_name(r, val);
+        if (ret == 0) {
+            s = heim_string_create(val);
+            if (!s)
+                ret = krb5_enomem(r->context);
+            else
+                ret = heim_array_append_value(r->service_names, s);
+            heim_audit_addkv((heim_svc_req_desc)r, KDC_AUDIT_VIS,
+                             "requested_service", "%s", val);
+        }
     } else if (strcmp(key, "enctypes") == 0 && val) {
         r->enctypes = strdup(val);
         if (!(r->enctypes = strdup(val)))
@@ -817,16 +893,21 @@ param_cb(void *d,
                          "requested_spn", "%s", val);
 
         ret = krb5_parse_name(r->context, val, &p);
-        if (ret == 0) {
-            if (krb5_principal_get_num_comp(r->context, p) < 2 ||
-                krb5_principal_get_num_comp(r->context, p) > 3)
+        if (ret == 0 && krb5_principal_get_num_comp(r->context, p) != 2)
                 ret = ENOTSUP;
-        }
+        if (ret == 0)
+            ret = check_service_name(r,
+                                     krb5_principal_get_comp_string(r->context,
+                                                                    p, 0));
         if (ret == 0)
             hostname = krb5_principal_get_comp_string(r->context, p, 1);
         if (!hostname || !strchr(hostname, '.'))
             krb5_set_error_message(r->context, ret = ENOTSUP,
                                    "Only host-based service names supported");
+        if (ret == 0 && r->realm)
+            ret = krb5_principal_set_realm(r->context, p, r->realm);
+        else if (ret == 0 && realm)
+            ret = krb5_principal_set_realm(r->context, p, realm);
         if (ret == 0)
             ret = hx509_request_add_dns_name(r->context->hx509ctx, r->req,
                                              hostname);
@@ -843,7 +924,7 @@ param_cb(void *d,
     } else {
         /* Produce error for unknown params */
         heim_audit_addkv((heim_svc_req_desc)r, 0, "requested_unknown", "true");
-        krb5_set_error_message(r->context, r->ret = ENOTSUP,
+        krb5_set_error_message(r->context, ret = ENOTSUP,
                                "Query parameter %s not supported", key);
     }
     if (ret && !r->ret)
@@ -907,12 +988,19 @@ write_keytab(kadmin_request_desc r,
     if (princ->n_key_data <= 0)
         return 0;
 
+    if (kadm5_some_keys_are_bogus(princ->n_key_data, &princ->key_data[0])) {
+        krb5_warn(r->context, ret,
+                  "httpkadmind running with insufficient kadmin privilege "
+                  "for extracting keys for %s", unparsed);
+        krb5_log_msg(r->context, logfac, 1, NULL,
+                  "httpkadmind running with insufficient kadmin privilege "
+                  "for extracting keys for %s", unparsed);
+        return EACCES;
+    }
+
     memset(&key, 0, sizeof(key));
     for (i = 0; ret == 0 && i < princ->n_key_data; i++) {
         krb5_key_data *kd = &princ->key_data[i];
-
-        if (kadm5_all_keys_are_bogus(1, kd))
-            continue;
 
         key.principal = princ->principal;
         key.vno = kd->key_data_kvno;
@@ -921,8 +1009,11 @@ write_keytab(kadmin_request_desc r,
         key.keyblock.keyvalue.data = kd->key_data_contents[0];
 
         /*
-         * XXX kadm5 doesn't give us set_time here, but we can compute it using
-         * the KeyRotation metadata in the TL data.  We should!
+         * FIXME kadm5 doesn't give us set_time here.  If it gave us the
+         * KeyRotation metadata, we could compute it.  But this might be a
+         * concrete principal with concrete keys, in which case we can't.
+         *
+         * To fix this we need to extend the protocol and the API.
          */
         key.timestamp = time(NULL);
 
@@ -1000,6 +1091,10 @@ get_keys1(kadmin_request_desc r, const char *pname)
     princ.tl_data = NULL;
 
     ret = krb5_parse_name(r->context, pname, &p);
+    if (ret == 0 && r->realm)
+        ret = krb5_principal_set_realm(r->context, p, r->realm);
+    else if (ret == 0 && realm)
+        ret = krb5_principal_set_realm(r->context, p, realm);
     if (ret == 0 && r->enctypes)
         ret = krb5_string_to_keysalts2(r->context, r->enctypes,
                                        &nkstuple, &kstuple);
@@ -1031,18 +1126,24 @@ get_keys1(kadmin_request_desc r, const char *pname)
          * We're writing, but maybe we can't (not a primary) or have to
          * reconnect to a primary kadmind.
          */
-        if (ret == 0 && primary_server && !primary_admin_server) {
+        if (ret == 0 && primary_server_URI && !writable_kadmin_server) {
             /* Local DB, not a primary -> redirect */
             ret = KADM5_READ_ONLY;
-        } else if (ret == 0 && primary_admin_server) {
+        } else if (ret == 0 && writable_kadmin_server) {
             /* Connected to replica -> reconnect to primary */
             kadm5_destroy(r->kadm_handle);
-            ret = get_kadm_handle(r->context, &r->kadm_handle, 1);
-        } else if (ret == 0 && local_read_only) {
+            ret = get_kadm_handle(r->context, r->realm, 1 /* want_write */,
+                                  &r->kadm_handle);
+        } else if (ret == 0 && local_hdb_read_only) {
             ret = KADM5_READ_ONLY;
         }
         memset(&princ, 0, sizeof(princ));
-        princ.kvno = 1;
+        /*
+         * Some software is allergic to kvno 1, assuming that kvno 1 implies
+         * half-baked service principal.  We've some vague recollection of
+         * something similar for kvno 2, so let's start at 3.
+         */
+        princ.kvno = 3;
         princ.tl_data = NULL;
         princ.key_data = NULL;
         princ.max_life = 24 * 3600;                /* XXX Make configurable */
@@ -1051,8 +1152,8 @@ get_keys1(kadmin_request_desc r, const char *pname)
         random_password(r->context, pw, sizeof(pw));
         princ.principal = p;     /* Borrow */
         if (ret == 0)
-            ret = kadm5_create_principal(r->kadm_handle, &princ, create_mask,
-                                         pw);
+            ret = kadm5_create_principal_3(r->kadm_handle, &princ, create_mask,
+                                           nkstuple, kstuple, pw);
         princ.principal = NULL;  /* Return */
         refetch = 1;
         freeit = 1;
@@ -1065,14 +1166,15 @@ get_keys1(kadmin_request_desc r, const char *pname)
          * We're writing, but maybe we can't (not a primary) or have to
          * reconnect to a primary kadmind.
          */
-        if (ret == 0 && primary_server && !primary_admin_server) {
+        if (ret == 0 && primary_server_URI && !writable_kadmin_server) {
             /* Local DB, not a primary -> redirect */
             ret = KADM5_READ_ONLY;
-        } else if (ret == 0 && primary_admin_server) {
+        } else if (ret == 0 && writable_kadmin_server) {
             /* Connected to replica -> reconnect to primary */
             kadm5_destroy(r->kadm_handle);
-            ret = get_kadm_handle(r->context, &r->kadm_handle, 1);
-        } else if (ret == 0 && local_read_only) {
+            ret = get_kadm_handle(r->context, r->realm, 1 /* want_write */,
+                                  &r->kadm_handle);
+        } else if (ret == 0 && local_hdb_read_only) {
             ret = KADM5_READ_ONLY;
         }
         princ.attributes |= KRB5_KDB_MATERIALIZE;
@@ -1100,14 +1202,15 @@ get_keys1(kadmin_request_desc r, const char *pname)
 
         ret = strcmp(r->method, "POST") == 0 ? 0 : ENOSYS; /* XXX */
 
-        if (ret == 0 && primary_server && !primary_admin_server) {
+        if (ret == 0 && primary_server_URI && !writable_kadmin_server) {
             /* Local DB, not a primary -> redirect */
             ret = KADM5_READ_ONLY;
-        } else if (ret == 0 && primary_admin_server) {
+        } else if (ret == 0 && writable_kadmin_server) {
             /* Connected to replica -> reconnect to primary */
             kadm5_destroy(r->kadm_handle);
-            ret = get_kadm_handle(r->context, &r->kadm_handle, 1);
-        } else if (ret == 0 && local_read_only) {
+            ret = get_kadm_handle(r->context, r->realm, 1 /* want_write */,
+                                  &r->kadm_handle);
+        } else if (ret == 0 && local_hdb_read_only) {
             ret = KADM5_READ_ONLY;
         }
 
@@ -1158,10 +1261,13 @@ get_keysN(kadmin_request_desc r)
     if (ret)
         return ret; /* authorize_req() calls bad_req() */
 
+    ret = get_kadm_handle(r->context, r->realm ? r->realm : realm,
+                          0 /* want_write */, &r->kadm_handle);
+
     nhosts = heim_array_get_length(r->hostnames);
     nsvcs = heim_array_get_length(r->service_names);
     nspns = heim_array_get_length(r->spns);
-    if (!nhosts && !nsvcs && !nspns) {
+    if (!nhosts && !nspns) {
         krb5_set_error_message(r->context, ret = EINVAL,
                                "No service principals requested");
         return ret;
@@ -1178,24 +1284,33 @@ get_keysN(kadmin_request_desc r)
         nsvcs = 1;
     }
 
-    ret = make_keytab(r);
+    if (nsvcs > 4) {
+        krb5_set_error_message(r->context, ret = ERANGE,
+                               "Requested too many service names");
+        return ret;
+    }
 
+    ret = make_keytab(r);
     for (i = 0; ret == 0 && i < nsvcs; i++) {
         const char *svc =
             heim_string_get_utf8(
                 heim_array_get_value(r->service_names, i));
 
         for (k = 0; ret == 0 && k < nhosts; k++) {
+            krb5_principal p = NULL;
             const char *hostname =
                 heim_string_get_utf8(
                     heim_array_get_value(r->hostnames, k));
             char *spn = NULL;
 
-            if (asprintf(&spn, "%s/%s", svc, hostname) == -1 ||
-                spn == NULL)
-                ret = krb5_enomem(r->context);
+            ret = krb5_make_principal(r->context, &p,
+                                      r->realm ? r->realm : realm,
+                                      svc, hostname, NULL);
+            if (ret == 0)
+                ret = krb5_unparse_name(r->context, p, &spn);
             if (ret == 0)
                 ret = get_keys1(r, spn);
+            krb5_free_principal(r->context, p);
             free(spn);
         }
     }
@@ -1240,9 +1355,6 @@ set_req_desc(struct MHD_Connection *connection,
     (void) gettimeofday(&r->tv_start, NULL);
 
     ret = get_krb5_context(&r->context);
-    r->kadm_handle = NULL;
-    if (ret == 0)
-        ret = get_kadm_handle(r->context, &r->kadm_handle, 0);
     /* HEIM_SVC_REQUEST_DESC_COMMON_ELEMENTS fields */
     r->request.data = "<HTTP-REQUEST>";
     r->request.length = sizeof("<HTTP-REQUEST>");
@@ -1258,6 +1370,7 @@ set_req_desc(struct MHD_Connection *connection,
     r->kv = heim_array_create();
     /* Our fields */
     r->connection = connection;
+    r->kadm_handle = NULL;
     r->hcontext = r->context->hcontext;
     r->service_names = heim_array_create();
     r->hostnames = heim_array_create();
@@ -1342,7 +1455,7 @@ get_keys(kadmin_request_desc r)
     case ENOSYS: /* XXX */
         return bad_method_want_POST(r);
     case KADM5_READ_ONLY:
-        if (primary_server) {
+        if (primary_server_URI) {
             krb5_log_msg(r->context, logfac, 1, NULL,
                          "Redirect for %s to primary server to "
                          "materialize or rotate principal", r->cname);
@@ -1375,8 +1488,8 @@ get_config(kadmin_request_desc r)
     krb5_tl_data *tl_next;
     const char *pname;
     /* Default configuration for principals that have none set: */
-    size_t bodylen = sizeof("include /etc/krb5/krb5.conf\n") - 1;
-    void *body = "include /etc/krb5/krb5.conf\n";
+    size_t bodylen = sizeof("include /etc/krb5.conf\n") - 1;
+    void *body = "include /etc/krb5.conf\n";
     int freeit = 0;
 
     if ((ret = validate_token(r)))
@@ -1384,6 +1497,13 @@ get_config(kadmin_request_desc r)
     if (r->cname == NULL || r->cprinc == NULL)
         return bad_403(r, EINVAL,
                        "Could not extract principal name from token");
+    /*
+     * No authorization needed -- configs are public.  Though we do require
+     * authentication (above).
+     */
+
+    ret = get_kadm_handle(r->context, r->realm ? r->realm : realm,
+                          0 /* want_write */, &r->kadm_handle);
 
     memset(&princ, 0, sizeof(princ));
     princ.key_data = NULL;
@@ -1433,14 +1553,16 @@ mac_csrf_token(kadmin_request_desc r, krb5_storage *sp)
     krb5_principal p = NULL;
     krb5_data data;
     char mac[EVP_MAX_MD_SIZE];
-    unsigned int maclen;
+    unsigned int maclen = sizeof(mac);
     size_t i = 0;
     int freeit = 0;
 
     memset(&princ, 0, sizeof(princ));
     ret = krb5_storage_to_data(sp, &data);
     if (ret == 0)
-        ret = krb5_parse_name(r->context, "WELLKNOWN/CSRFTOKEN", &p);
+        ret = krb5_make_principal(r->context, &p,
+                                  r->realm ? r->realm : realm,
+                                  "WELLKNOWN", "CSRFTOKEN", NULL);
     if (ret == 0)
         ret = kadm5_get_principal(r->kadm_handle, p, &princ, 
                                   KADM5_PRINCIPAL | KADM5_KVNO |
@@ -1457,10 +1579,15 @@ mac_csrf_token(kadmin_request_desc r, krb5_storage *sp)
         i = 0; /* Weird, but can't happen */
 
     if (ret == 0) {
-        (void) HMAC(EVP_sha256(),
-                    princ.key_data[i].key_data_contents[0],
-                    princ.key_data[i].key_data_length[0],
-                    data.data, data.length, mac, &maclen);
+        HMAC_CTX ctx;
+
+        /* HMAC the token body and the client principal name */
+        HMAC_CTX_init(&ctx);
+        HMAC_Init_ex(&ctx, princ.key_data[i].key_data_contents[0], princ.key_data[i].key_data_length[0], EVP_sha256(), NULL);
+        HMAC_Update(&ctx, data.data, data.length);
+        HMAC_Update(&ctx, r->cname, strlen(r->cname));
+        HMAC_Final(&ctx, mac, &maclen);
+        HMAC_CTX_cleanup(&ctx);
         krb5_data_free(&data);
         data.length = maclen;
         data.data = mac;
@@ -1680,20 +1807,25 @@ static struct getargs args[] = {
     { "thread-per-client", 't', arg_flag, &thread_per_client_flag, "thread per-client", NULL },
     { "realm", 0, arg_string, &realm, "realm", "REALM" },
     { "hdb", 0, arg_string, &hdb, "HDB filename", "PATH" },
-    { "admin-server", 0, arg_string, &admin_server,
-        "Name of kadmin server", "HOST[:PORT]" },
-    { "primary-admin-server", 0, arg_string, &primary_admin_server,
-        "Name of primary kadmin server", "HOST[:PORT]" },
-    { "primary-server", 0, arg_string, &primary_server,
+    { "read-only-admin-server", 0, arg_string, &kadmin_server,
+        "Name of read-only kadmin server", "HOST[:PORT]" },
+    { "writable-admin-server", 0, arg_string, &writable_kadmin_server,
+        "Name of writable kadmin server", "HOST[:PORT]" },
+    { "primary-server-uri", 0, arg_string, &primary_server_URI,
         "Name of primary httpkadmind server for HTTP redirects", "URL" },
-    { "local-read-only", 0, arg_flag, &local_read_only,
+    { "local", 'l', arg_flag, &local_hdb,
         "Use a local HDB as read-only", NULL },
+    { "local-read-only", 0, arg_flag, &local_hdb_read_only,
+        "Use a local HDB as read-only", NULL },
+    { "read-only", 0, arg_flag, &read_only, "Allow no writes", NULL },
     { "stash-file", 0, arg_string, &stash_file,
         "Stash file for HDB", "PATH" },
     { "kadmin-client-name", 0, arg_string, &kadmin_client_name,
         "Client name for remote kadmind", "PRINCIPAL" },
     { "kadmin-client-keytab", 0, arg_string, &kadmin_client_keytab,
         "Keytab with client credentials for remote kadmind", "KEYTAB" },
+    { "token-authentication-type", 0, arg_strings, &auth_types,
+        "Token authentication type(s) supported", "HTTP-AUTH-TYPE" },
     { "verbose", 'v', arg_counter, &verbose_counter, "verbose", "run verbosely" }
 };
 
@@ -1832,7 +1964,17 @@ main(int argc, char **argv)
     if ((errno = get_krb5_context(&context)))
         err(1, "Could not init krb5 context (config file issue?)");
 
-    if ((errno = get_kadm_handle(context, &kadm_handle, 0)))
+    if (!realm) {
+        char *s;
+
+        ret = krb5_get_default_realm(context, &s);
+        if (ret)
+            krb5_err(context, 1, ret, "Could not determine default realm");
+        realm = s;
+    }
+
+    if ((errno = get_kadm_handle(context, realm, 0 /* want_write */,
+                                 &kadm_handle)))
         err(1, "Could not connect to HDB");
     kadm5_destroy(kadm_handle);
 
@@ -1932,6 +2074,8 @@ again:
          * We won't use TLS in the reverse proxy case, so no need to reload
          * certs.  But we'll still read them if given, and alarm() will get
          * called.
+         *
+         * XXX We should be able to re-read krb5.conf and such on SIGHUP.
          */
         (void) signal(SIGHUP, SIG_IGN);
         (void) signal(SIGUSR1, SIG_IGN);

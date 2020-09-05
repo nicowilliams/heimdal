@@ -66,7 +66,7 @@ do_del_ns_entry(krb5_principal nsp, void *data)
 
     ret = krb5_make_principal(context, &p,
                               krb5_principal_get_realm(context, nsp),
-                              "WELLKNOWN", "HOSTBASED-NAMESPACE", NULL);
+                              "WELLKNOWN", HDB_WK_NAMESPACE, NULL);
     if (ret == 0) switch (krb5_principal_get_num_comp(context, nsp)) {
     case 3:
         ret = krb5_principal_set_comp_string(context, p, 4, comp2);
