@@ -988,6 +988,12 @@ krb5_krbhst_init_flags(krb5_context context,
 					     "tcp", 749));
 	service = "admin";
 	break;
+    case KRB5_KRBHST_READONLY_ADMIN:
+	next = admin_get_next;
+	def_port = ntohs(krb5_getportbyname (context, "kerberos-adm-readonly",
+					     "tcp", 749));
+	service = "admin";
+	break;
     case KRB5_KRBHST_CHANGEPW:
 	next = kpasswd_get_next;
 	def_port = ntohs(krb5_getportbyname (context, "kpasswd", "udp",
@@ -1117,15 +1123,27 @@ gethostlist(krb5_context context, const char *realm,
 }
 
 /*
- * return an malloced list of kadmin-hosts for `realm' in `hostlist'
+ * Return a malloced list of kadmin-hosts for `realm' in `hostlist'
  */
 
 KRB5_LIB_FUNCTION krb5_error_code KRB5_LIB_CALL
-krb5_get_krb_admin_hst (krb5_context context,
-			const krb5_realm *realm,
-			char ***hostlist)
+krb5_get_krb_admin_hst(krb5_context context,
+                       const krb5_realm *realm,
+                       char ***hostlist)
 {
     return gethostlist(context, *realm, KRB5_KRBHST_ADMIN, hostlist);
+}
+
+/*
+ * Return a malloced list of writable kadmin-hosts for `realm' in `hostlist'
+ */
+
+KRB5_LIB_FUNCTION krb5_error_code KRB5_LIB_CALL
+krb5_get_krb_readonly_admin_hst(krb5_context context,
+                                const krb5_realm *realm,
+                                char ***hostlist)
+{
+    return gethostlist(context, *realm, KRB5_KRBHST_READONLY_ADMIN, hostlist);
 }
 
 /*
