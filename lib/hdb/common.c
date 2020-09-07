@@ -439,7 +439,7 @@ hdb_derive_etypes(krb5_context context, hdb_entry *e, HDB_Ext_KeySet *base_keys)
     for (k = 0; i == 0 && k < base_keys->len; k++) {
         if (!base_keys->val[k].keys.len)
             continue;
-        for (; i < base_keys->val[i].keys.len; i++)
+        for (; i < base_keys->val[k].keys.len; i++)
             e->etypes->val[i] = base_keys->val[k].keys.val[i].key.keytype;
     }
     return 0;
