@@ -1231,7 +1231,7 @@ fix_keys(krb5_context context,
  * WELLKNOWN/HOSTBASED-NAMESPACE/${svc}/${hostname}/${domainname} principal
  * object, with the service and hostname components take from `wanted', but if
  * the service name is not in the list `db->virtual_hostbased_princ_svcs[]'
- * then use "*" (wildcard) instead.  This way we can have different attributes
+ * then use "_" (wildcard) instead.  This way we can have different attributes
  * for different services in the same namespaces.
  *
  * For example, virtual hostbased service names for the "host" service might
@@ -1264,7 +1264,7 @@ make_namespace_princ(krb5_context context,
         }
     }
     if (!svcs || !svcs[i])
-        comp0 = "*";
+        comp0 = "_";
 
     /* First go around, need a namespace princ.  Make it! */
     ret = krb5_build_principal(context, namespace, strlen(realm),
