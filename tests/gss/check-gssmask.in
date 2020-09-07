@@ -82,7 +82,7 @@ ${kadmin} add_ns --key-rotation-epoch=now       \
                  --max-ticket-life=10d          \
                  --max-renewable-life=20d       \
                  --attributes=                  \
-                 "*/test.h5l.se@${R}" || exit 1
+                 "_/test.h5l.se@${R}" || exit 1
 ${kadmin} ext -k ${keytab} host/n1.test.h5l.se@${R} || exit 1
 ${kadmin} ext -k ${keytab} host/n2.test.h5l.se@${R} || exit 1
 ${kadmin} ext -k ${keytab} host/n3.test.h5l.se@${R} || exit 1
