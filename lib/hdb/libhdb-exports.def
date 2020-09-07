@@ -87,7 +87,6 @@ EXPORTS
 	hdb_unseal_keys_mkey
 	hdb_validate_key_rotation
 	hdb_validate_key_rotations
-	hdb_validate_new_key_rotation
 	hdb_value2entry
 	hdb_value2entry_alias
 	hdb_write_master_key
