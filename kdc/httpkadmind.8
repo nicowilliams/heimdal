@@ -46,9 +46,10 @@
 .Op Fl Fl temp-dir= Ns Ar DIRECTORY
 .Op Fl Fl cert=HX509-STORE
 .Op Fl Fl private-key=HX509-STORE
+.Op Fl T | Fl Fl token-authentication-type=Negotiate|Bearer
 .Op Fl Fl realm=REALM
 .Op Fl Fl read-only
-.Op Fl Fl local
+.Op Fl l | Fl Fl local
 .Op Fl Fl local-read-only
 .Op Fl Fl hdb=HDB
 .Op Fl Fl stash-file=FILENAME
@@ -121,6 +122,10 @@ ad
 will be used.
 Defaults to
 .Ar HTTP .
+.It realm=REALM
+Must be present if the
+.Nm httpkadmind
+daemon's default realm is not desired.
 .It Ar enctypes=ENCTYPE,...
 A comma-separated list of enctypes that the principal is expected
 to support (used for Kerberos Ticket session key negotiation).
@@ -131,6 +136,7 @@ configured in
 .It Ar materialize=true
 If the named principal(s) is (are) virtual, this will cause it
 (them) to be materialized as a concrete principal.
+(Currently not supported.)
 .It Ar create=true
 If the named principal(s) does not (do not) exist, this will
 cause it (them) to be created.
@@ -148,8 +154,12 @@ Authorization is handled via the same mechanism as in
 .Nm bx509d(8)
 which was originally intended to authorize certification requests
 (CSRs).
-See
-.Nm krb5.conf(5) .
+Authorization for extracting keys is specified like for
+.Nm bx509d(8) ,
+but using
+.Nm [ext_keytab]
+as the
+.Nm krb5.conf(5) section.
 .Pp
 Supported options:
 .Bl -tag -width Ds -offset indent
@@ -194,6 +204,17 @@ May contain private key as well.
 .Xc
 Private key file path (PEM), if the private key is not stored along with the
 certificiate.
+.It Xo
+.Fl T Ar HTTP-AUTH-TYPE,
+.Fl Fl token-authentication-type= Ns Ar HTTP-AUTH-TYPE
+.Xc
+HTTP bearer token authentication type(s) supported (may be given more than
+once).
+For example,
+.Ar Negotiate
+or
+.Ar Bearer
+(JWT).
 .It Xo
 .Fl t ,
 .Fl Fl thread-per-client
@@ -261,7 +282,11 @@ the
 .Nm kadmind(8)
 services for the
 .Ar REALM .
-If not specified, but needed, this will be obtained by performing
+If not specified, but needed, this will be obtained by looking for
+.Nm readonly_admin_server
+in
+.Nm krb5.conf
+or, if enabled, performing
 DNS lookups for SRV resource records named
 .Ar _kerberos-adm-readonly._tcp.<realm> .
 .It Xo
@@ -270,8 +295,11 @@ DNS lookups for SRV resource records named
 The hostname (and possibly port number) of a
 .Nm kadmind(8)
 service to use for write operations.
-If not specified, but needed, this will be obtained by performing
-DNS lookups for SRV resource records named
+If not specified, but needed, this will be obtained by looking for
+.Nm admin_server
+in
+.Nm krb5.conf
+or, if enabled, performing DNS lookups for SRV resource records named
 .Ar _kerberos-adm._tcp.<realm> .
 .It Xo
 .Fl Fl kadmin-client-name=PRINCIPAL
@@ -314,35 +342,53 @@ To start
 .Nm httpkadmind
 on a primary KDC:
 .Pp
-.Ar httpkadmind -d --cert=PEM-FILE:/etc/httpkadmind.pem --local
+.Ar $ httpkadmind -d --cert=PEM-FILE:/etc/httpkadmind.pem
+\\
+.Br
+   --local -T Negotiate
 .Pp
 To start
 .Nm httpkadmind
 on a secondary KDC, using redirects for write operations:
 .Pp
-.Ar httpkadmind -d --cert=PEM-FILE:/etc/httpkadmind.pem --local-read-only --primary-server-uri=https://the-primary-server.fqdn/
+.Ar $ httpkadmind -d --cert=PEM-FILE:/etc/httpkadmind.pem
+\\
+.Br
+  --local-read-only -T Negotiate
+\\
+.Br
+  --primary-server-uri=https://the-primary-server.fqdn/
 .Pp
 To start
 .Nm httpkadmind
 on a secondary KDC, proxying kadmin to perform writes at the primary KDC, using
 DNS to discover the kadmin server:
 .Pp
-.Ar httpkadmind -d --cert=PEM-FILE:/etc/httpkadmind.pem --local-read-only --kadmin-client-keytab=FILE:/etc/krb5.keytab
+.Ar $ httpkadmind -d --cert=PEM-FILE:/etc/httpkadmind.pem
+\\
+.Br
+  --local-read-only -T Negotiate
+\\
+.Br
+  --kadmin-client-keytab=FILE:/etc/krb5.keytab
 .Pp
 To start
 .Nm httpkadmind
 on a non-KDC:
 .Pp
-.Ar httpkadmind -d --cert=PEM-FILE:/etc/httpkadmind.pem --kadmin-client-keytab=FILE:/etc/krb5.keytab
+.Ar $ httpkadmind -d --cert=PEM-FILE:/etc/httpkadmind.pem
+\\
+.Br
+  -T Negotiate --kadmin-client-keytab=FILE:/etc/krb5.keytab
 .Pp
 .Sh DIAGNOSTICS
 See logging section of
 .Nm krb5.conf.5
 .Sh SEE ALSO
-.Xr bx509d 8
-.Xr kadmin 1
-.Xr kadmind 8
-.Xr krb5.conf 5
+.Xr bx509d 8 ,
+.Xr kadmin 1 ,
+.Xr kadmind 8 ,
+.Xr krb5.conf 5 .
 .\".Sh STANDARDS
 .\".Sh HISTORY
 .\".Sh AUTHORS

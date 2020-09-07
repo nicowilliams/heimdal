@@ -1160,6 +1160,9 @@ get_keys1(kadmin_request_desc r, const char *pname)
     } else if (ret == 0 && r->materialize &&
                (princ.attributes & KRB5_KDB_VIRTUAL)) {
 
+#ifndef MATERIALIZE_NOTYET
+        ret = ENOTSUP;
+#else
         ret = strcmp(r->method, "POST") == 0 ? 0 : ENOSYS; /* XXX */
 
         /*
@@ -1187,10 +1190,14 @@ get_keys1(kadmin_request_desc r, const char *pname)
          * perform_tl_data() handle them.  (New extensions should generally go
          * as KRB5_TL_EXTENSION so that non-critical ones can be set on
          * principals via old kadmind programs that don't support them.)
+         *
+         * What we really want is a kadm5 utility function to convert some TLs
+         * to KRB5_TL_EXTENSION and drop all others.
          */
         if (ret == 0)
             ret = kadm5_create_principal(r->kadm_handle, &princ, mask, "");
         refetch = 1;
+#endif
     } /* else create/materialize q-params are superfluous */
 
     /* Handle rotate / revoke options */
@@ -1824,7 +1831,7 @@ static struct getargs args[] = {
         "Client name for remote kadmind", "PRINCIPAL" },
     { "kadmin-client-keytab", 0, arg_string, &kadmin_client_keytab,
         "Keytab with client credentials for remote kadmind", "KEYTAB" },
-    { "token-authentication-type", 0, arg_strings, &auth_types,
+    { "token-authentication-type", 'T', arg_strings, &auth_types,
         "Token authentication type(s) supported", "HTTP-AUTH-TYPE" },
     { "verbose", 'v', arg_counter, &verbose_counter, "verbose", "run verbosely" }
 };
