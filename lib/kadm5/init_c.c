@@ -148,33 +148,38 @@ _kadm5_c_init_context(kadm5_client_context **ctx,
 	(*ctx)->kadmind_port = krb5_getportbyname(context, "kerberos-adm",
 						  "tcp", 749);
 
-    if (params->mask & KADM5_CONFIG_READONLY_ADMIN_SERVER)
+    if (params->mask & KADM5_CONFIG_READONLY_ADMIN_SERVER) {
 	(*ctx)->readonly_admin_server = strdup(params->readonly_admin_server);
-    else {
+        if ((*ctx)->readonly_admin_server == NULL) {
+            free((*ctx)->realm);
+            free(*ctx);
+            return krb5_enomem(context);
+        }
+    } else {
 	char **hostlist;
 
         ret = krb5_get_krb_readonly_admin_hst(context, &(*ctx)->realm,
                                               &hostlist);
-	if (ret) {
-	    free((*ctx)->realm);
-	    free(*ctx);
-	    return ret;
-	}
-	(*ctx)->readonly_admin_server = strdup(*hostlist);
-	krb5_free_krbhst(context, hostlist);
+        if (ret == 0) {
+            (*ctx)->readonly_admin_server = strdup(*hostlist);
+            krb5_free_krbhst(context, hostlist);
+            if ((*ctx)->readonly_admin_server == NULL) {
+                free((*ctx)->realm);
+                free(*ctx);
+                return krb5_enomem(context);
+            }
+        }
     }
+    if ((*ctx)->readonly_admin_server) {
+        colon = strchr((*ctx)->readonly_admin_server, ':');
+        if (colon != NULL)
+            *colon++ = '\0';
 
-    if ((*ctx)->readonly_admin_server == NULL) {
-	free((*ctx)->realm);
-	free(*ctx);
-	return krb5_enomem(context);
+    } else {
+        colon = NULL;
     }
-    colon = strchr((*ctx)->readonly_admin_server, ':');
-    if (colon != NULL)
-	*colon++ = '\0';
 
     (*ctx)->readonly_kadmind_port = 0;
-
     if (params->mask & KADM5_CONFIG_READONLY_KADMIN_PORT)
 	(*ctx)->readonly_kadmind_port = params->readonly_kadmind_port;
     else if (colon != NULL) {
@@ -482,13 +487,16 @@ kadm_connect(kadm5_client_context *ctx)
     char *hostname, *slash;
     char *service_name;
     krb5_context context = ctx->context;
+    int writable = 0;
 
     if (!ctx->want_write) {
         admin_server = ctx->readonly_admin_server;
         kadmin_port = ctx->readonly_kadmind_port;
     }
-    if (admin_server == NULL)
+    if (admin_server == NULL) {
         admin_server = ctx->admin_server;
+        writable = 1;
+    }
     if (kadmin_port < 1)
         kadmin_port = ctx->kadmind_port;
 
@@ -616,6 +624,7 @@ kadm_connect(kadm5_client_context *ctx)
 	krb5_cc_close(context, cc);
     ctx->sock = s;
 
+    ctx->connected_to_writable = !!writable;
     return 0;
 }
 
@@ -623,7 +632,6 @@ kadm5_ret_t
 _kadm5_connect(void *handle, int want_write)
 {
     kadm5_client_context *ctx = handle;
-    kadm5_ret_t ret = 0;
 
     /*
      * Reconnect?  Note that we don't reconnect to read-only kadmin servers if
@@ -640,11 +648,9 @@ _kadm5_connect(void *handle, int want_write)
         rk_closesocket(ctx->sock);
         ctx->sock = rk_INVALID_SOCKET;
     }
-    if (ctx->sock == rk_INVALID_SOCKET) {
-	ret = kadm_connect(ctx);
-        ctx->connected_to_writable = !!(ret == 0 && ctx->want_write);
-    }
-    return ret;
+    if (ctx->sock == rk_INVALID_SOCKET)
+	return kadm_connect(ctx);
+    return 0;
 }
 
 static kadm5_ret_t
