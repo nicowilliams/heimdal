@@ -159,6 +159,7 @@ audit_trail(kadmin_request_desc r, krb5_error_code ret)
     CASE(HDB_ERR_KVNO_NOT_FOUND);
     CASE(HDB_ERR_NOENTRY);
     CASE(HDB_ERR_NO_MKEY);
+    CASE(KRB5_KDC_UNREACH);
     CASE(KADM5_FAILURE);
     CASE(KADM5_AUTH_GET);
     CASE(KADM5_AUTH_ADD);
@@ -290,6 +291,7 @@ get_kadm_handle(krb5_context context,
                 void **kadm_handle)
 {
     kadm5_config_params conf;
+    krb5_error_code ret;
 
     /*
      * If the caller wants to write and we are configured to redirect in that
@@ -324,33 +326,39 @@ get_kadm_handle(krb5_context context,
      * read-only and the caller wants to write, then we won't use the local
      * HDB, naturally.
      */
-    if (local_hdb && (!local_hdb_read_only || !want_write))
-        return kadm5_s_init_with_password_ctx(context,
-                                              kadmin_client_name,
-                                              NULL, /* password */
-                                              NULL, /* service_name */
-                                              &conf,
-                                              0,    /* struct_version */
-                                              0,    /* api_version */
-                                              kadm_handle);
+    if (local_hdb && (!local_hdb_read_only || !want_write)) {
+        ret = kadm5_s_init_with_password_ctx(context,
+                                             kadmin_client_name,
+                                             NULL, /* password */
+                                             NULL, /* service_name */
+                                             &conf,
+                                             0,    /* struct_version */
+                                             0,    /* api_version */
+                                             kadm_handle);
+        goto out;
+    }
 
     /* Note that kadmin_client_keytab can be an HDB: or HDBGET: keytab */
-    return kadm5_c_init_with_skey_ctx(context,
-                                      kadmin_client_name,
-                                      kadmin_client_keytab,
-                                      KADM5_ADMIN_SERVICE,
-                                      &conf,
-                                      0, /* struct_version */
-                                      0, /* api_version */
-                                      kadm_handle);
+    ret = kadm5_c_init_with_skey_ctx(context,
+                                     kadmin_client_name,
+                                     kadmin_client_keytab,
+                                     KADM5_ADMIN_SERVICE,
+                                     &conf,
+                                     0, /* struct_version */
+                                     0, /* api_version */
+                                     kadm_handle);
+    goto out;
 
 enomem:
+    ret = krb5_enomem(context);
+
+out:
     free(conf.readonly_admin_server);
     free(conf.admin_server);
     free(conf.stash_file);
     free(conf.dbname);
     free(conf.realm);
-    return krb5_enomem(context);
+    return ret;
 }
 
 static krb5_error_code resp(kadmin_request_desc, int,
