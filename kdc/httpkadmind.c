@@ -280,7 +280,7 @@ static struct getarg_strings auth_types;
     if (v) { \
         if (((c).f = strdup(v)) == NULL) \
             goto enomem; \
-        conf.mask = b; \
+        conf.mask |= b; \
     }
 
 static krb5_error_code
@@ -892,7 +892,11 @@ param_cb(void *d,
         heim_audit_addkv((heim_svc_req_desc)r, KDC_AUDIT_VIS,
                          "requested_spn", "%s", val);
 
-        ret = krb5_parse_name(r->context, val, &p);
+        ret = krb5_parse_name_flags(r->context, val,
+                                    KRB5_PRINCIPAL_PARSE_NO_DEF_REALM, &p);
+        if (ret == 0 && krb5_principal_get_realm(r->context, p) == NULL)
+            ret = krb5_principal_set_realm(r->context, p,
+                                           r->realm ? r->realm : realm);
         if (ret == 0 && krb5_principal_get_num_comp(r->context, p) != 2)
                 ret = ENOTSUP;
         if (ret == 0)
@@ -1132,6 +1136,7 @@ get_keys1(kadmin_request_desc r, const char *pname)
         } else if (ret == 0 && writable_kadmin_server) {
             /* Connected to replica -> reconnect to primary */
             kadm5_destroy(r->kadm_handle);
+            r->kadm_handle = NULL;
             ret = get_kadm_handle(r->context, r->realm, 1 /* want_write */,
                                   &r->kadm_handle);
         } else if (ret == 0 && local_hdb_read_only) {
@@ -1175,6 +1180,7 @@ get_keys1(kadmin_request_desc r, const char *pname)
         } else if (ret == 0 && writable_kadmin_server) {
             /* Connected to replica -> reconnect to primary */
             kadm5_destroy(r->kadm_handle);
+            r->kadm_handle = NULL;
             ret = get_kadm_handle(r->context, r->realm, 1 /* want_write */,
                                   &r->kadm_handle);
         } else if (ret == 0 && local_hdb_read_only) {
@@ -1215,6 +1221,7 @@ get_keys1(kadmin_request_desc r, const char *pname)
         } else if (ret == 0 && writable_kadmin_server) {
             /* Connected to replica -> reconnect to primary */
             kadm5_destroy(r->kadm_handle);
+            r->kadm_handle = NULL;
             ret = get_kadm_handle(r->context, r->realm, 1 /* want_write */,
                                   &r->kadm_handle);
         } else if (ret == 0 && local_hdb_read_only) {
@@ -1254,8 +1261,10 @@ get_keys1(kadmin_request_desc r, const char *pname)
     return ret;
 }
 
+static krb5_error_code check_csrf(kadmin_request_desc);
+
 static krb5_error_code
-get_keysN(kadmin_request_desc r)
+get_keysN(kadmin_request_desc r, const char *method)
 {
     krb5_error_code ret;
     size_t nhosts;
@@ -1270,6 +1279,11 @@ get_keysN(kadmin_request_desc r)
 
     ret = get_kadm_handle(r->context, r->realm ? r->realm : realm,
                           0 /* want_write */, &r->kadm_handle);
+
+    if (strcmp(method, "POST") == 0 && (ret = check_csrf(r)))
+        return bad_403(r, ret,
+                       "CSRF token needed; copy the X-CSRF-Token: response "
+                       "header to your next POST");
 
     nhosts = heim_array_get_length(r->hostnames);
     nsvcs = heim_array_get_length(r->service_names);
@@ -1291,6 +1305,7 @@ get_keysN(kadmin_request_desc r)
         nsvcs = 1;
     }
 
+    /* FIXME: Make this configurable */
     if (nsvcs > 4) {
         krb5_set_error_message(r->context, ret = ERANGE,
                                "Requested too many service names");
@@ -1449,16 +1464,19 @@ clean_req_desc(kadmin_request_desc r)
 
 /* Implements GETs of /get-keys */
 static krb5_error_code
-get_keys(kadmin_request_desc r)
+get_keys(kadmin_request_desc r, const char *method)
 {
     krb5_error_code ret;
+
 
     if ((ret = validate_token(r)))
         return ret; /* validate_token() calls bad_req() */
     if (r->cname == NULL || r->cprinc == NULL)
         return bad_403(r, EINVAL,
                        "Could not extract principal name from token");
-    switch ((ret = get_keysN(r))) {
+    switch ((ret = get_keysN(r, method))) {
+    case -1: /* XXX */
+        return MHD_YES;
     case ENOSYS: /* XXX */
         return bad_method_want_POST(r);
     case KADM5_READ_ONLY:
@@ -1566,6 +1584,9 @@ mac_csrf_token(kadmin_request_desc r, krb5_storage *sp)
 
     memset(&princ, 0, sizeof(princ));
     ret = krb5_storage_to_data(sp, &data);
+    if (r->kadm_handle == NULL)
+        ret = get_kadm_handle(r->context, r->realm, 0 /* want_write */,
+                              &r->kadm_handle);
     if (ret == 0)
         ret = krb5_make_principal(r->context, &p,
                                   r->realm ? r->realm : realm,
@@ -1699,12 +1720,7 @@ check_csrf(kadmin_request_desc r)
                     "Request missing a CSRF token",
                     sizeof("Request missing a CSRF token"), NULL,
                     expected);
-        /*
-         * XXX Some versions of libmicrohttpd don't strdup() header values
-         * added to responses, so we can't free expected.
-         */
-        /*free(expected); */
-        return EACCES;
+        return -1;
     }
 
     /* Validate the CSRF token for this request */
@@ -1778,10 +1794,8 @@ route(void *cls,
         ret = health(method, &r);
     } else if (strcmp(method, "GET") != 0 && strcmp(method, "POST") != 0) {
         ret = bad_405(&r, method);
-    } else if (strcmp(method, "POST") == 0 && (ret = check_csrf(&r))) {
-        ;
     } else if (strcmp(url, "/get-keys") == 0) {
-        ret = get_keys(&r);
+        ret = get_keys(&r, method);
     } else if (strcmp(url, "/get-config") == 0) {
         if (strcmp(method, "GET") != 0)
             ret = bad_405(&r, method);

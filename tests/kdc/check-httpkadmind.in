@@ -78,8 +78,8 @@ kadminr="${kadmin} -r $R -a $(uname -n)"
 kadmin="${kadmin} -l -r $R"
 kadmind2="${kadmind} --keytab=${keytab} --detach -p $admport2 --read-only"
 kadmind="${kadmind} --keytab=${keytab} --detach -p $admport"
-httpkadmind2="${httpkadmind} --reverse-proxied -p $restport2"
-httpkadmind="${httpkadmind} --reverse-proxied -p $restport1"
+httpkadmind2="${httpkadmind} --reverse-proxied -T Negotiate -p $restport2"
+httpkadmind="${httpkadmind} --reverse-proxied -T Negotiate -p $restport1"
 
 kinit="${kinit} -c $cache ${afs_no_afslog}"
 adminklist="${klist} --hidden -v -c $admincache"
@@ -250,7 +250,7 @@ echo "Fetching krb5.conf for $p"
 get_config "princ=$p" -sf -o "${objdir}/extracted_config" ||
     { echo "Failed to get config for $p"; exit 1; }
 read config < "${objdir}/extracted_config"
-test "$config" = "include /etc/krb5/krb5.conf" ||
+test "$config" = "include /etc/krb5.conf" ||
     { echo "Got unexpected default config for $p"; exit 1; }
 ${kadmin} mod --krb5-config-file="$KRB5_CONFIG" $p ||
     { echo "Failed to set config for $p"; exit 1; }
@@ -398,6 +398,7 @@ ${ktutil} -k "${objdir}/extracted_keytab" list --keys > extracted_keytab.kadmin 
 cmp extracted_keytab.kadmin extracted_keytab.rest ||
     { echo "Keytabs for $p don't match!"; exit 1; }
 
+if false; then
 hn=bar.ns.${domain}
 p=HTTP/$hn
 echo "Checking materialization of virtual principal ($p)"
@@ -416,10 +417,11 @@ ${ktutil} -k "${objdir}/extracted_keytab" list --keys > extracted_keytab.kadmin 
     { echo "Failed to list keytab for $p"; exit 1; }
 cmp extracted_keytab.kadmin extracted_keytab.rest ||
     { echo "Keytabs for $p don't match!"; exit 1; }
+fi
 
 echo "Starting secondary httpkadmind to test HTTP redirection"
 ${httpkadmind2} --primary-server-uri=http://localhost:$restport         \
-    -H $server --local-read-only -t --daemon ||
+    -H $server --local --local-read-only -t --daemon ||
     { echo "httpkadmind failed to start"; exit 2; }
 httpkadmind2pid=`getpid httpkadmind`
 ec=0
