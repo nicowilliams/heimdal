@@ -29,6 +29,7 @@
 
         # Configure kdc plugins for testing
         simple_csr_authorizer_directory = @objdir@/simple_csr_authz
+        http_csr_authorizer_uri = file://@abs_builddir@/simple_csr_authz/check
 
         enable-pkinit = true
         pkinit_identity = PEM-FILE:@objdir@/user-issuer.pem
@@ -79,6 +80,13 @@
                         }
                 }
         }
+
+[httpkadmind]
+        plugin_dir =  @objdir@/../../kdc/.libs
+
+        # Configure kdc plugins for testing
+        simple_csr_authorizer_directory = @objdir@/simple_csr_authz
+        http_csr_authorizer_uri = file://@abs_builddir@/simple_csr_authz/check
 
 [hdb]
 	db-dir = @objdir@

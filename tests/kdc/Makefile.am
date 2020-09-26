@@ -74,6 +74,7 @@ do_subst = $(heim_verbose)sed $(do_dlopen) \
 	-e 's,[@]ipropport[@],$(ipropport),g' \
 	-e 's,[@]ipropport2[@],$(ipropport2),g' \
 	-e 's,[@]objdir[@],$(top_builddir)/tests/kdc,g' \
+	-e 's,[@]abs_builddir[@],$(abs_builddir),g' \
 	-e 's,[@]top_builddir[@],$(top_builddir),g' \
 	-e 's,[@]db_type[@],$(db_type),g' \
         -e 's,[@]ENABLE_AFS_STRING_TO_KEY[@],$(ENABLE_AFS_STRING_TO_KEY),' \

@@ -350,6 +350,29 @@ get_keytab "spn=host/xyz.${domain}" -sf -o "${objdir}/extracted_keytab" &&
     { echo "Got a keytab for $p even though it is a host service!"; exit 1; }
 revoke
 
+if test -f ${objdir}/../../kdc/http_csr_authorizer.lo; then
+    echo "Checking that http_csr_authorizer works with file: URIs"
+    hn=xyz.${domain}
+    p=host/$hn
+    echo "Fetching keytab for virtual principal $p"
+    rm -f extracted_keytab*
+    revoke
+    set -vx
+    mkdir -p "${objdir}/simple_csr_authz/check/requestor=foo@${R}"
+    echo hello > "${objdir}/simple_csr_authz/check/requestor=foo@${R}/dnsname=${hn}"
+    find "${objdir}/simple_csr_authz/" -ls
+    grant dnsname $hn foo@${R}
+    get_keytab "dNSName=${hn}" -sf -o "${objdir}/extracted_keytab" ||
+        { echo "Failed to get a keytab using the http_csr_authorizer"; read ans; exit 1; }
+    read ans
+    set +vx
+    #get_keytab "spn=HTTP/xyz.${domain}" -sf -o "${objdir}/extracted_keytab" ||
+    #    { echo "Failed to get a keytab using the http_csr_authorizer"; exit 1; }
+    revoke
+else
+echo "Skipping test of http_csr_authorizer"
+fi
+
 hn=xyz.${domain}
 p=HTTP/$hn
 echo "Checking key rotation for concrete principal $p"
@@ -590,6 +613,7 @@ sh ${leaks_kill} kadmind $kadmindpid || ec=1
 sh ${leaks_kill} kadmind $kadmind2pid || ec=1
 sh ${leaks_kill} kdc $kdcpid || ec=1
 
+revoke
 trap "" EXIT
 
 # TODO

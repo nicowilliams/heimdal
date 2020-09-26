@@ -198,6 +198,20 @@ AM_CONDITIONAL([HAVE_MICROHTTPD], [test "$with_microhttpd" != "no"])
 AC_SUBST([MICROHTTPD_CFLAGS])
 AC_SUBST([MICROHTTPD_LIBS])
 
+dnl libcurl
+dnl For kdc/http_csr_authorizer.
+dnl There is a possible circular dependency here between Heimdal and libcurl
+dnl for Negotiate!
+rk_TEST_PACKAGE(libcurl,
+[#include <curl/curl.h>],
+[-lcurl],,,LIBCURL)
+if test "$with_libcurl" != "no"; then
+  AC_DEFINE_UNQUOTED([HAVE_LIBCURL], 1, [whether libmcurl is available for authorizer plugin])
+  AM_CONDITIONAL([HAVE_LIBCURL], [test "$with_libcurl" != "no"])
+  AC_SUBST([LIBCURL_CFLAGS])
+  AC_SUBST([LIBCURL_LIBS])
+fi
+
 dnl libcjwt
 AC_ARG_WITH([cjwt],
   AC_HELP_STRING([--with-cjwt], [(Experimental) use cjwt to validate JWT tokens @<:@default=check@:>@]),

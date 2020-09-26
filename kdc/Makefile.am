@@ -11,6 +11,10 @@ if HAVE_CJWT
 lib_LTLIBRARIES += cjwt_token_validator.la
 endif
 
+if HAVE_LIBCURL
+lib_LTLIBRARIES += http_csr_authorizer.la
+endif
+
 bin_PROGRAMS = string2key
 
 sbin_PROGRAMS = kstash
@@ -92,6 +96,11 @@ negotiate_token_validator_la_LDFLAGS = -module $(LIB_gssapi)
 # CSR Authorizer plugins (for kdc/kx509 and bx509d)
 simple_csr_authorizer_la_SOURCES = simple_csr_authorizer.c
 simple_csr_authorizer_la_LDFLAGS = -module
+if HAVE_LIBCURL
+http_csr_authorizer_la_SOURCES = http_csr_authorizer.c
+http_csr_authorizer_la_LDFLAGS = -module
+http_csr_authorizer_la_LIBADD = -lcurl
+endif
 ipc_csr_authorizer_la_SOURCES = ipc_csr_authorizer.c
 ipc_csr_authorizer_la_LDFLAGS = -module	\
 				$(top_builddir)/lib/krb5/libkrb5.la \
@@ -137,6 +146,7 @@ ALL_OBJECTS += $(bx509d_OBJECTS)
 ALL_OBJECTS += $(httpkadmind_OBJECTS)
 ALL_OBJECTS += $(cjwt_token_validator_la_OBJECTS)
 ALL_OBJECTS += $(simple_csr_authorizer_la_OBJECTS)
+ALL_OBJECTS += $(http_csr_authorizer_la_OBJECTS)
 ALL_OBJECTS += $(test_token_validator_OBJECTS)
 ALL_OBJECTS += $(test_csr_authorizer_OBJECTS)
 ALL_OBJECTS += $(test_kdc_ca_OBJECTS)
