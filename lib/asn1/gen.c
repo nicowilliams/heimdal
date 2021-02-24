@@ -1670,6 +1670,12 @@ generate_type (const Symbol *s)
 	     exp,
 	     s->gen_name, s->gen_name);
 
+    if (template_flag)
+        fprintf(h,
+                "%schar * ASN1CALL print_%s (%s *);\n",
+                exp,
+                s->gen_name, s->gen_name);
+
     fprintf(h, "\n\n");
 
     if (!one_code_file) {

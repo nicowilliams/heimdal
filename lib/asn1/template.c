@@ -35,6 +35,7 @@
 
 #include "der_locl.h"
 #include <com_err.h>
+#include <vis.h>
 
 struct asn1_type_func asn1_template_prim[A1T_NUM_ENTRY] = {
 #define el(name, type) {				\
@@ -43,6 +44,7 @@ struct asn1_type_func asn1_template_prim[A1T_NUM_ENTRY] = {
 	(asn1_type_length)der_length_##name,		\
 	(asn1_type_copy)der_copy_##name,		\
 	(asn1_type_release)der_free_##name,		\
+	(asn1_type_print)der_print_##name,		\
 	sizeof(type)					\
     }
 #define elber(name, type) {				\
@@ -51,6 +53,7 @@ struct asn1_type_func asn1_template_prim[A1T_NUM_ENTRY] = {
 	(asn1_type_length)der_length_##name,		\
 	(asn1_type_copy)der_copy_##name,		\
 	(asn1_type_release)der_free_##name,		\
+	(asn1_type_print)der_print_##name,		\
 	sizeof(type)					\
     }
     el(integer, int),
@@ -73,7 +76,8 @@ struct asn1_type_func asn1_template_prim[A1T_NUM_ENTRY] = {
     el(bit_string, heim_bit_string),
     { (asn1_type_encode)der_put_boolean, (asn1_type_decode)der_get_boolean,
       (asn1_type_length)der_length_boolean, (asn1_type_copy)der_copy_integer,
-      (asn1_type_release)der_free_integer, sizeof(int)
+      (asn1_type_release)der_free_integer, (asn1_type_print)der_print_boolean,
+      sizeof(int)
     },
     el(oid, heim_oid),
     el(general_string, heim_general_string),
@@ -499,16 +503,23 @@ _asn1_decode_open_type(const struct asn1_template *t,
      * An object set template looks like:
      *
      * const struct asn1_template asn1_ObjectSetName[] = {
-     *     { 0, 0, ((void*)17) }, // HEADER ENTRY, here 17 objects
-     *     // then two entries per object:
+     *     // Header entry (in this case it says there's 17 objects):
+     *     { 0, 0, ((void*)17) },
+     *
+     *     // here's the name of the object set:
+     *     { A1_OP_NAME, 0, "ObjectSetName" },
+     *
+     *     // then three entries per object: object name, object type ID,
+     *     // object type:
+     *     { A1_OP_NAME, 0, "ext-AuthorityInfoAccess" },
      *     { A1_OP_OPENTYPE_ID, 0, (const void*)&asn1_oid_oidName },
      *     { A1_OP_OPENTYPE, sizeof(SomeType), (const void*)&asn1_SomeType },
      *     ...
      * };
      *
-     * `i' will be a logical object offset, so i*2+1 will be the index of the
-     * A1_OP_OPENTYPE_ID entry for the current object, and i*2+2 will be the
-     * index of the A1_OP_OPENTYPE entry for the current object.
+     * `i' being a logical object offset, i*3+3 would be the index of the
+     * A1_OP_OPENTYPE_ID entry for the current object, and i*3+4 the index of
+     * the A1_OP_OPENTYPE entry for the current object.
      */
     if (t->tt & A1_OS_IS_SORTED) {
         size_t left = 0;
@@ -519,13 +530,13 @@ _asn1_decode_open_type(const struct asn1_template *t,
         while (left <= right) {
             size_t mid = (left + right) >> 1;
 
-            if ((tos[1 + mid * 2].tt & A1_OP_MASK) != A1_OP_OPENTYPE_ID)
+            if ((tos[3 + mid * 3].tt & A1_OP_MASK) != A1_OP_OPENTYPE_ID)
                 return 0;
             if (typeid_is_int)
-                c = typeid_int_cmp(vp, (intptr_t)tos[1 + mid * 2].ptr,
+                c = typeid_int_cmp(vp, (intptr_t)tos[3 + mid * 3].ptr,
                                    ttypeid_univ);
             else if (typeid_is_oid)
-                c = der_heim_oid_cmp(vp, tos[1 + mid * 2].ptr);
+                c = der_heim_oid_cmp(vp, tos[3 + mid * 3].ptr);
             if (c < 0) {
                 if (mid)
                     right = mid - 1;
@@ -543,15 +554,15 @@ _asn1_decode_open_type(const struct asn1_template *t,
     } else {
         for (i = 0, n = A1_HEADER_LEN(tos); i < n; i++) {
             /* We add 1 to `i' because we're skipping the header */
-            if ((tos[1 + i*2].tt & A1_OP_MASK) != A1_OP_OPENTYPE_ID)
+            if ((tos[3 + i*3].tt & A1_OP_MASK) != A1_OP_OPENTYPE_ID)
                 return 0;
             if (typeid_is_int &&
                 typeid_int_cmp(DPO(data, ttypeid->offset),
-                               (intptr_t)tos[1 + i*2].ptr,
+                               (intptr_t)tos[3 + i*3].ptr,
                                ttypeid_univ))
                 continue;
             if (typeid_is_oid &&
-                der_heim_oid_cmp(DPO(data, ttypeid->offset), tos[1 + i*2].ptr))
+                der_heim_oid_cmp(DPO(data, ttypeid->offset), tos[3 + i*3].ptr))
                 continue;
             break;
         }
@@ -567,7 +578,7 @@ _asn1_decode_open_type(const struct asn1_template *t,
      * the object we'll be decoding into, and its `ptr' is the pointer to the
      * template for decoding that type.
      */
-    tactual_type = &tos[i*2 + 2];
+    tactual_type = &tos[i*3 + 4];
 
     /* Decode the encoded open type value(s) */
     if (!(t->tt & A1_OS_OT_IS_ARRAY)) {
@@ -1038,7 +1049,7 @@ _asn1_decode(const struct asn1_template *t, unsigned flags,
 	    /* provide a saner value as default, we should have a NO element value */
 	    *element = 1;
 
-	    for (i = 1; i < A1_HEADER_LEN(choice) + 1; i++) {
+	    for (i = 1; i < A1_HEADER_LEN(choice) + 1 && choice[i].tt; i++) {
 		/* should match first tag instead, store it in choice.tt */
 		ret = _asn1_decode(choice[i].ptr, 0, p, len,
 				   DPO(data, choice[i].offset), &datalen);
@@ -1050,10 +1061,11 @@ _asn1_decode(const struct asn1_template *t, unsigned flags,
 		    return ret;
 		}
 	    }
-	    if (i >= A1_HEADER_LEN(choice) + 1) {
+	    if (i >= A1_HEADER_LEN(choice) + 1 || !choice[i].tt) {
 		if (choice->tt == 0)
 		    return ASN1_BAD_ID;
 
+                /* This is the ellipsis case */
 		*element = 0;
 		ret = der_get_octet_string(p, len,
 					   DPO(data, choice->tt), &datalen);
@@ -1209,13 +1221,13 @@ _asn1_encode_open_type(const struct asn1_template *t,
          * field.
          */
         ret = typeid_int_copy(DPO(data, ttypeid->offset),
-                              (intptr_t)tos[1 + (element-1)*2].ptr, ttypeid_univ);
+                              (intptr_t)tos[3 + (element-1)*3].ptr, ttypeid_univ);
     } else if (typeid_is_oid) {
         /*
          * Copy the OID from the type ID object field to the type ID struct
          * field.
          */
-        ret = der_copy_oid(tos[1 + (element-1)*2].ptr, DPO(data, ttypeid->offset));
+        ret = der_copy_oid(tos[3 + (element-1)*3].ptr, DPO(data, ttypeid->offset));
     } else
         enotsup = 1;
 
@@ -1226,7 +1238,7 @@ _asn1_encode_open_type(const struct asn1_template *t,
     if (enotsup)
         return ENOTSUP;
 
-    tactual_type = &tos[(element-1)*2 + 2];
+    tactual_type = &tos[(element-1)*3 + 4];
 
     if (!(t->tt & A1_OS_OT_IS_ARRAY)) {
         struct heim_base_data *os = DPO(data, topentype->offset);
@@ -1809,11 +1821,11 @@ _asn1_length_open_type(const struct asn1_template *tbase,
     } else if (typeid_is_oid) {
         heim_oid no_oid = { 0, 0 };
 
-        sz = _asn1_length_open_type_id(ttypeid, tos[1 + (element - 1)*2].ptr);
+        sz = _asn1_length_open_type_id(ttypeid, tos[3 + (element - 1)*3].ptr);
         sz -= _asn1_length_open_type_id(ttypeid, &no_oid);
     }
 
-    tactual_type = &tos[(element-1)*2 + 2];
+    tactual_type = &tos[(element-1)*3 + 4];
 
     /* Compute the size of the encoded value(s) */
     if (!(t->tt & A1_OS_OT_IS_ARRAY)) {
@@ -2074,7 +2086,7 @@ _asn1_free_open_type(const struct asn1_template *t, /* object set template */
     /* XXX We assume sizeof(enum) == sizeof(int) */
     if (!*elementp || *elementp >= A1_HEADER_LEN(tos) + 1)
         return; /* Unknown choice -> it's not decoded, nothing to free here */
-    tactual_type = tos[2*(*elementp - 1) + 2].ptr;
+    tactual_type = tos[3*(*elementp - 1) + 4].ptr;
 
     if (!(t->tt & A1_OS_OT_IS_ARRAY)) {
         dp = DPO(data, t->offset + sizeof(*elementp));
@@ -2219,6 +2231,320 @@ _asn1_free(const struct asn1_template *t, void *data)
     }
 }
 
+static struct rk_strpool *_asn1_print(const struct asn1_template *,
+                                      struct rk_strpool *,
+                                      const void *,
+                                      const heim_octet_string *);
+
+/* See commentary in _asn1_decode_open_type() */
+static struct rk_strpool *
+_asn1_print_open_type(const struct asn1_template *t, /* object set template */
+                      struct rk_strpool *r,
+                      const void *data,
+                      const char *opentype_name)
+{
+    const struct asn1_template *tactual_type;
+    const struct asn1_template *tos = t->ptr;
+    const unsigned int *lenp = NULL;  /* Pointer to array length field */
+    unsigned int len = 1;       /* Array length */
+    size_t i;
+    const void * const *dp;
+    const void * const *val;
+    const int *elementp = DPOC(data, t->offset);   /* Choice enum pointer */
+    char *s;
+
+    /* XXX We assume sizeof(enum) == sizeof(int) */
+    if (!*elementp || *elementp >= A1_HEADER_LEN(tos) + 1)
+        return rk_strpoolprintf(r, ",\"_%s_choice\":\"_ERROR_DECODING_\"",
+                                opentype_name);
+    tactual_type = tos[3*(*elementp - 1) + 4].ptr;
+
+    r = rk_strpoolprintf(r, ",\"_%s_choice\":\"%s\"", opentype_name,
+                         (const char *)tos[3*(*elementp - 1) + 2].ptr);
+    if (!r)
+        return r;
+
+    if (!(t->tt & A1_OS_OT_IS_ARRAY)) {
+        dp = DPOC(data, t->offset + sizeof(*elementp));
+        while (sizeof(void *) != sizeof(*elementp) &&
+               ((uintptr_t)dp) % sizeof(void *) != 0)
+            dp = (void *)(((char *)dp) + sizeof(*elementp));
+        if (*dp) {
+            struct rk_strpool *r2 = NULL;
+
+            r2 = _asn1_print(tactual_type, r2, *dp, NULL);
+            if (r2 == NULL)
+                return rk_strpoolprintf(r,
+                                        ", \"_%s\":\"_ERROR_FORMATTING_\"",
+                                        opentype_name);
+            s = rk_strpoolcollect(r2);
+            r = rk_strpoolprintf(r, ", \"_%s\":%s", opentype_name, s);
+            free(s);
+        }
+        return r;
+    }
+
+    lenp = DPOC(data, t->offset + sizeof(*elementp));
+    len = *lenp;
+    dp = DPOC(data, t->offset + sizeof(*elementp) + sizeof(*lenp));
+    while (sizeof(void *) != sizeof(*elementp) &&
+           ((uintptr_t)dp) % sizeof(void *) != 0)
+        dp = (void *)(((char *)dp) + sizeof(*elementp));
+    val = *dp;
+
+    r = rk_strpoolprintf(r, ", \"_%s\":[", opentype_name);
+    for (i = 0; i < len; i++) {
+        struct rk_strpool *r2 = NULL;
+        if (val[i]) {
+            r2 = _asn1_print(tactual_type, r2, val[i], NULL);
+            if (r2 == NULL)
+                continue;
+        }
+        if (i)
+            r = rk_strpoolprintf(r, ",");
+        r = rk_strpoolprintf(r, "%s", (s = rk_strpoolcollect(r2)));
+        free(s);
+    }
+    return rk_strpoolprintf(r, "]");
+}
+
+static struct rk_strpool *
+_asn1_print(const struct asn1_template *t,
+            struct rk_strpool *r,
+            const void *data,
+            const heim_octet_string *saved)
+{
+    const struct asn1_template *tbase = t;
+    const struct asn1_template *tnames;
+    size_t nelements = A1_HEADER_LEN(t);
+    size_t elements = nelements;
+    size_t nnames = 0;
+
+    for (t += nelements; t > tbase && (t->tt & A1_OP_MASK) == A1_OP_NAME; t--)
+        nnames++;
+
+    tnames = tbase + nelements - nnames + 1;
+
+    if (nnames)
+        r = rk_strpoolprintf(r, "{\"_type\":\"%s\"", (const char *)(tnames++)->ptr);
+    if (saved && r) {
+        char *s = der_print_octet_string(data);
+
+        if (!s) {
+            rk_strpoolfree(r);
+            return NULL;
+        }
+        r = rk_strpoolprintf(r, ",\"_save\":\"%s\"", s);
+        free(s);
+    }
+    saved = NULL;
+    if (tbase->tt & A1_HF_PRESERVE)
+        saved = data;
+#if 0
+    int saved = 0;
+    if ((tbase->tt & A1_HF_PRESERVE) && ((heim_octet_string *)data)->length) {
+        char *s = der_print_octet_string(data);
+
+        if (s == NULL) {
+            rk_strpoolfree(r);
+            return NULL;
+        }
+        r = rk_strpoolprintf(r, ",\"_save\":\"%s\"", s);
+    }
+#endif
+
+    t = tbase + 1;
+    while (elements && (t->tt & A1_OP_MASK) != A1_OP_NAME) {
+	switch (t->tt & A1_OP_MASK) {
+        case A1_OP_NAME:
+            continue;
+	case A1_OP_DEFVAL:
+            t++;
+            elements--;
+            continue;
+        case A1_OP_OPENTYPE_OBJSET: {
+            size_t opentype = (t->tt >> 10) & ((1<<10)-1);
+            r = _asn1_print_open_type(t, r, data,
+                                      tbase[(nelements - nnames) + 2 + opentype].ptr);
+            t++;
+            elements--;
+            continue;
+        }
+        default: break;
+        }
+        if (nnames)
+            r = rk_strpoolprintf(r, ",\"%s\":", (const char *)(tnames++)->ptr);
+	switch (t->tt & A1_OP_MASK) {
+        case A1_OP_OPENTYPE_OBJSET:
+            break;
+        case A1_OP_NAME: break;
+	case A1_OP_DEFVAL: break;
+	case A1_OP_TYPE:
+	case A1_OP_TYPE_EXTERN: {
+	    const void *el = DPOC(data, t->offset);
+
+	    if (t->tt & A1_FLAG_OPTIONAL) {
+		const void * const *pel = (const void *const *)el;
+		if (*pel == NULL) {
+                    r = rk_strpoolprintf(r, "null");
+		    break;
+                }
+		el = *pel;
+	    }
+
+	    if ((t->tt & A1_OP_MASK) == A1_OP_TYPE) {
+		r = _asn1_print(t->ptr, r, el, saved);
+	    } else {
+		const struct asn1_type_func *f = t->ptr;
+                char *s2 = NULL;
+                char *s = NULL;
+
+                s = (f->print)(el);
+                if (s == NULL ||
+                    rk_strasvis(&s2, s, VIS_TAB|VIS_NL|VIS_DQ, "") == -1) {
+                    rk_strpoolfree(r);
+                    free(s);
+                    return NULL;
+                }
+                free(s);
+		r = rk_strpoolprintf(r, "\"%s\"", s2);
+                free(s2);
+	    }
+	    break;
+	}
+	case A1_OP_PARSE: {
+	    unsigned int type = A1_PARSE_TYPE(t->tt);
+	    const void *el = DPOC(data, t->offset);
+            char *s = NULL;
+
+	    if (type >= sizeof(asn1_template_prim)/sizeof(asn1_template_prim[0])) {
+		ABORT_ON_ERROR();
+		break;
+	    }
+	    s = (asn1_template_prim[type].print)(el);
+            switch (type) {
+            case A1T_OID:
+            case A1T_BOOLEAN:
+            case A1T_INTEGER:
+            case A1T_INTEGER64:
+            case A1T_UNSIGNED:
+            case A1T_UNSIGNED64:
+                if (s)
+                    r = rk_strpoolprintf(r, "%s", s);
+                break;
+            default: {
+                char *s2 = NULL;
+
+                if (s)
+                    (void) rk_strasvis(&s2, s, VIS_TAB|VIS_NL|VIS_DQ, "");
+                free(s);
+                s = s2;
+                if (s)
+                    r = rk_strpoolprintf(r, "\"%s\"", s);
+            }
+            }
+            if (!s) {
+                rk_strpoolfree(r);
+                return NULL;
+            }
+            free(s);
+	    break;
+	}
+	case A1_OP_TAG: {
+	    const void *el = DPOC(data, t->offset);
+
+	    if (t->tt & A1_FLAG_OPTIONAL) {
+		const void * const *pel = (const void * const *)el;
+		if (*pel == NULL) {
+                    r = rk_strpoolprintf(r, "null");
+		    break;
+                }
+		el = *pel;
+	    }
+
+	    r = _asn1_print(t->ptr, r, el, saved);
+	    break;
+	}
+	case A1_OP_SETOF:
+	case A1_OP_SEQOF: {
+	    const struct template_of *el = DPOC(data, t->offset);
+	    size_t ellen = _asn1_sizeofType(t->ptr);
+	    const unsigned char *element = el->val;
+	    unsigned int i;
+
+            r = rk_strpoolprintf(r, "[");
+	    for (i = 0; r && i < el->len; i++) {
+                if (i)
+                    r = rk_strpoolprintf(r, ",");
+		r = _asn1_print(t->ptr, r, element, saved);
+		element += ellen;
+	    }
+            if (r)
+                r = rk_strpoolprintf(r, "]");
+	    break;
+	}
+	case A1_OP_BMEMBER: {
+	    const struct asn1_template *bmember = t->ptr;
+	    size_t size = bmember->offset;
+	    size_t belements = A1_HEADER_LEN(bmember);
+            int first = 1;
+
+            bmember += belements;
+            r = rk_strpoolprintf(r, "[");
+            while (r && belements) {
+                if (!first)
+                    r = rk_strpoolprintf(r, ",");
+                if (r && _asn1_bmember_isset_bit(data, bmember->offset, size))
+                    r = rk_strpoolprintf(r, "\"%s\"", (const char *)bmember->ptr);
+                belements--; bmember--;
+	    }
+            if (r)
+                r = rk_strpoolprintf(r, "]");
+	    break;
+	}
+	case A1_OP_CHOICE: {
+	    const struct asn1_template *choice = t->ptr;
+	    const unsigned int *element = DPOC(data, choice->offset);
+            unsigned int nchoices = ((uintptr_t)choice->ptr) >> 1;
+
+	    if (*element > A1_HEADER_LEN(choice)) {
+                r = rk_strpoolprintf(r, "null");
+            } else if (*element == 0) {
+                r = rk_strpoolprintf(r, "null");
+	    } else {
+		choice += *element;
+                r = rk_strpoolprintf(r, "{\"_choice\":\"%s\",\"value\":",
+                                     (const char *)choice[nchoices].ptr);
+                if (r)
+                    r = _asn1_print(choice->ptr, r, DPOC(data, choice->offset), NULL);
+                if (r)
+                    r = rk_strpoolprintf(r, "}");
+	    }
+	    break;
+	}
+	default:
+	    ABORT_ON_ERROR();
+	    break;
+	}
+	t++;
+	elements--;
+    }
+    if (nnames && r)
+        return rk_strpoolprintf(r, "}");
+    return r;
+}
+
+char *
+_asn1_print_top(const struct asn1_template *t,
+                const void *data)
+{
+    struct rk_strpool *r = _asn1_print(t, NULL, data, NULL);
+
+    if (r == NULL)
+        return NULL;
+    return rk_strpoolcollect(r);
+}
+
 /* See commentary in _asn1_decode_open_type() */
 static int
 _asn1_copy_open_type(const struct asn1_template *t, /* object set template */
@@ -2247,7 +2573,7 @@ _asn1_copy_open_type(const struct asn1_template *t, /* object set template */
             memset(etop, 0, sizeof(int) + sizeof(void *));
         return 0; /* Unknown choice -> not copied */
     }
-    tactual_type = &tos[2*(*efromp - 1) + 2];
+    tactual_type = &tos[3*(*efromp - 1) + 4];
 
     if (!(t->tt & A1_OS_OT_IS_ARRAY)) {
         dfromp = DPO(from, t->offset + sizeof(*efromp));
