@@ -7,11 +7,12 @@ information -- be sure to read them!
 ## Table of Contents
 
  1. [Introduction](#Introduction)
- 2. [Features](#Features)
- 3. [Limitations](#Limitations)
- 3. [Usage](#Usage)
- 4. [Implementation](#implementation)
- 5. [Moving From C](#moving-from-c)
+ 2. [News](#News)
+ 3. [Features](#Features)
+ 4. [Limitations](#Limitations)
+ 4. [Usage](#Usage)
+ 5. [Implementation](#implementation)
+ 6. [Moving From C](#moving-from-c)
 
 ## Introduction
 
@@ -85,6 +86,26 @@ Encoding rules?  There are many:
 
 Heimdal currently only supports DER for encoding, and DER and BER for decoding,
 but soon may support JER as well.
+
+## News
+
+In recent times the following features have been added:
+
+ - Feature parity for the "template" backend, even superiority, as the codegen
+   backend does not yet support automatic open type decoding/encoding.
+
+ - IMPLICIT tagging support is finally complete.
+
+ - Automatic open type traversal, using a subset of X.681/X.682/X.683 for
+   expressing the requisite metadata.
+
+## Futures
+
+ - JER support?
+
+ - XDR/OER support?
+
+ - Generate comparators?  (lib/hx509 has a half-baked Certificate comparator)
 
 ## Features
 
