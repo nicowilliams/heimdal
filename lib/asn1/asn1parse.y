@@ -1003,6 +1003,20 @@ NamedNumber	: Identifier '(' SignedNumber ')'
 			$$->ellipsis = 0;
 			$$->type = NULL;
 		}
+		| Identifier '(' DefinedValue ')'
+		{
+			if ($3->type != integervalue)
+			    lex_error_message("Named number %s not a numeric value",
+					      $3->s->name);
+			$$ = emalloc(sizeof(*$$));
+			$$->name = $1;
+			$$->gen_name = estrdup($1);
+			output_name ($$->gen_name);
+			$$->val = $3->u.integervalue;
+			$$->optional = 0;
+			$$->ellipsis = 0;
+			$$->type = NULL;
+		}
 		;
 
 EnumeratedType	: kw_ENUMERATED '{' Enumerations '}'

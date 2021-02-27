@@ -810,7 +810,7 @@ template_object_set(IOSObjectSet *os, Field *typeidfield, Field *opentypefield)
         switch (typeidobjf->value->type) {
         case integervalue:
             add_line(&tl->template,
-                     "{ A1_OP_OPENTYPE_ID | A1_OTI_IS_INTEGER, 0, %lld }",
+                     "{ A1_OP_OPENTYPE_ID | A1_OTI_IS_INTEGER, 0, (void *)%lld }",
                      (long long)typeidobjf->value->u.integervalue);
             break;
         case objectidentifiervalue:

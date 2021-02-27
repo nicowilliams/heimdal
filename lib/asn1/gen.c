@@ -943,14 +943,19 @@ get_open_type_defn_fields(const Type *t,
     }
     /* Look for the type ID member identified in the previous loop */
     HEIM_TAILQ_FOREACH(m, t->members, members) {
-        if (!m->type->constraint ||
-            m->type->constraint->ctype != CT_TABLE_CONSTRAINT ||
-            !m->type->subtype ||
-            strcmp(m->name, idmembername))
+        if (!m->type->subtype || strcmp(m->name, idmembername))
+            continue;
+        if (m->type->constraint &&
+            m->type->constraint->ctype == CT_TABLE_CONSTRAINT)
+            *typeidfield = m->type->typeref.field;
+        else if (m->type->subtype->constraint &&
+                 m->type->subtype->constraint->ctype == CT_TABLE_CONSTRAINT)
+            *typeidfield = m->type->subtype->typeref.field;
+        else
             continue;
         /* This is the type ID field (because there _is_ a subtype) */
         *typeidmember = m;
-        *typeidfield = m->type->typeref.field;
+        break;
     }
 }
 
