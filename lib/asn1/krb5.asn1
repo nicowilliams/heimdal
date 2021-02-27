@@ -86,8 +86,8 @@ EXPORTS
 	KERB-CRED,
 	KERB-TGS-REQ-IN,
 	KERB-TGS-REQ-OUT,
-	KERB-ARMOR-SERVICE-REPLY
-	;
+	KERB-ARMOR-SERVICE-REPLY;
+IMPORTS HEIM_ANY FROM heim;
 
 NAME-TYPE ::= INTEGER {
 	KRB5_NT_UNKNOWN(0),	-- Name type not known
@@ -129,11 +129,24 @@ MESSAGE-TYPE ::= INTEGER {
 
 -- pa-data types
 
+pa-data-KRB5-PADATA-TGS-REQ		Krb5Int32 ::= 1
+pa-data-KRB5-PADATA-ENC-TIMESTAMP	Krb5Int32 ::= 2
+pa-data-KRB5-PADATA-ETYPE-INFO		Krb5Int32 ::= 11
+pa-data-KRB5-PADATA-PK-AS-REQ-WIN	Krb5Int32 ::= 15
+pa-data-KRB5-PADATA-ETYPE-INFO2		Krb5Int32 ::= 19
+pa-data-KRB5-PADATA-SERVER-REFERRAL	Krb5Int32 ::= 25
+pa-data-KRB5-PADATA-FX-FAST-ARMOR	Krb5Int32 ::= 71
+pa-data-KRB5-PADATA-PA-PAC-REQUEST	Krb5Int32 ::= 128
+pa-data-KRB5-PADATA-FOR-USER		Krb5Int32 ::= 129
+pa-data-KRB5-PADATA-FX-COOKIE		Krb5Int32 ::= 133
+pa-data-KRB5-PADATA-FX-FAST		Krb5Int32 ::= 136
+pa-data-KRB5-PADATA-ENCRYPTED-CHALLENGE	Krb5Int32 ::= 138
+
 PADATA-TYPE ::= INTEGER {
 	KRB5-PADATA-NONE(0),
-	KRB5-PADATA-TGS-REQ(1),
+	KRB5-PADATA-TGS-REQ (pa-data-KRB5-PADATA-TGS-REQ),
 	KRB5-PADATA-AP-REQ(1),
-	KRB5-PADATA-ENC-TIMESTAMP(2),
+	KRB5-PADATA-ENC-TIMESTAMP(pa-data-KRB5-PADATA-ENC-TIMESTAMP),
 	KRB5-PADATA-PW-SALT(3),
 	KRB5-PADATA-ENC-UNIX-TIME(5),
 	KRB5-PADATA-SANDIA-SECUREID(6),
@@ -141,35 +154,40 @@ PADATA-TYPE ::= INTEGER {
 	KRB5-PADATA-OSF-DCE(8),
 	KRB5-PADATA-CYBERSAFE-SECUREID(9),
 	KRB5-PADATA-AFS3-SALT(10),
-	KRB5-PADATA-ETYPE-INFO(11),
+	KRB5-PADATA-ETYPE-INFO (pa-data-KRB5-PADATA-ETYPE-INFO),
 	KRB5-PADATA-SAM-CHALLENGE(12), -- (sam/otp)
 	KRB5-PADATA-SAM-RESPONSE(13), -- (sam/otp)
 	KRB5-PADATA-PK-AS-REQ-19(14), -- (PKINIT-19)
 	KRB5-PADATA-PK-AS-REP-19(15), -- (PKINIT-19)
-	KRB5-PADATA-PK-AS-REQ-WIN(15), -- (PKINIT - old number)
+	KRB5-PADATA-PK-AS-REQ-WIN
+	    (pa-data-KRB5-PADATA-PK-AS-REQ-WIN), -- (PKINIT - old number)
 	KRB5-PADATA-PK-AS-REQ(16), -- (PKINIT-25)
 	KRB5-PADATA-PK-AS-REP(17), -- (PKINIT-25)
 	KRB5-PADATA-PA-PK-OCSP-RESPONSE(18),
-	KRB5-PADATA-ETYPE-INFO2(19),
+	KRB5-PADATA-ETYPE-INFO2 (pa-data-KRB5-PADATA-ETYPE-INFO2),
 	KRB5-PADATA-USE-SPECIFIED-KVNO(20),
 	KRB5-PADATA-SVR-REFERRAL-INFO(20), --- old ms referral number
 	KRB5-PADATA-SAM-REDIRECT(21), -- (sam/otp)
 	KRB5-PADATA-GET-FROM-TYPED-DATA(22),
 	KRB5-PADATA-SAM-ETYPE-INFO(23),
-	KRB5-PADATA-SERVER-REFERRAL(25),
+	KRB5-PADATA-SERVER-REFERRAL
+	    (pa-data-KRB5-PADATA-SERVER-REFERRAL),
 	KRB5-PADATA-ALT-PRINC(24),		-- (crawdad@fnal.gov)
 	KRB5-PADATA-SAM-CHALLENGE2(30),		-- (kenh@pobox.com)
 	KRB5-PADATA-SAM-RESPONSE2(31),		-- (kenh@pobox.com)
 	KRB5-PA-EXTRA-TGT(41),			-- Reserved extra TGT
-	KRB5-PADATA-FX-FAST-ARMOR(71),		-- fast armor
+	KRB5-PADATA-FX-FAST-ARMOR
+	    (pa-data-KRB5-PADATA-FX-FAST-ARMOR),-- fast armor
 	KRB5-PADATA-TD-KRB-PRINCIPAL(102),	-- PrincipalName
 	KRB5-PADATA-PK-TD-TRUSTED-CERTIFIERS(104), -- PKINIT
 	KRB5-PADATA-PK-TD-CERTIFICATE-INDEX(105), -- PKINIT
 	KRB5-PADATA-TD-APP-DEFINED-ERROR(106),	-- application specific
 	KRB5-PADATA-TD-REQ-NONCE(107),		-- INTEGER
 	KRB5-PADATA-TD-REQ-SEQ(108),		-- INTEGER
-	KRB5-PADATA-PA-PAC-REQUEST(128),	-- jbrezak@exchange.microsoft.com
-	KRB5-PADATA-FOR-USER(129),		-- MS-KILE
+	KRB5-PADATA-PA-PAC-REQUEST
+	    (pa-data-KRB5-PADATA-PA-PAC-REQUEST),	-- jbrezak@exchange.microsoft.com
+	KRB5-PADATA-FOR-USER
+	    (pa-data-KRB5-PADATA-FOR-USER),		-- MS-KILE
 	KRB5-PADATA-FOR-X509-USER(130),		-- MS-KILE
 	KRB5-PADATA-FOR-CHECK-DUPS(131),	-- MS-KILE
 	KRB5-PADATA-AS-CHECKSUM(132),		-- MS-KILE
@@ -177,12 +195,15 @@ PADATA-TYPE ::= INTEGER {
 						-- tell KDC that is supports
 						-- the asCheckSum in the
 						--  PK-AS-REP
-	KRB5-PADATA-FX-COOKIE(133),		-- krb-wg-preauth-framework
+	KRB5-PADATA-FX-COOKIE
+	    (pa-data-KRB5-PADATA-FX-COOKIE),-- krb-wg-preauth-framework
 	KRB5-PADATA-AUTHENTICATION-SET(134),	-- krb-wg-preauth-framework
 	KRB5-PADATA-AUTH-SET-SELECTED(135),	-- krb-wg-preauth-framework
-	KRB5-PADATA-FX-FAST(136),		-- krb-wg-preauth-framework
+	KRB5-PADATA-FX-FAST
+	    (pa-data-KRB5-PADATA-FX-FAST),		-- krb-wg-preauth-framework
 	KRB5-PADATA-FX-ERROR(137),		-- krb-wg-preauth-framework
-	KRB5-PADATA-ENCRYPTED-CHALLENGE(138),	-- krb-wg-preauth-framework
+	KRB5-PADATA-ENCRYPTED-CHALLENGE
+	    (pa-data-KRB5-PADATA-ENCRYPTED-CHALLENGE),	-- krb-wg-preauth-framework
 	KRB5-PADATA-OTP-CHALLENGE(141),		-- (gareth.richards@rsa.com)
 	KRB5-PADATA-OTP-REQUEST(142),		-- (gareth.richards@rsa.com)
 	KBB5-PADATA-OTP-CONFIRM(143),		-- (gareth.richards@rsa.com)
@@ -446,10 +467,15 @@ Authenticator ::= [APPLICATION 2] SEQUENCE    {
 	authorization-data[8]	AuthorizationData OPTIONAL
 }
 
-PA-DATA ::= SEQUENCE {
+_PA-DATA-CL ::= CLASS {
+    &id Krb5Int32 UNIQUE,
+    &Type
+}
+
+PA-DATA{_PA-DATA-CL:PaDataSet} ::= SEQUENCE {
 	-- might be encoded AP-REQ
-	padata-type[1]		PADATA-TYPE,
-	padata-value[2]		OCTET STRING
+    padata-type  [1] _PA-DATA-CL.&id({PaDataSet}),
+    padata-value [2] _PA-DATA-CL.&Type({PaDataSet}{@padata-type})
 }
 
 ETYPE-INFO-ENTRY ::= SEQUENCE {
@@ -924,6 +950,78 @@ KERB-ARMOR-SERVICE-REPLY ::= SEQUENCE {
 	armor-key	[1] EncryptionKey
 }
 
+pdt-Enc-Ts-Timestamp _PA-DATA-CL ::= {
+    &id pa-data-KRB5-PADATA-ENC-TIMESTAMP,
+    &Type PA-ENC-TS-ENC
+}
+
+pdt-Fx-Cookie _PA-DATA-CL ::= {
+    &id pa-data-KRB5-PADATA-FX-COOKIE,
+    &Type KDCFastCookie
+}
+
+pdt-Fx-FAST _PA-DATA-CL ::= {
+    &id pa-data-KRB5-PADATA-FX-FAST,
+    &Type PA-FX-FAST-REQUEST
+}
+
+pdt-Encrypted-Challenge _PA-DATA-CL ::= {
+    &id pa-data-KRB5-PADATA-ENCRYPTED-CHALLENGE,
+    &Type EncryptedData
+}
+
+pdt-Etype-Info _PA-DATA-CL ::= {
+    &id pa-data-KRB5-PADATA-ETYPE-INFO,
+    &Type ETYPE-INFO
+}
+
+pdt-Etype-Info2 _PA-DATA-CL ::= {
+    &id pa-data-KRB5-PADATA-ETYPE-INFO2,
+    &Type ETYPE-INFO2
+}
+
+pdt-Pac-Request _PA-DATA-CL ::= {
+    &id pa-data-KRB5-PADATA-PA-PAC-REQUEST,
+    &Type PA-PAC-REQUEST
+}
+
+pdt-Tgs-Request _PA-DATA-CL ::= {
+    &id pa-data-KRB5-PADATA-TGS-REQ,
+    &Type AP-REQ
+}
+
+pdt-S4U2Self _PA-DATA-CL ::= {
+    &id pa-data-KRB5-PADATA-FOR-USER,
+    &Type PA-S4U2Self
+}
+
+pdt-Server-Referral _PA-DATA-CL ::= {
+    &id pa-data-KRB5-PADATA-SERVER-REFERRAL,
+    &Type EncryptedData
+}
+
+-- XXX Can't do this for PKINIT types cause that would create a circular
+--     dependency.  Maybe we could move pkinit.asn1 into this module though.
+-- pdt-PK-AS-Req-Win2k _PA-DATA-CL ::= {
+--     &id pa-data-KRB5-PADATA-PK-AS-REQ-WIN,
+--     &Type PA_PK_AS_REQ_Win2k
+-- }
+-- ...
+
+PaDataTypes _PA-DATA-CL ::= {
+    pdt-Enc-Ts-Timestamp
+  | pdt-Fx-Cookie
+  | pdt-Fx-FAST
+  | pdt-Encrypted-Challenge
+  | pdt-Etype-Info
+  | pdt-Etype-Info2
+  | pdt-Pac-Request
+  | pdt-Tgs-Request
+  | pdt-S4U2Self
+  | pdt-Server-Referral
+}
+
+PA-DATA ::= PA-DATA{PaDataTypes}
 
 END
 
