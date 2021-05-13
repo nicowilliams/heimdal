@@ -36,10 +36,13 @@
 #include <err.h>
 #include <getarg.h>
 
+static const char *site_string;
 static int version_flag = 0;
 static int help_flag	= 0;
 
 static struct getargs args[] = {
+    {"site",	0,	arg_string,	&site_string,
+     "Name of site for lookup", "SITENAME" },
     {"version",	0,	arg_flag,	&version_flag,
      "print version", NULL },
     {"help",	0,	arg_flag,	&help_flag,
@@ -59,8 +62,10 @@ usage (int ret)
 int
 main(int argc, char **argv)
 {
+    krb5_krbhst_handle handle = NULL;
+    krb5_error_code ret;
     int i, j;
-    krb5_context context;
+    krb5_context context = NULL;
     int types[] = {KRB5_KRBHST_KDC, KRB5_KRBHST_ADMIN, KRB5_KRBHST_CHANGEPW,
 		   KRB5_KRBHST_KRB524};
     const char *type_str[] = {"kdc", "admin", "changepw", "krb524"};
@@ -82,15 +87,25 @@ main(int argc, char **argv)
     argc -= optidx;
     argv += optidx;
 
-    krb5_init_context (&context);
+    ret = krb5_init_context(&context);
+    if (ret)
+        krb5_err(context, 1, ret, "Could not initialize krb5 context");
     for(i = 0; i < argc; i++) {
-	krb5_krbhst_handle handle;
 	char host[MAXHOSTNAMELEN];
 
 	for (j = 0; j < sizeof(types)/sizeof(*types); ++j) {
 	    printf ("%s for %s:\n", type_str[j], argv[i]);
 
-	    krb5_krbhst_init(context, argv[i], types[j], &handle);
+	    ret = krb5_krbhst_init(context, argv[i], types[j], &handle);
+            if (ret)
+                krb5_err(context, 1, ret,
+                         "Could not initialize lookup handle");
+            if (site_string) {
+                ret = krb5_krbhst_set_sitename(context, handle, site_string);
+                if (ret)
+                    krb5_err(context, 1, ret,
+                             "Could not set site name for lookup");
+            }
 	    while(krb5_krbhst_next_as_string(context, handle,
 					     host, sizeof(host)) == 0)
 		printf("\thost: %s\n", host);
@@ -98,5 +113,7 @@ main(int argc, char **argv)
 	    printf ("\n");
 	}
     }
+    krb5_krbhst_free(context, handle);
+    krb5_free_context(context);
     return 0;
 }

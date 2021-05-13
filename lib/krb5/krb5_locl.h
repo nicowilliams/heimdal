@@ -269,6 +269,7 @@ typedef struct krb5_context_data {
     const char *date_fmt;
     krb5_error_code error_code;
     krb5_addresses *ignore_addresses;
+    char *sitename;
     char *default_cc_name;
     char *default_cc_name_env;
     char *configured_default_cc_name;

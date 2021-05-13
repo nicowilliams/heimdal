@@ -385,6 +385,7 @@ EXPORTS
 	krb5_get_pw_salt
 	krb5_get_renewed_creds
 	krb5_get_server_rcache
+	krb5_get_sitename
 	krb5_get_use_admin_kdc
         krb5_get_validated_creds        ;!
 	krb5_get_warn_dest
@@ -423,6 +424,8 @@ EXPORTS
 	krb5_krbhst_next
 	krb5_krbhst_next_as_string
 	krb5_krbhst_reset
+	krb5_krbhst_set_hostname
+	krb5_krbhst_set_sitename
 	krb5_kt_add_entry
 	krb5_kt_close
 	krb5_kt_compare
@@ -624,6 +627,7 @@ EXPORTS
 	krb5_set_password_using_ccache
 	krb5_set_real_time
 	krb5_set_send_to_kdc_func
+	krb5_set_sitename
 	krb5_set_use_admin_kdc
 	krb5_set_warn_dest
 	krb5_sname_to_principal

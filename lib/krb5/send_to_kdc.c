@@ -244,10 +244,8 @@ krb5_sendto_set_hostname(krb5_context context,
      * disposing of any previous value after.
      */
     newname = strdup(hostname);
-    if (newname == NULL) {
-	krb5_set_error_message(context, ENOMEM, N_("malloc: out of memory", ""));
-	return ENOMEM;
-    }
+    if (newname == NULL)
+	return krb5_enomem(context);
     free(ctx->hostname);
     ctx->hostname = newname;
     return 0;
@@ -1179,17 +1177,20 @@ krb5_sendto_context(krb5_context context,
 	    /* FALLTHROUGH */
 	case KRB5_SENDTO_KRBHST:
 	    if (ctx->krbhst == NULL) {
-		ret = krb5_krbhst_init_flags(context, realm, type,
-					     ctx->flags, &handle);
-		if (ret)
-		    goto out;
+                char *site = NULL;
 
-		if (ctx->hostname) {
+                ret = krb5_get_sitename(context, realm, &site);
+                if (ret == 0)
+                    ret = krb5_krbhst_init_flags(context, realm, type,
+                                                 ctx->flags, &handle);
+		if (ret == 0 && ctx->hostname)
 		    ret = krb5_krbhst_set_hostname(context, handle, ctx->hostname);
-		    if (ret)
-			goto out;
-		}
 
+                if (ret == 0 && site)
+                    ret = krb5_krbhst_set_sitename(context, handle, site);
+                free(site);
+                if (ret)
+                    goto out;
 	    } else {
 		handle = heim_retain(ctx->krbhst);
 	    }

@@ -66,7 +66,8 @@ is_invalid_tld_srv_target(const char *target)
 static krb5_error_code
 srv_find_realm(krb5_context context, krb5_krbhst_info ***res, int *count,
 	       const char *realm, const char *dns_type,
-	       const char *proto, const char *service, int port)
+	       const char *proto, const char *service, const char *site,
+               int port)
 {
     char domain[1024];
     struct rk_dns_reply *r;
@@ -74,6 +75,7 @@ srv_find_realm(krb5_context context, krb5_krbhst_info ***res, int *count,
     int num_srv;
     int proto_num;
     int def_port;
+    int bytes;
 
     *res = NULL;
     *count = 0;
@@ -93,7 +95,17 @@ srv_find_realm(krb5_context context, krb5_krbhst_info ***res, int *count,
     else
 	def_port = port;
 
-    snprintf(domain, sizeof(domain), "_%s._%s.%s.", service, proto, realm);
+    if (site)
+        bytes = snprintf(domain, sizeof(domain), "_%s._%s.%s._sites.%s.",
+                         service, proto, site, realm);
+    else
+        bytes = snprintf(domain, sizeof(domain), "_%s._%s.%s.", service, proto,
+                         realm);
+    if (bytes >= sizeof(domain)) {
+        krb5_set_error_message(context, EOVERFLOW,
+                               N_("Realm name too long: %s", ""), realm);
+        return EOVERFLOW;
+    }
 
     r = rk_dns_lookup(domain, dns_type);
     if(r == NULL) {
@@ -182,6 +194,7 @@ struct krb5_krbhst_data {
 				krb5_krbhst_info**);
 
     char *hostname;
+    char *sitename;
     unsigned int fallback_count;
 
     struct krb5_krbhst_info *hosts, **index, **end;
@@ -434,7 +447,7 @@ get_next(struct krb5_krbhst_data *kd, krb5_krbhst_info **host)
 
 static void
 srv_get_hosts(krb5_context context, struct krb5_krbhst_data *kd,
-	      const char *proto, const char *service)
+	      const char *proto, const char *service, const char *site)
 {
     krb5_error_code ret;
     krb5_krbhst_info **res;
@@ -444,9 +457,16 @@ srv_get_hosts(krb5_context context, struct krb5_krbhst_data *kd,
 	return;
 
     ret = srv_find_realm(context, &res, &count, kd->realm, "SRV", proto, service,
-			 kd->port);
-    _krb5_debug(context, 2, "searching DNS for realm %s %s.%s -> %d",
-		kd->realm, proto, service, ret);
+			 site, kd->port);
+    if (site)
+        _krb5_debug(context, 2,
+                    "searching DNS for realm %s %s.%s.%s._sites -> %d",
+                    kd->realm, proto, service, site, ret);
+    else
+        _krb5_debug(context, 2, "searching DNS for realm %s %s.%s -> %d",
+                    kd->realm, proto, service, ret);
+    if (ret == KRB5_KDC_UNREACH && site)
+        return srv_get_hosts(context, kd, proto, service, NULL);
     if (ret)
 	return;
     for(i = 0; i < count; i++)
@@ -756,20 +776,20 @@ kdc_get_next(krb5_context context,
 
     if(context->srv_lookup) {
 	if((kd->flags & KD_SRV_UDP) == 0 && (kd->flags & KD_LARGE_MSG) == 0) {
-	    srv_get_hosts(context, kd, "udp", kd->srv_label);
+	    srv_get_hosts(context, kd, "udp", kd->srv_label, kd->sitename);
 	    kd->flags |= KD_SRV_UDP;
 	    if(get_next(kd, host))
 		return 0;
 	}
 
 	if((kd->flags & KD_SRV_TCP) == 0) {
-	    srv_get_hosts(context, kd, "tcp", kd->srv_label);
+	    srv_get_hosts(context, kd, "tcp", kd->srv_label, kd->sitename);
 	    kd->flags |= KD_SRV_TCP;
 	    if(get_next(kd, host))
 		return 0;
 	}
 	if((kd->flags & KD_SRV_HTTP) == 0) {
-	    srv_get_hosts(context, kd, "http", kd->srv_label);
+	    srv_get_hosts(context, kd, "http", kd->srv_label, kd->sitename);
 	    kd->flags |= KD_SRV_HTTP;
 	    if(get_next(kd, host))
 		return 0;
@@ -821,7 +841,7 @@ admin_get_next(krb5_context context,
 
     if(context->srv_lookup) {
 	if((kd->flags & KD_SRV_TCP) == 0) {
-	    srv_get_hosts(context, kd, "tcp", kd->srv_label);
+	    srv_get_hosts(context, kd, "tcp", kd->srv_label, kd->sitename);
 	    kd->flags |= KD_SRV_TCP;
 	    if(get_next(kd, host))
 		return 0;
@@ -875,13 +895,13 @@ kpasswd_get_next(krb5_context context,
 
     if(context->srv_lookup) {
 	if((kd->flags & KD_SRV_UDP) == 0) {
-	    srv_get_hosts(context, kd, "udp", kd->srv_label);
+	    srv_get_hosts(context, kd, "udp", kd->srv_label, kd->sitename);
 	    kd->flags |= KD_SRV_UDP;
 	    if(get_next(kd, host))
 		return 0;
 	}
 	if((kd->flags & KD_SRV_TCP) == 0) {
-	    srv_get_hosts(context, kd, "tcp", kd->srv_label);
+	    srv_get_hosts(context, kd, "tcp", kd->srv_label, kd->sitename);
 	    kd->flags |= KD_SRV_TCP;
 	    if(get_next(kd, host))
 		return 0;
@@ -1076,9 +1096,23 @@ krb5_krbhst_set_hostname(krb5_context context,
 {
     if (handle->hostname)
 	free(handle->hostname);
-    handle->hostname = strdup(hostname);
-    if (handle->hostname == NULL)
-	return ENOMEM;
+    handle->hostname = NULL;
+    if (hostname && (handle->hostname = strdup(hostname)) == NULL)
+	return krb5_enomem(context);
+    return 0;
+}
+
+
+KRB5_LIB_FUNCTION krb5_error_code KRB5_LIB_CALL
+krb5_krbhst_set_sitename(krb5_context context,
+			 krb5_krbhst_handle handle,
+			 const char *sitename)
+{
+    if (handle->sitename)
+	free(handle->sitename);
+    handle->sitename = NULL;
+    if (sitename && (handle->sitename = strdup(sitename)) == NULL)
+        return krb5_enomem(context);
     return 0;
 }
 

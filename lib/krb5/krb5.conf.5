@@ -183,6 +183,9 @@ Default realm to use, this is also known as your
 .Dq local realm .
 The default is the result of
 .Fn krb5_get_host_realm "local hostname" .
+.It Li sitename = Va name
+A sitename can be used for site-local DNS-based KDC discovery for default
+realms.
 .It Li allow_weak_crypto = Va boolean
 are weak crypto algorithms allowed to be used, among others, DES is
 considered weak.
@@ -537,6 +540,13 @@ of the `dns_lookup_realm' option).
 .Bl -tag -width "xxx" -offset indent
 .It Va REALM Li = {
 .Bl -tag -width "xxx" -offset indent
+.It Li sitename = Va name
+Similar to
+.Va [libdefaults] sitename
+parameter.
+Note that this should only be set if the host's site is relevant to
+discovery of KDCs for this
+.Va REALM .
 .It Li kdc = Va [service/]host[:port]
 Specifies a list of kdcs for this realm.
 If the optional

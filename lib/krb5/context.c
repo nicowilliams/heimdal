@@ -104,7 +104,7 @@ static krb5_error_code
 init_context_from_config_file(krb5_context context)
 {
     krb5_error_code ret;
-    const char * tmp;
+    const char *tmp;
     char **s;
     krb5_enctype *tmptypes;
 
@@ -114,6 +114,11 @@ init_context_from_config_file(krb5_context context)
     INIT_FIELD(context, int, max_retries, 3, "max_retries");
 
     INIT_FIELD(context, string, http_proxy, NULL, "http_proxy");
+
+    tmp = krb5_config_get_string(context, NULL, "libdefaults", "sitename",
+                                 NULL);
+    if (tmp)
+        context->sitename = strdup(tmp); /* ignoring ENOMEM here */
 
     ret = krb5_config_get_bool_default(context, NULL, FALSE,
 				       "libdefaults",
@@ -597,6 +602,12 @@ krb5_copy_context(krb5_context context, krb5_context *out)
 	    goto out;
     }
 
+    if (context->sitename &&
+        (p->sitename = strdup(context->sitename)) == NULL) {
+        ret = krb5_enomem(context);
+        goto out;
+    }
+
     ret = _krb5_config_copy(context, context->cf, &p->cf);
     if (ret)
 	goto out;
@@ -653,6 +664,7 @@ krb5_free_context(krb5_context context)
     free(context->permitted_enctypes);
     free(context->tgs_etypes);
     free(context->as_etypes);
+    free(context->sitename);
     krb5_free_host_realm (context, context->default_realms);
     krb5_config_file_free (context, context->cf);
     free(rk_UNCONST(context->cc_ops));
@@ -1311,6 +1323,90 @@ krb5_get_dns_canonicalize_hostname (krb5_context context)
 {
     return (context->flags & KRB5_CTX_F_DNS_CANONICALIZE_HOSTNAME) ? 1 : 0;
 }
+
+/**
+ * Set the site name for KDC discovery for default realms.
+ *
+ * @param context Kerberos 5 context.
+ * @param sitename The site name.
+ *
+ * @return zero if no error, non-zero otherwise.
+ *
+ * @ingroup krb5
+ */
+KRB5_LIB_FUNCTION krb5_error_code KRB5_LIB_CALL
+krb5_set_sitename(krb5_context context, const char *sitename)
+{
+    free(context->sitename);
+    context->sitename = NULL;
+    if (sitename && (context->sitename = strdup(sitename)) == NULL)
+        return krb5_enomem(context);
+    return 0;
+}
+
+
+/**
+ * Get the site name for KDC discovery.
+ *
+ * @param context Kerberos 5 context.
+ * @param realm Name of realm for which KDC discovery is to be done.
+ * @param out Where to put the site name if found.
+ *
+ * @return zero if no error (but possibly a NULL site name output), non-zero
+ * otherwise.
+ *
+ * @ingroup krb5
+ */
+KRB5_LIB_FUNCTION krb5_error_code KRB5_LIB_CALL
+krb5_get_sitename(krb5_context context, const char *realm, char **out)
+{
+    const char *s;
+    size_t i;
+
+    *out = NULL;
+
+    for (i = 0; context->default_realms && context->default_realms[i]; i++) {
+        if (!realm || strcmp(realm, context->default_realms[i]) == 0) {
+            /* Try [libdefaults] sitename = ... */
+            if (context->sitename) {
+                if ((*out = strdup(context->sitename)) == NULL)
+                    return krb5_enomem(context);
+                return 0;
+            }
+            s = krb5_config_get_string(context, NULL, "libdefaults",
+                                       "sitename", NULL);
+            if (s) {
+                if ((*out = strdup(s)) == NULL)
+                    return krb5_enomem(context);
+                return 0;
+            }
+            break;
+        }
+        if (realm)
+            continue;
+
+        /* Try [realms] $default_realms[i] = { sitename = ... } */
+        s = krb5_config_get_string(context, NULL, "realms",
+                                   context->default_realms[i], "sitename",
+                                   NULL);
+        if (s) {
+            if ((*out = strdup(s)) == NULL)
+                return krb5_enomem(context);
+            return 0;
+        }
+    }
+
+    if (!realm)
+        return 0; /* We've already checked [realms] for default realms */
+
+    /* Try [realms] $realm = { sitename = ... } */
+    s = krb5_config_get_string(context, NULL, "realms", realm, "sitename",
+                               NULL);
+    if (s && (*out = strdup(s)) == NULL)
+        return krb5_enomem(context);
+    return 0;
+}
+
 
 /**
  * Get current offset in time to the KDC.
