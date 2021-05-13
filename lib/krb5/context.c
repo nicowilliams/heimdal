@@ -117,8 +117,33 @@ init_context_from_config_file(krb5_context context)
 
     tmp = krb5_config_get_string(context, NULL, "libdefaults", "sitename",
                                  NULL);
-    if (tmp)
+    if (tmp) {
         context->sitename = strdup(tmp); /* ignoring ENOMEM here */
+    } else  {
+        tmp = krb5_config_get_string(context, NULL, "libdefaults",
+                                     "sitename_file", NULL);
+        if (tmp) {
+            size_t bytes, i;
+            FILE *f = fopen(tmp, "r");
+            char buf[64]; /* sitenames can be no longer than 63 bytes */
+
+            if (f && (bytes = fread(buf, 1, sizeof(buf), f))) {
+                buf[bytes] = '\0';
+                for (i = 0; i < bytes; i++) {
+                    if (buf[i] == '\r' || buf[i] == '\n') {
+                        buf[i] = '\0';
+                        break;
+                    }
+                }
+            } else {
+                buf[0] = '\0';
+            }
+            if (f)
+                (void) fclose(f);
+            if (buf[0])
+                context->sitename = strdup(buf); /* ignoring ENOMEM */
+        }
+    }
 
     ret = krb5_config_get_bool_default(context, NULL, FALSE,
 				       "libdefaults",
@@ -1344,6 +1369,32 @@ krb5_set_sitename(krb5_context context, const char *sitename)
     return 0;
 }
 
+static krb5_error_code
+read_sitename_file(krb5_context context, const char *fn, char **out)
+{
+    char buf[64]; /* sitenames cannot be longer than 63 bytes */
+    size_t bytes, i;
+    FILE *f;
+
+    *out = NULL;
+    if ((f = fopen(fn, "r")) == NULL)
+        return 0;
+    if ((bytes = fread(buf, 1, sizeof(buf), f)) > 0) {
+        /* And if the sitename is too long? Silently truncate */
+        buf[bytes] = '\0';
+        for (i = 0; i < bytes; i++) {
+            if (buf[i] == '\r' || buf[i] == '\n') {
+                buf[i] = '\0';
+                break;
+            }
+        }
+    }
+    (void) fclose(f);
+    /* Empty sitename == no sitename */
+    if (bytes && buf[0] != '\0' && (*out = strdup(buf)) == NULL)
+        return krb5_enomem(context);
+    return 0;
+}
 
 /**
  * Get the site name for KDC discovery.
@@ -1380,6 +1431,11 @@ krb5_get_sitename(krb5_context context, const char *realm, char **out)
                     return krb5_enomem(context);
                 return 0;
             }
+            /* Try [libdefaults] sitename_file = ... */
+            s = krb5_config_get_string(context, NULL, "libdefaults",
+                                       "sitename_file", NULL);
+            if (s)
+                return read_sitename_file(context, s, out);
             break;
         }
         if (realm)
@@ -1394,6 +1450,11 @@ krb5_get_sitename(krb5_context context, const char *realm, char **out)
                 return krb5_enomem(context);
             return 0;
         }
+        /* Try [realms] $default_realms[i] = { sitename_file = ... } */
+        s = krb5_config_get_string(context, NULL, "realms", realm, "sitename_file",
+                                   NULL);
+        if (s)
+            return read_sitename_file(context, s, out);
     }
 
     if (!realm)
@@ -1402,8 +1463,17 @@ krb5_get_sitename(krb5_context context, const char *realm, char **out)
     /* Try [realms] $realm = { sitename = ... } */
     s = krb5_config_get_string(context, NULL, "realms", realm, "sitename",
                                NULL);
-    if (s && (*out = strdup(s)) == NULL)
-        return krb5_enomem(context);
+    if (s) {
+        if ((*out = strdup(s)) == NULL)
+            return krb5_enomem(context);
+        return 0;
+    }
+
+    /* Try [realms] $realm = { sitename_file = ... } */
+    s = krb5_config_get_string(context, NULL, "realms", realm, "sitename_file",
+                               NULL);
+    if (s)
+        return read_sitename_file(context, s, out);
     return 0;
 }
 

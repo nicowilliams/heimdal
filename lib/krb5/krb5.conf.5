@@ -186,6 +186,12 @@ The default is the result of
 .It Li sitename = Va name
 A sitename can be used for site-local DNS-based KDC discovery for default
 realms.
+.It Li sitename_file = Va path
+Read sitename from
+.Va path .
+If the file doesn't exist or is empty, it will be ignored and no
+.Va sitename
+will be inferred for default realms.
 .It Li allow_weak_crypto = Va boolean
 are weak crypto algorithms allowed to be used, among others, DES is
 considered weak.
@@ -547,6 +553,14 @@ parameter.
 Note that this should only be set if the host's site is relevant to
 discovery of KDCs for this
 .Va REALM .
+.It Li sitename_file = Va path
+Similar to
+.Va [libdefaults] sitename_file
+parameter.
+If the file doesn't exist or is empty, it will be ignored and no
+.Va sitename
+will be inferred for this
+.Va REALM.
 .It Li kdc = Va [service/]host[:port]
 Specifies a list of kdcs for this realm.
 If the optional
