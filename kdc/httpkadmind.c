@@ -971,9 +971,32 @@ param_cb(void *d,
         if (ret == 0 && krb5_principal_get_realm(r->context, p) == NULL)
             ret = krb5_principal_set_realm(r->context, p,
                                            r->realm ? r->realm : realm);
+
+        /*
+         * The SPN has to have two components.
+         *
+         * TODO: Support more components?  Support AD-style NetBIOS computer
+         *       account names?
+         */
         if (ret == 0 && krb5_principal_get_num_comp(r->context, p) != 2)
             ret = ENOTSUP;
-        if (ret == 0)
+
+        /*
+         * Allow only certain service names.  Except that when
+         * the SPN == the requestor's principal name then allow the "host"
+         * service name.
+         */
+        if (ret == 0) {
+            const char *service =
+                krb5_principal_get_comp_string(r->context, p, 0);
+
+            if (strcmp(service, "host") == 0 &&
+                krb5_principal_compare(r->context, p, r->cprinc))
+                ; /* Leave ret == 0 (allow) */
+            else
+                ret = check_service_name(r, service);
+        }
+        if (ret == 0 && !krb5_principal_compare(r->context, p, r->cprinc))
             ret = check_service_name(r,
                                      krb5_principal_get_comp_string(r->context,
                                                                     p, 0));
