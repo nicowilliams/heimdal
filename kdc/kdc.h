@@ -84,8 +84,10 @@ typedef struct krb5_kdc_configuration {
     char **pkinit_kdc_cert_pool;
     char **pkinit_kdc_revoke;
     int pkinit_dh_min_bits;
+    /* XXX Turn these into bit-fields */
     int pkinit_require_binding;
     int pkinit_allow_proxy_certs;
+    int synthetic_clients;
     int pkinit_max_life_from_cert_extension;
     krb5_timestamp pkinit_max_life_from_cert;
     krb5_timestamp pkinit_max_life_bound;
