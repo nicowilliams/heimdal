@@ -848,6 +848,63 @@ out:
     return ret;
 }
 
+/* KDC-specific variant of _krb5_get_host_realm_int() */
+static krb5_error_code
+get_host_realm(krb5_context context, const char *host, krb5_realm **realms)
+{
+    krb5_error_code ret = 0;
+    const char *p;
+    char *s = NULL;
+    char *r;
+
+    host = s = strdup(host);
+    if (host == NULL)
+        return krb5_enomem(context);
+
+    /* Strip off any trailing ":port" suffix. */
+    if ((r = strchr(s, ':')))
+        *r = '\0';
+
+    for (p = host; p != NULL; p = strchr (p + 1, '.')) {
+        *realms = krb5_config_get_strings(context, NULL,
+                                          "domain_realm", p, NULL);
+        if (*realms) {
+            if (strcasecmp(*realms[0], "dns_locate") != 0) {
+                free(s);
+                return 0;
+            }
+	    krb5_free_host_realm(context, *realms);
+	    *realms = NULL;
+        }
+    }
+
+    /*
+     * Maybe we could check whether we have a cross-realm krbtgt in the HDB for
+     * the ancestor domains of the hostname, and if not try the next ancestor.
+     * We might also check capaths if we don't have a krbtgt for a given
+     * ancestor -- we might still have a path to it.
+     *
+     * However, [domain_realm] gives us all the flexibility we need for now, so
+     * as a last resort just use the hostname suffix as a last resort.
+     */
+    if ((r = strchr(s, '.')) == NULL || (++p)[0] == '\0') {
+        free(s);
+        return KRB5_ERR_HOST_REALM_UNKNOWN;
+    }
+
+    strupr(r);
+    if ((*realms = calloc(2, sizeof(krb5_realm))) == NULL ||
+        ((*realms)[0] = strdup(r)) == NULL) {
+        free(*realms);
+        ret = krb5_enomem(context);
+    } else {
+        (*realms)[1] = NULL;
+    }
+
+    free(s);
+    return ret;
+}
+
 static krb5_boolean
 need_referral(krb5_context context, krb5_kdc_configuration *config,
 	      const KDCOptions * const options, krb5_principal server,
@@ -882,8 +939,12 @@ need_referral(krb5_context context, krb5_kdc_configuration *config,
 	return FALSE;
 
     kdc_log(context, config, 5, "Searching referral for %s", name);
-
-    return _krb5_get_host_realm_int(context, name, FALSE, realms) == 0;
+    if (get_host_realm(context, name, realms)) {
+        kdc_log(context, config, 6, "No referral found for %s", name);
+        return 0;
+    }
+    kdc_log(context, config, 6, "Found referral for %s: %s", name, (*realms)[0]);
+    return 0;
 }
 
 static krb5_error_code
