@@ -184,16 +184,18 @@ _krb5_get_host_realm_int(krb5_context context,
                          krb5_realm **realms)
 {
     const char *p, *q;
-    const char *port;
+    char *port;
+    char *s = NULL;
     krb5_boolean dns_locate_enable;
     krb5_error_code ret = 0;
 
+    host = s = strdup(host);
+    if (host == NULL)
+        return krb5_enomem(context);
     /* Strip off any trailing ":port" suffix. */
-    port = strchr(host, ':');
+    port = strchr(s, ':');
     if (port != NULL) {
-        host = strndup(host, port - host);
-        if (host == NULL)
-            return krb5_enomem(context);
+        *s = '\0';
     }
 
     dns_locate_enable = krb5_config_get_bool_default(context, NULL, TRUE,
@@ -204,7 +206,7 @@ _krb5_get_host_realm_int(krb5_context context,
                 break;
 	    krb5_free_host_realm(context, *realms);
 	    *realms = NULL;
-            if (!use_dns)
+            if (!use_dns || !dns_locate_enable)
                 continue;
             for (q = host; q != NULL; q = strchr(q + 1, '.'))
                 if (dns_find_realm(context, q, realms) == 0)
@@ -217,38 +219,24 @@ _krb5_get_host_realm_int(krb5_context context,
         }
     }
 
-    /*
-     * If 'p' is NULL, we did not find an explicit realm mapping in either the
-     * configuration file or DNS.  Try the hostname suffix as a last resort.
-     *
-     * XXX: If we implement a KDC-specific variant of this function just for
-     * referrals, we could check whether we have a cross-realm TGT for the
-     * realm in question, and if not try the parent (loop again).
-     */
-    if (p == NULL) {
-        p = strchr(host, '.');
-        if (p != NULL) {
-            p++;
-            *realms = malloc(2 * sizeof(krb5_realm));
-            if (*realms != NULL &&
-                ((*realms)[0] = strdup(p)) != NULL) {
-                strupr((*realms)[0]);
-                (*realms)[1] = NULL;
-            } else {
-                free(*realms);
-                ret = krb5_enomem(context);
-            }
-        } else {
-            krb5_set_error_message(context, KRB5_ERR_HOST_REALM_UNKNOWN,
-                                   N_("unable to find realm of host %s", ""),
-                                   host);
-            ret = KRB5_ERR_HOST_REALM_UNKNOWN;
-        }
+    if (p) {
+        free(s);
+        return 0;
     }
 
-    /* If 'port' is not NULL, we have a copy of 'host' to free. */
-    if (port)
-        free((void *)host);
+    /*
+     * We did not find an explicit realm mapping in either the configuration
+     * file or DNS.  Use the referral realm.
+     */
+    *realms = calloc(2, sizeof(krb5_realm));
+    if (*realms != NULL && ((*realms)[0] = strdup("")) != NULL) {
+        (*realms)[1] = NULL;
+    } else {
+        free(*realms);
+        ret = krb5_enomem(context);
+    }
+
+    free(s);
     return ret;
 }
 
