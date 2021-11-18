@@ -1067,7 +1067,9 @@ krb5_sname_to_principal_old(krb5_context context,
     char localhost[MAXHOSTNAMELEN];
     char **realms = NULL, *host = NULL;
 
-    if(type != KRB5_NT_SRV_HST && type != KRB5_NT_UNKNOWN) {
+    if (type != KRB5_NT_SRV_HST &&
+        type != KRB5_NT_SRV_HST_NEEDS_CANON &&
+        type != KRB5_NT_UNKNOWN) {
 	krb5_set_error_message(context, KRB5_SNAME_UNSUPP_NAMETYPE,
 			       N_("unsupported name type %d", ""),
 			       (int)type);
@@ -1086,6 +1088,8 @@ krb5_sname_to_principal_old(krb5_context context,
     }
     if(sname == NULL)
 	sname = "host";
+    if (type == KRB5_NT_SRV_HST_NEEDS_CANON)
+        type = KRB5_NT_SRV_HST;
     if(type == KRB5_NT_SRV_HST) {
 	if (realm)
 	    ret = krb5_expand_hostname(context, hostname, &host);
@@ -1107,6 +1111,8 @@ krb5_sname_to_principal_old(krb5_context context,
 
     ret = krb5_make_principal(context, ret_princ, realm, sname,
 			      hostname, NULL);
+    if (ret == 0)
+        krb5_principal_set_type(context, *ret_princ, type);
     if(host)
 	free(host);
     if (realms)
@@ -1412,7 +1418,8 @@ krb5_sname_to_principal(krb5_context context,
     *ret_princ = NULL;
 
     if ((type != KRB5_NT_UNKNOWN) &&
-	(type != KRB5_NT_SRV_HST))
+	(type != KRB5_NT_SRV_HST) &&
+	(type != KRB5_NT_SRV_HST_NEEDS_CANON))
 	return KRB5_SNAME_UNSUPP_NAMETYPE;
 
     /* if hostname is NULL, use local hostname */
@@ -1459,6 +1466,8 @@ krb5_sname_to_principal(krb5_context context,
 	    return ret;
 	}
     }
+
+    /* So we're using name canonicalization rules */
 
     /* Remove trailing dots */
     if (remote_host[0]) {
