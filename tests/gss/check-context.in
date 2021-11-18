@@ -86,6 +86,9 @@ ${kadmin} \
 ${kadmin} add -p p1 --use-defaults host/lucid.test.h5l.se@${R} || exit 1
 ${kadmin} ext -k ${keytab} host/lucid.test.h5l.se@${R} || exit 1
 
+${kadmin} add -p p1 --use-defaults host/lucid@${R} || exit 1
+${kadmin} ext -k ${keytab} host/lucid@${R} || exit 1
+
 ${kadmin} add -p p1 --use-defaults host/ok-delegate.test.h5l.se@${R} || exit 1
 ${kadmin} mod --attributes=+ok-as-delegate host/ok-delegate.test.h5l.se@${R} || exit 1
 ${kadmin} ext -k ${keytab} host/ok-delegate.test.h5l.se@${R} || exit 1
@@ -185,9 +188,6 @@ ${context} --name-type=krb5-principal-name host/lucid.test.h5l.se || \
 echo "plain (krb5 realmless short-form)" ; > messages.log
 ${context} --name-type=krb5-principal-name host/lucid 2>/dev/null || \
 	{ eval "$testfailed"; }
-echo "creating short-form princ"
-${kadmin} add -p p1 --use-defaults host/lucid@${R} || exit 1
-${kadmin} ext -k ${keytab} host/lucid@${R} || exit 1
 echo "dns canon on (long name) OFF, need dns_wrapper" ; > messages.log
 #${context} --dns-canon host@lucid.test.h5l.se || \
 #	{ eval "$testfailed"; }
@@ -200,7 +200,7 @@ ${context} --no-dns-canon host@lucid || \
 echo "dns canon off (short name, krb5)" ; > messages.log
 ${context}  --no-dns-canon --name-type=krb5-principal-name host/lucid@${R} || \
 	{ eval "$testfailed"; }
-echo "dns canon off (short name, krb5)" ; > messages.log
+echo "dns canon off (short name, krb5, no realm)" ; > messages.log
 ${context}  --no-dns-canon --name-type=krb5-principal-name host/lucid || \
 	{ eval "$testfailed"; }
 
