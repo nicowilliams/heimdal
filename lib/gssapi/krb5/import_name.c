@@ -42,8 +42,12 @@ parse_krb5_name (OM_uint32 *minor_status,
     krb5_principal princ;
     krb5_error_code kerr;
 
-    kerr = krb5_parse_name (context, name, &princ);
-
+    kerr = krb5_parse_name_flags(context, name,
+                                 KRB5_PRINCIPAL_PARSE_NO_DEF_REALM,
+                                 &princ);
+    if (kerr == 0 && krb5_principal_get_realm(context, princ) == NULL)
+        kerr = krb5_principal_set_realm(context, princ,
+                                        ""); /* "Referral realm" */
     if (kerr == 0) {
 	*output_name = (gss_name_t)princ;
 	return GSS_S_COMPLETE;
@@ -149,6 +153,7 @@ import_hostbased_name(OM_uint32 *minor_status,
 	host = p + 1;
     }
 
+    /* Use the referral realm */
     kerr = krb5_make_principal(context, &princ, "", tmp, host, NULL);
     free (tmp);
     *minor_status = kerr;
