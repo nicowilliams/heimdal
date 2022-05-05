@@ -797,6 +797,8 @@ _kdc_pk_rd_padata(astgs_request_t priv,
     hx509_verify_attach_anchors(cp->verify_ctx, trust_anchors);
     hx509_certs_free(&trust_anchors);
 
+    hx509_verify_attach_revoke(cp->verify_ctx, kdc_identity->revokectx);
+
     if (config->pkinit_allow_proxy_certs)
 	hx509_verify_set_proxy_certificate(cp->verify_ctx, 1);
 
