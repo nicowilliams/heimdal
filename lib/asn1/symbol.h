@@ -106,8 +106,8 @@ HEIM_TAILQ_HEAD(memhead, member);
 struct symbol;
 
 struct tagtype {
-    int tagclass;
-    int tagvalue;
+    unsigned tagclass;
+    unsigned tagvalue;
     enum { TE_IMPLICIT, TE_EXPLICIT } tagenv;
 };
 

@@ -488,11 +488,11 @@ kx509_asn1_files: asn1_compile$(EXEEXT) $(srcdir)/kx509.asn1
 	@$(CLANG_FORMAT) -style=$(CLANG_FORMAT_STYLE) -i asn1_kx509_asn1.c
 
 x690sample_template_asn1_files: asn1_compile$(EXEEXT) $(srcdir)/x690sample.asn1
-	$(ASN1_COMPILE) --one-code-file --template $(srcdir)/x690sample.asn1 x690sample_template_asn1 || (rm -f x690sample_template_asn1_files ; exit 1)
+	$(ASN1_COMPILE) --one-code-file --template --option-file=$(srcdir)/x690sample.opt $(srcdir)/x690sample.asn1 x690sample_template_asn1 || (rm -f x690sample_template_asn1_files ; exit 1)
 	@$(CLANG_FORMAT) -style=$(CLANG_FORMAT_STYLE) -i asn1_x690sample_template_asn1.c
 
 x690sample_asn1_files: asn1_compile$(EXEEXT) $(srcdir)/x690sample.asn1
-	$(ASN1_COMPILE) --one-code-file $(srcdir)/x690sample.asn1 x690sample_asn1 || (rm -f x690sample_asn1_files ; exit 1)
+	$(ASN1_COMPILE) --one-code-file --option-file=$(srcdir)/x690sample.opt $(srcdir)/x690sample.asn1 x690sample_asn1 || (rm -f x690sample_asn1_files ; exit 1)
 	@$(CLANG_FORMAT) -style=$(CLANG_FORMAT_STYLE) -i asn1_x690sample_asn1.c
 
 test_template_asn1_files: asn1_compile$(EXEEXT) $(srcdir)/test.asn1

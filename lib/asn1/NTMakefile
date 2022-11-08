@@ -388,6 +388,7 @@ $(OBJ)\asn1_x690sample_asn1.c $(OBJ)\x690sample_asn1.h: $(BINDIR)\asn1_compile.e
 	$(BINDIR)\asn1_compile.exe \
 		--template	\
 		--one-code-file \
+		--option-file=$(SRCDIR)\x690sample.opt \
 		$(SRCDIR)\x690sample.asn1 x690sample_asn1 \
 	|| ($(RM) $(OBJ)\x690sample_asn1.h ; exit /b 1)
 	cd $(SRCDIR)

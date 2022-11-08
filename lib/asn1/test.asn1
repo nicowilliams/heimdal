@@ -306,4 +306,14 @@ TESTNotDecoratedChoice ::= CHOICE {
   -- should have the same encoding as TESTDecoratedChoice
 }
 
+TESTSetMembersSorting ::= SET {
+  thing0    [APPLICATION 2] INTEGER (-2147483648..2147483647),
+  thing1                    INTEGER (-2147483648..2147483647),
+  thing2                [5] INTEGER (-2147483648..2147483647),
+  thing3                [1] INTEGER (-2147483648..2147483647),
+  thing4                [3] INTEGER (-2147483648..2147483647)
+}
+
+TESTSetMembersSortingAlias ::= TESTSetMembersSorting
+
 END

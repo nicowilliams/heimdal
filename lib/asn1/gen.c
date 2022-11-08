@@ -37,6 +37,7 @@
 
 extern const char *enum_prefix;
 extern int prefix_enum;
+extern int sort_set_members_flag;
 
 RCSID("$Id$");
 
@@ -757,6 +758,8 @@ have_ellipsis(Type *t)
     }
     return NULL;
 }
+
+static struct memhead *sort_members(struct memhead *);
 
 static void
 define_asn1 (int level, Type *t)
@@ -1955,6 +1958,20 @@ generate_type (const Symbol *s)
 
     generate_type_header(s);
 
+    if (sort_set_members_flag) {
+        struct type *t = s->type;
+
+        /*
+         * Note that we only look at TaggedTypes (TTag) here and not type
+         * aliases (TType).  For the latter we'll sort the base SET type's
+         * members when we get to it if we haven't already.
+         */
+        while (t && t->type == TTag)
+            t = t->subtype;
+        if (t && t->type == TSet)
+            t->members = sort_members(t->members);
+    }
+
     if (template_flag)
 	generate_template(s);
 
@@ -2013,4 +2030,67 @@ generate_type (const Symbol *s)
 	fprintf(codefile, "\n\n");
 	close_codefile();
     }
+}
+
+static int
+member_cmp(const void *va, const void *vb)
+{
+    const struct member * const *ap = va;
+    const struct member * const *bp = vb;
+    const struct member *a = *ap;
+    const struct member *b = *bp;
+    struct type *t;
+    uint32_t taga, tagb;
+
+    t = a->type;
+    while (t->type != TTag) {
+        if (t->subtype)
+            t = t->subtype;
+        else if (t->symbol)
+            t = t->symbol->type;
+        else
+            errx(1, "Couldn't determine tye of SET member");
+    }
+    taga = t->tag.tagclass << 30 | t->tag.tagvalue;
+
+    t = b->type;
+    while (t->type != TTag) {
+        if (t->subtype)
+            t = t->subtype;
+        else if (t->symbol)
+            t = t->symbol->type;
+        else
+            errx(1, "Couldn't determine tye of SET member");
+    }
+    tagb = t->tag.tagclass << 30 | t->tag.tagvalue;
+
+    return taga - tagb;
+}
+
+static struct memhead *
+sort_members(struct memhead *members)
+{
+    struct memhead *sorted;
+    struct member *m;
+    struct member **a;
+    size_t nmemb = 0;
+    size_t i = 0;
+
+    HEIM_TAILQ_FOREACH(m, members, members) {
+        nmemb++;
+    }
+    a = ecalloc(nmemb, sizeof(a[0]));
+    HEIM_TAILQ_FOREACH(m, members, members) {
+        a[i] = ecalloc(1, sizeof(a[0][0]));
+        a[i++][0] = *m;
+    }
+
+    qsort(a, nmemb, sizeof(a[0]), member_cmp);
+    sorted = emalloc(sizeof(sorted[0]));
+    HEIM_TAILQ_INIT(sorted);
+    for (i = 0; i < nmemb; i++) {
+        HEIM_TAILQ_INSERT_TAIL(sorted, a[i], members);
+    }
+    free(a);
+    return sorted;
 }

@@ -264,6 +264,7 @@ char *type_file_string = "krb5-types.h";
 int original_order;
 int version_flag;
 int help_flag;
+int sort_set_members_flag = 1;
 struct getargs args[] = {
     { "fuzzer", 0, arg_flag, &fuzzer_flag, NULL, NULL },
     { "template", 0, arg_flag, &template_flag, NULL, NULL },
@@ -283,6 +284,8 @@ struct getargs args[] = {
         "Names of types for which to generate _save fields, saving original "
             "encoding, in containing structures (useful for signature "
             "verification)", "TYPE" },
+    { "sort-set-members", 0, arg_negative_flag, &sort_set_members_flag,
+        "Do not sort SET type members", NULL },
     { "sequence", 0, arg_strings, &seq,
         "Generate add/remove functions for SEQUENCE OF types", "TYPE" },
     { "decorate", 0, arg_strings, &decorate,

@@ -2210,6 +2210,88 @@ test_x690sample(void)
     return 0;
 }
 
+/*
+ * We have this in test.asn1:
+ *
+ *    TESTSetMembersSorting ::= SET {
+ *      thing0    [APPLICATION 2] INTEGER (-2147483648..2147483647),
+ *      thing1                    INTEGER (-2147483648..2147483647),
+ *      thing2                [5] INTEGER (-2147483648..2147483647),
+ *      thing3                [1] INTEGER (-2147483648..2147483647),
+ *      thing4                [3] INTEGER (-2147483648..2147483647)
+ *    }
+ *
+ * The actual order of members in DER should be: thing1, thing0, thing3,
+ * thing4, thing2.  We'll assign thing0 value 0, thing1 1, .. thing4 4.
+ * Then the encoding we get should decode to:
+ *
+ *  UNIV CONS Set = 23 bytes {
+ *    UNIV PRIM Integer = integer 1
+ *    APPL CONS tag 2 = 3 bytes [2]
+ *      UNIV PRIM Integer = integer 0
+ *    CONTEXT CONS tag 1 = 3 bytes [1]
+ *      UNIV PRIM Integer = integer 3
+ *    CONTEXT CONS tag 3 = 3 bytes [3]
+ *      UNIV PRIM Integer = integer 4
+ *    CONTEXT CONS tag 5 = 3 bytes [5]
+ *      UNIV PRIM Integer = integer 2
+ *  }
+ *
+ * and that's the encoding we hard-code below.
+ */
+static int
+check_set_members_order(void)
+{
+    TESTSetMembersSorting t;
+    heim_octet_string os;
+    size_t size;
+    int ret;
+
+    t.thing0 = 0;
+    t.thing1 = 1;
+    t.thing2 = 2;
+    t.thing3 = 3;
+    t.thing4 = 4;
+    
+    /* We preserve in C the order in which the members were defined */
+    if (!(&t.thing0 < &t.thing1 &&
+          &t.thing1 < &t.thing2 &&
+          &t.thing2 < &t.thing3 &&
+          &t.thing3 < &t.thing4))
+        return 1;
+
+    ASN1_MALLOC_ENCODE(TESTSetMembersSorting, os.data, os.length, &t, &size, ret);
+    if (ret)
+        return 1;
+    if (os.length !=
+        sizeof("\x31\x17\x02\x01\x01\x62\x03\x02\x01\x00\xa1\x03\x02\x01"
+               /*                 ^^                  ^^
+                *                 thing1              thing0
+                */
+               "\x03\xa3\x03\x02\x01\x04\xa5\x03\x02\x01\x02") - 1)
+               /* ^^                  ^^                  ^^
+                * thing3              thing4              thing2
+                */
+        return 1;
+    if (memcmp(os.data,
+               "\x31\x17\x02\x01\x01\x62\x03\x02\x01\x00\xa1\x03\x02\x01"
+               "\x03\xa3\x03\x02\x01\x04\xa5\x03\x02\x01\x02",
+               os.length) != 0)
+        return 1;
+
+    t.thing0 = t.thing1 = t.thing2 = t.thing3 = t.thing4 = -1;
+    ret = decode_TESTSetMembersSorting(os.data, os.length, &t, &size);
+    free(os.data);
+    if (ret)
+        return 1;
+    if (size != os.length)
+        return 1;
+    if (t.thing0 != 0 ||t.thing1 != 1 || t.thing2 != 2 ||
+        t.thing3 != 3 || t.thing4 != 4)
+        return 1;
+    return 0;
+}
+
 #if ASN1_IOS_SUPPORTED
 static int
 test_ios(void)
@@ -2676,6 +2758,8 @@ main(int argc, char **argv)
 
     DO_ONE(test_decorated_choice);
     DO_ONE(test_decorated);
+
+    DO_ONE(check_set_members_order);
 
 #if ASN1_IOS_SUPPORTED
     DO_ONE(test_ios);
