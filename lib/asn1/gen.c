@@ -1091,7 +1091,7 @@ define_open_type(int level, const char *newbasename, const char *name, const cha
     Member *opentypemember, *typeidmember;
     Field *opentypefield, *typeidfield;
     ObjectField *of;
-    IOSObjectSet *os = pt->actual_parameter;
+    IOSObjectSet *os = pt->actual_objset_parameter;
     IOSObject **objects;
     size_t nobjs, i;
     int is_array_of_open_type;
@@ -1193,9 +1193,9 @@ define_type(int level, const char *name, const char *basename, Type *pt, Type *t
     switch (t->type) {
     case TType:
 	space(level);
-        if (!t->symbol && t->actual_parameter) {
+        if (!t->symbol && t->actual_objset_parameter) {
             define_open_type(level, newbasename, name, basename, t, t);
-        } else if (!t->symbol && pt->actual_parameter) {
+        } else if (!t->symbol && pt->actual_objset_parameter) {
             define_open_type(level, newbasename, name, basename, pt, t);
         } else if (t->symbol) {
             fprintf(headerfile, "%s %s;\n", t->symbol->gen_name, name);
@@ -1455,7 +1455,7 @@ define_type(int level, const char *name, const char *basename, Type *pt, Type *t
             }
 	}
         fprintf(jsonfile, "]");
-        if (t->actual_parameter && t->actual_parameter->objects) {
+        if (t->actual_objset_parameter && t->actual_objset_parameter->objects) {
             fprintf(jsonfile, ",\"opentype\":");
             define_open_type(level, newbasename, name, basename, t, t);
         }

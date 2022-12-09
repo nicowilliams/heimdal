@@ -58,7 +58,7 @@ static struct objfieldhead *add_field_setting(struct objfieldhead *, ObjectField
 static struct fieldhead *add_field_spec(struct fieldhead *, Field *);
 static Field *new_type_field(char *, int, Type *);
 static Field *new_fixed_type_value_field(char *, Type *, int, int, struct value *);
-static Type *parametrize_type(Type *, IOSClass *);
+static Type *parametrize_type(Type *, IOSClass *, const char *);
 static Type *type_from_class_field(IOSClass *, const char *);
 static void validate_object_set(IOSObjectSet *);
 /*static Type *type_from_object(const char *, const char *);*/
@@ -78,6 +78,13 @@ struct string_list {
 static int default_tag_env = TE_EXPLICIT;
 static unsigned long idcounter;
 
+#define BLESS(thing, kind_)                     \
+    do {                                        \
+        (thing)->self.kind = A1Kind_## kind_;   \
+        (thing)->self.u.kind_ = thing;          \
+    } while (0)                                 \
+
+
 /* Declarations for Bison */
 #define YYMALLOC malloc
 #define YYFREE   free
@@ -89,8 +96,9 @@ static unsigned long idcounter;
     struct value *value;
     struct range *range;
     char *name;
+    KindedThing *kinded_thing;
     Type *type;
-    IOSClass *class;
+    IOSClass *cls;
     IOSObjectSet *objectset;
     IOSObject *object;
     Field *field;
@@ -232,9 +240,9 @@ static unsigned long idcounter;
 %type <value> ReferencedValue
 %type <value> Valuereference
 
-%type <class> DefinedObjectClass ParamGovernor
-%type <class> ObjectClassDefn
-%type <class> Parameter
+%type <cls> DefinedObjectClass ParamGovernor
+%type <cls> ObjectClassDefn
+%type <cls> Parameter
 
 %type <type> Type
 %type <type> BuiltinType
@@ -263,7 +271,7 @@ static unsigned long idcounter;
 /*%type <type> TypeFromObject*/
 
 %type <objectset> ObjectSet DefinedObjectSet
-%type <objectset> ActualParameter
+%type <kinded_thing> ActualParameter
 %type <object> Object DefinedObject ObjectDefn
 %type <objfield> FieldSetting
 
@@ -499,6 +507,7 @@ ObjectClassAssignment
 ObjectClassDefn : kw_CLASS '{' FieldSpecList '}'
 		{
 		    $$ = ecalloc(1, sizeof(*$$));
+                    BLESS($$, cls);
 		    $$->fields = $3;
 		    $$->id = idcounter++;
 		};
@@ -532,6 +541,7 @@ ObjectSetAssignment
 ObjectSet       : '{' ObjectSetSpec '}'
 		{
 		    $$ = ecalloc(1, sizeof(*$$));
+                    BLESS($$, objset);
 		    $$->objects = $2;
 		    $$->id = idcounter++;
 		}
@@ -571,6 +581,7 @@ DefinedObjectSet: TYPE_IDENTIFIER
 ObjectDefn	: '{' FieldSettings '}' /* DefaultSyntax */
 		{
 		    $$ = ecalloc(1, sizeof(*$$));
+                    BLESS($$, obj);
 		    $$->objfields = $2;
 		    $$->id = idcounter++;
 		}
@@ -895,7 +906,22 @@ ParameterizedTypeAssignment
 		    s = addsym(pname);
 		    free($1);
 		    s->stype = Sparamtype;
-		    s->type = parametrize_type($6, $3);
+		    s->type = parametrize_type($6, $3, NULL);
+		    s->type->symbol = s;
+		    fix_labels(s);
+		}
+                | Identifier '{' TYPE_IDENTIFIER '}' EEQUAL Type
+		{
+		    char *pname = NULL;
+		    Symbol *s;
+
+		    if (asprintf(&pname, "%s{%s}", $1, $3) == -1 ||
+			pname == NULL)
+			err(1, "Out of memory");
+		    s = addsym(pname);
+		    free($1);
+		    s->stype = Sparamtype;
+		    s->type = parametrize_type($6, NULL, $3);
 		    s->type->symbol = s;
 		    fix_labels(s);
 		}
@@ -1218,27 +1244,45 @@ ParameterizedType
 		: Identifier '{' ActualParameter '}' /* XXX ActualParameterList */
 		{
 		  Symbol *s, *ps;
+		  char *name = NULL;
 		  char *pname = NULL;
 
 		  if ($3 == NULL) {
-                    lex_error_message("Unknown ActualParameter object set parametrizing %s\n", $1);
+                    lex_error_message("Unknown ActualParameter parametrizing %s\n", $1);
                     exit(1);
                   }
 
-		  /* Lookup the type from a ParameterizedTypeAssignment */
-		  if (asprintf(&pname, "%s{%s:x}", $1,
-			       $3->iosclass->symbol->name) == -1 ||
-		      pname == NULL)
-		      err(1, "Out of memory");
+
+                  if ($3->kind != A1Kind_type &&
+                      $3->kind != A1Kind_objset) {
+                    lex_error_message("Unknown ActualParameter parametrizing %s\n", $1);
+                    exit(1);
+                  }
+
+                  /*
+                   * XXX Crap like $3->u.objset->iosclass->symbol->name and
+                   * $3->symbol->name is how we crash a lot.
+                   */
+
+                  if ($3->kind == A1Kind_type) {
+                    pname = $3->u.type->symbol->name;
+                    name = easprintf("%s{%s}", $1, pname);
+                  } else {
+                    /* Lookup the type from a ParameterizedTypeAssignment */
+                    pname = $3->u.objset->iosclass->symbol->name;
+                    name = easprintf("%s{%s:x}", $1, pname);
+                  }
+
 		  ps = addsym(pname);
+                  /* XXX Make forwards not necessary */
 		  if (ps->stype != Sparamtype)
 		    lex_error_message ("%s is not a parameterized type\n", $1);
 
 		  s = addsym($1);
 		  $$ = ps->type; /* XXX copy, probably */
 		  if (!ps->type)
-		    errx(1, "Wrong class (%s) parameter for parameterized "
-		         "type %s", $3->iosclass->symbol->name, $1);
+		    errx(1, "Wrong (%s) parameter for parameterized "
+		         "type %s", name, $1);
 		  s->stype = Stype;
 		  if(s->stype != Stype && s->stype != SUndefined)
 		    lex_error_message ("%s is not a type\n", $1);
@@ -1258,7 +1302,10 @@ ParameterizedType
  * these things, though fortunately we can for ObjectSet.
  */
 ActualParameter : DefinedObjectSet
-		{ $$ = $1; };
+		{ $$ = $1->self.u.kinded; }
+                | DefinedType
+                { $$ = $1->self.u.kinded; }
+                ;
 
 UsefulType	: kw_GeneralizedTime
 		{
@@ -1815,6 +1862,8 @@ static Type *
 new_type (Typetype tt)
 {
     Type *t = ecalloc(1, sizeof(*t));
+
+    BLESS(t, type);
     t->type = tt;
     t->id = idcounter++;
     return t;
@@ -1942,13 +1991,14 @@ new_fixed_type_value_field(char *n, Type *t, int unique, int optional, struct va
 }
 
 static Type *
-parametrize_type(Type *t, IOSClass *c)
+parametrize_type(Type *t, IOSClass *c, const char *name)
 {
     Type *type;
 
     type = new_type(TType);
     *type = *t; /* XXX Copy, or use subtype; this only works as long as we don't cleanup! */
-    type->formal_parameter = c;
+    /* XXX We're not using this field! */
+    type->formal_class_parameter = c;
     return type;
 }
 

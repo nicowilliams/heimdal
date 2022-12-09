@@ -306,4 +306,63 @@ TESTNotDecoratedChoice ::= CHOICE {
   -- should have the same encoding as TESTDecoratedChoice
 }
 
+-- Test that we can support more than one object set, and more than one
+-- concrete type instance of a parameterized type, each parameterized by a
+-- different actual object set parameter.
+_TESTCLASS ::= CLASS {
+    &id INTEGER UNIQUE,
+    &Type
+}
+
+TESTParameterizedType{_TESTCLASS:FormalSet} ::= SEQUENCE {
+    type-id     _TESTCLASS.&id({FormalSet}),
+    value       [0] _TESTCLASS.&Type({FormalSet}{@type-id})
+}
+
+-- Three type IDs
+test-concrete-instance-int0 INTEGER ::= 0
+test-concrete-instance-int1 INTEGER ::= 1
+test-concrete-instance-int2 INTEGER ::= 2
+
+-- Three types
+-- 
+-- We currently only support references to types that aren't built-in universal
+-- types :(
+AliasINTEGER    ::= INTEGER
+AliasNULL       ::= NULL
+AliasBOOLEAN    ::= BOOLEAN
+
+-- Three objects
+test-concrete-instance-obj0 _TESTCLASS ::= { &id test-concrete-instance-int0, &Type AliasINTEGER }
+test-concrete-instance-obj1 _TESTCLASS ::= { &id test-concrete-instance-int1, &Type AliasNULL }
+test-concrete-instance-obj2 _TESTCLASS ::= { &id test-concrete-instance-int2, &Type AliasBOOLEAN }
+
+-- Three object sets, each with different objects, some overlapping
+TestConcreteInstanceSetA _TESTCLASS ::= {
+    test-concrete-instance-obj0
+  | test-concrete-instance-obj1
+}
+TestConcreteInstanceSetB _TESTCLASS ::= {
+    test-concrete-instance-obj2
+}
+TestConcreteInstanceSetC _TESTCLASS ::= {
+    test-concrete-instance-obj0
+  | test-concrete-instance-obj2
+}
+
+-- Three concrete types, each parameterized by different object sets
+--
+-- The test will be to check that the three types are different, and the three
+-- object sets are different, and everything corresponds.
+TestConcreteInstanceA ::= TESTParameterizedType{TestConcreteInstanceSetA}
+TestConcreteInstanceB ::= TESTParameterizedType{TestConcreteInstanceSetB}
+TestConcreteInstanceC ::= TESTParameterizedType{TestConcreteInstanceSetC}
+
+TestSIGNED{ToBeSigned} ::= SEQUENCE {
+    tbs ToBeSigned,
+    sig OCTET STRING
+}
+
+TestSignedThing ::= TestSIGNED{TestConcreteInstanceA}
+
 END

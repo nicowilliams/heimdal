@@ -856,8 +856,8 @@ template_open_type(struct templatehead *temp,
                  basetype, m->gen_name) == -1 || !s)
         err(1, "Out of memory");
 
-    template_object_set(t->actual_parameter, typeidfield, opentypefield);
-    add_line_pointer(temp, t->actual_parameter->symbol->gen_name, s,
+    template_object_set(t->actual_objset_parameter, typeidfield, opentypefield);
+    add_line_pointer(temp, t->actual_objset_parameter->symbol->gen_name, s,
                      /*
                       * We always sort object sets for now as we can't import
                       * values yet, so they must all be known.
@@ -1082,7 +1082,7 @@ template_members(struct templatehead *temp,
         size_t i = 0, typeididx = 0, opentypeidx = 0;
         int is_array_of_open_type = 0;
 
-        if (isstruct && t->actual_parameter)
+        if (isstruct && t->actual_objset_parameter)
             get_open_type_defn_fields(t, &typeidmember, &opentypemember,
                                       &typeidfield, &opentypefield,
                                       &is_array_of_open_type);
@@ -1115,7 +1115,7 @@ template_members(struct templatehead *temp,
             i++;
 	}
 
-        if (isstruct && t->actual_parameter)
+        if (isstruct && t->actual_objset_parameter)
             template_open_type(temp, basetype, t, typeididx, opentypeidx,
                                typeidfield, opentypefield, opentypemember,
                                is_array_of_open_type);
@@ -1160,7 +1160,7 @@ template_members(struct templatehead *temp,
         size_t i = 0, typeididx = 0, opentypeidx = 0;
         int is_array_of_open_type = 0;
 
-        if (isstruct && t->actual_parameter)
+        if (isstruct && t->actual_objset_parameter)
             get_open_type_defn_fields(t, &typeidmember, &opentypemember,
                                       &typeidfield, &opentypefield,
                                       &is_array_of_open_type);
@@ -1193,7 +1193,7 @@ template_members(struct templatehead *temp,
             i++;
 	}
 
-        if (isstruct && t->actual_parameter)
+        if (isstruct && t->actual_objset_parameter)
             template_open_type(temp, basetype, t, typeididx, opentypeidx,
                                typeidfield, opentypefield, opentypemember,
                                is_array_of_open_type);

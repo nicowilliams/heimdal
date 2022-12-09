@@ -67,12 +67,53 @@ enum typetype {
 
 typedef enum typetype Typetype;
 
+/*
+ * A LALR(1) parser is not enough.  There's context to ASN.1 syntax.  We need
+ * to know what kind of thing is some Identifier.  Is it a Type or an Object
+ * Set, or even a CLASS?  What about an identifier, is it a value, an object,
+ * or a value set?
+ *
+ * We must do type punning.
+ */
+enum asn1_kind {
+    A1Kind_unknown,  /* Defined later; ASN.1 does not have forward decls */
+    A1Kind_type,
+    A1Kind_cls,
+    A1Kind_obj,
+    A1Kind_objset,
+    A1Kind_value,
+    A1Kind_valueset,
+};
+
+typedef enum asn1_kind ASN1Kind;
+
+struct kinded_thing {
+    ASN1Kind kind;
+    /* This is a pointer to self to avoid casting at the price of bloating */
+    union {
+        struct kinded_thing *kinded;
+        struct value *value;
+        struct type *type;
+        struct iosclass *cls;
+        struct iosobject *obj;
+        struct iosobjectset *objset;
+        /* XXX Add valueset at some point */
+    } u;
+    /* The rest of the actual thing kinded follows... */
+};
+
+typedef struct kinded_thing KindedThing;
+
+#if 0
 struct type;
 struct value;
 struct typereference;
+#endif
 
 struct value {
-    enum { booleanvalue,
+    struct kinded_thing self;
+    enum { unknown, /* not yet known */
+           booleanvalue,
 	   nullvalue,
 	   integervalue,
 	   stringvalue,
@@ -149,6 +190,7 @@ typedef struct iosobjectfield ObjectField;
 HEIM_TAILQ_HEAD(objfieldhead, iosobjectfield);
 
 struct iosclass {
+    struct kinded_thing self;
     struct symbol *symbol;
     struct fieldhead *fields;
     unsigned long id;
@@ -157,6 +199,7 @@ struct iosclass {
 typedef struct iosclass IOSClass;
 
 struct iosobject {
+    struct kinded_thing self;
     struct symbol *symbol;
     struct objfieldhead *objfields;
     ObjectField *typeidf;
@@ -171,6 +214,7 @@ typedef struct iosobject IOSObject;
 HEIM_TAILQ_HEAD(objectshead, iosobject);
 
 struct iosobjectset {
+    struct kinded_thing self;
     struct symbol *symbol;
     IOSClass *iosclass;
     struct objectshead *objects;
@@ -189,13 +233,18 @@ struct typereference {
 };
 
 struct type {
+    struct kinded_thing self;
     Typetype type;
     struct memhead *members;
     struct symbol *symbol;
     struct type *subtype;
     struct typereference typeref; /* For type fields */
-    IOSClass *formal_parameter;
-    IOSObjectSet *actual_parameter;
+    KindedThing *formal_parameter;
+    KindedThing *actual_parameter;
+    IOSClass *formal_class_parameter;
+    const char *formal_type_parameter;
+    IOSObjectSet *actual_objset_parameter;
+    struct type *actual_type_parameter;
     struct tagtype tag;
     struct range *range;
     struct constraint_spec *constraint;
