@@ -31,6 +31,7 @@
  * SUCH DAMAGE.
  */
 
+#include "com_err.h"
 #include "hx_locl.h"
 #include <wind.h>
 #include "char_map.h"
@@ -1526,4 +1527,156 @@ hx509_general_name_unparse2(hx509_context context,
     else if (strpool == NULL || (*str = rk_strpoolcollect(strpool)) == NULL)
 	return ENOMEM;
     return ret;
+}
+
+static int
+normalize_ds(const DirectoryString *from, DirectoryString *to)
+{
+    DirectoryString u8ds;
+    int ret;
+
+    u8ds.element = choice_DirectoryString_utf8String;
+    u8ds.u.utf8String = NULL;
+
+    switch (from->element) {
+    case choice_DirectoryString_utf8String:
+        return copy_DirectoryString(from, to);
+    case choice_DirectoryString_ia5String:
+        u8ds.u.utf8String = strndup(from->u.ia5String.data, from->u.ia5String.length);
+        if (u8ds.u.utf8String == NULL)
+            return ENOMEM;
+        ret = copy_DirectoryString(&u8ds, to);
+        free_DirectoryString(&u8ds);
+        return ret;
+    case choice_DirectoryString_printableString:
+        u8ds.u.utf8String = strndup(from->u.printableString.data, from->u.printableString.length);
+        if (u8ds.u.utf8String == NULL)
+            return ENOMEM;
+        ret = copy_DirectoryString(&u8ds, to);
+        free_DirectoryString(&u8ds);
+        return ret;
+    case choice_DirectoryString_teletexString:
+        u8ds.u.utf8String = from->u.teletexString;
+        return copy_DirectoryString(&u8ds, to);
+    case choice_DirectoryString_universalString:
+        /*
+         * We need to import code from lib/base to encode Unicode codepoints as
+         * UTF-8.
+         */
+        return ENOTSUP;
+    case choice_DirectoryString_bmpString:
+        /*
+         * Do we need to import code from lib/base to do surrogate encoding?
+         * We do need to import code from lib/base to encode Unicode (BMP)
+         * codepoints as UTF-8.
+         */
+        return ENOTSUP;
+    default:
+        return ENOTSUP;
+    }
+}
+
+/*
+ * This is a utility function for helping to compute OpenSSL certificate hashes
+ * for DIR: type trust anchors and CRLs.
+ *
+ * Given a Name output a new Name that has the same attributes but with all
+ * strings as UTF8String values.
+ *
+ * Another utility function will then encode the resulting Name in DER and
+ * strip off the outer SEQUENCE tag to compute the SHA-1 hash, truncate it, and
+ * output it as a string.
+ */
+HX509_LIB_FUNCTION int HX509_LIB_CALL
+_hx509_Name_canon4openssl_hash(Name *in, Name *out)
+{
+    size_t i, k, m;
+    Name n;
+    int ret = 0;
+
+
+    memset(out, 0, sizeof(*out));
+    if (in->element != choice_Name_rdnSequence)
+        return ENOTSUP;
+
+    n = *out;
+    n.element = choice_Name_rdnSequence;
+    for (i = 0; i < in->u.rdnSequence.len; i++) {
+        RelativeDistinguishedName rdn1;
+
+        rdn1.len = 0;
+        rdn1.val = NULL;
+        for (k = 0; k < in->u.rdnSequence.val[i].len; k++) {
+            AttributeTypeAndValue atv;
+
+            memset(&atv, 0, sizeof(atv));
+            for (m = 0; m < sizeof(no)/sizeof(no[0]); m++) {
+                if (der_heim_oid_cmp(&in->u.rdnSequence.val[i].val[k].type,
+                                     no[m].o) == 0)
+                    break;
+            }
+            if (m == sizeof(no)/sizeof(no[0]))
+                /* Or maybe just ignore this attribute? */
+                goto enotsup;
+            ret = copy_AttributeType(&in->u.rdnSequence.val[i].val[k].type,
+                                     &atv.type);
+            if (ret == 0)
+                ret = normalize_ds(&in->u.rdnSequence.val[i].val[k].value, &atv.value);
+            if (ret == 0)
+                ret = add_RelativeDistinguishedName(&rdn1, &atv);
+        }
+        ret = add_RDNSequence(&n.u.rdnSequence, &rdn1);
+    }
+    *out = n;
+    return 0;
+
+enotsup:
+    free_Name(&n);
+    return ENOTSUP;
+}
+
+HX509_LIB_FUNCTION int HX509_LIB_CALL
+_hx509_name_openssl_hash(Name *in, unsigned long *out)
+{
+    heim_octet_string os;
+    unsigned char d[SHA_DIGEST_LENGTH];
+    Der_type type = CONS;
+    EVP_MD_CTX *mdctx;
+    Name canon;
+    size_t size;
+    int ret = 0;
+
+    *out = 0;
+    /* "Canonicalize" the input Name */
+    ret = _hx509_Name_canon4openssl_hash(in, &canon);
+    if (ret)
+        return ret;
+    ASN1_MALLOC_ENCODE(Name, os.data, os.length, &canon, &size, ret);
+    if (ret)
+        return ret;
+    ret = der_match_tag_and_length(os.data, os.length, ASN1_C_UNIV, &type,
+                                   UT_Sequence, &size, NULL);
+    if (ret == 0 && type != CONS)
+        ret = EINVAL;
+    if (ret)
+        return ret;
+
+    mdctx = EVP_MD_CTX_create();
+    EVP_DigestInit_ex(mdctx, EVP_sha1(), NULL);
+    EVP_DigestUpdate(mdctx, os.data, os.length);
+    EVP_DigestFinal_ex(mdctx, d, NULL);
+    EVP_MD_CTX_destroy(mdctx);
+    der_free_octet_string(&os);
+    *out = 0xffffffffL &
+        (((unsigned long)d[0]) |
+         ((unsigned long)d[1] << 8L) |
+         ((unsigned long)d[2] << 16L) |
+         ((unsigned long)d[3] << 24L));
+    return ret;
+}
+
+HX509_LIB_FUNCTION int HX509_LIB_CALL
+hx509_name_openssl_hash(const hx509_name name, unsigned long *out)
+{
+    return _hx509_name_openssl_hash(&name->der_name, out);
 }

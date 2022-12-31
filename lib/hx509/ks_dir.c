@@ -100,6 +100,64 @@ dir_free(hx509_certs certs, void *data)
 }
 
 static int
+dir_query(hx509_context context, hx509_certs certs, void *data,
+          const hx509_query *q, hx509_cert *out)
+{
+    unsigned long hash;
+    struct stat st;
+    char *dn = data;
+    size_t i;
+    int ret;
+
+    *out = NULL;
+    
+    /*
+     * We can only search by subject name; for searches not including by name
+     * we return ENOTSUP so we can fall back on iterating the directory.
+     */
+    if ((q->match & ~(HX509_QUERY_MATCH_SUBJECT_NAME)) ||
+        q->subject_name == NULL)
+        return ENOTSUP;
+
+    ret = _hx509_name_openssl_hash(q->subject_name ?
+                                       q->subject_name :
+                                       q->issuer_name,
+                                   &hash);
+    if (ret)
+        return ret;
+
+    for (i = 0; i < 50; i++) {
+        hx509_certs found_certs = NULL;
+        char *p = NULL;
+        char pathsep;
+
+#ifdef WIN32
+        pathsep = '\\';
+#else
+        pathsep = '/';
+#endif
+
+        if (asprintf(&p, "%s%c%08lx.%d", dn, pathsep, hash, (int)i) == -1 ||
+            p == NULL)
+            return ENOMEM;
+        if (stat(p, &st) != 0)
+            return HX509_CERT_NOT_FOUND;
+        ret = hx509_certs_init(context, p, HX509_CERTS_NO_PRIVATE_KEYS,
+                               NULL, &found_certs);
+        free(p);
+        if (ret)
+            return ret;
+
+        /* Recurse to handle all the remaining bits of the query */
+        ret = hx509_certs_find(context, found_certs, q, out);
+        if (ret == 0 && *out)
+            return 0;
+        hx509_certs_free(&found_certs);
+    }
+    return HX509_CERT_NOT_FOUND;
+}
+
+static int
 dir_iter_start(hx509_context context,
 	       hx509_certs certs, void *data, void **cursor)
 {
@@ -206,7 +264,6 @@ dir_iter_end(hx509_context context,
     return 0;
 }
 
-
 static struct hx509_keyset_ops keyset_dir = {
     "DIR",
     0,
@@ -214,7 +271,7 @@ static struct hx509_keyset_ops keyset_dir = {
     NULL,
     dir_free,
     NULL,
-    NULL,
+    dir_query,
     dir_iter_start,
     dir_iter,
     dir_iter_end,

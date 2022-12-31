@@ -708,7 +708,7 @@ cms_create_enveloped(struct cms_envelope_options *opt, int argc, char **argv)
 }
 
 static void
-print_certificate(hx509_context hxcontext, hx509_cert cert, int verbose)
+print_certificate(hx509_context hxcontext, hx509_cert cert, struct print_options *opt)
 {
     const char *fn;
     int ret;
@@ -723,7 +723,26 @@ print_certificate(hx509_context hxcontext, hx509_cert cert, int verbose)
     if (ret)
 	errx(1, "failed to print cert");
 
-    if (verbose) {
+    if (opt->hash_flag) {
+	unsigned long hash;
+	hx509_name n = NULL;
+
+	ret = hx509_cert_get_subject(cert, &n);
+	if (ret == 0)
+	    ret = hx509_name_openssl_hash(n, &hash);
+	if (ret == 0)
+	    printf("    subject hash: %08lx\n", hash);
+	hx509_name_free(&n);
+
+	ret = hx509_cert_get_issuer(cert, &n);
+	if (ret == 0)
+	    ret = hx509_name_openssl_hash(n, &hash);
+	if (ret == 0)
+	    printf("    issuer hash: %08lx\n", hash);
+	hx509_name_free(&n);
+    }
+
+    if (opt->content_flag) {
 	hx509_validate_ctx vctx;
 
 	hx509_validate_ctx_init(hxcontext, &vctx);
@@ -739,8 +758,8 @@ print_certificate(hx509_context hxcontext, hx509_cert cert, int verbose)
 
 
 struct print_s {
+    struct print_options *opt;
     int counter;
-    int verbose;
 };
 
 static int HX509_LIB_CALL
@@ -749,7 +768,7 @@ print_f(hx509_context hxcontext, void *ctx, hx509_cert cert)
     struct print_s *s = ctx;
 
     printf("cert: %d\n", s->counter++);
-    print_certificate(context, cert, s->verbose);
+    print_certificate(context, cert, s->opt);
 
     return 0;
 }
@@ -779,8 +798,8 @@ pcert_print(struct print_options *opt, int argc, char **argv)
     hx509_lock lock;
     struct print_s s;
 
+    s.opt = opt;
     s.counter = 0;
-    s.verbose = opt->content_flag;
 
     hx509_lock_init(context, &lock);
     lock_strings(lock, &opt->pass_strings);
