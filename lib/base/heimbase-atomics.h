@@ -61,6 +61,10 @@
 #define heim_base_exchange_32(t,v)	atomic_exchange((t), (v))
 #define heim_base_exchange_64(t,v)	atomic_exchange((t), (v))
 
+#define heim_base_cas_pointer(t,e,d) 	atomic_compare_exchange_strong((t), &(e), (d))
+#define heim_base_cas_32(t,e,d)		atomic_compare_exchange_strong((t), &(e), (d))
+#define heim_base_cas_64(t,e,d)		atomic_compare_exchange_strong((t), &(e), (d))
+
 #elif defined(__GNUC__) && defined(HAVE___SYNC_ADD_AND_FETCH)
 
 #define heim_base_atomic_barrier()	__sync_synchronize()
@@ -84,6 +88,10 @@
 #define heim_base_exchange_32(t,v)	heim_base_exchange_pointer((t), (v))
 #define heim_base_exchange_64(t,v)	heim_base_exchange_pointer((t), (v))
 
+#define heim_base_cas_pointer(t,e,d) 	__sync_bool_compare_and_swap((t), (e), (d))
+#define heim_base_cas_32(t,e,d)		__sync_bool_compare_and_swap((t), (e), (d))
+#define heim_base_cas_64(t,e,d)		__sync_bool_compare_and_swap((t), (e), (d))
+
 #elif defined(__sun)
 
 #include <sys/atomic.h>
@@ -106,6 +114,11 @@ static inline void __heim_base_atomic_barrier(void)
 #define heim_base_exchange_pointer(t,v) atomic_swap_ptr((t), (void *)(v))
 #define heim_base_exchange_32(t,v)	atomic_swap_32((t), (v))
 #define heim_base_exchange_64(t,v)	atomic_swap_64((t), (v))
+
+/* XXX Multiple evaluation problem here; make these inline functions */
+#define heim_base_cas_pointer(t,e,d) 	(atomic_cas_ptr((t), (e), (d)) == (e))
+#define heim_base_cas_32(t,e,d)		(atomic_cas_32((t), (e), (d)) == (e))
+#define heim_base_cas_64(t,e,d)		(atomic_cas_64((t), (e), (d)) == (e))
 
 #elif defined(_AIX)
 
@@ -151,6 +164,10 @@ heim_base_exchange_64(uint64_t *p, uint64_t newval)
     return val;
 }
 
+#define heim_base_cas_pointer(t,e,d) 	compare_and_swaplp((atomic_l)(t), (e), (d))
+#define heim_base_cas_32(t,e,d)		compare_and_swap  ((atomic_l)(t), (e), (d))
+#define heim_base_cas_64(t,e,d)		compare_and_swaplp((atomic_l)(t), (e), (d))
+
 #elif defined(_WIN32)
 
 #define heim_base_atomic_barrier()	MemoryBarrier()
@@ -163,6 +180,10 @@ heim_base_exchange_64(uint64_t *p, uint64_t newval)
 #define heim_base_exchange_pointer(t,v) InterlockedExchangePointer((PVOID volatile *)(t), (PVOID)(v))
 #define heim_base_exchange_32(t,v)	((ULONG)InterlockedExchange((LONG volatile *)(t), (LONG)(v)))
 #define heim_base_exchange_64(t,v)	((ULONG64)InterlockedExchange64((LONG64 violatile *)(t), (LONG64)(v)))
+
+#define heim_base_cas_pointer(t,e,d) 	InterlockedCompareExchangePointer((atomic_l)(t), (d), (e))
+#define heim_base_cas_32(t,e,d)		InterlockedCompareExchange  ((atomic_l)(t), (d), (e))
+#define heim_base_cas_64(t,e,d)		InterlockedCompareExchange64((atomic_l)(t), (d), (e))
 
 #else
 
@@ -244,6 +265,41 @@ heim_base_exchange_64(uint64_t *p, uint64_t newval)
     return old;
 }
 
+static inline int
+heim_base_cas_pointer(void *target, void *expected, void *desired)
+{
+    void *old;
+    HEIMDAL_MUTEX_lock(&_heim_base_mutex);
+    if ((old = *(void **)target) == expected)
+        *(void **)target = desired;
+    HEIMDAL_MUTEX_unlock(&_heim_base_mutex);
+    return old == expected;
+}
+
+static inline uint32_t
+heim_base_cas_32(uint32_t *p, uint32_t expected,  uint32_t desired)
+{
+    uint32_t old;
+    HEIMDAL_MUTEX_lock(&_heim_base_mutex);
+    if ((old = *(uint32_t *)p) == expected)
+        old = *p;
+    *p = desired;
+    HEIMDAL_MUTEX_unlock(&_heim_base_mutex);
+    return old == expected;
+}
+
+static inline uint64_t
+heim_base_cas_64(uint64_t *p, uint64_t expected,uint64_t desired)
+{
+    uint64_t old;
+    HEIMDAL_MUTEX_lock(&_heim_base_mutex);
+    if ((old = *(uint64_t *)p) == expected)
+        old = *p;
+    *p = desired;
+    HEIMDAL_MUTEX_unlock(&_heim_base_mutex);
+    return old == expected;
+}
+
 #endif /* defined(__GNUC__) && defined(HAVE___SYNC_ADD_AND_FETCH) */
 
 #ifndef heim_base_atomic
@@ -267,6 +323,35 @@ heim_base_exchange_64(uint64_t *p, uint64_t newval)
 					    (*(t) = (v));			\
 					    heim_base_atomic_barrier();		\
 					} while (0)
+
+static inline int
+heim_base_cas_pointer(void *target, void *expected, void *desired)
+{
+    void *old;
+    if ((old = *(void **)target) == expected)
+        *(void **)target = desired;
+    return old == expected;
+}
+
+static inline uint32_t
+heim_base_cas_32(uint32_t *p, uint32_t expected,  uint32_t desired)
+{
+    uint32_t old;
+    if ((old = *(uint32_t *)p) == expected)
+        old = *p;
+    *p = desired;
+    return old == expected;
+}
+
+static inline uint64_t
+heim_base_cas_64(uint64_t *p, uint64_t expected,uint64_t desired)
+{
+    uint64_t old;
+    if ((old = *(uint64_t *)p) == expected)
+        old = *p;
+    *p = desired;
+    return old == expected;
+}
 #endif
 
 #if SIZEOF_TIME_T == 8
