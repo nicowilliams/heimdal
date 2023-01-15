@@ -55,6 +55,7 @@ DB_close(krb5_context context, HDB *db)
 
     heim_assert(d != 0, "Closing already closed HDB");
 
+    db->hdb_openp = 0;
     (*d->close)(d);
     db->hdb_db = 0;
 
@@ -333,7 +334,7 @@ DB_open(krb5_context context, HDB *db, int flags, mode_t mode)
 	ret = hdb_init_db(context, db);
     if(ret == HDB_ERR_NOENTRY) {
 	krb5_clear_error_message(context);
-	return 0;
+	ret = 0;
     }
     if (ret) {
 	DB_close(context, db);
@@ -341,6 +342,8 @@ DB_open(krb5_context context, HDB *db, int flags, mode_t mode)
 			      (flags & O_ACCMODE) == O_RDONLY ?
 			      "checking format of" : "initialize",
 			      db->hdb_name);
+    } else {
+	db->hdb_openp = 1;
     }
     return ret;
 }

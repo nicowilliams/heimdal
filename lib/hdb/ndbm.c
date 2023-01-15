@@ -312,6 +312,8 @@ static krb5_error_code
 NDBM_close(krb5_context context, HDB *db)
 {
     struct ndbm_db *d = db->hdb_db;
+
+    db->hdb_openp = 0;
     dbm_close(d->db);
     close(d->lock_fd);
     free(d);
@@ -354,13 +356,15 @@ NDBM_open(krb5_context context, HDB *db, int flags, mode_t mode)
     else
 	ret = hdb_init_db(context, db);
     if(ret == HDB_ERR_NOENTRY)
-	return 0;
+	ret = 0;
     if (ret) {
 	NDBM_close(context, db);
 	krb5_set_error_message(context, ret, "hdb_open: failed %s database %s",
 			       (flags & O_ACCMODE) == O_RDONLY ?
 			       "checking format of" : "initialize",
 			       db->hdb_name);
+    } else {
+	db->hdb_openp = 1;
     }
     return ret;
 }

@@ -688,6 +688,8 @@ static krb5_error_code
 mdb_close(krb5_context context, HDB *db)
 {
     DB *d = (DB*)db->hdb_db;
+
+    db->hdb_openp = 0;
     (*d->close)(d);
     return 0;
 }
@@ -1101,7 +1103,7 @@ mdb_open(krb5_context context, HDB *db, int flags, mode_t mode)
     ret = hdb_check_db_format(context, db);
     if (ret == HDB_ERR_NOENTRY) {
 	krb5_clear_error_message(context);
-	return 0;
+	ret = 0;
     }
     if (ret) {
 	mdb_close(context, db);
@@ -1109,6 +1111,8 @@ mdb_open(krb5_context context, HDB *db, int flags, mode_t mode)
 			      (flags & O_ACCMODE) == O_RDONLY ?
 			      "checking format of" : "initialize",
 			      db->hdb_name);
+    } else {
+	db->hdb_openp = 1;
     }
     return ret;
 }

@@ -330,6 +330,7 @@ DB_close(krb5_context context, HDB *db)
 {
     mdb_info *mi = (mdb_info *)db->hdb_db;
 
+    db->hdb_openp = 0;
     mdb_cursor_close(mi->c);
     mdb_txn_abort(mi->t);
     my_mdb_env_close(context, db->hdb_name, &mi->e);
@@ -630,12 +631,8 @@ DB_open(krb5_context context, HDB *db, int oflags, mode_t mode)
 
     if ((oflags & O_ACCMODE) == O_RDONLY) {
 	ret = hdb_check_db_format(context, db);
-        /*
-         * Dubious: if the DB is not initialized, shouldn't we tell the
-         * caller??
-         */
         if (ret == HDB_ERR_NOENTRY)
-            return 0;
+            ret = 0;
     } else {
         /* hdb_init_db() calls hdb_check_db_format() */
 	ret = hdb_init_db(context, db);
@@ -646,6 +643,8 @@ DB_open(krb5_context context, HDB *db, int oflags, mode_t mode)
 			       (oflags & O_ACCMODE) == O_RDONLY ?
 			       "checking format of" : "initialize",
 			       db->hdb_name);
+    } else {
+	db->hdb_openp = 1;
     }
 
     return ret;

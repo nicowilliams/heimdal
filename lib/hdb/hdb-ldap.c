@@ -1481,6 +1481,7 @@ out:
 static krb5_error_code
 LDAP_close(krb5_context context, HDB * db)
 {
+    db->hdb_openp = 0;
     if (HDB2LDAP(db)) {
 	ldap_unbind_ext(HDB2LDAP(db), NULL, NULL);
 	((struct hdbldapdb *)db->hdb_db)->h_lp = NULL;
@@ -1681,6 +1682,7 @@ LDAP__connect(krb5_context context, HDB * db)
 static krb5_error_code
 LDAP_open(krb5_context context, HDB * db, int flags, mode_t mode)
 {
+    krb5_error_code ret;
     /* Not the right place for this. */
 #ifdef HAVE_SIGACTION
     struct sigaction sa;
@@ -1694,7 +1696,10 @@ LDAP_open(krb5_context context, HDB * db, int flags, mode_t mode)
     signal(SIGPIPE, SIG_IGN);
 #endif /* HAVE_SIGACTION */
 
-    return LDAP__connect(context, db);
+    ret = LDAP__connect(context, db);
+    if (ret == 0)
+	db->hdb_openp = 1;
+    return ret;
 }
 
 static krb5_error_code
