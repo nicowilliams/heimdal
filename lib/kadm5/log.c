@@ -31,6 +31,7 @@
  * SUCH DAMAGE.
  */
 
+#include "admin.h"
 #include "kadm5_locl.h"
 #include "heim_threads.h"
 
@@ -68,6 +69,9 @@ RCSID("$Id$");
  * offset of next new record    8 bytes
  * last record time             4 bytes
  * last record version number   4 bytes
+ *
+ * The uber record really should have had a 64-bit generation number or UUID or
+ * whatever.  Also, we should have had 64-bit record version numbers.
  *
  * The two-phase protocol consists in only updating the uber record payload
  * (in-place!) after records have been appended.
@@ -476,12 +480,41 @@ get_max_log_size(krb5_context context)
                                     "kdc",
                                     "log-max-size",
                                     NULL);
-    if (n >= 4 * (LOG_UBER_LEN + LOG_WRAPPER_SZ) && n == (size_t)n)
-        return (size_t)n;
-    return 0;
+    if (n < 1024 * 1024)
+        n = 1024 * 1024;
+    return n;
 }
 
 static kadm5_ret_t truncate_if_needed(kadm5_server_context *);
+
+/*
+ * Only call get_generation() when the record at offset 0 is known to be an
+ * uber record.
+ */
+static
+kadm5_ret_t
+get_generation(krb5_storage *sp, uint64_t *generation, int peek)
+{
+    kadm5_ret_t ret;
+    uint32_t ver, tstamp, len;
+    enum kadm_ops op;
+    off_t off = krb5_storage_seek(sp, 0, SEEK_CUR);
+
+    if (off == -1)
+        return errno;
+
+    if (krb5_storage_seek(sp, LOG_UBER_SZ, SEEK_SET) == -1)
+        return errno;
+    ret = get_header(sp, LOG_NOPEEK, &ver, &tstamp, &op, &len);
+    if (ret == 0 && op == kadm_nop && len == sizeof(uint64_t))
+        ret = krb5_ret_uint64(sp, generation);
+    if (krb5_storage_seek(sp, off, SEEK_SET) == -1)
+        ret = errno;
+    if (peek == LOG_NOPEEK &&
+        krb5_storage_seek(sp, LOG_WRAPPER_SZ + len, SEEK_CUR) == -1)
+        return errno;
+    return ret;
+}
 
 /*
  * Get the version and timestamp metadata of either the first, or last
@@ -504,7 +537,8 @@ static kadm5_ret_t truncate_if_needed(kadm5_server_context *);
  */
 kadm5_ret_t
 kadm5_log_get_version_fd(kadm5_server_context *server_context, int fd,
-                         int which, uint32_t *ver, uint32_t *tstamp)
+                         int which, uint32_t *ver, uint32_t *tstamp,
+                         uint64_t *generation)
 {
     kadm5_ret_t ret = 0;
     krb5_storage *sp;
@@ -532,9 +566,10 @@ kadm5_log_get_version_fd(kadm5_server_context *server_context, int fd,
             ret = get_version_prev(sp, ver, tstamp);
         break;
     case LOG_VERSION_FIRST:
+        /* Seeks to offset 0 then to the first record */
         ret = kadm5_log_goto_first(server_context, sp);
-        if (ret == 0)
-            ret = get_header(sp, LOG_DOPEEK, ver, tstamp, NULL, NULL);
+        if (ret == 0 && generation)
+            ret = get_generation(sp, generation, LOG_NOPEEK);
         break;
     case LOG_VERSION_UBER:
         if (krb5_storage_seek(sp, 0, SEEK_SET) == 0)
@@ -557,11 +592,13 @@ kadm5_log_get_version_fd(kadm5_server_context *server_context, int fd,
 kadm5_ret_t
 kadm5_log_get_version(kadm5_server_context *server_context,
                       uint32_t *ver,
-                      uint32_t *tstamp)
+                      uint32_t *tstamp,
+                      uint64_t *generation)
 {
     return kadm5_log_get_version_fd(server_context,
                                     server_context->log_context.log_fd,
-                                    LOG_VERSION_LAST, ver, tstamp);
+                                    LOG_VERSION_LAST, ver, tstamp,
+                                    generation);
 }
 
 /* Sets the version in the context, but NOT in the log */
@@ -672,7 +709,8 @@ log_init(kadm5_server_context *server_context, int lock_mode)
         }
         if (ret == 0) {
             ret = kadm5_log_get_version_fd(server_context, fd,
-                                           LOG_VERSION_UBER, &vno, NULL);
+                                           LOG_VERSION_UBER, &vno, NULL,
+                                           generation);
 
             /* Upgrade the log if it was an old-style log */
             if (ret == KADM5_LOG_NEEDS_UPGRADE)
@@ -693,7 +731,8 @@ log_init(kadm5_server_context *server_context, int lock_mode)
 
     if (ret == 0) {
         ret = kadm5_log_get_version_fd(server_context, fd, LOG_VERSION_LAST,
-                                       &log_context->version, NULL);
+                                       &log_context->version, NULL,
+                                       generation);
         if (ret == HEIM_ERR_EOF)
             ret = 0;
     }
@@ -1991,6 +2030,16 @@ kadm5_log_nop(kadm5_server_context *context, enum kadm_nop_type nop_type)
             ret = krb5_store_uint32(sp, vno);
         if (ret == 0)
             ret = krb5_store_uint32(sp, LOG_UBER_LEN);
+    } else if (off == LOG_UBER_SZ) {
+        /*
+         * We don't have a generation number in the uber record, so we'll put
+         * it in an nop right after the uber record.
+         */
+        ret = krb5_store_uint32(sp, sizeof(uint64_t));
+        if (ret == 0)
+            ret = krb5_store_uint64(sp, log_context->generation);
+        if (ret == 0)
+            ret = krb5_store_uint32(sp, sizeof(uint64_t));
     } else if (nop_type == kadm_nop_plain) {
         ret = krb5_store_uint32(sp, 0);
         if (ret == 0)

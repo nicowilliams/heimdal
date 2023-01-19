@@ -100,6 +100,7 @@ typedef struct kadm5_log_context {
     int lock_mode;
     uint32_t version;
     uint32_t last_time;
+    uint64_t generation;
 #ifndef NO_UNIX_SOCKETS
     struct sockaddr_un socket_name;
 #else
@@ -184,9 +185,7 @@ enum kadm_ops {
 
 /* FIXME nop types are currently not implemented */
 enum kadm_nop_type {
-    kadm_nop_plain, /* plain nop, not relevance except as uberblock */
-    kadm_nop_trunc, /* indicates that the master truncated the log  */
-    kadm_nop_close  /* indicates that the master closed this log    */
+    kadm_nop_plain, /* plain nop, no relevance except as uberblock */
 };
 
 enum kadm_iter_opts {
