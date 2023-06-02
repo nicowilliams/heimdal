@@ -56,17 +56,19 @@ jobs:
                 (cd lib/krb5 && make check-valgrind)
                 (cd tests && make check-valgrind)
             - name: Valgrind output
+              if: true
               run: |
                 find . -name \*.log -print0|xargs -0 grep '^==[0-9]*== ' || true
             - name: Test logs
+              if: true
               run: |
                 find build -depth -name \*.log | sed -e 's/trs$/log/' | tar -czf $HOME/logs-linux-valgrind.tgz --verbatim-files-from --files-from -
-                find build -name \*.trs|xargs grep -lw FAIL | sed -e 's/trs$/log/' | xargs cat
             - name: Failed Test logs
               if: ${{ failure() }}
               run: |
                 find build -name \*.trs|xargs grep -lw FAIL | sed -e 's/trs$/log/' | xargs cat
             - name: Upload Artifacts
+              if: true
               uses: actions/upload-artifact@v2
               with:
                 name: Test Logs
