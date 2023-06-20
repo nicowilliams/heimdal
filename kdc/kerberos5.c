@@ -692,9 +692,9 @@ pa_enc_chal_validate(astgs_request_t r, const PA_DATA *pa)
 	return ret;
     }
 
-    pepper1.data = "clientchallengearmor";
+    pepper1.data = rk_UNCONST("clientchallengearmor");
     pepper1.length = strlen(pepper1.data);
-    pepper2.data = "challengelongterm";
+    pepper2.data = rk_UNCONST("challengelongterm");
     pepper2.length = strlen(pepper2.data);
 
     krb5_crypto_getenctype(r->context, r->armor_crypto, &aenctype);
@@ -776,7 +776,7 @@ pa_enc_chal_validate(astgs_request_t r, const PA_DATA *pa)
 	 * challenge key (different pepper).
 	 */
 
-	pepper1.data = "kdcchallengearmor";
+	pepper1.data = rk_UNCONST("kdcchallengearmor");
 	pepper1.length = strlen(pepper1.data);
 
 	ret = krb5_crypto_fx_cf2(r->context, r->armor_crypto, longtermcrypto,
@@ -2446,6 +2446,7 @@ _kdc_as_rep(astgs_request_t r)
     if (!config->historical_anon_realm &&
         _kdc_is_anonymous(r->context, r->client_princ)) {
 	const Realm anon_realm = KRB5_ANON_REALM;
+
 	ret = copy_Realm(&anon_realm, &rep->crealm);
     } else if (f.canonicalize || r->client->flags.force_canonicalize)
 	ret = copy_Realm(&r->canon_client_princ->realm, &rep->crealm);
