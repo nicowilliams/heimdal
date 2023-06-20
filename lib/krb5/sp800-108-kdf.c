@@ -89,7 +89,7 @@ _krb5_SP800_108_HMAC_KDF(krb5_context context,
 	_krb5_put_int(tmp, i + 1, 4);
 	EVP_MAC_update(ctx, tmp, 4);
 	EVP_MAC_update(ctx, kdf_label->data, kdf_label->length);
-	EVP_MAC_update(ctx, (unsigned char *)"", 1);
+	EVP_MAC_update(ctx, (unsigned char *)rk_UNCONST(""), 1);
 	if (kdf_context)
 	    EVP_MAC_update(ctx, kdf_context->data, kdf_context->length);
 	_krb5_put_int(tmp, L * 8, 4);
