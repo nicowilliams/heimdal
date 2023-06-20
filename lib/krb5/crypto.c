@@ -342,7 +342,7 @@ _krb5_hmac_start_ossl(krb5_context context,
 {
     const char *mdname = EVP_MD_get0_name(md); // can't be NULL can it
     OSSL_PARAM params[] = {
-        OSSL_PARAM_construct_utf8_string(OSSL_MAC_PARAM_DIGEST, (char *)mdname, 0),
+        OSSL_PARAM_construct_utf8_string(OSSL_MAC_PARAM_DIGEST, rk_UNCONST(mdname), 0),
         OSSL_PARAM_END
     };
     EVP_MAC *mac;

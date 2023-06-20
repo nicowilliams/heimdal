@@ -1305,7 +1305,6 @@ is_default_collection(krb5_context context, const char *name,
                       const char * const *def_locs, int *res)
 {
     krb5_error_code ret;
-    const char *def_loc[2] = { KRB5_DEFAULT_CCNAME_FILE, NULL };
     const char *const def_loc[2] = { KRB5_DEFAULT_CCNAME_FILE, NULL };
     const char *sep;
     size_t namelen;

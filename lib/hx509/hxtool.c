@@ -3443,7 +3443,7 @@ jwt_verify(struct jwt_verify_options *opt, int argc, char **argv)
 
         ret = hx509_jwt_verify(context,
                                token,
-                               (const char **)pem_keys,
+                               (const char * const *)pem_keys,
                                num_keys,
                                opt->audience_string,
                                0, /* use current time */
