@@ -303,7 +303,7 @@ init_openssl_hx509_with_propq(hx509_context context,
 
         /* Try to publish */
         ossl->next = first;
-        if ((old = heim_base_cas_pointer((void *)&cached_ossl_hx509,
+        if ((old = heim_base_cas_pointer((void * _Atomic *)&cached_ossl_hx509,
                                          first, ossl)) == first) {
             /*
              * Published!  Take one more ref for the reference from the global

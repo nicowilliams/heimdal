@@ -60,7 +60,7 @@ _krb5_SP800_108_HMAC_KDF(krb5_context context,
     EVP_MAC_CTX *ctx = NULL;
     const char *mdname = EVP_MD_get0_name(md);
     OSSL_PARAM params[] = {
-        OSSL_PARAM_construct_utf8_string(OSSL_MAC_PARAM_DIGEST, (char *)mdname, 0),
+        OSSL_PARAM_construct_utf8_string(OSSL_MAC_PARAM_DIGEST, rk_UNCONST(mdname), 0),
         OSSL_PARAM_END
     };
     unsigned char *p = kdf_K0->data;

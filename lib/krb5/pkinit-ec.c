@@ -193,7 +193,7 @@ _krb5_pkinit_make_ecdh_key(krb5_context context,
 
     OSSL_PARAM p[] = {
         OSSL_PARAM_construct_utf8_string(OSSL_PKEY_PARAM_GROUP_NAME,
-                                         (char *)curve, 0),
+                                         rk_UNCONST(curve), 0),
         OSSL_PARAM_END
     };
 

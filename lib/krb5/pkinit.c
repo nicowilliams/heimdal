@@ -207,7 +207,7 @@ pkinit_make_dh_key(krb5_context context,
     EVP_PKEY *params = NULL;
     OSSL_PARAM p[] = {
         OSSL_PARAM_construct_utf8_string(OSSL_PKEY_PARAM_GROUP_NAME,
-                                         (char *)group, 0),
+                                         rk_UNCONST(group), 0),
         OSSL_PARAM_END
     };
 
