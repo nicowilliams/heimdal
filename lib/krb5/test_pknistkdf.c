@@ -40,14 +40,11 @@ static int verbose_flag = 0;
 
 struct testcase {
     const heim_oid *oid;
-    krb5_data Z;
+    struct { size_t length; const void *data; } Z;
     const char *client;
     const char *server;
     krb5_enctype enctype;
-    krb5_data as_req;
-    krb5_data pk_as_rep;
-
-    krb5_data key;
+    struct { size_t length; const void *data; } as_req, pk_as_rep, key;
 } tests[] = {
     /* 0 */
     {
@@ -283,8 +280,8 @@ test_dh2key(krb5_context context, int i, struct testcase *c)
 		       server,
 		       c->enctype,
                        NULL, NULL, /* We lack test vectors for RFC 4556 */
-		       &c->as_req,
-		       &c->pk_as_rep,
+		       (krb5_data *)&c->as_req,
+		       (krb5_data *)&c->pk_as_rep,
 		       &key, NULL);
     krb5_free_principal(context, client);
     krb5_free_principal(context, server);

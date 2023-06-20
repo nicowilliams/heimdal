@@ -512,7 +512,7 @@ validate_token(kadmin_request_desc r)
     r->sname = strdup(host); /* No need to check for ENOMEM here */
 
     ret = kdc_validate_token(r->context, NULL /* realm */, token_type, &tok,
-                             (const char **)&audiences.strings[i], 1,
+                             (const char * const *)&audiences.strings[i], 1,
                              &r->cprinc, &r->token_times);
     if (ret)
         return bad_403(r, ret, "Token validation failed");
@@ -1726,7 +1726,7 @@ set_req_desc(struct MHD_Connection *connection,
         return ret;
     }
     /* HEIM_SVC_REQUEST_DESC_COMMON_ELEMENTS fields */
-    r->request.data = "<HTTP-REQUEST>";
+    r->request.data = rk_UNCONST("<HTTP-REQUEST>");
     r->request.length = sizeof("<HTTP-REQUEST>");
     r->from = r->frombuf;
     r->free_list = NULL;
@@ -1862,7 +1862,7 @@ get_config(kadmin_request_desc r)
     const char *pname;
     /* Default configuration for principals that have none set: */
     size_t bodylen = sizeof("include /etc/krb5.conf\n") - 1;
-    void *body = "include /etc/krb5.conf\n";
+    const char *body = "include /etc/krb5.conf\n";
     int freeit = 0;
 
     if (r->cname == NULL || r->cprinc == NULL)
@@ -2423,7 +2423,7 @@ load_plugins(krb5_context context)
 #endif
 
     /* XXX kdc? */
-    _krb5_load_plugins(context, "kdc", (const char **)dirs);
+    _krb5_load_plugins(context, "kdc", (const char * const *)dirs);
 
 #ifndef _WIN32
     krb5_config_free_strings(cfdirs);

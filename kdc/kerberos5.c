@@ -1205,7 +1205,7 @@ _kdc_encode_reply(krb5_context context,
 	 * Hide client name for privacy reasons
 	 */
 	if (r->fast.flags.requested_hidden_names) {
-	    const Realm anon_realm = KRB5_ANON_REALM;
+	    const Realm anon_realm = rk_UNCONST(KRB5_ANON_REALM);
 
 	    free_Realm(&rep->crealm);
 	    ret = copy_Realm(&anon_realm, &rep->crealm);
@@ -2445,7 +2445,7 @@ _kdc_as_rep(astgs_request_t r)
 
     if (!config->historical_anon_realm &&
         _kdc_is_anonymous(r->context, r->client_princ)) {
-	const Realm anon_realm = KRB5_ANON_REALM;
+	const Realm anon_realm = rk_UNCONST(KRB5_ANON_REALM);
 
 	ret = copy_Realm(&anon_realm, &rep->crealm);
     } else if (f.canonicalize || r->client->flags.force_canonicalize)

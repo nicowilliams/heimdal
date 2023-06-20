@@ -777,7 +777,7 @@ mk_kx509_req(krb5_context context,
     const char *mdname = EVP_MD_get0_name(md);
     const char *hostname;
     OSSL_PARAM params[] = {
-        OSSL_PARAM_construct_utf8_string(OSSL_MAC_PARAM_DIGEST, (char *)mdname, 0),
+        OSSL_PARAM_construct_utf8_string(OSSL_MAC_PARAM_DIGEST, rk_UNCONST(mdname), 0),
         OSSL_PARAM_END
     };
     char *start_realm = NULL;
@@ -1002,7 +1002,7 @@ rd_kx509_resp(krb5_context context,
     const EVP_MD *md = EVP_sha1();
     const char *mdname = EVP_MD_get0_name(md);
     OSSL_PARAM params[] = {
-        OSSL_PARAM_construct_utf8_string(OSSL_MAC_PARAM_DIGEST, (char *)mdname, 0),
+        OSSL_PARAM_construct_utf8_string(OSSL_MAC_PARAM_DIGEST, rk_UNCONST(mdname), 0),
         OSSL_PARAM_END
     };
     size_t hdr_len = sizeof(version_2_0);

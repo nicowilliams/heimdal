@@ -307,9 +307,9 @@ static krb5_error_code bad_req(struct bx509_request_desc *, krb5_error_code, int
                                HEIMDAL_PRINTF_ATTRIBUTE((__printf__, 4, 5));
 
 static krb5_error_code bad_enomem(struct bx509_request_desc *, krb5_error_code);
-static krb5_error_code bad_400(struct bx509_request_desc *, krb5_error_code, char *);
-static krb5_error_code bad_401(struct bx509_request_desc *, char *);
-static krb5_error_code bad_403(struct bx509_request_desc *, krb5_error_code, char *);
+static krb5_error_code bad_400(struct bx509_request_desc *, krb5_error_code, const char *);
+static krb5_error_code bad_401(struct bx509_request_desc *, const char *);
+static krb5_error_code bad_403(struct bx509_request_desc *, krb5_error_code, const char *);
 static krb5_error_code bad_404(struct bx509_request_desc *, const char *);
 static krb5_error_code bad_405(struct bx509_request_desc *, const char *);
 static krb5_error_code bad_500(struct bx509_request_desc *, krb5_error_code, const char *);
@@ -360,7 +360,7 @@ validate_token(struct bx509_request_desc *r)
     r->sname = strdup(host); /* No need to check for ENOMEM here */
 
     ret = kdc_validate_token(r->context, NULL /* realm */, token_type, &tok,
-                             (const char **)&audiences.strings[i], 1,
+                             (const char *const *)&audiences.strings[i], 1,
                              &cprinc, &r->token_times);
     if (ret)
         return bad_403(r, ret, "Token validation failed");
@@ -665,19 +665,19 @@ bad_enomem(struct bx509_request_desc *r, krb5_error_code ret)
 }
 
 static krb5_error_code
-bad_400(struct bx509_request_desc *r, int ret, char *reason)
+bad_400(struct bx509_request_desc *r, int ret, const char *reason)
 {
     return bad_req(r, ret, MHD_HTTP_BAD_REQUEST, "%s", reason);
 }
 
 static krb5_error_code
-bad_401(struct bx509_request_desc *r, char *reason)
+bad_401(struct bx509_request_desc *r, const char *reason)
 {
     return bad_req(r, EACCES, MHD_HTTP_UNAUTHORIZED, "%s", reason);
 }
 
 static krb5_error_code
-bad_403(struct bx509_request_desc *r, krb5_error_code ret, char *reason)
+bad_403(struct bx509_request_desc *r, krb5_error_code ret, const char *reason)
 {
     return bad_req(r, ret, MHD_HTTP_FORBIDDEN, "%s", reason);
 }
@@ -995,7 +995,7 @@ set_req_desc(struct MHD_Connection *connection,
     r->connection = connection;
     r->response = NULL;
     r->pp = NULL;
-    r->request.data = "<HTTP-REQUEST>";
+    r->request.data = rk_UNCONST("<HTTP-REQUEST>");
     r->request.length = sizeof("<HTTP-REQUEST>");
     r->from = r->frombuf;
     r->tgt_addresses.len = 0;
@@ -2841,7 +2841,7 @@ load_plugins(krb5_context context)
 #endif
 
     /* XXX kdc? */
-    _krb5_load_plugins(context, "kdc", (const char **)dirs);
+    _krb5_load_plugins(context, "kdc", (const char * const *)dirs);
 
 #ifndef _WIN32
     krb5_config_free_strings(cfdirs);

@@ -309,7 +309,7 @@ verify_signature(hx509_jws_alg alg, EVP_PKEY *pkey,
         if (use_sig == NULL)
             goto out;
     } else {
-        use_sig = (unsigned char *)sig;
+        use_sig = (unsigned char *)rk_UNCONST(sig);
         use_sig_len = sig_len;
     }
 
@@ -498,7 +498,7 @@ key_matches_alg(EVP_PKEY *pkey, hx509_jws_alg alg)
 HX509_LIB_FUNCTION int HX509_LIB_CALL
 hx509_jws_verify(hx509_context context,
                  const char *token,
-                 const char **pem_keys,
+                 const char * const *pem_keys,
                  size_t num_keys,
                  void **payload_out,
                  size_t *payload_len_out)
@@ -1035,7 +1035,7 @@ out:
 HX509_LIB_FUNCTION int HX509_LIB_CALL
 hx509_jwt_verify(hx509_context context,
                  const char *token,
-                 const char **pem_keys,
+                 const char * const *pem_keys,
                  size_t num_keys,
                  const char *required_aud,
                  time_t time_now,
