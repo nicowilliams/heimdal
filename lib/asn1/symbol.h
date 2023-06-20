@@ -230,7 +230,7 @@ struct objid {
 };
 
 struct symbol {
-    char *name;
+    const char *name;
     char *gen_name;
     enum { SUndefined, SValue, Stype, Sparamtype, Sclass, Sobj, Sobjset } stype;
     struct value *value;
@@ -257,8 +257,8 @@ struct symhead {
 extern struct symhead symbols;
 
 void initsym (void);
-Symbol *addsym (char *);
-Symbol *getsym(char *name);
+Symbol *addsym (const char *);
+Symbol *getsym(const char *);
 void output_name (char *);
 int checkundefined(void);
 void generate_types(void);
