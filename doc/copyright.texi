@@ -322,6 +322,7 @@ WARRANTIES OF MERCHANTIBILITY AND FITNESS FOR A PARTICULAR PURPOSE.
 Windows support
 
 @verbatim
+SPDX-License-Identifier: BSD-2-Clause
 
 Copyright (c) 2009-2015, Secure Endpoints Inc.
 All rights reserved.
