@@ -289,6 +289,7 @@ POSSIBILITY OF SUCH DAMAGE.
 kdc/announce.c
 
 @verbatim
+SPDX-License-Identifier: HPND-export2-US
 
 Copyright (c) 2008 Apple Inc.  All Rights Reserved.
 
