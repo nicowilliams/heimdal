@@ -3,6 +3,8 @@
  * (Royal Institute of Technology, Stockholm, Sweden).
  * All rights reserved.
  *
+ * Portions Copyright (c) 2009 Apple Inc. All rights reserved.
+ *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
  * are met:
@@ -31,21 +33,18 @@
  * SUCH DAMAGE.
  */
 
-#ifdef HAVE_CONFIG_H
 #include <config.h>
-#endif
+#include <roken.h>
 
-RCSID("$Id$");
-
-#include <stdio.h>
-#include <stdlib.h>
 #include <rand.h>
 #include <randi.h>
 
-#include <roken.h>
-
 #ifndef O_BINARY
 #define O_BINARY 0
+#endif
+
+#ifdef _WIN32
+#include<shlobj.h>
 #endif
 
 /**
@@ -54,7 +53,7 @@ RCSID("$Id$");
  * See the library functions here: @ref hcrypto_rand
  */
 
-const static RAND_METHOD *selected_meth = NULL;
+static const RAND_METHOD *selected_meth = NULL;
 static ENGINE *selected_engine = NULL;
 
 static void
@@ -62,7 +61,9 @@ init_method(void)
 {
     if (selected_meth != NULL)
 	return;
-#ifdef __APPLE__
+#if defined(_WIN32)
+    selected_meth = &hc_rand_w32crypto_method;
+#elif defined(__APPLE__)
     selected_meth = &hc_rand_unix_method;
 #else
     selected_meth = &hc_rand_fortuna_method;
@@ -99,6 +100,8 @@ RAND_seed(const void *indata, size_t size)
 int
 RAND_bytes(void *outdata, size_t size)
 {
+    if (size == 0)
+	return 1;
     init_method();
     return (*selected_meth->bytes)(outdata, size);
 }
@@ -203,6 +206,8 @@ RAND_set_rand_method(const RAND_METHOD *meth)
 /**
  * Get the default random method.
  *
+ * @return Returns a RAND_METHOD
+ *
  * @ingroup hcrypto_rand
  */
 
@@ -258,6 +263,8 @@ RAND_set_rand_engine(ENGINE *engine)
  *
  * @param filename name of file to read.
  * @param size minimum size to read.
+ *
+ * @return Returns the number of seed bytes loaded (0 indicates failure)
  *
  * @ingroup hcrypto_rand
  */
@@ -343,19 +350,42 @@ RAND_file_name(char *filename, size_t size)
     const char *e = NULL;
     int pathp = 0, ret;
 
-    if (!issuid()) {
-	e = getenv("RANDFILE");
-	if (e == NULL) {
-	    e = getenv("HOME");
-	    if (e)
-		pathp = 1;
-	}
-    }
+    e = secure_getenv("RANDFILE");
+    if (e == NULL)
+        e = secure_getenv("HOME");
+    if (e)
+        pathp = 1;
+
+#ifndef _WIN32
     /*
      * Here we really want to call getpwuid(getuid()) but this will
      * cause recursive lookups if the nss library uses
      * gssapi/krb5/hcrypto to authenticate to the ldap servers.
+     *
+     * So at least return the unix /dev/random if we have one
      */
+    if (e == NULL) {
+	int fd;
+
+	fd = _hc_unix_device_fd(O_RDONLY, &e);
+	if (fd >= 0)
+	    close(fd);
+    }
+#else  /* Win32 */
+
+    if (e == NULL) {
+	char profile[MAX_PATH];
+
+	if (SHGetFolderPath(NULL, CSIDL_LOCAL_APPDATA, NULL,
+			    SHGFP_TYPE_CURRENT, profile) == S_OK) {
+	    ret = snprintf(filename, size, "%s\\.rnd", profile);
+
+	    if (ret > 0 && ret < size)
+		return filename;
+	}
+    }
+
+#endif
 
     if (e == NULL)
 	return NULL;

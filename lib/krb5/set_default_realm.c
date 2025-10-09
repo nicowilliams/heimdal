@@ -43,17 +43,12 @@ string_to_list (krb5_context context, const char *s, krb5_realm **list)
 {
 
     *list = malloc (2 * sizeof(**list));
-    if (*list == NULL) {
-	krb5_set_error_message(context, ENOMEM,
-			       N_("malloc: out of memory", ""));
-	return ENOMEM;
-    }
+    if (*list == NULL)
+	return krb5_enomem(context);
     (*list)[0] = strdup (s);
     if ((*list)[0] == NULL) {
 	free (*list);
-	krb5_set_error_message(context, ENOMEM,
-			       N_("malloc: out of memory", ""));
-	return ENOMEM;
+	return krb5_enomem(context);
     }
     (*list)[1] = NULL;
     return 0;
@@ -65,7 +60,7 @@ string_to_list (krb5_context context, const char *s, krb5_realm **list)
  * Otherwise, the realm(s) are figured out from configuration or DNS.
  */
 
-krb5_error_code KRB5_LIB_FUNCTION
+KRB5_LIB_FUNCTION krb5_error_code KRB5_LIB_CALL
 krb5_set_default_realm(krb5_context context,
 		       const char *realm)
 {

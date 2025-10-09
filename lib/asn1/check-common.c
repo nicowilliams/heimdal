@@ -3,6 +3,8 @@
  * (Royal Institute of Technology, Stockholm, Sweden).
  * All rights reserved.
  *
+ * Portions Copyright (c) 2009 Apple Inc. All rights reserved.
+ *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
  * are met:
@@ -31,9 +33,7 @@
  * SUCH DAMAGE.
  */
 
-#ifdef HAVE_CONFIG_H
 #include <config.h>
-#endif
 #ifdef HAVE_SYS_MMAN_H
 #include <sys/mman.h>
 #endif
@@ -42,9 +42,8 @@
 #include <err.h>
 #include <roken.h>
 
+#include "asn1-common.h"
 #include "check-common.h"
-
-RCSID("$Id$");
 
 struct map_page {
     void *start;
@@ -176,28 +175,33 @@ segv_handler(int sig)
 {
     int fd;
     char msg[] = "SIGSEGV i current test: ";
+    /* For compilers that insist we check write(2)'s result here */
+    int e = 1;
 
     fd = open("/dev/stdout", O_WRONLY, 0600);
     if (fd >= 0) {
-	write(fd, msg, sizeof(msg));
-	write(fd, current_test, strlen(current_test));
-	write(fd, " ", 1);
-	write(fd, current_state, strlen(current_state));
-	write(fd, "\n", 1);
-	close(fd);
+
+	if (write(fd, msg, sizeof(msg)) == -1 ||
+	    write(fd, current_test, strlen(current_test)) == -1 ||
+	    write(fd, " ", 1) == -1 ||
+	    write(fd, current_state, strlen(current_state)) == -1 ||
+	    write(fd, "\n", 1) == -1)
+            e = 2;
+	(void) close(fd);
     }
-    _exit(1);
+    _exit(e);
 }
 
 int
 generic_test (const struct test_case *tests,
 	      unsigned ntests,
 	      size_t data_size,
-	      int (*encode)(unsigned char *, size_t, void *, size_t *),
-	      int (*length)(void *),
-	      int (*decode)(unsigned char *, size_t, void *, size_t *),
-	      int (*free_data)(void *),
-	      int (*cmp)(void *a, void *b))
+	      int (ASN1CALL *encode)(unsigned char *, size_t, void *, size_t *),
+	      size_t (ASN1CALL *length)(void *),
+	      int (ASN1CALL *decode)(unsigned char *, size_t, void *, size_t *),
+	      void (ASN1CALL *free_data)(void *),
+	      int (*cmp)(void *a, void *b),
+	      int (ASN1CALL *copy)(const void *from, void *to))
 {
     unsigned char *buf, *buf2;
     int i;
@@ -205,16 +209,20 @@ generic_test (const struct test_case *tests,
     void *data;
     struct map_page *data_map, *buf_map, *buf2_map;
 
+#ifdef HAVE_SIGACTION
     struct sigaction sa, osa;
+#endif
 
     for (i = 0; i < ntests; ++i) {
 	int ret;
 	size_t sz, consumed_sz, length_sz, buf_sz;
+	void *to = NULL;
 
 	current_test = tests[i].name;
 
 	current_state = "init";
 
+#ifdef HAVE_SIGACTION
 	sigemptyset (&sa.sa_mask);
 	sa.sa_flags = 0;
 #ifdef SA_RESETHAND
@@ -222,6 +230,7 @@ generic_test (const struct test_case *tests,
 #endif
 	sa.sa_handler = segv_handler;
 	sigaction (SIGSEGV, &sa, &osa);
+#endif
 
 	data = map_alloc(OVERRUN, NULL, data_size, &data_map);
 
@@ -237,7 +246,7 @@ generic_test (const struct test_case *tests,
 	    continue;
 	}
 	if (sz != tests[i].byte_len) {
-	    printf ("encoding of %s has wrong len (%lu != %lu)\n",
+ 	    printf ("encoding of %s has wrong len (%lu != %lu)\n",
 		    tests[i].name,
 		    (unsigned long)sz, (unsigned long)tests[i].byte_len);
 	    ++failures;
@@ -261,6 +270,11 @@ generic_test (const struct test_case *tests,
 	    printf ("\nactual:  ");
 	    print_bytes (buf, sz);
 	    printf ("\n");
+#if 0
+	    rk_dumpdata("correct", tests[i].bytes, tests[i].byte_len);
+	    rk_dumpdata("actual", buf, sz);
+	    exit (1);
+#endif
 	    ++failures;
 	    continue;
 	}
@@ -287,16 +301,42 @@ generic_test (const struct test_case *tests,
 	    ++failures;
 	    continue;
 	}
+
+	current_state = "copy";
+	if (copy) {
+	    to = emalloc(data_size);
+	    ret = (*copy)(data, to);
+	    if (ret != 0) {
+		printf ("copy of %s failed %d\n", tests[i].name, ret);
+		++failures;
+		continue;
+	    }
+
+	    current_state = "cmp-copy";
+	    if ((*cmp)(data, to) != 0) {
+		printf ("%s: copy comparison failed\n", tests[i].name);
+		++failures;
+		continue;
+	    }
+	}
+
 	current_state = "free";
-	if (free_data)
+	if (free_data) {
 	    (*free_data)(data);
+	    if (to) {
+		(*free_data)(to);
+		free(to);
+	    }
+	}
 
 	current_state = "free";
 	map_free(buf_map, tests[i].name, "encode");
 	map_free(buf2_map, tests[i].name, "decode");
 	map_free(data_map, tests[i].name, "data");
 
+#ifdef HAVE_SIGACTION
 	sigaction (SIGSEGV, &osa, NULL);
+#endif
     }
     current_state = "done";
     return failures;
@@ -314,7 +354,7 @@ int
 generic_decode_fail (const struct test_case *tests,
 		     unsigned ntests,
 		     size_t data_size,
-		     int (*decode)(unsigned char *, size_t, void *, size_t *))
+		     int (ASN1CALL *decode)(unsigned char *, size_t, void *, size_t *))
 {
     unsigned char *buf;
     int i;
@@ -322,7 +362,9 @@ generic_decode_fail (const struct test_case *tests,
     void *data;
     struct map_page *data_map, *buf_map;
 
+#ifdef HAVE_SIGACTION
     struct sigaction sa, osa;
+#endif
 
     for (i = 0; i < ntests; ++i) {
 	int ret;
@@ -333,6 +375,7 @@ generic_decode_fail (const struct test_case *tests,
 
 	current_state = "init";
 
+#ifdef HAVE_SIGACTION
 	sigemptyset (&sa.sa_mask);
 	sa.sa_flags = 0;
 #ifdef SA_RESETHAND
@@ -340,6 +383,7 @@ generic_decode_fail (const struct test_case *tests,
 #endif
 	sa.sa_handler = segv_handler;
 	sigaction (SIGSEGV, &sa, &osa);
+#endif
 
 	data = map_alloc(OVERRUN, NULL, data_size, &data_map);
 
@@ -350,7 +394,7 @@ generic_decode_fail (const struct test_case *tests,
 	    sz = 4096;
 	    bytes = NULL;
 	}
-	
+
 	buf = map_alloc(OVERRUN, bytes, sz, &buf_map);
 
 	if (tests[i].byte_len == -1)
@@ -369,7 +413,9 @@ generic_decode_fail (const struct test_case *tests,
 	    map_free(buf_map, tests[i].name, "encode");
 	map_free(data_map, tests[i].name, "data");
 
+#ifdef HAVE_SIGACTION
 	sigaction (SIGSEGV, &osa, NULL);
+#endif
     }
     current_state = "done";
     return failures;

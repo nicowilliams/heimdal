@@ -31,10 +31,14 @@
  * SUCH DAMAGE.
  */
 
-#include "kadm5_locl.h"
+#include <string.h>
+#include <stdlib.h>
 #include <getarg.h>
 
-RCSID("$Id$");
+#include <roken.h>
+#include <krb5.h>
+
+#include "admin.h"
 
 static int version_flag;
 static int help_flag;
@@ -42,10 +46,10 @@ static char *principal;
 static char *password;
 
 static struct getargs args[] = {
-    { "principal", 0, arg_string, &principal },
-    { "password", 0, arg_string, &password },
-    { "version", 0, arg_flag, &version_flag },
-    { "help", 0, arg_flag, &help_flag }
+    { "principal", 0, arg_string, &principal, NULL, NULL },
+    { "password", 0, arg_string, &password, NULL, NULL },
+    { "version", 0, arg_flag, &version_flag, NULL, NULL },
+    { "help", 0, arg_flag, &help_flag, NULL, NULL }
 };
 int num_args = sizeof(args) / sizeof(args[0]);
 

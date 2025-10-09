@@ -32,11 +32,10 @@
  */
 
 #include "mech_locl.h"
-RCSID("$Id$");
 
-OM_uint32 GSSAPI_LIB_FUNCTION
-gss_decapsulate_token(gss_buffer_t input_token,
-		      gss_OID oid,
+GSSAPI_LIB_FUNCTION OM_uint32 GSSAPI_LIB_CALL
+gss_decapsulate_token(gss_const_buffer_t input_token,
+		      gss_const_OID oid,
 		      gss_buffer_t output_token)
 {
     GSSAPIContextToken ct;
@@ -55,8 +54,8 @@ gss_decapsulate_token(gss_buffer_t input_token,
 				    &ct, NULL);
     if (ret) {
 	der_free_oid(&o);
-	return GSS_S_FAILURE;
-    }	
+	return GSS_S_DEFECTIVE_TOKEN;
+    }
 
     if (der_heim_oid_cmp(&ct.thisMech, &o) == 0) {
 	status = GSS_S_COMPLETE;
@@ -65,7 +64,7 @@ gss_decapsulate_token(gss_buffer_t input_token,
 	der_free_oid(&ct.thisMech);
     } else {
 	free_GSSAPIContextToken(&ct);
- 	status = GSS_S_FAILURE;
+	status = GSS_S_BAD_MECH;
     }
     der_free_oid(&o);
 

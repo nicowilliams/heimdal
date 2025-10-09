@@ -33,18 +33,11 @@
 
 /* Windows crypto provider plugin, sample */
 
-#ifdef HAVE_CONFIG_H
 #include <config.h>
-#endif
-
-RCSID("$Id$");
+#include <roken.h>
 
 #define HC_DEPRECATED
 
-#include <sys/types.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
 #include <assert.h>
 
 #include <evp.h>
@@ -140,7 +133,7 @@ crypto_des_ede3_cbc_init(EVP_CIPHER_CTX *ctx,
 }
 
 /**
- * The tripple DES cipher type (Micrsoft crypt provider)
+ * The triple DES cipher type (Micrsoft crypt provider)
  *
  * @return the DES-EDE3-CBC EVP_CIPHER pointer.
  *
@@ -209,7 +202,7 @@ generic_hash_cleanup(struct generic_hash *m)
 }
 
 const EVP_MD *
-EVP_md5(void)
+EVP_wincrypt_md5(void)
 {
     static const struct hc_evp_md md5 = {
 	16,

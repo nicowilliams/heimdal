@@ -73,10 +73,13 @@ logmessage(struct client *c, const char *file, unsigned int lineno,
     char *message;
     va_list ap;
     int32_t ackid;
+    int ret;
 
     va_start(ap, fmt);
-    vasprintf(&message, fmt, ap);
+    ret = vasprintf(&message, fmt, ap);
     va_end(ap);
+    if (ret == -1)
+	errx(1, "out of memory");
 
     if (logfile)
 	fprintf(logfile, "%s:%u: %d %s\n", file, lineno, level, message);
@@ -229,7 +232,7 @@ acquire_cred(struct client *c,
 		   "krb5_get_init_creds failed: %d", ret);
 	return convert_krb5_to_gsm(ret);
     }
-	
+
     ret = krb5_cc_new_unique(context, "MEMORY", NULL, &id);
     if (ret)
 	krb5_err (context, 1, ret, "krb5_cc_initialize");
@@ -309,7 +312,8 @@ HandleOP(InitContext)
     gss_ctx_id_t ctx;
     gss_cred_id_t creds;
     gss_name_t gss_target_name;
-    gss_buffer_desc input_token, output_token;
+    gss_buffer_desc input_token;
+    gss_buffer_desc output_token = {0, 0};
     gss_OID oid = GSS_C_NO_OID;
     gss_buffer_t input_token_ptr = GSS_C_NO_BUFFER;
 
@@ -358,7 +362,7 @@ HandleOP(InitContext)
 	if (ctx)
 	    krb5_errx(context, 1, "initcreds, context not NULL, but first req");
     }
-	
+
     if ((flags & GSS_C_DELEG_FLAG) != 0)
 	logmessage(c, __FILE__, __LINE__, 0, "init_sec_context delegating");
     if ((flags & GSS_C_DCE_STYLE) != 0)
@@ -427,7 +431,6 @@ HandleOP(AcceptContext)
     gss_ctx_id_t ctx;
     gss_cred_id_t deleg_cred = GSS_C_NO_CREDENTIAL;
     gss_buffer_desc input_token, output_token;
-    gss_buffer_t input_token_ptr = GSS_C_NO_BUFFER;
 
     ret32(c, hContext);
     ret32(c, flags);
@@ -440,7 +443,6 @@ HandleOP(AcceptContext)
     if (in_token.length) {
 	input_token.length = in_token.length;
 	input_token.value = in_token.data;
-	input_token_ptr = &input_token;
     } else {
 	input_token.length = 0;
 	input_token.value = NULL;
@@ -484,7 +486,7 @@ HandleOP(AcceptContext)
 	gss_release_cred(&min_stat, &deleg_cred);
 	deleg_hcred = 0;
     }
-	
+
 
     gsm_error = convert_gss_to_gsm(maj_stat);
 
@@ -644,7 +646,8 @@ static int
 HandleOP(GetVersionAndCapabilities)
 {
     int32_t cap = HAS_MONIKER;
-    char name[256] = "unknown", *str;
+    char *name = NULL, *str = NULL;
+    int ret;
 
     if (targetname)
 	cap |= ISSERVER; /* is server */
@@ -653,18 +656,24 @@ HandleOP(GetVersionAndCapabilities)
     {
 	struct utsname ut;
 	if (uname(&ut) == 0) {
-	    snprintf(name, sizeof(name), "%s-%s-%s",
-		     ut.sysname, ut.version, ut.machine);
+	    if (asprintf(&name, "%s-%s-%s",
+		    ut.sysname, ut.version, ut.machine) == -1) {
+		errx(1, "out of memory");
+	    }
 	}
     }
 #endif
 
-    asprintf(&str, "gssmask %s %s", PACKAGE_STRING, name);
+    ret = asprintf(&str, "gssmask %s %s", PACKAGE_STRING,
+	name ? name : "unknown");
+    if (ret == -1)
+	errx(1, "out of memory");
 
     put32(c, GSSMAGGOTPROTOCOL);
     put32(c, cap);
     putstring(c, str);
     free(str);
+    free(name);
 
     return 0;
 }
@@ -683,7 +692,8 @@ static int
 HandleOP(SetLoggingSocket)
 {
     int32_t portnum;
-    int fd, ret;
+    krb5_socket_t sock;
+    int ret;
 
     ret32(c, portnum);
 
@@ -692,22 +702,22 @@ HandleOP(SetLoggingSocket)
 
     socket_set_port((struct sockaddr *)(&c->sa), htons(portnum));
 
-    fd = socket(((struct sockaddr *)&c->sa)->sa_family, SOCK_STREAM, 0);
-    if (fd < 0)
+    sock = socket(((struct sockaddr *)&c->sa)->sa_family, SOCK_STREAM, 0);
+    if (sock == rk_INVALID_SOCKET)
 	return 0;
 
-    ret = connect(fd, (struct sockaddr *)&c->sa, c->salen);
+    ret = connect(sock, (struct sockaddr *)&c->sa, c->salen);
     if (ret < 0) {
 	logmessage(c, __FILE__, __LINE__, 0, "failed connect to log port: %s",
 		   strerror(errno));
-	close(fd);
+	rk_closesocket(sock);
 	return 0;
     }
 
     if (c->logging)
 	krb5_storage_free(c->logging);
-    c->logging = krb5_storage_from_fd(fd);
-    close(fd);
+    c->logging = krb5_storage_from_socket(sock);
+    rk_closesocket(sock);
 
     krb5_store_int32(c->logging, eLogSetMoniker);
     store_string(c->logging, c->moniker);
@@ -799,7 +809,7 @@ HandleOP(Unwrap)
 
     if (maj_stat != GSS_S_COMPLETE)
 	errx(1, "gss_unwrap failed: %d/%d", maj_stat, min_stat);
-	
+
     krb5_data_free(&token);
     if (maj_stat == GSS_S_COMPLETE) {
 	token.data = output_token.value;
@@ -848,23 +858,12 @@ HandleOP(CallExtension)
     errx(1, "CallExtension");
 }
 
-krb5_error_code KRB5_LIB_FUNCTION
-_krb5_pk_enterprise_cert (
-	krb5_context /*context*/,
-	const char */*user_id*/,
-	krb5_const_realm /*realm*/,
-	krb5_principal */*principal*/);
-
-
 static int
 HandleOP(AcquirePKInitCreds)
 {
-    krb5_error_code ret;
     int32_t flags;
     krb5_data pfxdata;
     char fn[] = "FILE:/tmp/pkcs12-creds-XXXXXXX";
-    const char *default_realm = "H5L.ORG";
-    krb5_principal principal = NULL;
     int fd;
 
     ret32(c, flags);
@@ -877,16 +876,6 @@ HandleOP(AcquirePKInitCreds)
     net_write(fd, pfxdata.data, pfxdata.length);
     krb5_data_free(&pfxdata);
     close(fd);
-
-    /* get credentials */
-
-    ret = _krb5_pk_enterprise_cert(context, fn, default_realm, &principal);
-    if (ret)
-	krb5_err(context, 1, ret, "krb5_pk_enterprise_certs");
-
-
-    if (principal)
-	krb5_free_principal(context, principal);
 
     put32(c, -1); /* hResource */
     put32(c, GSMERR_NOT_SUPPORTED);
@@ -966,7 +955,9 @@ HandleOP(WrapExt)
     memcpy(p, iov[4].buffer.value, iov[4].buffer.length);
     p += iov[4].buffer.length;
     memcpy(p, iov[5].buffer.value, iov[5].buffer.length);
+#if 0 /* Would be needed to keep going, but presently unused */
     p += iov[5].buffer.length;
+#endif
 
     gss_release_iov_buffer(NULL, iov, iov_len);
 
@@ -1030,7 +1021,7 @@ HandleOP(UnwrapExt)
 
     if (maj_stat != GSS_S_COMPLETE)
 	errx(1, "gss_unwrap failed: %d/%d", maj_stat, min_stat);
-	
+
     if (maj_stat == GSS_S_COMPLETE) {
 	token.data = iov[1].buffer.value;
 	token.length = iov[1].buffer.length;
@@ -1100,9 +1091,10 @@ find_op(int32_t op)
 }
 
 static struct client *
-create_client(int fd, int port, const char *moniker)
+create_client(krb5_socket_t sock, int port, const char *moniker)
 {
     struct client *c;
+    int ret;
 
     c = ecalloc(1, sizeof(*c));
 
@@ -1111,23 +1103,28 @@ create_client(int fd, int port, const char *moniker)
     } else {
 	char hostname[MAXHOSTNAMELEN];
 	gethostname(hostname, sizeof(hostname));
-	asprintf(&c->moniker, "gssmask: %s:%d", hostname, port);
+	ret = asprintf(&c->moniker, "gssmask: %s:%d", hostname, port);
+	if (ret == -1)
+	    c->moniker = NULL;
     }
+
+    if (!c->moniker)
+	errx(1, "out of memory");
 
     {
 	c->salen = sizeof(c->sa);
-	getpeername(fd, (struct sockaddr *)&c->sa, &c->salen);
-	
+	getpeername(sock, (struct sockaddr *)&c->sa, &c->salen);
+
 	getnameinfo((struct sockaddr *)&c->sa, c->salen,
 		    c->servername, sizeof(c->servername),
-		    NULL, 0, NI_NUMERICHOST);
+		    NULL, 0, NI_NUMERICHOST|NI_NUMERICSERV|NI_NUMERICSCOPE);
     }
 
-    c->sock = krb5_storage_from_fd(fd);
+    c->sock = krb5_storage_from_socket(sock);
     if (c->sock == NULL)
-	errx(1, "krb5_storage_from_fd");
+	errx(1, "krb5_storage_from_socket");
 
-    close(fd);
+    rk_closesocket(sock);
 
     return c;
 }
@@ -1215,6 +1212,7 @@ int
 main(int argc, char **argv)
 {
     int optidx	= 0;
+    krb5_error_code ret;
 
     setprogname (argv[0]);
 
@@ -1240,7 +1238,9 @@ main(int argc, char **argv)
 	    errx (1, "Bad port `%s'", port_str);
     }
 
-    krb5_init_context(&context);
+    ret = krb5_init_context(&context);
+    if (ret)
+	errx(1, "Error initializing kerberos: %d", ret);
 
     {
 	const char *lf = logfile_str;
@@ -1252,7 +1252,7 @@ main(int argc, char **argv)
 	    err(1, "error opening %s", lf);
     }
 
-    mini_inetd(htons(port));
+    mini_inetd(htons(port), NULL);
     fprintf(logfile, "connected\n");
 
     {

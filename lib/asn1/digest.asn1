@@ -24,7 +24,7 @@ DigestInit ::= SEQUENCE {
 }
 
 DigestInitReply ::= SEQUENCE {
-    nonce		UTF8String,	-- service nonce/challange
+    nonce		UTF8String,	-- service nonce/challenge
     opaque		UTF8String,	-- server state
     identifier		[0] UTF8String OPTIONAL
 }
@@ -78,7 +78,7 @@ NTLMInitReply ::= SEQUENCE {
     flags		[0] INTEGER (0..4294967295),
     opaque		[1] OCTET STRING,
     targetname		[2] UTF8String,
-    challange		[3] OCTET STRING,
+    challenge		[3] OCTET STRING,
     targetinfo		[4] OCTET STRING OPTIONAL
 }
 
@@ -98,6 +98,21 @@ NTLMResponse ::= SEQUENCE {
     flags		[1] INTEGER (0..4294967295),
     sessionkey		[2] OCTET STRING OPTIONAL,
     tickets		[3] SEQUENCE OF OCTET STRING OPTIONAL
+}
+
+NTLMRequest2 ::= SEQUENCE {
+    loginUserName	[0] UTF8String,
+    loginDomainName	[1] UTF8String,
+    flags		[2] INTEGER (0..4294967295),
+    lmchallenge		[3] OCTET STRING SIZE (8),
+    ntChallengeResponce [4] OCTET STRING,
+    lmChallengeResponce [5] OCTET STRING
+}
+
+NTLMReply ::= SEQUENCE {
+    success		[0] BOOLEAN,
+    flags		[1] INTEGER (0..4294967295),
+    sessionkey		[2] OCTET STRING OPTIONAL
 }
 
 DigestReqInner ::= CHOICE {

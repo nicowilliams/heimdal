@@ -40,8 +40,6 @@
 
 #include "map_table.h"
 
-RCSID("$Id$");
-
 static int
 translation_cmp(const void *key, const void *data)
 {
@@ -60,7 +58,7 @@ _wind_stringprep_map(const uint32_t *in, size_t in_len,
     unsigned o = 0;
 
     for (i = 0; i < in_len; ++i) {
-	struct translation ts = {in[i]};
+	struct translation ts = {in[i], 0, 0, 0};
 	const struct translation *s;
 
 	s = (const struct translation *)

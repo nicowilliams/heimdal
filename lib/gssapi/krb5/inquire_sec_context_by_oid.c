@@ -90,7 +90,7 @@ static OM_uint32 inquire_sec_context_tkt_flags
     tkt_flags = TicketFlags2int(context_handle->ticket->ticket.flags);
     HEIMDAL_MUTEX_unlock(&context_handle->ctx_id_mutex);
 
-    _gsskrb5_encode_om_uint32(tkt_flags, buf);
+    _gss_mg_encode_le_uint32(tkt_flags, buf);
     value.length = sizeof(buf);
     value.value = buf;
 
@@ -149,7 +149,6 @@ static OM_uint32 inquire_sec_context_get_subkey
     }
 
     ret = krb5_store_keyblock(sp, *key);
-    krb5_free_keyblock (context, key);
     if (ret)
 	goto out;
 
@@ -159,22 +158,63 @@ static OM_uint32 inquire_sec_context_get_subkey
 
     {
 	gss_buffer_desc value;
-	
+
 	value.length = data.length;
 	value.value = data.data;
-	
+
 	maj_stat = gss_add_buffer_set_member(minor_status,
 					     &value,
 					     data_set);
     }
 
 out:
+    krb5_free_keyblock(context, key);
     krb5_data_free(&data);
     if (sp)
 	krb5_storage_free(sp);
     if (ret) {
 	*minor_status = ret;
 	maj_stat = GSS_S_FAILURE;
+    }
+    return maj_stat;
+}
+
+static OM_uint32 inquire_sec_context_get_sspi_session_key
+            (OM_uint32 *minor_status,
+             const gsskrb5_ctx context_handle,
+             krb5_context context,
+             gss_buffer_set_t *data_set)
+{
+    krb5_keyblock *key;
+    OM_uint32 maj_stat = GSS_S_COMPLETE;
+    krb5_error_code ret;
+    gss_buffer_desc value;
+
+    HEIMDAL_MUTEX_lock(&context_handle->ctx_id_mutex);
+    ret = _gsskrb5i_get_token_key(context_handle, context, &key);
+    HEIMDAL_MUTEX_unlock(&context_handle->ctx_id_mutex);
+
+    if (ret)
+        goto out;
+    if (key == NULL) {
+        ret = EINVAL;
+        goto out;
+    }
+
+    value.length = key->keyvalue.length;
+    value.value = key->keyvalue.data;
+
+    maj_stat = gss_add_buffer_set_member(minor_status,
+                                         &value,
+                                         data_set);
+    krb5_free_keyblock(context, key);
+
+    /* MIT also returns the enctype encoded as an OID in data_set[1] */
+
+out:
+    if (ret) {
+        *minor_status = ret;
+        maj_stat = GSS_S_FAILURE;
     }
     return maj_stat;
 }
@@ -223,39 +263,31 @@ static OM_uint32 inquire_sec_context_authz_data
     return ret;
 }
 
-static OM_uint32 inquire_sec_context_has_updated_spnego
+static OM_uint32 inquire_sec_context_has_buggy_spnego
            (OM_uint32 *minor_status,
             const gsskrb5_ctx context_handle,
             gss_buffer_set_t *data_set)
 {
-    int is_updated = 0;
+    uint8_t old_enctype;
+    gss_buffer_desc buffer;
 
     *minor_status = 0;
     *data_set = GSS_C_NO_BUFFER_SET;
 
     /*
-     * For Windows SPNEGO implementations, both the initiator and the
-     * acceptor are assumed to have been updated if a "newer" [CLAR] or
-     * different enctype is negotiated for use by the Kerberos GSS-API
-     * mechanism.
+     * For Windows SPNEGO implementations, the initiator or acceptor
+     * are presumed to be "buggy" (Windows 2003 or earlier) if an
+     * "older" (i.e. pre-AES per RFC 4121) encryption type was used.
      */
+
     HEIMDAL_MUTEX_lock(&context_handle->ctx_id_mutex);
-    is_updated = (context_handle->more_flags & IS_CFX);
-    if (is_updated == 0) {
-	krb5_keyblock *acceptor_subkey;
-
-	if (context_handle->more_flags & LOCAL)
-	    acceptor_subkey = context_handle->auth_context->remote_subkey;
-	else
-	    acceptor_subkey = context_handle->auth_context->local_subkey;
-
-	if (acceptor_subkey != NULL)
-	    is_updated = (acceptor_subkey->keytype !=
-			  context_handle->auth_context->keyblock->keytype);
-    }
+    old_enctype = ((context_handle->more_flags & IS_CFX) == 0);
     HEIMDAL_MUTEX_unlock(&context_handle->ctx_id_mutex);
 
-    return is_updated ? GSS_S_COMPLETE : GSS_S_FAILURE;
+    buffer.value = &old_enctype;
+    buffer.length = sizeof(old_enctype);
+
+    return gss_add_buffer_set_member(minor_status, &buffer, data_set);
 }
 
 /*
@@ -293,7 +325,8 @@ export_lucid_sec_context_v1(OM_uint32 *minor_status,
     if (ret) goto out;
     ret = krb5_store_int32(sp, (context_handle->more_flags & LOCAL) ? 1 : 0);
     if (ret) goto out;
-    ret = krb5_store_int32(sp, context_handle->lifetime);
+    /* XXX need krb5_store_int64() */
+    ret = krb5_store_int32(sp, context_handle->endtime);
     if (ret) goto out;
     krb5_auth_con_getlocalseqnumber (context,
 				     context_handle->auth_context,
@@ -302,9 +335,9 @@ export_lucid_sec_context_v1(OM_uint32 *minor_status,
     if (ret) goto out;
     ret = krb5_store_uint32(sp, (uint32_t)number);
     if (ret) goto out;
-    krb5_auth_getremoteseqnumber (context,
-				  context_handle->auth_context,
-				  &number);
+    krb5_auth_con_getremoteseqnumber (context,
+				      context_handle->auth_context,
+				      &number);
     ret = krb5_store_uint32(sp, (uint32_t)0); /* store top half as zero */
     if (ret) goto out;
     ret = krb5_store_uint32(sp, (uint32_t)number);
@@ -397,8 +430,8 @@ get_authtime(OM_uint32 *minor_status,
 
 {
     gss_buffer_desc value;
-    unsigned char buf[4];
-    OM_uint32 authtime;
+    unsigned char buf[SIZEOF_TIME_T];
+    time_t authtime;
 
     HEIMDAL_MUTEX_lock(&ctx->ctx_id_mutex);
     if (ctx->ticket == NULL) {
@@ -412,7 +445,13 @@ get_authtime(OM_uint32 *minor_status,
 
     HEIMDAL_MUTEX_unlock(&ctx->ctx_id_mutex);
 
-    _gsskrb5_encode_om_uint32(authtime, buf);
+#if SIZEOF_TIME_T == 8
+    _gss_mg_encode_le_uint64(authtime, buf);
+#elif SIZEOF_TIME_T == 4
+    _gss_mg_encode_le_uint32(authtime, buf);
+#else
+#error set SIZEOF_TIME_T for your platform
+#endif
     value.length = sizeof(buf);
     value.value = buf;
 
@@ -464,10 +503,10 @@ get_service_keyblock
 
     {
 	gss_buffer_desc value;
-	
+
 	value.length = data.length;
 	value.value = data.data;
-	
+
 	maj_stat = gss_add_buffer_set_member(minor_status,
 					     &value,
 					     data_set);
@@ -487,9 +526,9 @@ out:
  *
  */
 
-OM_uint32 _gsskrb5_inquire_sec_context_by_oid
+OM_uint32 GSSAPI_CALLCONV _gsskrb5_inquire_sec_context_by_oid
            (OM_uint32 *minor_status,
-            const gss_ctx_id_t context_handle,
+            gss_const_ctx_id_t context_handle,
             const gss_OID desired_object,
             gss_buffer_set_t *data_set)
 {
@@ -508,10 +547,10 @@ OM_uint32 _gsskrb5_inquire_sec_context_by_oid
 	return inquire_sec_context_tkt_flags(minor_status,
 					     ctx,
 					     data_set);
-    } else if (gss_oid_equal(desired_object, GSS_C_PEER_HAS_UPDATED_SPNEGO)) {
-	return inquire_sec_context_has_updated_spnego(minor_status,
-						      ctx,
-						      data_set);
+    } else if (gss_oid_equal(desired_object, GSS_C_INQ_PEER_HAS_BUGGY_SPNEGO)) {
+	return inquire_sec_context_has_buggy_spnego(minor_status,
+						    ctx,
+						    data_set);
     } else if (gss_oid_equal(desired_object, GSS_KRB5_GET_SUBKEY_X)) {
 	return inquire_sec_context_get_subkey(minor_status,
 					      ctx,
@@ -530,6 +569,11 @@ OM_uint32 _gsskrb5_inquire_sec_context_by_oid
 					      context,
 					      ACCEPTOR_KEY,
 					      data_set);
+    } else if (gss_oid_equal(desired_object, GSS_C_INQ_SSPI_SESSION_KEY)) {
+        return inquire_sec_context_get_sspi_session_key(minor_status,
+                                                        ctx,
+                                                        context,
+                                                        data_set);
     } else if (gss_oid_equal(desired_object, GSS_KRB5_GET_AUTHTIME_X)) {
 	return get_authtime(minor_status, ctx, data_set);
     } else if (oid_prefix_equal(desired_object,

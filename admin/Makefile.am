@@ -2,13 +2,11 @@
 
 include $(top_srcdir)/Makefile.am.common
 
-AM_CPPFLAGS += $(INCLUDE_readline) $(INCLUDE_hcrypto)
+AM_CPPFLAGS += $(INCLUDE_readline)
 
-SLC = $(top_builddir)/lib/sl/slc
+man_MANS = ktutil.1
 
-man_MANS = ktutil.8
-
-sbin_PROGRAMS = ktutil
+bin_PROGRAMS = ktutil
 
 dist_ktutil_SOURCES =				\
 	add.c					\
@@ -39,7 +37,8 @@ LDADD = \
 	$(LIB_hcrypto) \
 	$(top_builddir)/lib/asn1/libasn1.la \
 	$(top_builddir)/lib/sl/libsl.la \
+	$(LIB_heimbase) \
 	$(LIB_readline) \
 	$(LIB_roken)
 
-EXTRA_DIST = $(man_MANS) ktutil-commands.in
+EXTRA_DIST = NTMakefile ktutil-version.rc $(man_MANS) ktutil-commands.in

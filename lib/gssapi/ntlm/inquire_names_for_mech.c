@@ -33,10 +33,8 @@
 
 #include "ntlm.h"
 
-RCSID("$Id$");
-
-
-OM_uint32 _gss_ntlm_inquire_names_for_mech (
+OM_uint32 GSSAPI_CALLCONV
+_gss_ntlm_inquire_names_for_mech (
             OM_uint32 * minor_status,
             const gss_OID mechanism,
             gss_OID_set * name_types

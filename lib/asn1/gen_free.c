@@ -56,14 +56,22 @@ free_type (const char *name, const Type *t, int preserve)
 	    free_primitive ("heim_integer", name);
 	    break;
 	}
+        HEIM_FALLTHROUGH;
     case TBoolean:
     case TEnumerated :
     case TNull:
     case TGeneralizedTime:
     case TUTCTime:
+        /*
+         * This doesn't do much, but it leaves zeros where garbage might
+         * otherwise have been found.  Gets us closer to having the equivalent
+         * of a memset()-to-zero data structure after calling the free
+         * functions.
+         */
+        fprintf(codefile, "*%s = 0;\n", name);
 	break;
     case TBitString:
-	if (ASN1_TAILQ_EMPTY(t->members))
+	if (HEIM_TAILQ_EMPTY(t->members))
 	    free_primitive("bit_string", name);
 	break;
     case TOctetString:
@@ -83,7 +91,7 @@ free_type (const char *name, const Type *t, int preserve)
 	if(t->type == TChoice)
 	    fprintf(codefile, "switch((%s)->element) {\n", name);
 
-	ASN1_TAILQ_FOREACH(m, t->members, members) {
+	HEIM_TAILQ_FOREACH(m, t->members, members) {
 	    char *s;
 
 	    if (m->ellipsis){
@@ -93,10 +101,9 @@ free_type (const char *name, const Type *t, int preserve)
 
 	    if(t->type == TChoice)
 		fprintf(codefile, "case %s:\n", m->label);
-	    asprintf (&s, "%s(%s)->%s%s",
-		      m->optional ? "" : "&", name,
-		      t->type == TChoice ? "u." : "", m->gen_name);
-	    if (s == NULL)
+	    if (asprintf (&s, "%s(%s)->%s%s",
+			  m->optional ? "" : "&", name,
+			  t->type == TChoice ? "u." : "", m->gen_name) < 0 || s == NULL)
 		errx(1, "malloc");
 	    if(m->optional)
 		fprintf(codefile, "if(%s) {\n", s);
@@ -120,22 +127,21 @@ free_type (const char *name, const Type *t, int preserve)
 			have_ellipsis->label,
 			name, have_ellipsis->gen_name);
 	    fprintf(codefile, "}\n");
-	}
+        }
 	break;
     }
     case TSetOf:
     case TSequenceOf: {
 	char *n;
 
-	fprintf (codefile, "while((%s)->len){\n", name);
-	asprintf (&n, "&(%s)->val[(%s)->len-1]", name, name);
-	if (n == NULL)
+	fprintf (codefile, "if ((%s)->val)\nwhile((%s)->len){\n", name, name);
+	if (asprintf (&n, "&(%s)->val[(%s)->len-1]", name, name) < 0 || n == NULL)
 	    errx(1, "malloc");
 	free_type(n, t->subtype, FALSE);
 	fprintf(codefile,
 		"(%s)->len--;\n"
-		"}\n",
-		name);
+		"} else (%s)->len = 0;\n",
+		name, name);
 	fprintf(codefile,
 		"free((%s)->val);\n"
 		"(%s)->val = NULL;\n", name, name);
@@ -143,6 +149,9 @@ free_type (const char *name, const Type *t, int preserve)
 	break;
     }
     case TGeneralString:
+	free_primitive ("general_string", name);
+	break;
+    case TTeletexString:
 	free_primitive ("general_string", name);
 	break;
     case TUTF8String:
@@ -177,18 +186,54 @@ free_type (const char *name, const Type *t, int preserve)
 void
 generate_type_free (const Symbol *s)
 {
-  int preserve = preserve_type(s->name) ? TRUE : FALSE;
+    struct decoration deco;
+    ssize_t more_deco = -1;
+    int preserve = preserve_type(s->name) ? TRUE : FALSE;
 
-  fprintf (headerfile,
-	   "void   free_%s  (%s *);\n",
-	   s->gen_name, s->gen_name);
+    fprintf (codefile, "void ASN1CALL\n"
+	     "free_%s(%s *data)\n"
+	     "{\n",
+	     s->gen_name, s->gen_name);
 
-  fprintf (codefile, "void\n"
-	   "free_%s(%s *data)\n"
-	   "{\n",
-	   s->gen_name, s->gen_name);
-
-  free_type ("data", s->type, preserve);
-  fprintf (codefile, "}\n\n");
+    free_type ("data", s->type, preserve);
+    while (decorate_type(s->gen_name, &deco, &more_deco)) {
+        if (deco.ext && deco.free_function_name == NULL) {
+            /* Decorated with field of external type but no free function */
+            if (deco.ptr)
+                fprintf(codefile, "(data)->%s = 0;\n", deco.field_name);
+            else
+                fprintf(codefile,
+                        "memset(&(data)->%s, 0, sizeof((data)->%s));\n",
+                        deco.field_name, deco.field_name);
+        } else if (deco.ext) {
+            /* Decorated with field of external type w/ free function */
+            if (deco.ptr) {
+                fprintf(codefile, "if ((data)->%s) {\n", deco.field_name);
+                fprintf(codefile, "%s((data)->%s);\n",
+                        deco.free_function_name, deco.field_name);
+                fprintf(codefile, "(data)->%s = 0;\n", deco.field_name);
+                fprintf(codefile, "}\n");
+            } else {
+                fprintf(codefile, "%s(&(data)->%s);\n",
+                        deco.free_function_name, deco.field_name);
+                fprintf(codefile,
+                        "memset(&(data)->%s, 0, sizeof((data)->%s));\n",
+                        deco.field_name, deco.field_name);
+            }
+        } else if (deco.opt) {
+            /* Decorated with optional field of ASN.1 type */
+            fprintf(codefile, "if ((data)->%s) {\n", deco.field_name);
+            fprintf(codefile, "free_%s((data)->%s);\n",
+                    deco.field_type, deco.field_name);
+            fprintf(codefile, "free((data)->%s);\n", deco.field_name);
+            fprintf(codefile, "(data)->%s = NULL;\n", deco.field_name);
+            fprintf(codefile, "}\n");
+        } else {
+            /* Decorated with required field of ASN.1 type */
+            fprintf(codefile, "free_%s(&(data)->%s);\n",
+                    deco.field_type, deco.field_name);
+        }
+        free(deco.field_type);
+    }
+    fprintf (codefile, "}\n\n");
 }
-

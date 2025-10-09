@@ -34,6 +34,7 @@
 #include <config.h>
 
 #include "roken.h"
+#include <ctype.h>
 #include "rtbl.h"
 
 struct column_entry {
@@ -59,19 +60,19 @@ struct rtbl_data {
     char *column_separator;
 };
 
-rtbl_t ROKEN_LIB_FUNCTION
+ROKEN_LIB_FUNCTION rtbl_t ROKEN_LIB_CALL
 rtbl_create (void)
 {
     return calloc (1, sizeof (struct rtbl_data));
 }
 
-void ROKEN_LIB_FUNCTION
+ROKEN_LIB_FUNCTION void ROKEN_LIB_CALL
 rtbl_set_flags (rtbl_t table, unsigned int flags)
 {
     table->flags = flags;
 }
 
-unsigned int ROKEN_LIB_FUNCTION
+ROKEN_LIB_FUNCTION unsigned int ROKEN_LIB_CALL
 rtbl_get_flags (rtbl_t table)
 {
     return table->flags;
@@ -80,7 +81,7 @@ rtbl_get_flags (rtbl_t table)
 static struct column_data *
 rtbl_get_column_by_id (rtbl_t table, unsigned int id)
 {
-    int i;
+    size_t i;
     for(i = 0; i < table->num_columns; i++)
 	if(table->columns[i]->column_id == id)
 	    return table->columns[i];
@@ -90,17 +91,17 @@ rtbl_get_column_by_id (rtbl_t table, unsigned int id)
 static struct column_data *
 rtbl_get_column (rtbl_t table, const char *column)
 {
-    int i;
+    size_t i;
     for(i = 0; i < table->num_columns; i++)
 	if(strcmp(table->columns[i]->header, column) == 0)
 	    return table->columns[i];
     return NULL;
 }
 
-void ROKEN_LIB_FUNCTION
+ROKEN_LIB_FUNCTION void ROKEN_LIB_CALL
 rtbl_destroy (rtbl_t table)
 {
-    int i, j;
+    size_t i, j;
 
     for (i = 0; i < table->num_columns; i++) {
 	struct column_data *c = table->columns[i];
@@ -119,7 +120,7 @@ rtbl_destroy (rtbl_t table)
     free (table);
 }
 
-int ROKEN_LIB_FUNCTION
+ROKEN_LIB_FUNCTION int ROKEN_LIB_CALL
 rtbl_add_column_by_id (rtbl_t table, unsigned int id,
 		       const char *header, unsigned int flags)
 {
@@ -148,13 +149,13 @@ rtbl_add_column_by_id (rtbl_t table, unsigned int id,
     return 0;
 }
 
-int ROKEN_LIB_FUNCTION
+ROKEN_LIB_FUNCTION int ROKEN_LIB_CALL
 rtbl_add_column (rtbl_t table, const char *header, unsigned int flags)
 {
     return rtbl_add_column_by_id(table, 0, header, flags);
 }
 
-int ROKEN_LIB_FUNCTION
+ROKEN_LIB_FUNCTION int ROKEN_LIB_CALL
 rtbl_new_row(rtbl_t table)
 {
     size_t max_rows = 0;
@@ -168,7 +169,7 @@ rtbl_new_row(rtbl_t table)
 	if(table->columns[c]->num_rows == max_rows)
 	    continue;
 	tmp = realloc(table->columns[c]->rows,
-		      max_rows * sizeof(table->columns[c]->rows));
+		      max_rows * sizeof(table->columns[c]->rows[0]));
 	if(tmp == NULL)
 	    return ENOMEM;
 	table->columns[c]->rows = tmp;
@@ -183,18 +184,18 @@ rtbl_new_row(rtbl_t table)
 static void
 column_compute_width (rtbl_t table, struct column_data *column)
 {
-    int i;
+    size_t i;
 
     if(table->flags & RTBL_HEADER_STYLE_NONE)
 	column->width = 0;
     else
-	column->width = strlen (column->header);
+	column->width = (int)strlen (column->header);
     for (i = 0; i < column->num_rows; i++)
-	column->width = max (column->width, strlen (column->rows[i].data));
+	column->width = max (column->width, (int) strlen (column->rows[i].data));
 }
 
 /* DEPRECATED */
-int ROKEN_LIB_FUNCTION
+ROKEN_LIB_FUNCTION int ROKEN_LIB_CALL
 rtbl_set_prefix (rtbl_t table, const char *prefix)
 {
     if (table->column_prefix)
@@ -205,7 +206,7 @@ rtbl_set_prefix (rtbl_t table, const char *prefix)
     return 0;
 }
 
-int ROKEN_LIB_FUNCTION
+ROKEN_LIB_FUNCTION int ROKEN_LIB_CALL
 rtbl_set_separator (rtbl_t table, const char *separator)
 {
     if (table->column_separator)
@@ -216,7 +217,7 @@ rtbl_set_separator (rtbl_t table, const char *separator)
     return 0;
 }
 
-int ROKEN_LIB_FUNCTION
+ROKEN_LIB_FUNCTION int ROKEN_LIB_CALL
 rtbl_set_column_prefix (rtbl_t table, const char *column,
 			const char *prefix)
 {
@@ -232,7 +233,7 @@ rtbl_set_column_prefix (rtbl_t table, const char *column,
     return 0;
 }
 
-int ROKEN_LIB_FUNCTION
+ROKEN_LIB_FUNCTION int ROKEN_LIB_CALL
 rtbl_set_column_affix_by_id(rtbl_t table, unsigned int id,
 			    const char *prefix, const char *suffix)
 {
@@ -301,7 +302,7 @@ add_column_entry (struct column_data *c, const char *data)
     return 0;
 }
 
-int ROKEN_LIB_FUNCTION
+ROKEN_LIB_FUNCTION int ROKEN_LIB_CALL
 rtbl_add_column_entry_by_id (rtbl_t table, unsigned int id, const char *data)
 {
     struct column_data *c = rtbl_get_column_by_id (table, id);
@@ -312,7 +313,7 @@ rtbl_add_column_entry_by_id (rtbl_t table, unsigned int id, const char *data)
     return add_column_entry(c, data);
 }
 
-int ROKEN_LIB_FUNCTION
+ROKEN_LIB_FUNCTION int ROKEN_LIB_CALL
 rtbl_add_column_entryv_by_id (rtbl_t table, unsigned int id,
 			      const char *fmt, ...)
 {
@@ -330,7 +331,7 @@ rtbl_add_column_entryv_by_id (rtbl_t table, unsigned int id,
     return ret;
 }
 
-int ROKEN_LIB_FUNCTION
+ROKEN_LIB_FUNCTION int ROKEN_LIB_CALL
 rtbl_add_column_entry (rtbl_t table, const char *column, const char *data)
 {
     struct column_data *c = rtbl_get_column (table, column);
@@ -341,7 +342,7 @@ rtbl_add_column_entry (rtbl_t table, const char *column, const char *data)
     return add_column_entry(c, data);
 }
 
-int ROKEN_LIB_FUNCTION
+ROKEN_LIB_FUNCTION int ROKEN_LIB_CALL
 rtbl_add_column_entryv (rtbl_t table, const char *column, const char *fmt, ...)
 {
     va_list ap;
@@ -359,10 +360,22 @@ rtbl_add_column_entryv (rtbl_t table, const char *column, const char *fmt, ...)
 }
 
 
-int ROKEN_LIB_FUNCTION
+ROKEN_LIB_FUNCTION int ROKEN_LIB_CALL
 rtbl_format (rtbl_t table, FILE * f)
 {
-    int i, j;
+    char *str = rtbl_format_str(table);
+    if (str == NULL)
+	return ENOMEM;
+    fprintf(f, "%s", str);
+    free(str);
+    return 0;
+}
+
+static char *
+rtbl_format_pretty(rtbl_t table)
+{
+    struct rk_strpool *p = NULL;
+    size_t i, j;
 
     for (i = 0; i < table->num_columns; i++)
 	column_compute_width (table, table->columns[i]);
@@ -371,16 +384,18 @@ rtbl_format (rtbl_t table, FILE * f)
 	    struct column_data *c = table->columns[i];
 
 	    if(table->column_separator != NULL && i > 0)
-		fprintf (f, "%s", table->column_separator);
-	    fprintf (f, "%s", get_column_prefix (table, c));
-	    if(i == table->num_columns - 1 && c->suffix == NULL)
+		p = rk_strpoolprintf(p, "%s", table->column_separator);
+	    p = rk_strpoolprintf(p, "%s", get_column_prefix (table, c));
+	    if (c == NULL) {
+		/* do nothing if no column */
+	    } else if(i == table->num_columns - 1 && c->suffix == NULL)
 		/* last column, so no need to pad with spaces */
-		fprintf (f, "%-*s", 0, c->header);
+		p = rk_strpoolprintf(p, "%-*s", 0, c->header);
 	    else
-		fprintf (f, "%-*s", (int)c->width, c->header);
-	    fprintf (f, "%s", get_column_suffix (table, c));
+		p = rk_strpoolprintf(p, "%-*s", (int)c->width, c->header);
+	    p = rk_strpoolprintf(p, "%s", get_column_suffix (table, c));
 	}
-	fprintf (f, "\n");
+	p = rk_strpoolprintf(p, "\n");
     }
 
     for (j = 0;; j++) {
@@ -403,7 +418,7 @@ rtbl_format (rtbl_t table, FILE * f)
 	    struct column_data *c = table->columns[i];
 
 	    if(table->column_separator != NULL && i > 0)
-		fprintf (f, "%s", table->column_separator);
+		p = rk_strpoolprintf(p, "%s", table->column_separator);
 
 	    w = c->width;
 
@@ -414,16 +429,72 @@ rtbl_format (rtbl_t table, FILE * f)
 		else
 		    w = -w;
 	    }
-	    fprintf (f, "%s", get_column_prefix (table, c));
+	    p = rk_strpoolprintf(p, "%s", get_column_prefix (table, c));
 	    if (c->num_rows <= j)
-		fprintf (f, "%*s", w, "");
+		p = rk_strpoolprintf(p, "%*s", w, "");
 	    else
-		fprintf (f, "%*s", w, c->rows[j].data);
-	    fprintf (f, "%s", get_column_suffix (table, c));
+		p = rk_strpoolprintf(p, "%*s", w, c->rows[j].data);
+	    p = rk_strpoolprintf(p, "%s", get_column_suffix (table, c));
 	}
-	fprintf (f, "\n");
+	p = rk_strpoolprintf(p, "\n");
     }
-    return 0;
+
+    return rk_strpoolcollect(p);
+}
+
+static char *
+rtbl_format_json(rtbl_t table)
+{
+    struct rk_strpool *p = NULL;
+    size_t i, j;
+    int comma;
+
+    p = rk_strpoolprintf(p, "[");
+    for (j = 0;; j++) {
+	int flag = 0;
+
+	/* are there any more rows left? */
+	for (i = 0; flag == 0 && i < table->num_columns; ++i) {
+	    struct column_data *c = table->columns[i];
+
+	    if (c->num_rows > j) {
+		++flag;
+		break;
+	    }
+	}
+	if (flag == 0)
+	    break;
+
+	p = rk_strpoolprintf(p, "%s{", j > 0 ? "," : "");
+
+	comma = 0;
+	for (i = 0; i < table->num_columns; i++) {
+	    struct column_data *c = table->columns[i];
+
+	    if (c->num_rows > j) {
+		char *header = c->header;
+		while (isspace((unsigned char)header[0])) /* trim off prefixed whitespace */
+		    header++;
+		p = rk_strpoolprintf(p, "%s\"%s\" : \"%s\"",
+				     comma ? "," : "", header,
+				     c->rows[j].data);
+		comma = 1;
+	    }
+	}
+	p = rk_strpoolprintf(p, "}");
+    }
+    p = rk_strpoolprintf(p, "]");
+
+    return rk_strpoolcollect(p);
+}
+
+ROKEN_LIB_FUNCTION char * ROKEN_LIB_CALL
+rtbl_format_str (rtbl_t table)
+{
+    if (table->flags & RTBL_JSON)
+	return rtbl_format_json(table);
+
+    return rtbl_format_pretty(table);
 }
 
 #ifdef TEST

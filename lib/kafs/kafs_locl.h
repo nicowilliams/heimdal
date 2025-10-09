@@ -96,10 +96,11 @@
 #endif
 #ifdef KRB5
 #include "crypto-headers.h"
-#include <krb5-v4compat.h>
 typedef struct credentials CREDENTIALS;
 #endif /* KRB5 */
+#ifndef NO_AFS
 #include <kafs.h>
+#endif
 
 #include <resolve.h>
 
@@ -123,6 +124,8 @@ struct kafs_data {
     afslog_uid_func_t afslog_uid;
     get_cred_func_t get_cred;
     get_realm_func_t get_realm;
+    const char *(*get_error)(struct kafs_data *, int);
+    void (*free_error)(struct kafs_data *, const char *);
     void *data;
 };
 
@@ -147,6 +150,9 @@ _kafs_v4_to_kt(CREDENTIALS *, uid_t, struct kafs_token *);
 
 void
 _kafs_fixup_viceid(struct ClearToken *, uid_t);
+
+int
+_kafs_derive_des_key(krb5_enctype, void *, size_t, char[8]);
 
 #ifdef _AIX
 int aix_pioctl(char*, int, struct ViceIoctl*, int);

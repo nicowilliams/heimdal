@@ -33,21 +33,22 @@
 
 #include "gsskrb5_locl.h"
 
-OM_uint32
+OM_uint32 GSSAPI_CALLCONV
 _gsskrb5_export_cred(OM_uint32 *minor_status,
 		     gss_cred_id_t cred_handle,
 		     gss_buffer_t cred_token)
 {
+    OM_uint32 major_status;
     gsskrb5_cred handle = (gsskrb5_cred)cred_handle;
     krb5_context context;
     krb5_error_code ret;
     krb5_storage *sp;
-    krb5_data data, mech;
+    krb5_data data;
     const char *type;
     char *str;
 
     GSSAPI_KRB5_INIT (&context);
-    
+
     if (handle->usage != GSS_C_INITIATE && handle->usage != GSS_C_BOTH) {
 	*minor_status = GSS_KRB5_S_G_BAD_USAGE;
 	return GSS_S_FAILURE;
@@ -62,6 +63,9 @@ _gsskrb5_export_cred(OM_uint32 *minor_status,
     type = krb5_cc_get_type(context, handle->ccache);
     if (strcmp(type, "MEMORY") == 0) {
 	krb5_creds *creds;
+	krb5_data config_start_realm;
+	char *start_realm;
+
 	ret = krb5_store_uint32(sp, 0);
 	if (ret) {
 	    krb5_storage_free(sp);
@@ -69,9 +73,25 @@ _gsskrb5_export_cred(OM_uint32 *minor_status,
 	    return GSS_S_FAILURE;
 	}
 
-	ret = _krb5_get_krbtgt(context, handle->ccache,
-			       handle->principal->realm,
-			       &creds);
+	ret = krb5_cc_get_config(context, handle->ccache, NULL, "start_realm",
+				 &config_start_realm);
+	if (ret == 0) {
+	    start_realm = strndup(config_start_realm.data,
+				  config_start_realm.length);
+	    krb5_data_free(&config_start_realm);
+	} else {
+	    start_realm = strdup(krb5_principal_get_realm(context,
+							  handle->principal));
+	}
+	if (start_realm == NULL) {
+	    *minor_status = krb5_enomem(context);
+	    krb5_storage_free(sp);
+	    return GSS_S_FAILURE;
+	}
+
+	ret = _krb5_get_krbtgt(context, handle->ccache, start_realm, &creds);
+	free(start_realm);
+	start_realm = NULL;
 	if (ret) {
 	    krb5_storage_free(sp);
 	    *minor_status = ret;
@@ -93,14 +113,14 @@ _gsskrb5_export_cred(OM_uint32 *minor_status,
 	    *minor_status = ret;
 	    return GSS_S_FAILURE;
 	}
-	
+
 	ret = krb5_cc_get_full_name(context, handle->ccache, &str);
 	if (ret) {
 	    krb5_storage_free(sp);
 	    *minor_status = ret;
 	    return GSS_S_FAILURE;
 	}
-	
+
 	ret = krb5_store_string(sp, str);
 	free(str);
 	if (ret) {
@@ -122,15 +142,11 @@ _gsskrb5_export_cred(OM_uint32 *minor_status,
 	return GSS_S_FAILURE;
     }
 
-    mech.data = GSS_KRB5_MECHANISM->elements;
-    mech.length = GSS_KRB5_MECHANISM->length;
-
-    ret = krb5_store_data(sp, mech);
-    if (ret) {
+    major_status = _gss_mg_store_oid(minor_status, sp, GSS_KRB5_MECHANISM);
+    if (major_status != GSS_S_COMPLETE) {
 	krb5_data_free(&data);
 	krb5_storage_free(sp);
-	*minor_status = ret;
-	return GSS_S_FAILURE;
+	return major_status;
     }
 
     ret = krb5_store_data(sp, data);
@@ -154,7 +170,7 @@ _gsskrb5_export_cred(OM_uint32 *minor_status,
     return GSS_S_COMPLETE;
 }
 
-OM_uint32
+OM_uint32 GSSAPI_CALLCONV
 _gsskrb5_import_cred(OM_uint32 * minor_status,
 		     gss_buffer_t cred_token,
 		     gss_cred_id_t * cred_handle)
@@ -210,6 +226,10 @@ _gsskrb5_import_cred(OM_uint32 * minor_status,
 
 	ret = krb5_cc_store_cred(context, id, &creds);
 	krb5_free_cred_contents(context, &creds);
+	if (ret) {
+	    *minor_status = ret;
+	    return GSS_S_FAILURE;
+	}
 
 	flags |= GSS_CF_DESTROY_CRED_ON_RELEASE;
 
@@ -222,7 +242,7 @@ _gsskrb5_import_cred(OM_uint32 * minor_status,
 	    *minor_status = ret;
 	    return GSS_S_FAILURE;
 	}
-	
+
 	ret = krb5_cc_resolve(context, str, &id);
 	krb5_xfree(str);
 	if (ret) {
@@ -243,11 +263,19 @@ _gsskrb5_import_cred(OM_uint32 * minor_status,
 	*minor_status = ENOMEM;
 	return GSS_S_FAILURE;
     }
+    *minor_status = krb5_cc_get_principal(context, id, &handle->principal);
+    if (*minor_status) {
+        free(handle);
+        krb5_cc_close(context, id);
+        return GSS_S_FAILURE;
+    }
 
     handle->usage = GSS_C_INITIATE;
-    krb5_cc_get_principal(context, id, &handle->principal);
+    handle->destination_realm = NULL;
     handle->ccache = id;
     handle->cred_flags = flags;
+
+    *cred_handle = (gss_cred_id_t)handle;
 
     return GSS_S_COMPLETE;
 }

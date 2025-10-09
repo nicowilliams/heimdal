@@ -38,9 +38,8 @@
 #ifndef __HEADERS_H__
 #define __HEADERS_H__
 
-#ifdef HAVE_CONFIG_H
 #include <config.h>
-#endif
+
 #include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -48,6 +47,9 @@
 #include <errno.h>
 #include <signal.h>
 #include <stdarg.h>
+#ifdef HAVE_UNISTD_H
+#include <unistd.h>
+#endif
 #ifdef HAVE_SYS_TYPES_H
 #include <sys/types.h>
 #endif
@@ -91,24 +93,24 @@
 #include <parse_units.h>
 #include <krb5.h>
 #include <krb5_locl.h>
-#ifdef DIGEST
 #include <digest_asn1.h>
-#endif
-#ifdef KX509
 #include <kx509_asn1.h>
-#endif
 #include <hdb.h>
 #include <hdb_err.h>
 #include <der.h>
+#include <gssapi/gssapi.h>
 
 #ifndef NO_NTLM
 #include <heimntlm.h>
 #endif
 #include <kdc.h>
-#include <windc_plugin.h>
+#include <kdc-plugin.h>
+#include <kdc-audit.h>
+
+#include <heimbase.h>
 
 #undef ALLOC
-#define ALLOC(X) ((X) = malloc(sizeof(*(X))))
+#define ALLOC(X) ((X) = calloc(1, sizeof(*(X))))
 #undef ALLOC_SEQ
 #define ALLOC_SEQ(X, N) do { (X)->len = (N); \
 (X)->val = calloc((X)->len, sizeof(*(X)->val)); } while(0)

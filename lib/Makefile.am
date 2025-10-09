@@ -2,11 +2,8 @@
 
 include $(top_srcdir)/Makefile.am.common
 
-if EDITLINE
-dir_editline = editline
-endif
-if KRB4
-dir_45 = 45
+if LIBEDIT
+dir_editline = libedit
 endif
 if OTP
 dir_otp = otp
@@ -17,31 +14,37 @@ endif
 if COM_ERR
 dir_com_err = com_err
 endif
-if !HAVE_OPENSSL
-dir_hcrypto = hcrypto
-endif
 if !SQLITE3
 dir_sqlite = sqlite
+endif
+if MAINTAINER_MODE
+dir_sqlite = sqlite
+endif
+if !NO_AFS
+dir_afs = kafs
 endif
 
 SUBDIRS = \
 	roken \
 	vers \
-	$(dir_editline) \
 	$(dir_com_err) \
+	base \
+	$(dir_editline) \
 	sl \
 	wind \
 	asn1 \
 	$(dir_sqlite) \
-	$(dir_hcrypto) \
+	hcrypto \
+	ipc \
 	hx509 \
 	krb5 \
 	ntlm \
-	kafs \
+	$(dir_afs) \
 	gssapi \
+	gss_preauth \
 	hdb \
 	kadm5 \
-	$(dir_45) \
 	$(dir_otp) \
-	$(dir_dce) \
-	auth
+	$(dir_dce)
+
+EXTRA_DIST = NTMakefile heimdal

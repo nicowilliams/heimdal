@@ -34,13 +34,8 @@
 #include "kadm5_locl.h"
 #include "kadm5-pwcheck.h"
 
-RCSID("$Id$");
-
 #ifdef HAVE_SYS_WAIT_H
 #include <sys/wait.h>
-#endif
-#ifdef HAVE_DLFCN_H
-#include <dlfcn.h>
 #endif
 
 static int
@@ -93,10 +88,10 @@ char_class_passwd_quality (krb5_context context,
 	"ABCDEFGHIJKLMNOPQRSTUVWXYZ",
 	"abcdefghijklmnopqrstuvwxyz",
 	"1234567890",
-	"!@#$%^&*()/?<>,.{[]}\\|'~`\" "
+	" !\"#$%&'()*+,-./:;<=>?@\\]^_`{|}~"
     };
-    int i, counter = 0, req_classes;
-    size_t len;
+    int counter = 0, req_classes;
+    size_t i, len;
     char *pw;
 
     req_classes = krb5_config_get_int_default(context, NULL, 3,
@@ -122,11 +117,12 @@ char_class_passwd_quality (krb5_context context,
     if (counter < req_classes) {
 	snprintf(message, length,
 	    "Password doesn't meet complexity requirement.\n"
-	    "Add more characters from the following classes:\n"
+	    "Add more characters from at least %d of the\n"
+            "following classes:\n"
 	    "1. English uppercase characters (A through Z)\n"
 	    "2. English lowercase characters (a through z)\n"
 	    "3. Base 10 digits (0 through 9)\n"
-	    "4. Nonalphanumeric characters (e.g., !, $, #, %%)");
+	    "4. Nonalphanumeric characters (e.g., !, $, #, %%)", req_classes);
 	return 1;
     }
     return 0;
@@ -148,7 +144,7 @@ external_passwd_quality (krb5_context context,
     char reply[1024];
     FILE *in = NULL, *out = NULL, *error = NULL;
 
-    if (memchr(pwd->data, pwd->length, '\n') != NULL) {
+    if (memchr(pwd->data, '\n', pwd->length) != NULL) {
 	snprintf(message, length, "password contains newline, "
 		 "not valid for external test");
 	return 1;
@@ -170,7 +166,7 @@ external_passwd_quality (krb5_context context,
 	return 1;
     }
 
-    child = pipe_execv(&in, &out, &error, program, p, NULL);
+    child = pipe_execv(&in, &out, &error, program, program, p, NULL);
     if (child < 0) {
 	snprintf(message, length, "external password quality "
 		 "program failed to execute for principal %s", p);
@@ -199,7 +195,8 @@ external_passwd_quality (krb5_context context,
 
 	fclose(out);
 	fclose(error);
-	waitpid(child, &status, 0);
+	wait_for_process(child);
+	free(p);
 	return 1;
     }
     reply[strcspn(reply, "\n")] = '\0';
@@ -207,12 +204,9 @@ external_passwd_quality (krb5_context context,
     fclose(out);
     fclose(error);
 
-    if (waitpid(child, &status, 0) < 0) {
-	snprintf(message, length, "external program failed: %s", reply);
-	free(p);
-	return 1;
-    }
-    if (!WIFEXITED(status) || WEXITSTATUS(status) != 0) {
+    status = wait_for_process(child);
+
+    if (SE_IS_ERROR(status) || SE_PROCSTATUS(status) != 0) {
 	snprintf(message, length, "external program failed: %s", reply);
 	free(p);
 	return 1;
@@ -237,7 +231,7 @@ struct kadm5_pw_policy_check_func builtin_funcs[] = {
     { "minimum-length", min_length_passwd_quality },
     { "character-class", char_class_passwd_quality },
     { "external-check", external_passwd_quality },
-    { NULL }
+    { NULL, NULL }
 };
 struct kadm5_pw_policy_verifier builtin_verifier = {
     "builtin",
@@ -252,10 +246,6 @@ static int num_verifiers;
 /*
  * setup the password quality hook
  */
-
-#ifndef RTLD_NOW
-#define RTLD_NOW 0
-#endif
 
 void
 kadm5_setup_passwd_quality_check(krb5_context context,
@@ -289,12 +279,12 @@ kadm5_setup_passwd_quality_check(krb5_context context,
 
     if(check_library == NULL)
 	return;
-    handle = dlopen(check_library, RTLD_NOW);
+    handle = dlopen(check_library, RTLD_NOW | RTLD_LOCAL | RTLD_GROUP);
     if(handle == NULL) {
 	krb5_warnx(context, "failed to open `%s'", check_library);
 	return;
     }
-    version = dlsym(handle, "version");
+    version = (int *) dlsym(handle, "version");
     if(version == NULL) {
 	krb5_warnx(context,
 		   "didn't find `version' symbol in `%s'", check_library);
@@ -329,12 +319,12 @@ add_verifier(krb5_context context, const char *check_library)
     void *handle;
     int i;
 
-    handle = dlopen(check_library, RTLD_NOW);
+    handle = dlopen(check_library, RTLD_NOW | RTLD_LOCAL | RTLD_GROUP);
     if(handle == NULL) {
 	krb5_warnx(context, "failed to open `%s'", check_library);
 	return ENOENT;
     }
-    v = dlsym(handle, "kadm5_password_verifier");
+    v = (struct kadm5_pw_policy_verifier *) dlsym(handle, "kadm5_password_verifier");
     if(v == NULL) {
 	krb5_warnx(context,
 		   "didn't find `kadm5_password_verifier' symbol "
@@ -382,24 +372,27 @@ kadm5_add_passwd_quality_verifier(krb5_context context,
 #ifdef HAVE_DLOPEN
 
     if(check_library == NULL) {
-	krb5_error_code ret;
+	krb5_error_code ret = 0;
+        char **strs;
 	char **tmp;
 
-	tmp = krb5_config_get_strings(context, NULL,
-				      "password_quality",
-				      "policy_libraries",
-				      NULL);
-	if(tmp == NULL)
+	strs = krb5_config_get_strings(context, NULL,
+				       "password_quality",
+				       "policy_libraries",
+				       NULL);
+	if (strs == NULL)
 	    return 0;
 
-	while(tmp) {
+	for (tmp = strs; *tmp; tmp++) {
 	    ret = add_verifier(context, *tmp);
 	    if (ret)
-		return ret;
-	    tmp++;
+		break;
 	}
+        krb5_config_free_strings(strs);
+	return ret;
+    } else {
+	return add_verifier(context, check_library);
     }
-    return add_verifier(context, check_library);
 #else
     return 0;
 #endif /* HAVE_DLOPEN */
@@ -433,7 +426,7 @@ find_func(krb5_context context, const char *name)
 	if (module && strcmp(module, verifiers[i]->name) != 0)
 	    continue;
 	for (f = verifiers[i]->funcs; f->name ; f++)
-	    if (strcmp(name, f->name) == 0) {
+	    if (strcmp(func, f->name) == 0) {
 		if (module)
 		    free(module);
 		return f;
@@ -474,7 +467,8 @@ kadm5_check_password_quality (krb5_context context,
 				NULL);
     if (v == NULL) {
 	msg = (*passwd_quality_check) (context, principal, pwd_data);
-	krb5_set_error_message(context, 0, "password policy failed: %s", msg);
+	if (msg)
+	    krb5_set_error_message(context, 0, "password policy failed: %s", msg);
 	return msg;
     }
 
@@ -508,7 +502,7 @@ kadm5_check_password_quality (krb5_context context,
 	if (msg)
 	    krb5_set_error_message(context, 0, "(old) password policy "
 				   "failed with %s", msg);
-	
+
     }
     return msg;
 }

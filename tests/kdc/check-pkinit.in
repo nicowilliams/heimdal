@@ -30,38 +30,45 @@
 # LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY 
 # OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF 
 # SUCH DAMAGE. 
-#
-# $Id$
-#
 
-srcdir="@srcdir@"
+top_builddir="@top_builddir@"
+env_setup="@env_setup@"
 objdir="@objdir@"
-EGREP="@EGREP@"
 
 testfailed="echo test failed; cat messages.log; exit 1"
 
-# If there is no useful db support compile in, disable test
-../db/have-db || exit 77
+. ${env_setup}
+
+# If there is no useful db support compiled in, disable test
+${have_db} || exit 77
 
 R=TEST.H5L.SE
 
 port=@port@
 
-kadmin="${TESTS_ENVIRONMENT} ../../kadmin/kadmin -l -r $R"
-kdc="${TESTS_ENVIRONMENT} ../../kdc/kdc --addresses=localhost -P $port"
+kadmin="${kadmin} -l -r $R"
+kdc="${kdc} --addresses=localhost -P $port"
 
 server=host/datan.test.h5l.se
 cache="FILE:${objdir}/cache.krb5"
-keyfile="${srcdir}/../../lib/hx509/data/key.der"
-keyfile2="${srcdir}/../../lib/hx509/data/key2.der"
+keyfile="${hx509_data}/key.der"
+keyfile2="${hx509_data}/key2.der"
 
-kinit="${TESTS_ENVIRONMENT} ../../kuser/kinit -c $cache --no-afslog"
-kgetcred="${TESTS_ENVIRONMENT} ../../kuser/kgetcred -c $cache"
-kdestroy="${TESTS_ENVIRONMENT} ../../kuser/kdestroy -c $cache --no-unlog"
-hxtool="${TESTS_ENVIRONMENT} ../../lib/hx509/hxtool"
+kinit="${kinit} -c $cache ${afs_no_afslog}"
+klistjson="${klist} --json -c $cache"
+klistplain="${klist} -c $cache"
+klist="${klist} --hidden -v -c $cache"
+kgetcred="${kgetcred} -c $cache"
+kdestroy="${kdestroy} -c $cache ${afs_no_unlog}"
+kx509="${kx509} -c $cache"
 
 KRB5_CONFIG="${objdir}/krb5-pkinit.conf"
 export KRB5_CONFIG
+HEIM_PIDFILE_DIR=$objdir
+export HEIM_PIDFILE_DIR
+HEIM_IPC_DIR=$objdir
+export HEIM_IPC_DIR
+
 
 rsa=yes
 pkinit=no
@@ -89,21 +96,25 @@ rm -f mkey.file*
 > messages.log
 
 echo Creating database
-${kadmin} \
-    init \
-    --realm-max-ticket-life=1day \
-    --realm-max-renewable-life=1month \
-    ${R} || exit 1
+${kadmin} <<EOF || exit 1
+init --realm-max-ticket-life=1day --realm-max-renewable-life=1month ${R}
+modify --max-ticket-life=5d krbtgt/${R}@${R}
+add -p foo --use-defaults foo@${R}
+add -p bar --use-defaults bar@${R}
+add -p baz --use-defaults baz@${R}
+add -p foo --use-defaults host/server.test.h5l.se@${R}
+modify --pkinit-acl="CN=baz,DC=test,DC=h5l,DC=se" baz@${R}
+add -p kaka --use-defaults ${server}@${R}
+check ${R}
+EOF
+${kadmin} modify --alias=baz2\\@test.h5l.se@${R} baz@${R} || exit 1
 
-${kadmin} add -p foo --use-defaults foo@${R} || exit 1
-${kadmin} add -p bar --use-defaults bar@${R} || exit 1
-${kadmin} add -p baz --use-defaults baz@${R} || exit 1
-${kadmin} modify --pkinit-acl="CN=baz,DC=test,DC=h5l,DC=se" baz@${R} || exit 1
-
-${kadmin} add -p kaka --use-defaults ${server}@${R} || exit 1
-
-echo "Doing database check"
-${kadmin} check ${R} || exit 1
+# XXX Do not use committed, in-tree private keys or certificates!
+# XXX Add hxtool command to generate a private key w/o generating a CSR
+# XXX Use hxtool to generate a fresh private key
+# XXX Use hxtool to generate self-signed CA certs
+# XXX Use PEM-FILE and store private key and certificate in same file
+# XXX Update krb5.conf.in to use ${objdir}-relative keys and certificates
 
 echo "Setting up certificates"
 ${hxtool} request-create \
@@ -141,7 +152,17 @@ ${hxtool} issue-certificate \
 	  --type="pkinit-client" \
           --pk-init-principal="bar@TEST.H5L.SE" \
 	  --req="PKCS10:req-pkinit.der" \
+          --lifetime=7d \
 	  --certificate="FILE:pkinit.crt" || exit 1
+
+echo "issue user certificate (pkinit san; synthetic principal)"
+${hxtool} issue-certificate \
+	  --ca-certificate=FILE:$objdir/ca.crt,${keyfile} \
+	  --type="pkinit-client" \
+          --pk-init-principal="synthetized@TEST.H5L.SE" \
+	  --req="PKCS10:req-pkinit.der" \
+          --lifetime=7d \
+	  --certificate="FILE:pkinit-synthetic.crt" || exit 1
 
 echo "issue user 2 certificate (no san)"
 ${hxtool} issue-certificate \
@@ -158,29 +179,115 @@ ${hxtool} issue-certificate \
 	  --req="PKCS10:req-pkinit2.der" \
 	  --certificate="FILE:pkinit3.crt" || exit 1
 
+echo "issue user 3 certificate (ms san, baz2)"
+${hxtool} issue-certificate \
+	  --ca-certificate=FILE:$objdir/ca.crt,${keyfile} \
+	  --type="pkinit-client" \
+          --ms-upn="baz2\\@test.h5l.se@${R}" \
+	  --req="PKCS10:req-pkinit2.der" \
+	  --certificate="FILE:pkinit4.crt" || exit 1
+
+echo "issue self-signed kx509 template cert"
+${hxtool} issue-certificate \
+	  --self-signed \
+	  --ca-private-key=FILE:${keyfile} \
+          --subject='CN=${principal-component0},DC=test,DC=h5l,DC=se' \
+	  --certificate="FILE:kx509-template.crt" || exit 1
 
 echo foo > ${objdir}/foopassword
 
-echo Starting kdc
-${kdc} &
-kdcpid=$!
+echo Starting kdc ; > messages.log
+KRB5_CONFIG="${objdir}/krb5-pkinit2.conf"
+${kdc} --detach --testing || { echo "kdc failed to start"; cat messages.log; exit 1; }
+kdcpid=`getpid kdc`
 
-sh ${srcdir}/wait-kdc.sh
-if [ "$?" != 0 ] ; then
+cleanup() {
+    echo signal killing kdc
     kill -9 ${kdcpid}
+    trap '' EXIT INT TERM
+    cat messages.log
+    cat ca.crt kdc.crt pkinit.crt pkinit-synthetic.crt
     exit 1
-fi
-
-trap "kill -9 ${kdcpid}; echo signal killing kdc; cat ca.crt kdc.crt pkinit.crt ;exit 1;" EXIT
+}
+trap cleanup EXIT INT TERM
 
 ec=0
+
+echo "Trying pk-init (principal in cert; longer max_life)"; > messages.log
+base="${objdir}"
+${kinit} --lifetime=5d -C FILE:${base}/pkinit.crt,${keyfile2} bar@${R} || \
+	{ ec=1 ; eval "${testfailed}"; }
+${kgetcred} ${server}@${R} || { ec=1 ; eval "${testfailed}"; }
+${klist}
+if jq --version >/dev/null 2>&1 && jq -ne true >/dev/null 2>&1; then
+    ${klistjson} |
+        jq -e '(((.tickets[0].Expires|
+               strptime("%b %d %H:%M:%S %Y")|mktime) - now) / 86400) |
+               (floor < 4)' >/dev/null &&
+           { ec=1 ; eval "${testfailed}"; }
+fi
+${kdestroy}
+
+echo "Trying pk-init (principal in cert; synthetic)"; > messages.log
+base="${objdir}"
+${kinit} --lifetime=5d -C FILE:${base}/pkinit-synthetic.crt,${keyfile2} synthetized@${R} || \
+	{ ec=1 ; eval "${testfailed}"; }
+${kgetcred} ${server}@${R} || { ec=1 ; eval "${testfailed}"; }
+${klist}
+${kdestroy}
+
+echo "Restarting kdc ($kdcpid)"
+sh ${leaks_kill} kdc $kdcpid || ec=1
+KRB5_CONFIG="${objdir}/krb5-pkinit.conf"
+${kdc} --detach --testing || { echo "kdc failed to start"; cat messages.log; exit 1; }
+kdcpid=`getpid kdc`
 
 echo "Trying pk-init (principal in cert)"; > messages.log
 base="${objdir}"
 ${kinit} -C FILE:${base}/pkinit.crt,${keyfile2} bar@${R} || \
 	{ ec=1 ; eval "${testfailed}"; }
 ${kgetcred} ${server}@${R} || { ec=1 ; eval "${testfailed}"; }
+${klist}
+if jq --version >/dev/null 2>&1 && jq -ne true >/dev/null 2>&1; then
+    ${klistjson} |
+        jq -e '(((.tickets[0].Expires|
+               strptime("%b %d %H:%M:%S %Y")|mktime) - now) / 86400) |
+               (floor > 1)' >/dev/null &&
+           { ec=1 ; eval "${testfailed}"; }
+fi
 ${kdestroy}
+
+echo "Trying pk-init (principal in cert; longer max_life from cert ext)"; > messages.log
+# Re-issue cert with --pkinit-max-life=7d
+${hxtool} issue-certificate \
+	  --ca-certificate=FILE:$objdir/ca.crt,${keyfile} \
+	  --type="pkinit-client" \
+          --pk-init-principal="bar@TEST.H5L.SE" \
+	  --req="PKCS10:req-pkinit.der" \
+          --lifetime=7d \
+          --pkinit-max-life=7d \
+	  --certificate="FILE:pkinit.crt" || exit 1
+base="${objdir}"
+${kinit} --lifetime=5d -C FILE:${base}/pkinit.crt,${keyfile2} bar@${R} || \
+	{ ec=1 ; eval "${testfailed}"; }
+${kgetcred} ${server}@${R} || { ec=1 ; eval "${testfailed}"; }
+${klist}
+if jq --version >/dev/null 2>&1 && jq -ne true >/dev/null 2>&1; then
+    ${klistjson} |
+        jq -e '(((.tickets[0].Expires|
+               strptime("%b %d %H:%M:%S %Y")|mktime) - now) / 86400) |
+               (floor < 4)' >/dev/null &&
+           { ec=1 ; eval "${testfailed}"; }
+fi
+
+echo "Check kx509 certificate acquisition"
+${kx509} -s || { ec=1 ; eval "${testfailed}"; }
+${kx509} -o PEM-FILE:${objdir}/kx509.pem || { ec=1 ; eval "${testfailed}"; }
+${kdestroy}
+
+echo "Check PKINIT w/ kx509 certificate"
+${kinit} -C PEM-FILE:${objdir}/kx509.pem bar@${R} || \
+	{ ec=1 ; eval "${testfailed}"; }
 
 echo "Trying pk-init (principal in pki-mapping file) "; > messages.log
 ${kinit} -C FILE:${base}/pkinit.crt,${keyfile2} foo@${R} || \
@@ -196,6 +303,21 @@ ${kdestroy}
 
 echo "Trying pk-init (ms upn)"; > messages.log
 ${kinit} -C FILE:${base}/pkinit3.crt,${keyfile2} bar@${R} || \
+	{ ec=1 ; eval "${testfailed}"; }
+${kgetcred} ${server}@${R} || { ec=1 ; eval "${testfailed}"; }
+${kdestroy}
+
+echo "Trying pk-init (ms upn, enterprise)"; > messages.log
+${kinit}  --canonicalize --enterprise \
+	-C FILE:${base}/pkinit4.crt,${keyfile2} baz2@test.h5l.se || \
+	{ ec=1 ; eval "${testfailed}"; }
+${kgetcred} ${server}@${R} || { ec=1 ; eval "${testfailed}"; }
+${kdestroy}
+
+echo "Trying pk-init (ms upn, enterprise, pk-enterprise)"; > messages.log
+${kinit} --canonicalize \
+	--pk-enterprise \
+	-C FILE:${base}/pkinit4.crt,${keyfile2} ${R} || \
 	{ ec=1 ; eval "${testfailed}"; }
 ${kgetcred} ${server}@${R} || { ec=1 ; eval "${testfailed}"; }
 ${kdestroy}
@@ -266,7 +388,7 @@ fi
 
 
 echo "killing kdc (${kdcpid})"
-sh ${srcdir}/leaks-kill.sh kdc $kdcpid || exit 1
+sh ${leaks_kill} kdc $kdcpid || ec=1
 
 trap "" EXIT
 

@@ -39,7 +39,7 @@
 #include <getarg.h>
 #include <roken.h>
 
-static int verify_pac = 0;
+static int verify_pac = 1;
 static int server_any = 0;
 static int version_flag = 0;
 static int help_flag	= 0;
@@ -124,8 +124,8 @@ test_ap(krb5_context context,
 	    krb5_errx(context, 1, "server flag missing mutual req");
     }
 
-    krb5_auth_getremoteseqnumber(context, server_ac, &server_seq);
-    krb5_auth_getremoteseqnumber(context, client_ac, &client_seq);
+    krb5_auth_con_getremoteseqnumber(context, server_ac, &server_seq);
+    krb5_auth_con_getremoteseqnumber(context, client_ac, &client_seq);
     if (server_seq != client_seq)
 	krb5_errx(context, 1, "seq num differ");
 
@@ -153,6 +153,7 @@ test_ap(krb5_context context,
 	    krb5_err(context, 1, ret, "pac parse");
 
 	krb5_pac_free(context, pac);
+        krb5_data_free(&data);
     }
 
     krb5_free_ticket(context, ticket);
@@ -188,7 +189,7 @@ main(int argc, char **argv)
 
     if (argc < 3)
 	usage(1);
-		
+
     principal = argv[0];
     keytab = argv[1];
     ccache = argv[2];

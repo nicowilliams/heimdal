@@ -44,15 +44,27 @@ RCSID("$Id$");
 #define KCMCACHE(X)	((kcm_ccache)(X)->data.data)
 #define CACHENAME(X)	(KCMCACHE(X)->name)
 
-static const char *
-kcmss_get_name(krb5_context context,
-	       krb5_ccache id)
+static krb5_error_code
+kcmss_get_name_2(krb5_context context,
+	         krb5_ccache id,
+                 const char **name,
+                 const char **col,
+                 const char **sub)
 {
-    return CACHENAME(id);
+    if (name)
+        *name = CACHENAME(id);
+    if (col)
+        *col = NULL;
+    if (sub)
+        *sub = CACHENAME(id);
+    return 0;
 }
 
 static krb5_error_code
-kcmss_resolve(krb5_context context, krb5_ccache *id, const char *res)
+kcmss_resolve_2(krb5_context context,
+                krb5_ccache *id,
+                const char *res,
+                const char *sub)
 {
     return KRB5_FCC_INTERNAL;
 }
@@ -247,10 +259,10 @@ kcmss_get_version(krb5_context context,
 }
 
 static const krb5_cc_ops krb5_kcmss_ops = {
-    KRB5_CC_OPS_VERSION,
+    KRB5_CC_OPS_VERSION_5,
     "KCM",
-    kcmss_get_name,
-    kcmss_resolve,
+    NULL,
+    NULL,
     kcmss_gen_new,
     kcmss_initialize,
     kcmss_destroy,
@@ -263,7 +275,18 @@ static const krb5_cc_ops krb5_kcmss_ops = {
     kcmss_end_get,
     kcmss_remove_cred,
     kcmss_set_flags,
-    kcmss_get_version
+    kcmss_get_version,
+    NULL,
+    NULL,
+    NULL,
+    NULL,
+    NULL,
+    NULL,
+    NULL,
+    NULL,
+    NULL,
+    kcmss_get_name_2,
+    kcmss_resolve_2,
 };
 
 krb5_error_code

@@ -73,12 +73,12 @@ static char *typename_arg;
 #endif
 
 struct getargs getargs[] = {
-    { NULL,	'c', arg_flag, &c_flag },
+    { NULL,	'c', arg_flag, &c_flag, NULL, NULL },
 #ifdef KRB5
-    { "cache-type", 0,  arg_string, &typename_arg },
+    { "cache-type", 0,  arg_string, &typename_arg, NULL, NULL },
 #endif
-    { "version", 0,  arg_flag, &version_flag },
-    { "help",	'h', arg_flag, &help_flag },
+    { "version", 0,  arg_flag, &version_flag, NULL, NULL },
+    { "help",	'h', arg_flag, &help_flag, NULL, NULL },
 };
 
 static int num_args = sizeof(getargs) / sizeof(getargs[0]);
@@ -99,15 +99,16 @@ main(int argc, char **argv)
 {
     int f;
     char tf[1024];
+    char shellbuf[MAX_PATH];
     char *p;
 
     char *path;
     char **args;
     unsigned int i;
-    int optind = 0;
+    int optidx = 0;
 
     setprogname(argv[0]);
-    if(getarg(getargs, num_args, argc, argv, &optind))
+    if(getarg(getargs, num_args, argc, argv, &optidx))
 	usage(1);
     if(help_flag)
 	usage(0);
@@ -116,8 +117,8 @@ main(int argc, char **argv)
 	exit(0);
     }
 
-    argc -= optind;
-    argv += optind;
+    argc -= optidx;
+    argv += optidx;
 
 #ifdef KRB5
     {
@@ -138,7 +139,7 @@ main(int argc, char **argv)
 	if (name == NULL)
 	    krb5_errx(context, 1, "Generated credential cache have no name");
 
-	snprintf(tf, sizeof(tf), "%s:%s", typename_arg, name);
+	snprintf(tf, sizeof(tf), "%s:%s", krb5_cc_get_type(context, id), name);
 
 	ret = krb5_cc_close(context, id);
 	if (ret)
@@ -166,13 +167,10 @@ main(int argc, char **argv)
 	      (unsigned long)((argc + 10)*sizeof(char *)));
 
     if(*argv == NULL) {
-	path = getenv("SHELL");
-	if(path == NULL){
-	    struct passwd *pw = k_getpwuid(geteuid());
-	    if (pw == NULL)
-		errx(1, "no such user: %d", (int)geteuid());
-	    path = strdup(pw->pw_shell);
-	}
+        if (roken_get_shell(shellbuf, sizeof(shellbuf)) != NULL)
+            path = strdup(shellbuf);
+        else
+            path = strdup("/bin/sh");
     } else {
 	path = strdup(*argv++);
     }

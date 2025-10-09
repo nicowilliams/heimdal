@@ -98,6 +98,7 @@
 
 extern krb5_context context;
 extern void * kadm_handle;
+extern int list_chunk_size;
 
 #undef ALLOC
 #define ALLOC(X) ((X) = malloc(sizeof(*(X))))
@@ -108,6 +109,9 @@ void attributes2str(krb5_flags, char *, size_t);
 int  str2attributes(const char *, krb5_flags *);
 int  parse_attributes (const char *, krb5_flags *, int *, int);
 int  edit_attributes (const char *, krb5_flags *, int *, int);
+
+int  parse_policy (const char *, char **, int *, int);
+int  edit_policy (const char *, char **, int *, int);
 
 void time_t2str(time_t, char *, size_t, int);
 int  str2time_t (const char *, time_t *);
@@ -124,7 +128,7 @@ int edit_entry(kadm5_principal_ent_t, int *, kadm5_principal_ent_t, int);
 void set_defaults(kadm5_principal_ent_t, int *, kadm5_principal_ent_t, int);
 int set_entry(krb5_context, kadm5_principal_ent_t, int *,
 	      const char *, const char *, const char *,
-	      const char *, const char *);
+	      const char *, const char *, const char *);
 int
 foreach_principal(const char *, int (*)(krb5_principal, void*),
 		  const char *, void *);
@@ -141,17 +145,24 @@ random_password(char *, size_t);
 extern sig_atomic_t term_flag, doing_useful_work;
 
 void parse_ports(krb5_context, const char*);
-int start_server(krb5_context);
+void start_server(krb5_context, const char*);
 
 /* server.c */
 
 krb5_error_code
-kadmind_loop (krb5_context, krb5_keytab, int);
+kadmind_loop (krb5_context, krb5_keytab, int, int);
 
 /* rpc.c */
 
 int
-handle_mit(krb5_context, void *, size_t, int);
+handle_mit(krb5_context, void *, size_t, int, int);
 
+/* mod.c */
+
+void
+add_tl(kadm5_principal_ent_rec *, int, krb5_data *);
+
+krb5_tl_data *
+get_tl(kadm5_principal_ent_rec *, int);
 
 #endif /* __ADMIN_LOCL_H__ */

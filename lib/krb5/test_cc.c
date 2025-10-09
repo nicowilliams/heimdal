@@ -30,20 +30,132 @@
  * OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF
  * ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. */
 
+/*
+ * If this test fails with
+ *
+ *      krb5_cc_gen_new: KEYRING: Key has been revoked
+ *
+ * then run
+ *
+ *      keyctl new_session
+ */
+
 #include "krb5_locl.h"
 #include <getarg.h>
 #include <err.h>
 
+#ifdef HAVE_KEYUTILS_H
+#include <keyutils.h>
+#endif
+
+static const char *unlink_this;
+static const char *unlink_this2;
+static char *tmpdir;
 static int debug_flag	= 0;
 static int version_flag = 0;
 static int help_flag	= 0;
+
+#define TEST_CC_TEMPLATE "%{TEMP}/krb5-cc-test-XXXXXX"
+
+static void
+cleanup(void)
+{
+    char *s = NULL;
+
+    if (asprintf(&s, "%s/cc", tmpdir) > -1 && s != NULL)
+        unlink(s);
+    free(s);
+
+    if (asprintf(&s, "%s/scc", tmpdir) > -1 && s != NULL)
+        unlink(s);
+    free(s);
+
+    if (asprintf(&s, "%s/cccol/foobar+lha@H5L.SE", tmpdir) > -1 && s != NULL)
+        unlink(s);
+    free(s);
+
+    if (asprintf(&s, "%s/cccol/foobar+lha@SU.SE", tmpdir) > -1 && s != NULL)
+        unlink(s);
+    free(s);
+
+    if (asprintf(&s, "%s/cccol/foobar", tmpdir) > -1 && s != NULL)
+        unlink(s);
+    free(s);
+
+    if (asprintf(&s, "%s/cccol", tmpdir) > -1 && s != NULL)
+        rmdir(s);
+    free(s);
+
+    if (asprintf(&s, "%s/dcc/tkt.lha@H5L.SE", tmpdir) > -1 && s != NULL)
+        unlink(s);
+    free(s);
+
+    if (asprintf(&s, "%s/dcc/tkt.lha@SU.SE", tmpdir) > -1 && s != NULL)
+        unlink(s);
+    free(s);
+
+    if (asprintf(&s, "%s/dcc/tkt", tmpdir) > -1 && s != NULL)
+        unlink(s);
+    free(s);
+
+    if (asprintf(&s, "%s/dcc/primary", tmpdir) > -1 && s != NULL)
+        unlink(s);
+    free(s);
+
+    if (asprintf(&s, "%s/dcc", tmpdir) > -1 && s != NULL)
+        rmdir(s);
+    free(s);
+
+    if (unlink_this)
+        unlink(unlink_this);
+    unlink_this = NULL;
+    if (unlink_this2)
+        unlink(unlink_this2);
+    unlink_this2 = NULL;
+
+    rmdir(tmpdir);
+}
+
+static void
+make_dir(krb5_context context)
+{
+    krb5_error_code ret;
+    char *template = NULL;
+    char *dcc = NULL;
+
+    ret = _krb5_expand_path_tokens(context, TEST_CC_TEMPLATE, 1, &template);
+    if (ret)
+        krb5_err(context, 1, ret, "_krb5_expand_path_tokens(%s) failed",
+                 TEST_CC_TEMPLATE);
+    if ((tmpdir = mkdtemp(template)) == NULL)
+        krb5_err(context, 1, errno, "mkdtemp(%s) failed", template);
+    if (asprintf(&dcc, "%s/dcc", tmpdir) == -1 || dcc == NULL)
+        krb5_err(context, 1, errno, "asprintf failed");
+    free(dcc);
+    atexit(cleanup);
+}
 
 static void
 test_default_name(krb5_context context)
 {
     krb5_error_code ret;
-    const char *p, *test_cc_name = "/tmp/krb5-cc-test-foo";
-    char *p1, *p2, *p3;
+    const char *p;
+    char *test_cc_name = NULL;
+    const char *p3;
+    char *p1, *p2;
+    char *exp_test_cc_name;
+
+    if (asprintf(&test_cc_name, "%s/cc", tmpdir) == -1 || test_cc_name == NULL)
+        krb5_err(context, 1, errno, "out of memory");
+
+    /* Convert slashes to backslashes */
+    ret = _krb5_expand_path_tokens(context, test_cc_name, 1,
+                                   &exp_test_cc_name);
+    if (ret)
+        krb5_err(context, 1, ret, "_krb5_expand_path_tokens(%s) failed",
+                 test_cc_name);
+    free(test_cc_name);
+    test_cc_name = NULL;
 
     p = krb5_cc_default_name(context);
     if (p == NULL)
@@ -51,8 +163,8 @@ test_default_name(krb5_context context)
     p1 = estrdup(p);
 
     ret = krb5_cc_set_default_name(context, NULL);
-    if (p == NULL)
-	krb5_errx (context, 1, "krb5_cc_set_default_name failed");
+    if (ret)
+	krb5_err(context, 1, ret, "krb5_cc_set_default_name(NULL) failed");
 
     p = krb5_cc_default_name(context);
     if (p == NULL)
@@ -61,22 +173,36 @@ test_default_name(krb5_context context)
 
     if (strcmp(p1, p2) != 0)
 	krb5_errx (context, 1, "krb5_cc_default_name no longer same");
-	
-    ret = krb5_cc_set_default_name(context, test_cc_name);
-    if (p == NULL)
-	krb5_errx (context, 1, "krb5_cc_set_default_name 1 failed");
+
+    ret = krb5_cc_set_default_name(context, exp_test_cc_name);
+    if (ret)
+        krb5_err(context, 1, ret, "krb5_cc_set_default_name(%s) failed",
+                 exp_test_cc_name);
 
     p = krb5_cc_default_name(context);
     if (p == NULL)
 	krb5_errx (context, 1, "krb5_cc_default_name 2 failed");
-    p3 = estrdup(p);
 
-    if (strcmp(p3, test_cc_name) != 0)
-	krb5_errx (context, 1, "krb5_cc_set_default_name 1 failed");
+    if (strncmp(p, "FILE:", sizeof("FILE:") - 1) == 0)
+        p3 = p + sizeof("FILE:") - 1;
+    else
+        p3 = p;
 
+    if (strcmp(exp_test_cc_name, p3) != 0) {
+#ifdef WIN32
+	krb5_warnx(context, 1,
+                   "krb5_cc_default_name() returned %s; expected %s",
+                   p, exp_test_cc_name);
+#else
+	krb5_errx(context, 1,
+                  "krb5_cc_default_name() returned %s; expected %s",
+                  p, exp_test_cc_name);
+#endif
+    }
+
+    free(exp_test_cc_name);
     free(p1);
     free(p2);
-    free(p3);
 }
 
 /*
@@ -113,7 +239,8 @@ test_mcache(krb5_context context)
     if (tc == NULL)
 	krb5_errx(context, 1, "krb5_cc_get_name");
 
-    asprintf(&c, "%s:%s", tc, nc);
+    if (asprintf(&c, "%s:%s", tc, nc) < 0 || c == NULL)
+	errx(1, "malloc");
 
     krb5_cc_close(context, id);
 
@@ -154,7 +281,7 @@ test_init_vs_destroy(krb5_context context, const char *type)
     krb5_error_code ret;
     krb5_ccache id, id2;
     krb5_principal p, p2;
-    char *n;
+    char *n = NULL;
 
     ret = krb5_parse_name(context, "lha@SU.SE", &p);
     if (ret)
@@ -162,11 +289,15 @@ test_init_vs_destroy(krb5_context context, const char *type)
 
     ret = krb5_cc_new_unique(context, type, NULL, &id);
     if (ret)
-	krb5_err(context, 1, ret, "krb5_cc_new_unique");
+	krb5_err(context, 1, ret, "krb5_cc_new_unique: %s", type);
 
-    asprintf(&n, "%s:%s",
-	     krb5_cc_get_type(context, id),
-	     krb5_cc_get_name(context, id));
+    if (asprintf(&n, "%s:%s",
+		 krb5_cc_get_type(context, id),
+		 krb5_cc_get_name(context, id)) < 0 || n == NULL)
+	errx(1, "malloc");
+
+    if (strcmp(krb5_cc_get_type(context, id), "FILE") == 0)
+        unlink_this = krb5_cc_get_name(context, id);
 
     ret = krb5_cc_resolve(context, n, &id2);
     free(n);
@@ -184,6 +315,7 @@ test_init_vs_destroy(krb5_context context, const char *type)
 	krb5_err(context, 1, ret, "krb5_cc_get_principal");
 
     krb5_cc_destroy(context, id2);
+    unlink_this = NULL;
     krb5_free_principal(context, p);
     krb5_free_principal(context, p2);
 }
@@ -194,7 +326,7 @@ test_cache_remove(krb5_context context, const char *type)
     krb5_error_code ret;
     krb5_ccache id;
     krb5_principal p;
-    krb5_creds cred;
+    krb5_creds cred, found;
 
     ret = krb5_parse_name(context, "lha@SU.SE", &p);
     if (ret)
@@ -202,7 +334,10 @@ test_cache_remove(krb5_context context, const char *type)
 
     ret = krb5_cc_new_unique(context, type, NULL, &id);
     if (ret)
-	krb5_err(context, 1, ret, "krb5_cc_gen_new");
+	krb5_err(context, 1, ret, "krb5_cc_gen_new: %s", type);
+
+    if (strcmp(krb5_cc_get_type(context, id), "FILE") == 0)
+        unlink_this = krb5_cc_get_name(context, id);
 
     ret = krb5_cc_initialize(context, id, p);
     if (ret)
@@ -216,6 +351,7 @@ test_cache_remove(krb5_context context, const char *type)
     ret = krb5_parse_name(context, "lha@SU.SE", &cred.client);
     if (ret)
 	krb5_err(context, 1, ret, "krb5_parse_name");
+    cred.times.endtime = time(NULL) + 300;
 
     ret = krb5_cc_store_cred(context, id, &cred);
     if (ret)
@@ -225,9 +361,16 @@ test_cache_remove(krb5_context context, const char *type)
     if (ret)
 	krb5_err(context, 1, ret, "krb5_cc_remove_cred");
 
+    memset(&found, 0, sizeof(found));
+    ret = krb5_cc_retrieve_cred(context, id, KRB5_TC_MATCH_TIMES,
+                                &cred, &found);
+    if (ret == 0)
+	krb5_err(context, 1, ret, "krb5_cc_remove_cred didn't");
+
     ret = krb5_cc_destroy(context, id);
     if (ret)
 	krb5_err(context, 1, ret, "krb5_cc_destroy");
+    unlink_this = NULL;
 
     krb5_free_principal(context, p);
     krb5_free_principal(context, cred.server);
@@ -278,12 +421,35 @@ struct {
     char *res;
 } cc_names[] = {
     { "foo", 0, "foo" },
-    { "%{uid}", 0 },
+    { "foo%}", 0, "foo%}" },
+    { "%{uid}", 0, NULL },
+    { "%{euid}", 0, NULL },
+    { "%{username}", 0, NULL },
     { "foo%{null}", 0, "foo" },
     { "foo%{null}bar", 0, "foobar" },
-    { "%{", 1 },
-    { "%{foo %{", 1 },
-    { "%{{", 1 },
+    { "%{", 1, NULL },
+    { "%{foo %{", 1, NULL },
+    { "%{{", 1, NULL },
+    { "%{{}", 1, NULL },
+    { "%{nulll}", 1, NULL },
+    { "%{does not exist}", 1, NULL },
+    { "%{}", 1, NULL },
+#ifdef WIN32
+    { "%{APPDATA}", 0, NULL },
+    { "%{COMMON_APPDATA}", 0, NULL},
+    { "%{LOCAL_APPDATA}", 0, NULL},
+    { "%{SYSTEM}", 0, NULL},
+    { "%{WINDOWS}", 0, NULL},
+    { "%{TEMP}", 0, NULL},
+    { "%{USERID}", 0, NULL},
+    { "%{uid}", 0, NULL},
+    { "%{USERCONFIG}", 0, NULL},
+    { "%{COMMONCONFIG}", 0, NULL},
+    { "%{LIBDIR}", 0, NULL},
+    { "%{BINDIR}", 0, NULL},
+    { "%{LIBEXEC}", 0, NULL},
+    { "%{SBINDIR}", 0, NULL},
+#endif
 };
 
 static void
@@ -354,6 +520,7 @@ test_cache_iter(krb5_context context, const char *type, int destroy)
 	krb5_principal principal;
 	char *name;
 
+	heim_assert(id != NULL, "credentials cache is non-NULL");
 	if (debug_flag)
 	    printf("name: %s\n", krb5_cc_get_name(context, id));
 	ret = krb5_cc_get_principal(context, id, &principal);
@@ -423,7 +590,10 @@ test_copy(krb5_context context, const char *from, const char *to)
 
     ret = krb5_cc_new_unique(context, from, NULL, &fromid);
     if (ret)
-	krb5_err(context, 1, ret, "krb5_cc_new_unique");
+	krb5_err(context, 1, ret, "krb5_cc_new_unique: %s", from);
+
+    if (strcmp(krb5_cc_get_type(context, fromid), "FILE") == 0)
+        unlink_this = krb5_cc_get_name(context, fromid);
 
     ret = krb5_cc_initialize(context, fromid, p);
     if (ret)
@@ -431,7 +601,10 @@ test_copy(krb5_context context, const char *from, const char *to)
 
     ret = krb5_cc_new_unique(context, to, NULL, &toid);
     if (ret)
-	krb5_err(context, 1, ret, "krb5_cc_gen_new");
+	krb5_err(context, 1, ret, "krb5_cc_gen_new: %s", to);
+
+    if (strcmp(krb5_cc_get_type(context, toid), "FILE") == 0)
+        unlink_this2 = krb5_cc_get_name(context, toid);
 
     ret = krb5_cc_copy_cache(context, fromid, toid);
     if (ret)
@@ -449,6 +622,7 @@ test_copy(krb5_context context, const char *from, const char *to)
 
     krb5_cc_destroy(context, fromid);
     krb5_cc_destroy(context, toid);
+    unlink_this = unlink_this2 = NULL;
 }
 
 static void
@@ -458,6 +632,7 @@ test_move(krb5_context context, const char *type)
     krb5_ccache fromid, toid;
     krb5_error_code ret;
     krb5_principal p, p2;
+    krb5_creds cred, tocred;
 
     ops = krb5_cc_get_prefix_ops(context, type);
     if (ops == NULL)
@@ -467,7 +642,7 @@ test_move(krb5_context context, const char *type)
     if (ret == KRB5_CC_NOSUPP)
 	return;
     else if (ret)
-	krb5_err(context, 1, ret, "krb5_cc_new_unique");
+	krb5_err(context, 1, ret, "krb5_cc_new_unique: %s", type);
 
     ret = krb5_parse_name(context, "lha@SU.SE", &p);
     if (ret)
@@ -477,13 +652,26 @@ test_move(krb5_context context, const char *type)
     if (ret)
 	krb5_err(context, 1, ret, "krb5_cc_initialize");
 
+    memset(&cred, 0, sizeof(cred));
+    ret = krb5_parse_name(context, "krbtgt/SU.SE@SU.SE", &cred.server);
+    if (ret)
+	krb5_err(context, 1, ret, "krb5_parse_name");
+    ret = krb5_parse_name(context, "lha@SU.SE", &cred.client);
+    if (ret)
+	krb5_err(context, 1, ret, "krb5_parse_name");
+
+    ret = krb5_cc_store_cred(context, fromid, &cred);
+    if (ret)
+	krb5_err(context, 1, ret, "krb5_cc_store_cred");
+
+
     ret = krb5_cc_new_unique(context, type, NULL, &toid);
     if (ret)
 	krb5_err(context, 1, ret, "krb5_cc_new_unique");
 
-    ret = krb5_cc_initialize(context, toid, p);
+    ret = krb5_cc_move(context, fromid, toid);
     if (ret)
-	krb5_err(context, 1, ret, "krb5_cc_initialize");
+	krb5_err(context, 1, ret, "krb5_cc_move");
 
     ret = krb5_cc_get_principal(context, toid, &p2);
     if (ret)
@@ -492,11 +680,15 @@ test_move(krb5_context context, const char *type)
     if (krb5_principal_compare(context, p, p2) == FALSE)
 	krb5_errx(context, 1, "p != p2");
 
+    ret = krb5_cc_retrieve_cred(context, toid, 0, &cred, &tocred);
+    if (ret)
+	krb5_errx(context, 1, "move failed");
+    krb5_free_cred_contents(context, &cred);
+    krb5_free_cred_contents(context, &tocred);
+
     krb5_free_principal(context, p);
     krb5_free_principal(context, p2);
-
     krb5_cc_destroy(context, toid);
-    krb5_cc_destroy(context, fromid);
 }
 
 
@@ -514,14 +706,15 @@ test_prefix_ops(krb5_context context, const char *name, const krb5_cc_ops *ops)
 }
 
 static void
-test_cc_config(krb5_context context)
+test_cc_config(krb5_context context, const char *cc_type,
+	       const char *cc_name, size_t count)
 {
     krb5_error_code ret;
     krb5_principal p;
     krb5_ccache id;
     unsigned int i;
 
-    ret = krb5_cc_new_unique(context, "MEMORY", "bar", &id);
+    ret = krb5_cc_new_unique(context, cc_type, cc_name, &id);
     if (ret)
 	krb5_err(context, 1, ret, "krb5_cc_new_unique");
 
@@ -533,7 +726,7 @@ test_cc_config(krb5_context context)
     if (ret)
 	krb5_err(context, 1, ret, "krb5_cc_initialize");
 
-    for (i = 0; i < 1000; i++) {
+    for (i = 0; i < count; i++) {
 	krb5_data data, data2;
 	const char *name = "foo";
 	krb5_principal p1 = NULL;
@@ -544,6 +737,10 @@ test_cc_config(krb5_context context)
 	data.data = rk_UNCONST(name);
 	data.length = strlen(name);
 
+	/*
+	 * Because of how krb5_cc_set_config() this will also test
+	 * krb5_cc_remove_cred().
+	 */
 	ret = krb5_cc_set_config(context, id, p1, "FriendlyName", &data);
 	if (ret)
 	    krb5_errx(context, 1, "krb5_cc_set_config: add");
@@ -551,7 +748,15 @@ test_cc_config(krb5_context context)
 	ret = krb5_cc_get_config(context, id, p1, "FriendlyName", &data2);
 	if (ret)
 	    krb5_errx(context, 1, "krb5_cc_get_config: first");
+
+	if (data.length != data2.length ||
+	    memcmp(data.data, data2.data, data.length) != 0)
+	    krb5_errx(context, 1, "krb5_cc_get_config: did not fetch what was set");
+
 	krb5_data_free(&data2);
+
+	data.data = rk_UNCONST("bar");
+	data.length = strlen("bar");
 
 	ret = krb5_cc_set_config(context, id, p1, "FriendlyName", &data);
 	if (ret)
@@ -560,6 +765,11 @@ test_cc_config(krb5_context context)
 	ret = krb5_cc_get_config(context, id, p1, "FriendlyName", &data2);
 	if (ret)
 	    krb5_errx(context, 1, "krb5_cc_get_config: second");
+
+	if (data.length != data2.length ||
+	    memcmp(data.data, data2.data, data.length) != 0)
+	    krb5_errx(context, 1, "krb5_cc_get_config: replace failed");
+
 	krb5_data_free(&data2);
 
 	ret = krb5_cc_set_config(context, id, p1, "FriendlyName", NULL);
@@ -569,10 +779,167 @@ test_cc_config(krb5_context context)
 	ret = krb5_cc_get_config(context, id, p1, "FriendlyName", &data2);
 	if (ret == 0)
 	    krb5_errx(context, 1, "krb5_cc_get_config: non-existant");
+
+	if (data2.length)
+	    krb5_errx(context, 1, "krb5_cc_get_config: delete failed");
     }
 
     krb5_cc_destroy(context, id);
     krb5_free_principal(context, p);
+}
+
+static krb5_error_code
+test_cccol(krb5_context context, const char *def_cccol, const char **what)
+{
+    krb5_cc_cache_cursor cursor;
+    krb5_error_code ret;
+    krb5_principal p1, p2;
+    krb5_ccache id, id1, id2;
+    krb5_creds cred1, cred2;
+    size_t match1 = 0;
+    size_t match2 = 0;
+
+    memset(&cred1, 0, sizeof(cred1));
+    memset(&cred2, 0, sizeof(cred2));
+
+    *what = "krb5_parse_name";
+    ret = krb5_parse_name(context, "krbtgt/SU.SE@SU.SE", &cred1.server);
+    if (ret) return ret;
+    ret = krb5_parse_name(context, "lha@SU.SE", &cred1.client);
+    if (ret) return ret;
+    ret = krb5_parse_name(context, "krbtgt/H5L.SE@H5L.SE", &cred2.server);
+    if (ret) return ret;
+    ret = krb5_parse_name(context, "lha@H5L.SE", &cred2.client);
+    if (ret) return ret;
+    *what = "krb5_cc_set_default_name";
+    ret = krb5_cc_set_default_name(context, def_cccol);
+    if (ret) return ret;
+    *what = "krb5_cc_default";
+    ret = krb5_cc_default(context, &id1);
+    if (ret) return ret;
+    *what = "krb5_cc_initialize";
+    ret = krb5_cc_initialize(context, id1, cred1.client);
+    if (ret) return ret;
+    *what = "krb5_cc_store_cred";
+    ret = krb5_cc_store_cred(context, id1, &cred1);
+    if (ret) return ret;
+    *what = "krb5_cc_resolve";
+    ret = krb5_cc_resolve_for(context, NULL, def_cccol, cred2.client, &id2);
+    if (ret) return ret;
+    *what = "krb5_cc_initialize";
+    ret = krb5_cc_initialize(context, id2, cred2.client);
+    if (ret) return ret;
+    *what = "krb5_cc_store_cred";
+    ret = krb5_cc_store_cred(context, id2, &cred2);
+    if (ret) return ret;
+
+    krb5_cc_close(context, id1);
+    krb5_cc_close(context, id2);
+    id1 = id2 = NULL;
+
+    *what = "krb5_cc_default";
+    ret = krb5_cc_default(context, &id1);
+    if (ret) return ret;
+    *what = "krb5_cc_resolve";
+    ret = krb5_cc_resolve_for(context, NULL, def_cccol, cred2.client, &id2);
+    if (ret) return ret;
+
+    *what = "krb5_cc_get_principal";
+    ret = krb5_cc_get_principal(context, id1, &p1);
+    if (ret) return ret;
+    ret = krb5_cc_get_principal(context, id2, &p2);
+    if (ret) return ret;
+
+    if (!krb5_principal_compare(context, p1, cred1.client)) {
+        char *u1 = NULL;
+        char *u2 = NULL;
+
+        (void) krb5_unparse_name(context, p1, &u1);
+        (void) krb5_unparse_name(context, cred1.client, &u2);
+        warnx("Inconsistent principals for ccaches in %s: %s vs %s "
+              "(expected lha@SU.SE)", def_cccol, u1, u2);
+        return EINVAL;
+    }
+    if (!krb5_principal_compare(context, p2, cred2.client)) {
+        char *u1 = NULL;
+        char *u2 = NULL;
+
+        (void) krb5_unparse_name(context, p2, &u1);
+        (void) krb5_unparse_name(context, cred2.client, &u2);
+        warnx("Inconsistent principals for ccaches in %s: %s and %s "
+              "(expected lha@H5L.SE)", def_cccol, u1, u2);
+        return EINVAL;
+    }
+    krb5_free_principal(context, p1);
+    krb5_free_principal(context, p2);
+
+    *what = "krb5_cc_cache_get_first";
+    ret = krb5_cc_cache_get_first(context, NULL, &cursor);
+    if (ret) return ret;
+    *what = "krb5_cc_cache_next";
+    while (krb5_cc_cache_next(context, cursor, &id) == 0) {
+        krb5_principal p;
+
+        *what = "krb5_cc_get_principal";
+        ret = krb5_cc_get_principal(context, id, &p);
+        if (ret) return ret;
+        if (krb5_principal_compare(context, p, cred1.client))
+            match1++;
+        else if (krb5_principal_compare(context, p, cred2.client))
+            match2++;
+	krb5_free_principal(context, p);
+        krb5_cc_close(context, id);
+    }
+    (void) krb5_cc_cache_end_seq_get(context, cursor);
+
+    *what = "cccol iteration inconsistency";
+    if (match1 != 1 || match2 != 1)
+        return EINVAL;
+
+    krb5_cc_close(context, id1);
+    krb5_cc_close(context, id2);
+
+    krb5_free_cred_contents(context, &cred1);
+    krb5_free_cred_contents(context, &cred2);
+
+    return 0;
+}
+
+static void
+test_cccol_dcache(krb5_context context)
+{
+    krb5_error_code ret;
+    char *dcc = NULL;
+    const char *what;
+
+    if (asprintf(&dcc, "DIR:%s/dcc", tmpdir) == -1 || dcc == NULL)
+        krb5_err(context, 1, errno, "asprintf");
+
+    ret = test_cccol(context, dcc, &what);
+    free(dcc);
+    if (ret)
+        krb5_err(context, 1, ret, "%s", what);
+}
+
+static void
+test_cccol_scache(krb5_context context)
+{
+    krb5_error_code ret;
+    char *scache = NULL;
+    const char *what;
+    int fd;
+
+    if (asprintf(&scache, "SCC:%s/scache", tmpdir) == -1 || scache == NULL)
+        krb5_err(context, 1, errno, "asprintf");
+    if ((fd = open(scache + sizeof("SCC:") - 1, O_CREAT | O_RDWR, 0600)) == -1)
+        krb5_err(context, 1, errno, "open(%s)", scache + sizeof("SCC:") - 1);
+    (void) close(fd);
+
+    ret = test_cccol(context, scache, &what);
+    (void) unlink(scache + sizeof("SCC:") - 1);
+    free(scache);
+    if (ret)
+        krb5_err(context, 1, ret, "%s", what);
 }
 
 
@@ -620,20 +987,52 @@ main(int argc, char **argv)
     if (ret)
 	errx (1, "krb5_init_context failed: %d", ret);
 
+    make_dir(context);
+
     test_cache_remove(context, krb5_cc_type_file);
     test_cache_remove(context, krb5_cc_type_memory);
 #ifdef USE_SQLITE
     test_cache_remove(context, krb5_cc_type_scc);
 #endif
+#ifdef HAVE_KEYUTILS_H
+    keyctl_join_session_keyring(NULL);
+    test_cache_remove(context, krb5_cc_type_keyring);
+#endif
 
     test_default_name(context);
     test_mcache(context);
+    /*
+     * XXX Make sure to set default ccache names for each cc type!
+     * Otherwise we clobber the user's ccaches.
+     */
     test_init_vs_destroy(context, krb5_cc_type_memory);
     test_init_vs_destroy(context, krb5_cc_type_file);
 #if 0
     test_init_vs_destroy(context, krb5_cc_type_api);
 #endif
+    /*
+     * Cleanup so we can check that the permissions on the directory created by
+     * scc are correct.
+     */
+    cleanup();
     test_init_vs_destroy(context, krb5_cc_type_scc);
+
+#if defined(S_IRWXG) && defined(S_IRWXO)
+    {
+        struct stat st;
+
+        if (stat(tmpdir, &st) == 0) {
+            if ((st.st_mode & S_IRWXG) ||
+                (st.st_mode & S_IRWXO))
+                krb5_errx(context, 1,
+                          "SQLite3 ccache dir perms wrong: %d", st.st_mode);
+        }
+    }
+#endif
+    test_init_vs_destroy(context, krb5_cc_type_dcc);
+#ifdef HAVE_KEYUTILS_H
+    test_init_vs_destroy(context, krb5_cc_type_keyring);
+#endif
     test_mcc_default();
     test_def_cc_name(context);
 
@@ -652,6 +1051,14 @@ main(int argc, char **argv)
     test_cache_find(context, "lha@SU.SE", 1);
     test_cache_find(context, "hulabundulahotentot@SU.SE", 0);
 
+    /*
+     * XXX We should compose and krb5_cc_set_default_name() a default ccache
+     * for each cc type that we test with test_cache_iter(), and we should do
+     * that inside test_cache_iter().
+     *
+     * Alternatively we should remove test_cache_iter() in favor of
+     * test_cccol(), which is a much more complete test.
+     */
     test_cache_iter(context, krb5_cc_type_memory, 0);
     test_cache_iter(context, krb5_cc_type_memory, 1);
     test_cache_iter(context, krb5_cc_type_memory, 0);
@@ -659,6 +1066,14 @@ main(int argc, char **argv)
     test_cache_iter(context, krb5_cc_type_api, 0);
     test_cache_iter(context, krb5_cc_type_scc, 0);
     test_cache_iter(context, krb5_cc_type_scc, 1);
+#if 0
+    test_cache_iter(context, krb5_cc_type_dcc, 0);
+    test_cache_iter(context, krb5_cc_type_dcc, 1);
+#endif
+#ifdef HAVE_KEYUTILS_H
+    test_cache_iter(context, krb5_cc_type_keyring, 0);
+    test_cache_iter(context, krb5_cc_type_keyring, 1);
+#endif
 
     test_copy(context, krb5_cc_type_file, krb5_cc_type_file);
     test_copy(context, krb5_cc_type_memory, krb5_cc_type_memory);
@@ -668,28 +1083,136 @@ main(int argc, char **argv)
     test_copy(context, krb5_cc_type_file, krb5_cc_type_scc);
     test_copy(context, krb5_cc_type_scc, krb5_cc_type_memory);
     test_copy(context, krb5_cc_type_memory, krb5_cc_type_scc);
+#if 0
+    test_copy(context, krb5_cc_type_dcc, krb5_cc_type_memory);
+    test_copy(context, krb5_cc_type_dcc, krb5_cc_type_file);
+    test_copy(context, krb5_cc_type_dcc, krb5_cc_type_scc);
+#endif
+#ifdef HAVE_KEYUTILS_H
+    test_copy(context, krb5_cc_type_keyring, krb5_cc_type_file);
+    test_copy(context, krb5_cc_type_file, krb5_cc_type_file);
+    test_copy(context, "KEYRING:", "KEYRING:bar");
+    test_copy(context, "KEYRING:bar", "KEYRING:baz");
+# ifdef HAVE_KEYCTL_GET_PERSISTENT
+    test_copy(context, krb5_cc_type_file, "KEYRING:persistent");
+    test_copy(context, "KEYRING:persistent:", krb5_cc_type_file);
+    test_copy(context, krb5_cc_type_file, "KEYRING:persistent:foo");
+    test_copy(context, "KEYRING:persistent:foo", krb5_cc_type_file);
+# endif
+    test_copy(context, krb5_cc_type_memory, "KEYRING:process:");
+    test_copy(context, "KEYRING:process:", krb5_cc_type_memory);
+    test_copy(context, krb5_cc_type_memory, "KEYRING:process:foo");
+    test_copy(context, "KEYRING:process:foo", krb5_cc_type_memory);
+    test_copy(context, krb5_cc_type_memory, "KEYRING:thread:");
+    test_copy(context, "KEYRING:thread:", krb5_cc_type_memory);
+    test_copy(context, krb5_cc_type_memory, "KEYRING:thread:foo");
+    test_copy(context, "KEYRING:thread:foo", krb5_cc_type_memory);
+    test_copy(context, krb5_cc_type_memory, "KEYRING:session:");
+    test_copy(context, "KEYRING:session:", krb5_cc_type_memory);
+    test_copy(context, krb5_cc_type_memory, "KEYRING:session:foo");
+    test_copy(context, "KEYRING:session:foo", krb5_cc_type_memory);
+    test_copy(context, krb5_cc_type_file, "KEYRING:user:");
+    test_copy(context, "KEYRING:user:", krb5_cc_type_file);
+    test_copy(context, krb5_cc_type_file, "KEYRING:user:foo");
+    test_copy(context, "KEYRING:user:foo", krb5_cc_type_memory);
+#endif /* HAVE_KEYUTILS_H */
 
     test_move(context, krb5_cc_type_file);
     test_move(context, krb5_cc_type_memory);
-    test_move(context, krb5_cc_type_kcm);
     test_move(context, krb5_cc_type_scc);
+#if 0
+    test_move(context, krb5_cc_type_dcc);
+#endif
+#ifdef HAVE_KEYUTILS_H
+    test_move(context, krb5_cc_type_keyring);
+# ifdef HAVE_KEYCTL_GET_PERSISTENT
+    test_move(context, "KEYRING:persistent:");
+    test_move(context, "KEYRING:persistent:foo");
+# endif
+    test_move(context, "KEYRING:process:");
+    test_move(context, "KEYRING:process:foo");
+    test_move(context, "KEYRING:thread:");
+    test_move(context, "KEYRING:thread:foo");
+    test_move(context, "KEYRING:session:");
+    test_move(context, "KEYRING:session:foo");
+    test_move(context, "KEYRING:user:");
+    test_move(context, "KEYRING:user:foo");
+#endif /* HAVE_KEYUTILS_H */
 
     test_prefix_ops(context, "FILE:/tmp/foo", &krb5_fcc_ops);
     test_prefix_ops(context, "FILE", &krb5_fcc_ops);
     test_prefix_ops(context, "MEMORY", &krb5_mcc_ops);
     test_prefix_ops(context, "MEMORY:foo", &krb5_mcc_ops);
     test_prefix_ops(context, "/tmp/kaka", &krb5_fcc_ops);
+#ifdef HAVE_SCC
     test_prefix_ops(context, "SCC:", &krb5_scc_ops);
     test_prefix_ops(context, "SCC:foo", &krb5_scc_ops);
+#endif
+#if 0
+    test_prefix_ops(context, "DIR:", &krb5_dcc_ops);
+    test_prefix_ops(context, "DIR:tkt1", &krb5_dcc_ops);
+#endif
+#ifdef HAVE_KEYUTILS_H
+    test_prefix_ops(context, "KEYRING:", &krb5_krcc_ops);
+    test_prefix_ops(context, "KEYRING:foo", &krb5_krcc_ops);
+#endif /* HAVE_KEYUTILS_H */
 
     krb5_cc_destroy(context, id1);
     krb5_cc_destroy(context, id2);
 
-    test_cc_config(context);
+    test_cc_config(context, "MEMORY", "bar", 1000);  /* 1000 because fast */
+    test_cc_config(context, "FILE", "/tmp/foocc", 30); /* 30 because slower */
+
+    test_cccol_dcache(context);
+    test_cccol_scache(context);
+#ifdef HAVE_KEYUTILS_H
+    {
+        const char *what;
+
+        ret = test_cccol(context, "KEYRING:legacy:fooccol", &what);
+        if (ret)
+            krb5_err(context, 1, ret, "%s", what);
+
+        ret = test_cccol(context, "MEMORY:fooccol", &what);
+        if (ret)
+            krb5_err(context, 1, ret, "%s", what);
+    }
+#endif /* HAVE_KEYUTILS_H */
+
+    {
+        const char *what;
+        char *config = NULL;
+        char *fname = NULL;
+        char *d = NULL;
+
+        if (asprintf(&d, "%s/cccol", tmpdir) == -1 || d == NULL)
+            krb5_err(context, 1, errno, "asprintf");
+        if (mkdir(d, 0700) == -1)
+            krb5_err(context, 1, errno, "mkdir(%s)", d);
+        if (asprintf(&fname, "%s/foobar", d) == -1 || fname == NULL ||
+            asprintf(&config,
+                     "[libdefaults]\n"
+                     "\tdefault_file_cache_collections = FILE:%1$s/cccol/foobar\n"
+                     "\tenable_file_cache_iteration = true\n",
+                     tmpdir) == -1 || config == NULL)
+            krb5_err(context, 1, errno, "asprintf");
+        ret = krb5_set_config(context, config);
+        if (ret)
+            krb5_err(context, 1, ret,
+                     "Could not configure context from string:\n%s\n", config);
+        ret = test_cccol(context, fname, &what);
+        if (ret)
+            krb5_err(context, 1, ret, "%s", what);
+        free(config);
+        free(fname);
+        free(d);
+    }
 
     krb5_free_context(context);
 
+#if 0
     sleep(60);
+#endif
 
     return 0;
 }

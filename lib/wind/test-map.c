@@ -41,8 +41,6 @@
 
 #include "windlocl.h"
 
-RCSID("$Id$");
-
 #define MAX_LENGTH 2
 
 struct example {
@@ -53,10 +51,10 @@ struct example {
 };
 
 static struct example cases[] = {
-    {{}, 0, {}, 0},
+    {{0}, 0, {0}, 0},
     {{0x0041}, 1, {0x0061}, 1},
     {{0x0061}, 1, {0x0061}, 1},
-    {{0x00AD}, 1, {}, 0},
+    {{0x00AD}, 1, {0}, 0},
     {{0x00DF}, 1, {0x0073, 0x0073}, 2}
 };
 
@@ -66,7 +64,7 @@ try(const struct example *c)
     int ret;
     size_t out_len = c->out_len;
     uint32_t *tmp = malloc(out_len * sizeof(uint32_t));
-    if (tmp == NULL)
+    if (tmp == NULL && out_len != 0)
 	err(1, "malloc");
     ret = _wind_stringprep_map(c->in, c->in_len, tmp, &out_len, WIND_PROFILE_NAME);
     if (ret) {
@@ -97,3 +95,4 @@ main(void)
 	failures += try(&cases[i]);
     return failures != 0;
 }
+

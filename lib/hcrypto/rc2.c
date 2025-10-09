@@ -31,15 +31,10 @@
  * SUCH DAMAGE.
  */
 
-#ifdef HAVE_CONFIG_H
 #include <config.h>
-RCSID("$Id$");
-#endif
+#include <roken.h>
 
 #include "rc2.h"
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
 
 /*
  * Implemented from Peter Gutmann's "Specification for Ron Rivests Cipher No.2"
@@ -109,8 +104,8 @@ RC2_set_key(RC2_KEY *key, int len, const unsigned char *data, int bits)
 	k[j] = Sbox[k[j + 1] ^ k[j + T8]];
 
     for (j = 0; j < 64; j++)
-	key->data[j] = k[(j * 2) + 0] | (k[(j * 2) + 1] << 8);	
-    memset(k, 0, sizeof(k));
+	key->data[j] = k[(j * 2) + 0] | (k[(j * 2) + 1] << 8);
+    memset_s(k, sizeof(k), 0, sizeof(k));
 }
 
 #define ROT16L(w,n)  ((w<<n)|(w>>(16-n)))

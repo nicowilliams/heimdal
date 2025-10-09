@@ -29,17 +29,14 @@
  * $PostgreSQL: pgsql/contrib/pgcrypto/fortuna.c,v 1.8 2006/10/04 00:29:46 momjian Exp $
  */
 
-#ifdef HAVE_CONFIG_H
 #include <config.h>
-#endif
-
-RCSID("$Id$");
-
-#include <stdio.h>
-#include <stdlib.h>
-#include <rand.h>
-
 #include <roken.h>
+#include <rand.h>
+#include <heim_threads.h>
+
+#ifdef KRB5
+#include <krb5-types.h>
+#endif
 
 #include "randi.h"
 #include "aes.h"
@@ -162,7 +159,7 @@ md_result(MD_CTX * ctx, unsigned char *dst)
 
     memcpy(&tmp, ctx, sizeof(*ctx));
     SHA256_Final(dst, &tmp);
-    memset(&tmp, 0, sizeof(tmp));
+    memset_s(&tmp, sizeof(tmp), 0, sizeof(tmp));
 }
 
 /*
@@ -237,7 +234,7 @@ enough_time_passed(FState * st)
     if (ok)
 	memcpy(last, &tv, sizeof(tv));
 
-    memset(&tv, 0, sizeof(tv));
+    memset_s(&tv, sizeof(tv), 0, sizeof(tv));
 
     return ok;
 }
@@ -287,8 +284,8 @@ reseed(FState * st)
     /* use new key */
     ciph_init(&st->ciph, st->key, BLOCK);
 
-    memset(&key_md, 0, sizeof(key_md));
-    memset(buf, 0, BLOCK);
+    memset_s(&key_md, sizeof(key_md), 0, sizeof(key_md));
+    memset_s(buf, sizeof(buf), 0, sizeof(buf));
 }
 
 /*
@@ -338,8 +335,8 @@ add_entropy(FState * st, const unsigned char *data, unsigned len)
     if (pos == 0)
 	st->pool0_bytes += len;
 
-    memset(hash, 0, BLOCK);
-    memset(&md, 0, sizeof(md));
+    memset_s(hash, sizeof(hash), 0, sizeof(hash));
+    memset_s(&md, sizeof(md), 0, sizeof(md));
 }
 
 /*
@@ -375,7 +372,7 @@ startup_tricks(FState * st)
 	encrypt_counter(st, buf + CIPH_BLOCK);
 	md_update(&st->pool[i], buf, BLOCK);
     }
-    memset(buf, 0, BLOCK);
+    memset_s(buf, sizeof(buf), 0, sizeof(buf));
 
     /* Hide the key. */
     rekey(st);
@@ -443,9 +440,19 @@ static int	have_entropy;
 static unsigned	resend_bytes;
 
 /*
- * Try our best to do an inital seed
+ * This mutex protects all of the above static elements from concurrent
+ * access by multiple threads
+ */
+static HEIMDAL_MUTEX fortuna_mutex = HEIMDAL_MUTEX_INITIALIZER;
+
+/*
+ * Try our best to do an initial seed
  */
 #define INIT_BYTES	128
+
+/*
+ * fortuna_mutex must be held across calls to this function
+ */
 
 static int
 fortuna_reseed(void)
@@ -455,14 +462,16 @@ fortuna_reseed(void)
     if (!init_done)
 	abort();
 
+#ifndef NO_RAND_UNIX_METHOD
     {
 	unsigned char buf[INIT_BYTES];
 	if ((*hc_rand_unix_method.bytes)(buf, sizeof(buf)) == 1) {
 	    add_entropy(&main_state, buf, sizeof(buf));
 	    entropy_p = 1;
-	    memset(buf, 0, sizeof(buf));
+	    memset_s(buf, sizeof(buf), 0, sizeof(buf));
 	}
     }
+#endif
 #ifdef HAVE_ARC4RANDOM
     {
 	uint32_t buf[INIT_BYTES / sizeof(uint32_t)];
@@ -474,18 +483,6 @@ fortuna_reseed(void)
 	entropy_p = 1;
     }
 #endif
-    /*
-     * Only to get egd entropy if /dev/random or arc4rand failed since
-     * it can be horribly slow to generate new bits.
-     */
-    if (!entropy_p) {
-	unsigned char buf[INIT_BYTES];
-	if ((*hc_rand_egd_method.bytes)(buf, sizeof(buf)) == 1) {
-	    add_entropy(&main_state, buf, sizeof(buf));
-	    entropy_p = 1;
-	    memset(buf, 0, sizeof(buf));
-	}
-    }
     /*
      * Fall back to gattering data from timer and secret files, this
      * is really the last resort.
@@ -504,15 +501,14 @@ fortuna_reseed(void)
 	/* add /etc/shadow */
 	fd = open("/etc/shadow", O_RDONLY, 0);
 	if (fd >= 0) {
-	    ssize_t n;
 	    rk_cloexec(fd);
 	    /* add_entropy will hash the buf */
-	    while ((n = read(fd, (char *)u.shad, sizeof(u.shad))) > 0)
+	    while (read(fd, (char *)u.shad, sizeof(u.shad)) > 0)
 		add_entropy(&main_state, u.shad, sizeof(u.shad));
 	    close(fd);
 	}
 
-	memset(&u, 0, sizeof(u));
+	memset_s(&u, sizeof(u), 0, sizeof(u));
 
 	entropy_p = 1; /* sure about this ? */
     }
@@ -525,13 +521,18 @@ fortuna_reseed(void)
 	gettimeofday(&tv, NULL);
 	add_entropy(&main_state, (void *)&tv, sizeof(tv));
     }
+#ifdef HAVE_GETUID
     {
 	uid_t u = getuid();
 	add_entropy(&main_state, (void *)&u, sizeof(u));
     }
+#endif
     return entropy_p;
 }
 
+/*
+ * fortuna_mutex must be held by callers of this function
+ */
 static int
 fortuna_init(void)
 {
@@ -550,32 +551,50 @@ fortuna_init(void)
 static void
 fortuna_seed(const void *indata, int size)
 {
+    HEIMDAL_MUTEX_lock(&fortuna_mutex);
+
     fortuna_init();
     add_entropy(&main_state, indata, size);
     if (size >= INIT_BYTES)
 	have_entropy = 1;
+
+    HEIMDAL_MUTEX_unlock(&fortuna_mutex);
 }
 
 static int
 fortuna_bytes(unsigned char *outdata, int size)
 {
+    int ret = 0;
+
+    HEIMDAL_MUTEX_lock(&fortuna_mutex);
+
     if (!fortuna_init())
-	return 0;
+	goto out;
+
     resend_bytes += size;
     if (resend_bytes > FORTUNA_RESEED_BYTE || resend_bytes < size) {
 	resend_bytes = 0;
 	fortuna_reseed();
     }
     extract_data(&main_state, size, outdata);
-    return 1;
+    ret = 1;
+
+out:
+    HEIMDAL_MUTEX_unlock(&fortuna_mutex);
+
+    return ret;
 }
 
 static void
 fortuna_cleanup(void)
 {
+    HEIMDAL_MUTEX_lock(&fortuna_mutex);
+
     init_done = 0;
     have_entropy = 0;
-    memset(&main_state, 0, sizeof(main_state));
+    memset_s(&main_state, sizeof(main_state), 0, sizeof(main_state));
+
+    HEIMDAL_MUTEX_unlock(&fortuna_mutex);
 }
 
 static void
@@ -593,9 +612,25 @@ fortuna_pseudorand(unsigned char *outdata, int size)
 static int
 fortuna_status(void)
 {
-    return fortuna_init() ? 1 : 0;
+    int result;
+
+    HEIMDAL_MUTEX_lock(&fortuna_mutex);
+    result = fortuna_init();
+    HEIMDAL_MUTEX_unlock(&fortuna_mutex);
+
+    return result ? 1 : 0;
 }
 
+#if defined(__GNUC__) || (defined(__STDC_VERSION__) && __STDC_VERSION__ >= 199901)
+const RAND_METHOD hc_rand_fortuna_method = {
+    .seed = fortuna_seed,
+    .bytes = fortuna_bytes,
+    .cleanup = fortuna_cleanup,
+    .add = fortuna_add,
+    .pseudorand = fortuna_pseudorand,
+    .status = fortuna_status
+};
+#else
 const RAND_METHOD hc_rand_fortuna_method = {
     fortuna_seed,
     fortuna_bytes,
@@ -604,6 +639,7 @@ const RAND_METHOD hc_rand_fortuna_method = {
     fortuna_pseudorand,
     fortuna_status
 };
+#endif
 
 const RAND_METHOD *
 RAND_fortuna_method(void)

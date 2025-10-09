@@ -33,27 +33,24 @@
 
 #include "krb5_locl.h"
 
-PA_DATA *
+KRB5_LIB_FUNCTION PA_DATA * KRB5_LIB_CALL
 krb5_find_padata(PA_DATA *val, unsigned len, int type, int *idx)
 {
-    for(; *idx < len; (*idx)++)
-	if(val[*idx].padata_type == type)
+    for(; *idx < (int)len; (*idx)++)
+	if(val[*idx].padata_type == (unsigned)type)
 	    return val + *idx;
     return NULL;
 }
 
-int KRB5_LIB_FUNCTION
+KRB5_LIB_FUNCTION int KRB5_LIB_CALL
 krb5_padata_add(krb5_context context, METHOD_DATA *md,
 		int type, void *buf, size_t len)
 {
     PA_DATA *pa;
 
     pa = realloc (md->val, (md->len + 1) * sizeof(*md->val));
-    if (pa == NULL) {
-	krb5_set_error_message(context, ENOMEM,
-			       N_("malloc: out of memory", ""));
-	return ENOMEM;
-    }
+    if (pa == NULL)
+	return krb5_enomem(context);
     md->val = pa;
 
     pa[md->len].padata_type = type;

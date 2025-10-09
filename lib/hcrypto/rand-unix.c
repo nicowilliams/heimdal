@@ -31,30 +31,20 @@
  * SUCH DAMAGE.
  */
 
-#ifdef HAVE_CONFIG_H
 #include <config.h>
-#endif
+#include <roken.h>
 
-RCSID("$Id$");
-
-#include <stdio.h>
-#include <stdlib.h>
 #include <rand.h>
 #include <heim_threads.h>
 
-#include <roken.h>
-
 #include "randi.h"
-
-static int random_fd = -1;
-static HEIMDAL_MUTEX random_mutex = HEIMDAL_MUTEX_INITIALIZER;
 
 /*
  * Unix /dev/random
  */
 
-static int
-get_device_fd(int flags)
+int
+_hc_unix_device_fd(int flags, const char **fn)
 {
     static const char *rnd_devices[] = {
 	"/dev/urandom",
@@ -68,6 +58,8 @@ get_device_fd(int flags)
     for(p = rnd_devices; *p; p++) {
 	int fd = open(*p, flags | O_NDELAY);
 	if(fd >= 0) {
+	    if (fn)
+		*fn = *p;
 	    rk_cloexec(fd);
 	    return fd;
 	}
@@ -76,20 +68,33 @@ get_device_fd(int flags)
 }
 
 static void
-unix_seed(const void *indata, int size)
+unix_seed(const void *p, int size)
 {
+    const unsigned char *indata = p;
+    ssize_t count;
     int fd;
 
-    if (size <= 0)
+    if (size < 0)
+	return;
+    else if (size == 0)
 	return;
 
-    fd = get_device_fd(O_WRONLY);
+    fd = _hc_unix_device_fd(O_RDONLY, NULL);
     if (fd < 0)
 	return;
 
-    write(fd, indata, size);
+    while (size > 0) {
+	count = write(fd, indata, size);
+	if (count < 0 && errno == EINTR)
+	    continue;
+	else if (count <= 0) {
+	    close(fd);
+	    return;
+	}
+	indata += count;
+	size -= count;
+    }
     close(fd);
-
 }
 
 
@@ -97,42 +102,29 @@ static int
 unix_bytes(unsigned char *outdata, int size)
 {
     ssize_t count;
-    int once = 0;
+    int fd;
 
-    if (size <= 0)
+    if (size < 0)
+	return 0;
+    else if (size == 0)
+	return 1;
+
+    fd = _hc_unix_device_fd(O_RDONLY, NULL);
+    if (fd < 0)
 	return 0;
 
-    HEIMDAL_MUTEX_lock(&random_mutex);
-    if (random_fd == -1) {
-    retry:
-	random_fd = get_device_fd(O_RDONLY);
-	if (random_fd < 0) {
-	    HEIMDAL_MUTEX_unlock(&random_mutex);
-	    return 0;
-	}
-    }
-
     while (size > 0) {
-	HEIMDAL_MUTEX_unlock(&random_mutex);
-	count = read (random_fd, outdata, size);
-	HEIMDAL_MUTEX_lock(&random_mutex);
-	if (random_fd < 0) {
-	    if (errno == EINTR)
-		continue;
-	    else if (errno == EBADF && once++ == 0) {
-		close(random_fd);
-		random_fd = -1;
-		goto retry;
-	    }
-	    return 0;
-	} else if (count <= 0) {
-	    HEIMDAL_MUTEX_unlock(&random_mutex);
+	count = read(fd, outdata, size);
+	if (count < 0 && errno == EINTR)
+	    continue;
+	else if (count <= 0) {
+	    close(fd);
 	    return 0;
 	}
 	outdata += count;
 	size -= count;
     }
-    HEIMDAL_MUTEX_unlock(&random_mutex);
+    close(fd);
 
     return 1;
 }
@@ -159,7 +151,7 @@ unix_status(void)
 {
     int fd;
 
-    fd = get_device_fd(O_RDONLY);
+    fd = _hc_unix_device_fd(O_RDONLY, NULL);
     if (fd < 0)
 	return 0;
     close(fd);

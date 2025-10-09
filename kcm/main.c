@@ -35,15 +35,10 @@
 
 RCSID("$Id$");
 
-sig_atomic_t exit_flag = 0;
-
 krb5_context kcm_context = NULL;
+extern const char *socket_path;
 
-static RETSIGTYPE
-sigterm(int sig)
-{
-    exit_flag = 1;
-}
+const char *service_name = "org.h5l.kcm";
 
 static RETSIGTYPE
 sigusr1(int sig)
@@ -76,13 +71,9 @@ main(int argc, char **argv)
 	struct sigaction sa;
 
 	sa.sa_flags = 0;
-	sa.sa_handler = sigterm;
+	sa.sa_handler = sigusr1;
 	sigemptyset(&sa.sa_mask);
 
-	sigaction(SIGINT, &sa, NULL);
-	sigaction(SIGTERM, &sa, NULL);
-
-	sa.sa_handler = sigusr1;
 	sigaction(SIGUSR1, &sa, NULL);
 
 	sa.sa_handler = sigusr2;
@@ -92,18 +83,41 @@ main(int argc, char **argv)
 	sigaction(SIGPIPE, &sa, NULL);
     }
 #else
-    signal(SIGINT, sigterm);
-    signal(SIGTERM, sigterm);
     signal(SIGUSR1, sigusr1);
     signal(SIGUSR2, sigusr2);
     signal(SIGPIPE, SIG_IGN);
 #endif
-#ifdef SUPPORT_DETACH
-    if (detach_from_console)
-	daemon(0, 0);
+    if (detach_from_console && !launchd_flag && daemon_child == -1)
+        daemon_child = roken_detach_prep(argc, argv, "--daemon-child");
+    rk_pidfile(NULL);
+
+    if (socket_path)
+        setenv("HEIM_IPC_DIR", socket_path, 1);
+
+    if (launchd_flag) {
+	heim_sipc mach;
+	ret = heim_sipc_launchd_mach_init(service_name, kcm_service, NULL, &mach);
+        if (ret)
+            krb5_err(kcm_context, 1, ret, "Could not setup launchd service");
+    } else {
+	heim_sipc un;
+	ret = heim_sipc_service_unix(service_name, kcm_service, NULL, &un);
+        if (ret)
+            krb5_err(kcm_context, 1, ret, "Could not setup Unix domain socket service");
+    }
+#ifdef HAVE_DOOR_CREATE
+    {
+	heim_sipc door;
+	ret = heim_sipc_service_door(service_name, kcm_service, NULL, &door);
+        if (ret)
+            krb5_err(kcm_context, 1, ret, "Could not setup door service");
+    }
 #endif
-    pidfile(NULL);
-    kcm_loop();
+
+    roken_detach_finish(NULL, daemon_child);
+
+    heim_ipc_main();
+
     krb5_free_context(kcm_context);
     return 0;
 }

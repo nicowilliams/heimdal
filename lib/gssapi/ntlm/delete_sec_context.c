@@ -33,14 +33,14 @@
 
 #include "ntlm.h"
 
-RCSID("$Id$");
-
-OM_uint32 _gss_ntlm_delete_sec_context
+OM_uint32 GSSAPI_CALLCONV _gss_ntlm_delete_sec_context
            (OM_uint32 * minor_status,
             gss_ctx_id_t * context_handle,
             gss_buffer_t output_token
            )
 {
+    OM_uint32 min;
+
     if (context_handle) {
 	ntlm_ctx ctx = (ntlm_ctx)*context_handle;
 	gss_cred_id_t cred = (gss_cred_id_t)ctx->client;
@@ -51,6 +51,10 @@ OM_uint32 _gss_ntlm_delete_sec_context
 	    (*ctx->server->nsi_destroy)(minor_status, ctx->ictx);
 
 	_gss_ntlm_release_cred(NULL, &cred);
+	memset_s(ctx->sessionkey.data, ctx->sessionkey.length, 0,
+		 ctx->sessionkey.length);
+	krb5_data_free(&ctx->sessionkey);
+	gss_release_buffer(&min, &ctx->pac);
 
 	memset(ctx, 0, sizeof(*ctx));
 	free(ctx);

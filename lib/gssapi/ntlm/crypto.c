@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2006 Kungliga Tekniska Högskolan
+ * Copyright (c) 2006-2016 Kungliga Tekniska Högskolan
  * (Royal Institute of Technology, Stockholm, Sweden).
  * All rights reserved.
  *
@@ -32,34 +32,17 @@
  */
 
 #include "ntlm.h"
-
-RCSID("$Id$");
-
-uint32_t
-_krb5_crc_update (const char *p, size_t len, uint32_t res);
-void
-_krb5_crc_init_table(void);
-
-/*
- *
- */
-
-static void
-encode_le_uint32(uint32_t n, unsigned char *p)
-{
-  p[0] = (n >> 0)  & 0xFF;
-  p[1] = (n >> 8)  & 0xFF;
-  p[2] = (n >> 16) & 0xFF;
-  p[3] = (n >> 24) & 0xFF;
-}
-
-
-static void
-decode_le_uint32(const void *ptr, uint32_t *n)
-{
-    const unsigned char *p = ptr;
-    *n = (p[0] << 0) | (p[1] << 8) | (p[2] << 16) | (p[3] << 24);
-}
+struct hx509_certs_data;
+struct krb5_pk_identity;
+struct krb5_pk_cert;
+struct ContentInfo;
+struct AlgorithmIdentifier;
+struct _krb5_krb_auth_data;
+struct krb5_dh_moduli;
+struct _krb5_key_data;
+struct _krb5_encryption_type;
+struct _krb5_key_type;
+#include "krb5_locl.h"
 
 /*
  *
@@ -80,7 +63,7 @@ _gss_ntlm_set_key(struct ntlmv2_key *key, int acceptor, int sealsign,
 		  unsigned char *data, size_t len)
 {
     unsigned char out[16];
-    MD5_CTX ctx;
+    EVP_MD_CTX *ctx;
     const char *signmagic;
     const char *sealmagic;
 
@@ -94,19 +77,58 @@ _gss_ntlm_set_key(struct ntlmv2_key *key, int acceptor, int sealsign,
 
     key->seq = 0;
 
-    MD5_Init(&ctx);
-    MD5_Update(&ctx, data, len);
-    MD5_Update(&ctx, signmagic, strlen(signmagic) + 1);
-    MD5_Final(key->signkey, &ctx);
+    ctx = EVP_MD_CTX_create();
+    EVP_DigestInit_ex(ctx, EVP_md5(), NULL);
+    EVP_DigestUpdate(ctx, data, len);
+    EVP_DigestUpdate(ctx, signmagic, strlen(signmagic) + 1);
+    EVP_DigestFinal_ex(ctx, key->signkey, NULL);
 
-    MD5_Init(&ctx);
-    MD5_Update(&ctx, data, len);
-    MD5_Update(&ctx, sealmagic, strlen(sealmagic) + 1);
-    MD5_Final(out, &ctx);
+    EVP_DigestInit_ex(ctx, EVP_md5(), NULL);
+    EVP_DigestUpdate(ctx, data, len);
+    EVP_DigestUpdate(ctx, sealmagic, strlen(sealmagic) + 1);
+    EVP_DigestFinal_ex(ctx, out, NULL);
+    EVP_MD_CTX_destroy(ctx);
 
     RC4_set_key(&key->sealkey, 16, out);
     if (sealsign)
 	key->signsealkey = &key->sealkey;
+}
+
+/*
+ * Set (or reset) keys
+ */
+
+void
+_gss_ntlm_set_keys(ntlm_ctx ctx)
+{
+    int acceptor;
+
+    if (ctx->sessionkey.length == 0)
+	return;
+
+    acceptor = !(ctx->status & STATUS_CLIENT);
+
+    ctx->status |= STATUS_SESSIONKEY;
+
+    if (ctx->flags & NTLM_NEG_NTLM2_SESSION) {
+	_gss_ntlm_set_key(&ctx->u.v2.send, acceptor,
+			  (ctx->flags & NTLM_NEG_KEYEX),
+			  ctx->sessionkey.data,
+			  ctx->sessionkey.length);
+	_gss_ntlm_set_key(&ctx->u.v2.recv, !acceptor,
+			  (ctx->flags & NTLM_NEG_KEYEX),
+			  ctx->sessionkey.data,
+			  ctx->sessionkey.length);
+    } else {
+	ctx->u.v1.crypto_send.seq = 0;
+	RC4_set_key(&ctx->u.v1.crypto_send.key,
+		    ctx->sessionkey.length,
+		    ctx->sessionkey.data);
+	ctx->u.v1.crypto_recv.seq = 0;
+	RC4_set_key(&ctx->u.v1.crypto_recv.key,
+		    ctx->sessionkey.length,
+		    ctx->sessionkey.data);
+    }
 }
 
 /*
@@ -125,11 +147,11 @@ v1_sign_message(gss_buffer_t in,
     _krb5_crc_init_table();
     crc = _krb5_crc_update(in->value, in->length, 0);
 
-    encode_le_uint32(0, &sigature[0]);
-    encode_le_uint32(crc, &sigature[4]);
-    encode_le_uint32(seq, &sigature[8]);
+    _gss_mg_encode_le_uint32(0, &sigature[0]);
+    _gss_mg_encode_le_uint32(crc, &sigature[4]);
+    _gss_mg_encode_le_uint32(seq, &sigature[8]);
 
-    encode_le_uint32(1, out); /* version */
+    _gss_mg_encode_le_uint32(1, out); /* version */
     RC4(signkey, sizeof(sigature), sigature, out + 4);
 
     if (RAND_bytes(out + 4, 4) != 1)
@@ -151,15 +173,18 @@ v2_sign_message(gss_buffer_t in,
     HMAC_CTX c;
 
     HMAC_CTX_init(&c);
-    HMAC_Init_ex(&c, signkey, 16, EVP_md5(), NULL);
+    if (HMAC_Init_ex(&c, signkey, 16, EVP_md5(), NULL) == 0) {
+        HMAC_CTX_cleanup(&c);
+        return GSS_S_FAILURE;
+    }
 
-    encode_le_uint32(seq, hmac);
+    _gss_mg_encode_le_uint32(seq, hmac);
     HMAC_Update(&c, hmac, 4);
     HMAC_Update(&c, in->value, in->length);
     HMAC_Final(&c, hmac, &hmaclen);
     HMAC_CTX_cleanup(&c);
 
-    encode_le_uint32(1, &out[0]);
+    _gss_mg_encode_le_uint32(1, &out[0]);
     if (sealkey)
 	RC4(sealkey, 8, hmac, &out[4]);
     else
@@ -184,7 +209,7 @@ v2_verify_message(gss_buffer_t in,
     if (ret)
 	return ret;
 
-    if (memcmp(checksum, out, 16) != 0)
+    if (ct_memcmp(checksum, out, 16) != 0)
 	return GSS_S_BAD_MIC;
 
     return GSS_S_COMPLETE;
@@ -260,9 +285,10 @@ v2_unseal_message(gss_buffer_t in,
  *
  */
 
-OM_uint32 _gss_ntlm_get_mic
+OM_uint32 GSSAPI_CALLCONV
+_gss_ntlm_get_mic
            (OM_uint32 * minor_status,
-            const gss_ctx_id_t context_handle,
+            gss_const_ctx_id_t context_handle,
             gss_qop_t qop_req,
             const gss_buffer_t message_buffer,
             gss_buffer_t message_token
@@ -318,10 +344,10 @@ OM_uint32 _gss_ntlm_get_mic
 
 	sigature = message_token->value;
 
-	encode_le_uint32(1, &sigature[0]); /* version */
-	encode_le_uint32(0, &sigature[4]);
-	encode_le_uint32(0, &sigature[8]);
-	encode_le_uint32(0, &sigature[12]);
+	_gss_mg_encode_le_uint32(1, &sigature[0]); /* version */
+	_gss_mg_encode_le_uint32(0, &sigature[4]);
+	_gss_mg_encode_le_uint32(0, &sigature[8]);
+	_gss_mg_encode_le_uint32(0, &sigature[12]);
 
         return GSS_S_COMPLETE;
     }
@@ -334,10 +360,10 @@ OM_uint32 _gss_ntlm_get_mic
  *
  */
 
-OM_uint32
+OM_uint32 GSSAPI_CALLCONV
 _gss_ntlm_verify_mic
            (OM_uint32 * minor_status,
-            const gss_ctx_id_t context_handle,
+            gss_const_ctx_id_t context_handle,
             const gss_buffer_t message_buffer,
             const gss_buffer_t token_buffer,
             gss_qop_t * qop_state
@@ -375,7 +401,7 @@ _gss_ntlm_verify_mic
 	if ((ctx->status & STATUS_SESSIONKEY) == 0)
 	    return GSS_S_UNAVAILABLE;
 
-	decode_le_uint32(token_buffer->value, &num);
+	_gss_mg_decode_le_uint32(token_buffer->value, &num);
 	if (num != 1)
 	    return GSS_S_BAD_MIC;
 
@@ -386,10 +412,10 @@ _gss_ntlm_verify_mic
 	crc = _krb5_crc_update(message_buffer->value,
 			       message_buffer->length, 0);
 	/* skip first 4 bytes in the encrypted checksum */
-	decode_le_uint32(&sigature[4], &num);
+	_gss_mg_decode_le_uint32(&sigature[4], &num);
 	if (num != crc)
 	    return GSS_S_BAD_MIC;
-	decode_le_uint32(&sigature[8], &num);
+	_gss_mg_decode_le_uint32(&sigature[8], &num);
 	if (ctx->u.v1.crypto_recv.seq != num)
 	    return GSS_S_BAD_MIC;
 	ctx->u.v1.crypto_recv.seq++;
@@ -401,13 +427,13 @@ _gss_ntlm_verify_mic
 
 	p = (unsigned char*)(token_buffer->value);
 
-	decode_le_uint32(&p[0], &num); /* version */
+	_gss_mg_decode_le_uint32(&p[0], &num); /* version */
 	if (num != 1) return GSS_S_BAD_MIC;
-	decode_le_uint32(&p[4], &num);
+	_gss_mg_decode_le_uint32(&p[4], &num);
 	if (num != 0) return GSS_S_BAD_MIC;
-	decode_le_uint32(&p[8], &num);
+	_gss_mg_decode_le_uint32(&p[8], &num);
 	if (num != 0) return GSS_S_BAD_MIC;
-	decode_le_uint32(&p[12], &num);
+	_gss_mg_decode_le_uint32(&p[12], &num);
 	if (num != 0) return GSS_S_BAD_MIC;
 
         return GSS_S_COMPLETE;
@@ -420,10 +446,10 @@ _gss_ntlm_verify_mic
  *
  */
 
-OM_uint32
+OM_uint32 GSSAPI_CALLCONV
 _gss_ntlm_wrap_size_limit (
             OM_uint32 * minor_status,
-            const gss_ctx_id_t context_handle,
+            gss_const_ctx_id_t context_handle,
             int conf_req_flag,
             gss_qop_t qop_req,
             OM_uint32 req_output_size,
@@ -451,9 +477,10 @@ _gss_ntlm_wrap_size_limit (
  *
  */
 
-OM_uint32 _gss_ntlm_wrap
+OM_uint32 GSSAPI_CALLCONV
+_gss_ntlm_wrap
 (OM_uint32 * minor_status,
- const gss_ctx_id_t context_handle,
+ gss_const_ctx_id_t context_handle,
  int conf_req_flag,
  gss_qop_t qop_req,
  const gss_buffer_t input_message_buffer,
@@ -493,7 +520,7 @@ OM_uint32 _gss_ntlm_wrap
 
 	RC4(&ctx->u.v1.crypto_send.key, input_message_buffer->length,
 	    input_message_buffer->value, output_message_buffer->value);
-	
+
 	ret = _gss_ntlm_get_mic(minor_status, context_handle,
 				0, input_message_buffer,
 				&trailer);
@@ -521,9 +548,10 @@ OM_uint32 _gss_ntlm_wrap
  *
  */
 
-OM_uint32 _gss_ntlm_unwrap
+OM_uint32 GSSAPI_CALLCONV
+_gss_ntlm_unwrap
            (OM_uint32 * minor_status,
-            const gss_ctx_id_t context_handle,
+            gss_const_ctx_id_t context_handle,
             const gss_buffer_t input_message_buffer,
             gss_buffer_t output_message_buffer,
             int * conf_state,
@@ -564,10 +592,10 @@ OM_uint32 _gss_ntlm_unwrap
 	    output_message_buffer->length = 0;
 	    return GSS_S_FAILURE;
 	}
-	
+
 	RC4(&ctx->u.v1.crypto_recv.key, output_message_buffer->length,
 	    input_message_buffer->value, output_message_buffer->value);
-	
+
 	trailer.value = ((unsigned char *)input_message_buffer->value) +
 	    output_message_buffer->length;
 	trailer.length = 16;

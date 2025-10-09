@@ -1,8 +1,9 @@
 /*
  * Copyright (c) 1997-2007 Kungliga Tekniska Högskolan
  * (Royal Institute of Technology, Stockholm, Sweden).
- *
  * All rights reserved.
+ *
+ * Portions Copyright (c) 2009 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -36,7 +37,7 @@
 #include <getarg.h>
 #include <parse_bytes.h>
 
-RCSID("$Id$");
+#define MAX_REQUEST_MAX 67108864ll /* 64MB, the maximum accepted value of max_request */
 
 struct dbinfo {
     char *realm;
@@ -51,18 +52,28 @@ static int require_preauth = -1; /* 1 == require preauth for all principals */
 static char *max_request_str;	/* `max_request' as a string */
 
 static int disable_des = -1;
-static int enable_v4 = -1;
-static int enable_kaserver = -1;
-static int enable_524 = -1;
-static int enable_v4_cross_realm = -1;
 
 static int builtin_hdb_flag;
+int testing_flag;
 static int help_flag;
 static int version_flag;
 
-static struct getarg_strings addresses_str;	/* addresses to listen on */
+/* Should we enable the HTTP hack? */
+int enable_http = -1;
 
-static char *v4_realm;
+/* Log over requests to the KDC */
+const char *request_log;
+
+/* A string describing on what ports to listen */
+const char *port_str;
+
+krb5_addresses explicit_addresses;
+
+size_t max_request_udp;
+size_t max_request_tcp;
+
+
+static struct getarg_strings addresses_str;	/* addresses to listen on */
 
 char *runas_string;
 char *chroot_string;
@@ -75,61 +86,46 @@ static struct getargs args[] = {
     },
     {
 	"require-preauth",	'p',	arg_negative_flag, &require_preauth,
-	"don't require pa-data in as-reqs"
+	"don't require pa-data in as-reqs", NULL
     },
     {
-	"max-request",	0,	arg_string, &max_request,
+	"max-request",	0,	arg_string, &max_request_str,
 	"max size for a kdc-request", "size"
     },
-    { "enable-http", 'H', arg_flag, &enable_http, "turn on HTTP support" },
-    {	"524",		0, 	arg_negative_flag, &enable_524,
-	"don't respond to 524 requests"
-    },
-    {
-	"kaserver", 'K', arg_flag,   &enable_kaserver,
-	"enable kaserver support"
-    },
-    {	"kerberos4",	0, 	arg_flag, &enable_v4,
-	"respond to kerberos 4 requests"
-    },
-    {
-	"v4-realm",	'r',	arg_string, &v4_realm,
-	"realm to serve v4-requests for"
-    },
-    {	"kerberos4-cross-realm",	0, 	arg_flag,
-	&enable_v4_cross_realm,
-	"respond to kerberos 4 requests from foreign realms"
-    },
-    {	"ports",	'P', 	arg_string, &port_str,
+    { "enable-http", 'H', arg_flag, &enable_http, "turn on HTTP support",
+   	 NULL },
+    {	"ports",	'P', 	arg_string, rk_UNCONST(&port_str),
 	"ports to listen to", "portspec"
     },
-#ifdef SUPPORT_DETACH
-#if DETACH_IS_DEFAULT
-    {
-	"detach",       'D',      arg_negative_flag, &detach_from_console,
-	"don't detach from console"
-    },
-#else
     {
 	"detach",       0 ,      arg_flag, &detach_from_console,
-	"detach from console"
+	"detach from console", NULL
     },
-#endif
+    {
+        "daemon-child",       0 ,      arg_flag, &daemon_child,
+        "private argument, do not use", NULL
+    },
+#ifdef __APPLE__
+    {
+        "bonjour",       0 ,      arg_flag, &do_bonjour,
+        "private argument, do not use", NULL
+    },
 #endif
     {	"addresses",	0,	arg_strings, &addresses_str,
 	"addresses to listen on", "list of addresses" },
     {	"disable-des",	0,	arg_flag, &disable_des,
-	"disable DES" },
+	"disable DES", NULL },
     {	"builtin-hdb",	0,	arg_flag,   &builtin_hdb_flag,
-	"list builtin hdb backends"},
+	"list builtin hdb backends", NULL},
     {   "runas-user",	0,	arg_string, &runas_string,
-	"run as this user when connected to network"
+	"run as this user when connected to network", NULL
     },
     {   "chroot",	0,	arg_string, &chroot_string,
-	"chroot directory to run in"
+	"chroot directory to run in", NULL
     },
-    {	"help",		'h',	arg_flag,   &help_flag },
-    {	"version",	'v',	arg_flag,   &version_flag }
+    {	"testing",	0,	arg_flag,   &testing_flag, NULL, NULL },
+    {	"help",		'h',	arg_flag,   &help_flag, NULL, NULL },
+    {	"version",	'v',	arg_flag,   &version_flag, NULL, NULL }
 };
 
 static int num_args = sizeof(args) / sizeof(args[0]);
@@ -158,17 +154,19 @@ add_one_address (krb5_context context, const char *str, int first)
 }
 
 krb5_kdc_configuration *
-configure(krb5_context context, int argc, char **argv)
+configure(krb5_context context, int argc, char **argv, int *optidx)
 {
     krb5_kdc_configuration *config;
     krb5_error_code ret;
-    int optidx = 0;
+    
     const char *p;
 
-    while(getarg(args, num_args, argc, argv, &optidx))
-	warnx("error at argument `%s'", argv[optidx]);
+    *optidx = 0;
 
-    if(help_flag)
+    while (getarg(args, num_args, argc, argv, optidx))
+	warnx("error at argument `%s'", argv[*optidx]);
+
+    if (help_flag)
 	usage (0);
 
     if (version_flag) {
@@ -186,25 +184,29 @@ configure(krb5_context context, int argc, char **argv)
 	exit(0);
     }
 
-    argc -= optidx;
-    argv += optidx;
+    if(detach_from_console == -1)
+	detach_from_console = krb5_config_get_bool_default(context, NULL,
+							   FALSE,
+							   "kdc",
+							   "detach", NULL);
 
-    if (argc != 0)
-	usage(1);
+    if (detach_from_console && daemon_child == -1)
+        daemon_child = roken_detach_prep(argc, argv, "--daemon-child");
 
     {
 	char **files;
+	int aret;
 
 	if (config_file == NULL) {
-	    asprintf(&config_file, "%s/kdc.conf", hdb_db_dir(context));
-	    if (config_file == NULL)
+	    aret = asprintf(&config_file, "%s/kdc.conf", hdb_db_dir(context));
+	    if (aret == -1 || config_file == NULL)
 		errx(1, "out of memory");
 	}
 
 	ret = krb5_prepend_config_files_default(config_file, &files);
 	if (ret)
 	    krb5_err(context, 1, ret, "getting configuration files");
-	
+
 	ret = krb5_set_config_files(context, files);
 	krb5_free_config_files(files);
 	if(ret)
@@ -215,23 +217,43 @@ configure(krb5_context context, int argc, char **argv)
     if (ret)
 	krb5_err(context, 1, ret, "krb5_kdc_default_config");
 
-    kdc_openlog(context, config);
+    kdc_openlog(context, "kdc", config);
 
     ret = krb5_kdc_set_dbinfo(context, config);
     if (ret)
 	krb5_err(context, 1, ret, "krb5_kdc_set_dbinfo");
 
-    if(max_request_str)
-	max_request = parse_bytes(max_request_str, NULL);
+    if (max_request_str) {
+        int64_t bytes;
 
-    if(max_request == 0){
+        if ((bytes = parse_bytes(max_request_str, NULL)) < 0)
+            krb5_errx(context, 1, "--max-request must be non-negative");
+
+        if (bytes > MAX_REQUEST_MAX)
+            krb5_errx(context, 1, "--max-request size is too big "
+                      "(must be smaller than %lld)", MAX_REQUEST_MAX);
+
+        max_request_tcp = max_request_udp = bytes;
+    }
+
+    if(max_request_tcp == 0){
 	p = krb5_config_get_string (context,
 				    NULL,
 				    "kdc",
 				    "max-request",
 				    NULL);
-	if(p)
-	    max_request = parse_bytes(p, NULL);
+        if (p) {
+            int64_t bytes;
+
+            if ((bytes = parse_bytes(max_request_str, NULL)) < 0)
+                krb5_errx(context, 1, "[kdc] max-request must be non-negative");
+
+            if (bytes > MAX_REQUEST_MAX)
+                krb5_errx(context, 1, "[kdc] max-request size is too big "
+                          "(must be smaller than %lld)", MAX_REQUEST_MAX);
+
+            max_request_tcp = max_request_udp = bytes;
+        }
     }
 
     if(require_preauth != -1)
@@ -262,15 +284,6 @@ configure(krb5_context context, int argc, char **argv)
 	}
     }
 
-    if(enable_v4 != -1)
-	config->enable_v4 = enable_v4;
-
-    if(enable_v4_cross_realm != -1)
-	config->enable_v4_cross_realm = enable_v4_cross_realm;
-
-    if(enable_524 != -1)
-	config->enable_524 = enable_524;
-
     if(enable_http == -1)
 	enable_http = krb5_config_get_bool(context, NULL, "kdc",
 					   "enable-http", NULL);
@@ -286,28 +299,13 @@ configure(krb5_context context, int argc, char **argv)
 	krb5_errx(context, 1, "enforce-transited-policy deprecated, "
 		  "use [kdc]transited-policy instead");
 
-    if (enable_kaserver != -1)
-	config->enable_kaserver = enable_kaserver;
-
-#ifdef SUPPORT_DETACH
-    if(detach_from_console == -1)
-	detach_from_console = krb5_config_get_bool_default(context, NULL,
-							   DETACH_IS_DEFAULT,
-							   "kdc",
-							   "detach", NULL);
-#endif /* SUPPORT_DETACH */
-    
-    if(max_request == 0)
-	max_request = 64 * 1024;
+    if(max_request_tcp == 0)
+	max_request_tcp = 64 * 1024;
+    if(max_request_udp == 0)
+	max_request_udp = 64 * 1024;
 
     if (port_str == NULL)
 	port_str = "+";
-
-    if (v4_realm)
-	config->v4_realm = v4_realm;
-
-    if(config->v4_realm == NULL && (config->enable_kaserver || config->enable_v4))
-	krb5_errx(context, 1, "Kerberos 4 enabled but no realm configured");
 
     if(disable_des == -1)
 	disable_des = krb5_config_get_bool_default(context, NULL,
@@ -321,16 +319,11 @@ configure(krb5_context context, int argc, char **argv)
 	krb5_enctype_disable(context, ETYPE_DES_CBC_NONE);
 	krb5_enctype_disable(context, ETYPE_DES_CFB64_NONE);
 	krb5_enctype_disable(context, ETYPE_DES_PCBC_NONE);
-
-	kdc_log(context, config,
-		0, "DES was disabled, turned off Kerberos V4, 524 "
-		"and kaserver");
-	config->enable_v4 = 0;
-	config->enable_524 = 0;
-	config->enable_kaserver = 0;
     }
 
-    krb5_kdc_windc_init(context);
+    krb5_kdc_plugin_init(context);
+
+    krb5_kdc_pkinit_config(context, config);
 
     return config;
 }

@@ -85,7 +85,7 @@ typedef krb5_sigtype sigtype;
  * HPUX 10.10 /opt/dce/include/dcedfs/syscall.h
  * Solaris 2.5 /opt/dcelocal/share/include/dcedfs/syscall.h
  * AIX 4.2  - needs some funny games with load and kafs_syscall
- * to get the kernel extentions. There should be a better way!
+ * to get the kernel extensions. There should be a better way!
  *
  * DEE 5/27/97
  *
@@ -236,7 +236,7 @@ int krb5_dfs_getpag()
  * user.
  *
  * And it should be called before access to the home directory
- * as this may be in DFS, not accessable by root, and require
+ * as this may be in DFS, not accessible by root, and require
  * the PAG to have been setup.
  *
  * The krb5_afs_pag can be called after this routine to
@@ -274,7 +274,7 @@ int krb5_dfs_pag(context, flag, principal, luser)
 
    /* test if DFS is running or installed */
    if (krb5_dfs_getpag() == -2)
-     return(0); /* DFS not running, dont try */
+     return(0); /* DFS not running, don't try */
 
   if (pipe(fd) == -1)
      return(0);
@@ -305,7 +305,7 @@ int krb5_dfs_pag(context, flag, principal, luser)
 
   /* parent, wait for child to finish */
 
-  close(fd[1]);  /* dont need this end of pipe */
+  close(fd[1]);  /* don't need this end of pipe */
 
 /* #if defined(sgi) || defined(_sgi) */
   /* wait_status.w_status = 0; */

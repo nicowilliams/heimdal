@@ -34,10 +34,13 @@
 # $Id$
 #
 
+env_setup="@env_setup@"
 srcdir="@srcdir@"
 objdir="@objdir@"
 
-# If there is no useful db support compile in, disable test
+. ${env_setup}
+
+# If there is no useful db support compiled in, disable test
 ../db/have-db || exit 77
 
 R=TEST.H5L.SE
@@ -51,14 +54,12 @@ cache="FILE:krb5ccfile"
 cache2="FILE:krb5ccfile2"
 nocache="FILE:no-such-cache"
 
-kinit="${TESTS_ENVIRONMENT} ../../kuser/kinit -c $cache --no-afslog"
-kdestroy="${TESTS_ENVIRONMENT} ../../kuser/kdestroy -c $cache --no-unlog"
-klist="${TESTS_ENVIRONMENT} ../../kuser/klist -c $cache"
-kadmin="${TESTS_ENVIRONMENT} ../../kadmin/kadmin -l -r $R"
-kdc="${TESTS_ENVIRONMENT} ../../kdc/kdc --addresses=localhost -P $port"
+kadmin="${kadmin} -l -r $R"
+kdc="${kdc} --addresses=localhost -P $port"
 
 acquire_cred="${TESTS_ENVIRONMENT} ../../lib/gssapi/test_acquire_cred"
 test_kcred="${TESTS_ENVIRONMENT} ../../lib/gssapi/test_kcred"
+test_add_store_cred="${TESTS_ENVIRONMENT} ../../lib/gssapi/test_add_store_cred"
 
 KRB5_CONFIG="${objdir}/krb5.conf"
 export KRB5_CONFIG
@@ -75,44 +76,50 @@ rm -f mkey.file*
 
 > messages.log
 
-echo Creating database
-${kadmin} \
-    init \
-    --realm-max-ticket-life=1day \
-    --realm-max-renewable-life=1month \
-    ${R} || exit 1
-
 echo upw > ${objdir}/foopassword
 
-${kadmin} add -p upw --use-defaults user@${R} || exit 1
-${kadmin} add -p upw --use-defaults another@${R} || exit 1
-${kadmin} add -p p1 --use-defaults host/host.test.h5l.se@${R} || exit 1
-${kadmin} ext -k ${keytab} host/host.test.h5l.se@${R} || exit 1
-
-echo "Doing database check"
-${kadmin} check ${R} || exit 1
+echo Creating database
+${kadmin} <<EOF || exit 1
+init --realm-max-ticket-life=1day --realm-max-renewable-life=1month ${R}
+add -p upw --use-defaults user@${R}
+add -p upw --use-defaults another@${R}
+add -p p1 --use-defaults host/host.test.h5l.se@${R}
+ext -k ${keytab} host/host.test.h5l.se@${R}
+check ${R}
+EOF
 
 echo Starting kdc
-${kdc} &
-kdcpid=$!
+${kdc} --detach --testing || { echo "kdc failed to start"; cat messages.log; exit 1; }
+kdcpid=`getpid kdc`
 
-sh ${srcdir}/../kdc/wait-kdc.sh
-if [ "$?" != 0 ] ; then
-    kill ${kdcpid}
+cleanup() {
+    echo signal killing kdc
+    kill -9 ${kdcpid}
+    trap '' EXIT INT TERM
+    cat messages.log
     exit 1
-fi
-
-trap "kill ${kdcpid}; echo signal killing kdc; exit 1;" EXIT
+}
+trap cleanup EXIT INT TERM
 
 exitcode=0
 
 echo "initial ticket"
-${kinit} --password-file=${objdir}/foopassword user@${R} || exitcode=1
+${kinit} -c ${cache} --password-file=${objdir}/foopassword user@${R} || exitcode=1
+
+echo "copy ccache with gss_store_cred"
+# Note we test that the ccache used for storing is token-expanded
+${test_add_store_cred} --default --overwrite --env ${cache} "${cache2}%{null}" || exit 1
+${klist} -c ${cache2} || exit 1
 
 echo "keytab"
 ${acquire_cred} \
     --acquire-type=accept \
     --acquire-name=host@host.test.h5l.se || exit 1
+
+echo "keytab w/ short-form name and name canon rules"
+${acquire_cred} \
+    --acquire-type=accept \
+    --acquire-name=host@host || exit 1
 
 echo "keytab w/o name"
 ${acquire_cred} \
@@ -120,22 +127,25 @@ ${acquire_cred} \
 
 echo "keytab w/ wrong name"
 ${acquire_cred} \
-    --acquire-type=accept \
+    --acquire-type=accept --kerberos \
     --acquire-name=host@host2.test.h5l.se 2>/dev/null && exit 1
 
 echo "init using keytab"
 ${acquire_cred} \
+    --kerberos \
     --acquire-type=initiate \
     --acquire-name=host@host.test.h5l.se > /dev/null || exit 1
 
 echo "init using keytab (loop 10)"
 ${acquire_cred} \
+    --kerberos \
     --acquire-type=initiate \
     --loops=10 \
     --acquire-name=host@host.test.h5l.se > /dev/null || exit 1
 
 echo "init using keytab (loop 10, target)"
 ${acquire_cred} \
+    --kerberos \
     --acquire-type=initiate \
     --loops=10 \
     --target=host@host.test.h5l.se \
@@ -158,6 +168,7 @@ ${acquire_cred} \
 
 echo "init using existing cc"
 ${acquire_cred} \
+    --kerberos \
     --name-type=user-name \
     --acquire-type=initiate \
     --acquire-name=user || exit 1
@@ -166,12 +177,14 @@ KRB5CCNAME=${nocache}
 
 echo "fail init using existing cc"
 ${acquire_cred} \
+    --kerberos \
     --name-type=user-name \
     --acquire-type=initiate \
     --acquire-name=user 2>/dev/null && exit 1
 
 echo "use gss_krb5_ccache_name for user"
 ${acquire_cred} \
+    --kerberos \
     --name-type=user-name \
     --ccache=${cache} \
     --acquire-type=initiate \
@@ -183,17 +196,19 @@ KRB5_KTNAME=${nokeytab}
 echo "kcred"
 ${test_kcred} || exit 1
 
-${kdestroy}
+${kdestroy} -c ${cache}
 
 KRB5_KTNAME="${keytab}"
 
 echo "init using keytab"
 ${acquire_cred} \
+    --kerberos \
     --acquire-type=initiate \
     --acquire-name=host@host.test.h5l.se 2>/dev/null || exit 1
 
 echo "init using keytab (ccache)"
 ${acquire_cred} \
+    --kerberos \
     --acquire-type=initiate \
     --ccache=${cache} \
     --acquire-name=host@host.test.h5l.se 2>/dev/null || exit 1

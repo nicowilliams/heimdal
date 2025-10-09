@@ -33,9 +33,7 @@
 
 #include "ntlm.h"
 
-RCSID("$Id$");
-
-OM_uint32
+OM_uint32 GSSAPI_CALLCONV
 _gss_ntlm_import_sec_context (
     OM_uint32 * minor_status,
     const gss_buffer_t interprocess_token,

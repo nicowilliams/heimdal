@@ -33,9 +33,10 @@
 
 #include <config.h>
 
+#include "roken.h"
 #include "err.h"
 
-void ROKEN_LIB_FUNCTION
+ROKEN_LIB_NORETURN_FUNCTION void ROKEN_LIB_CALL
 err(int eval, const char *fmt, ...)
 {
   va_list ap;

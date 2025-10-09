@@ -38,10 +38,4 @@
 
 #include <gssapi.h>
 
-GSSAPI_CPP_START
-
-extern GSSAPI_LIB_VARIABLE gss_OID GSS_NTLM_MECHANISM;
-
-GSSAPI_CPP_END
-
 #endif /* GSSAPI_NTLM_H_ */

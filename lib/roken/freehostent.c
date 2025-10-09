@@ -39,8 +39,8 @@
  * free a malloced hostent
  */
 
-void ROKEN_LIB_FUNCTION
-freehostent (struct hostent *h)
+ROKEN_LIB_FUNCTION void ROKEN_LIB_CALL
+rk_freehostent(struct hostent *h)
 {
     char **p;
 

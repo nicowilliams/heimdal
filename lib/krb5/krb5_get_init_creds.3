@@ -97,6 +97,11 @@ Kerberos 5 Library (libkrb5, -lkrb5)
 .Fa "int anonymous"
 .Fc
 .Ft void
+.Fo krb5_get_init_creds_opt_set_change_password_prompt
+.Fa "krb5_get_init_creds_opt *opt"
+.Fa "int change_password_prompt"
+.Fc
+.Ft void
 .Fo krb5_get_init_creds_opt_set_default_flags
 .Fa "krb5_context context"
 .Fa "const char *appname"
@@ -222,7 +227,7 @@ Getting initial credential ticket for a principal.
 That may include changing an expired password, and doing preauthentication.
 This interface that replaces the deprecated
 .Fa krb5_in_tkt
-and 
+and
 .Fa krb5_in_cred
 functions.
 .Pp
@@ -386,7 +391,7 @@ sets the salt that is going to be used in the request.
 sets requested ticket lifetime.
 .Pp
 .Fn krb5_get_init_creds_opt_set_canonicalize
-requests that the KDC canonicalize the client pricipal if possible.
+requests that the KDC canonicalize the client principal if possible.
 .Pp
 .Fn krb5_get_init_creds_opt_set_win2k
 turns on compatibility with Windows 2000.

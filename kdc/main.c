@@ -3,6 +3,8 @@
  * (Royal Institute of Technology, Stockholm, Sweden).
  * All rights reserved.
  *
+ * Portions Copyright (c) 2009 Apple Inc. All rights reserved.
+ *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
  * are met:
@@ -36,11 +38,20 @@
 #include <util.h>
 #endif
 
+#ifdef HAVE_CAPNG
+#include <cap-ng.h>
+#endif
+
 sig_atomic_t exit_flag = 0;
 
-#ifdef SUPPORT_DETACH
 int detach_from_console = -1;
-#endif
+int daemon_child = -1;
+int do_bonjour = -1;
+
+static RETSIGTYPE
+sigchld(int sig)
+{
+}
 
 static RETSIGTYPE
 sigterm(int sig)
@@ -58,11 +69,16 @@ sigterm(int sig)
 static void
 switch_environment(void)
 {
+#ifdef HAVE_GETEUID
     if ((runas_string || chroot_string) && geteuid() != 0)
 	errx(1, "no running as root, can't switch user/chroot");
 
-    if (chroot_string && chroot(chroot_string) != 0)
-	errx(1, "chroot(%s)", "chroot_string failed");
+    if (chroot_string) {
+	if (chroot(chroot_string))
+	    err(1, "chroot(%s) failed", chroot_string);
+	if (chdir("/"))
+	    err(1, "chdir(/) after chroot failed");
+    }
 
     if (runas_string) {
 	struct passwd *pw;
@@ -70,18 +86,29 @@ switch_environment(void)
 	pw = getpwnam(runas_string);
 	if (pw == NULL)
 	    errx(1, "unknown user %s", runas_string);
-	
+
 	if (initgroups(pw->pw_name, pw->pw_gid) < 0)
 	    err(1, "initgroups failed");
-	
+
+#ifndef HAVE_CAPNG
 	if (setgid(pw->pw_gid) < 0)
 	    err(1, "setgid(%s) failed", runas_string);
-	
+
 	if (setuid(pw->pw_uid) < 0)
 	    err(1, "setuid(%s)", runas_string);
-    }
-}
+#else
+	capng_clear (CAPNG_EFFECTIVE | CAPNG_PERMITTED);
+	if (capng_updatev (CAPNG_ADD, CAPNG_EFFECTIVE | CAPNG_PERMITTED,
+	                   CAP_NET_BIND_SERVICE, CAP_SETPCAP, -1) < 0)
+	    err(1, "capng_updateev");
 
+	if (capng_change_id(pw->pw_uid, pw->pw_gid,
+	                    CAPNG_CLEAR_BOUNDING) < 0)
+	    err(1, "capng_change_id(%s)", runas_string);
+#endif
+    }
+#endif
+}
 
 int
 main(int argc, char **argv)
@@ -89,6 +116,7 @@ main(int argc, char **argv)
     krb5_error_code ret;
     krb5_context context;
     krb5_kdc_configuration *config;
+    int optidx = 0;
 
     setprogname(argv[0]);
 
@@ -98,11 +126,11 @@ main(int argc, char **argv)
     else if (ret)
 	errx (1, "krb5_init_context failed: %d", ret);
 
-    ret = krb5_kt_register(context, &hdb_kt_ops);
+    ret = krb5_kt_register(context, &hdb_get_kt_ops);
     if (ret)
 	errx (1, "krb5_kt_register(HDB) failed: %d", ret);
 
-    config = configure(context, argc, argv);
+    config = configure(context, argc, argv, &optidx);
 
 #ifdef HAVE_SIGACTION
     {
@@ -114,26 +142,40 @@ main(int argc, char **argv)
 
 	sigaction(SIGINT, &sa, NULL);
 	sigaction(SIGTERM, &sa, NULL);
+#ifdef SIGXCPU
 	sigaction(SIGXCPU, &sa, NULL);
+#endif
+
+#ifdef SIGCHLD
+	sa.sa_handler = sigchld;
+	sigaction(SIGCHLD, &sa, NULL);
+#endif
 
 	sa.sa_handler = SIG_IGN;
+#ifdef SIGPIPE
 	sigaction(SIGPIPE, &sa, NULL);
+#endif
     }
 #else
     signal(SIGINT, sigterm);
     signal(SIGTERM, sigterm);
+#ifdef SIGCHLD
+    signal(SIGCHLD, sigchld);
+#endif
+#ifdef SIGXCPU
     signal(SIGXCPU, sigterm);
+#endif
+#ifdef SIGPIPE
     signal(SIGPIPE, SIG_IGN);
 #endif
-#ifdef SUPPORT_DETACH
-    if (detach_from_console)
-	daemon(0, 0);
 #endif
-    pidfile(NULL);
+    rk_pidfile(NULL);
 
     switch_environment();
 
-    loop(context, config);
+    start_kdc(context, config, argv[0]);
+    _krb5_unload_plugins(context, "kdc");
     krb5_free_context(context);
+    free(config);
     return 0;
 }

@@ -31,9 +31,9 @@
  * SUCH DAMAGE.
  */
 
-#include <krb5_locl.h>
+#include "krb5_locl.h"
 
-krb5_error_code KRB5_LIB_FUNCTION
+KRB5_LIB_FUNCTION krb5_error_code KRB5_LIB_CALL
 krb5_rd_priv(krb5_context context,
 	     krb5_auth_context auth_context,
 	     const krb5_data *inbuf,
@@ -136,7 +136,7 @@ krb5_rd_priv(krb5_context context,
 	krb5_timeofday (context, &sec);
 	if (part.timestamp == NULL ||
 	    part.usec      == NULL ||
-	    abs(*part.timestamp - sec) > context->max_skew) {
+	    krb5_time_abs(*part.timestamp, sec) > context->max_skew) {
 	    krb5_clear_error_message (context);
 	    ret = KRB5KRB_AP_ERR_SKEW;
 	    goto failure_part;

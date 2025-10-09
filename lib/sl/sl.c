@@ -53,8 +53,11 @@ mandoc_template(SL_cmd *cmds,
     t = time(NULL);
     strftime(timestr, sizeof(timestr), "%b %d, %Y", localtime(&t));
     printf(".Dd %s\n", timestr);
-    p = strrchr(getprogname(), '/');
-    if(p) p++; else p = getprogname();
+#ifdef HAVE_GETPROGNAME
+    p = getprogname();
+#else
+    p = "unknown-application";
+#endif
     strncpy(cmd, p, sizeof(cmd));
     cmd[sizeof(cmd)-1] = '\0';
     strupr(cmd);
@@ -72,7 +75,7 @@ mandoc_template(SL_cmd *cmds,
 	    continue; */
 	printf(".Op Fl %s", c->name);
 	printf("\n");
-	
+
     }
     if (extra_string && *extra_string)
 	printf (".Ar %s\n", extra_string);
@@ -245,7 +248,7 @@ sl_make_argv(char *line, int *ret_argc, char ***ret_argv)
 	    if (p[1] == '\0')
 		goto failed;
 	    memmove(&p[0], &p[1], strlen(&p[1]) + 1);
-	    p += 2;
+	    p += 1;
 	    continue;
 	} else if (quote || !isspace((unsigned char)*p)) {
 	    p++;
@@ -308,13 +311,42 @@ int
 sl_command_loop(SL_cmd *cmds, const char *prompt, void **data)
 {
     int ret = 0;
-    char *buf;
+    char *buf = NULL;
     int argc;
     char **argv;
-	
-    buf = sl_readline(prompt);
-    if(buf == NULL)
-	return -2;
+    int continued = 0;
+
+    do {
+        char *buf2;
+        size_t len;
+
+        buf2 = sl_readline(buf == NULL ? prompt : "> ");
+        if (buf2 == NULL) {
+	    free(buf);
+            return -2;
+	}
+
+        if (buf) {
+            char *tmp = NULL;
+
+            if (asprintf(&tmp, "%s %s", buf, buf2) == -1 || tmp == NULL) {
+                fprintf(stderr, "sl_loop: out of memory\n");
+                free(buf2);
+                free(buf);
+                return -1;
+            }
+            free(buf2);
+            free(buf);
+            buf = tmp;
+        } else {
+            buf = buf2;
+        }
+
+        len = strlen(buf);
+        continued = (len > 0 && buf[len - 1] == '\\');
+        if (continued)
+            buf[len - 1] = '\0';
+    } while (continued);
 
     if(*buf)
 	add_history(buf);
@@ -327,8 +359,8 @@ sl_command_loop(SL_cmd *cmds, const char *prompt, void **data)
     if (argc >= 1) {
 	ret = sl_command(cmds, argc, argv);
 	if(ret == -1) {
-	    printf ("Unrecognized command: %s\n", argv[0]);
-	    ret = 0;
+	    sl_did_you_mean(cmds, argv[0]);
+	    ret = 1;
 	}
     }
     free(buf);
@@ -371,8 +403,11 @@ sl_slc_help (SL_cmd *cmds, int argc, char **argv)
 		     argv[0]);
 	} else {
 	    if(c->func) {
-		char *fake[] = { NULL, "--help", NULL };
+		static char help[] = "--help";
+		char *fake[3];
 		fake[0] = argv[0];
+		fake[1] = help;
+		fake[2] = NULL;
 		(*c->func)(2, fake);
 		fprintf(stderr, "\n");
 	    }
@@ -389,4 +424,105 @@ sl_slc_help (SL_cmd *cmds, int argc, char **argv)
 	    }
 	}
     }
+}
+
+/* OptimalStringAlignmentDistance */
+
+static int
+osad(const char *s1, const char *s2)
+{
+    size_t l1 = strlen(s1), l2 = strlen(s2), i, j;
+    int *row0, *row1, *row2, *tmp, cost;
+
+    row0 = calloc(l2 + 1, sizeof(int));
+    row1 = calloc(l2 + 1, sizeof(int));
+    row2 = calloc(l2 + 1, sizeof(int));
+
+    for (j = 0; j < l2 + 1; j++)
+        row1[j] = j;
+
+    for (i = 0; i < l1; i++) {
+
+        row2[0] = i + 1;
+
+        for (j = 0; j < l2; j++) {
+
+	    row2[j + 1] = row1[j] + (s1[i] != s2[j]); /* substitute */
+
+	    if (row2[j + 1] > row1[j + 1] + 1) /* delete */
+		row2[j + 1] = row1[j + 1] + 1;
+	    if (row2[j + 1] > row2[j] + 1) /* insert */
+		row2[j + 1] = row2[j] + 1;
+	    if (j > 0 && i > 0 && s1[i - 1] != s2[j - 1] && s1[i - 1] == s2[j] && s1[i] == s2[j - 1] && row2[j + 1] < row0[j - 1]) /* transposition */
+	        row2[j + 1] = row0[j - 1] + 1;
+	}
+
+	tmp = row0;
+	row0 = row1;
+	row1 = row2;
+	row2 = tmp;
+    }
+
+    cost = row1[l2];
+
+    free(row0);
+    free(row1);
+    free(row2);
+
+    return cost;
+}
+
+/**
+ * Will propose a list of command that are almost matching the command
+ * used, if there is no matching, will ask the user to use "help".
+ *
+ * @param cmds command array to use for matching
+ * @param match the command that didn't exists
+ */
+
+void
+sl_did_you_mean(SL_cmd *cmds, const char *match)
+{
+    int *metrics, best_match = INT_MAX;
+    SL_cmd *c;
+    size_t n;
+
+    for (n = 0, c = cmds; c->name; c++, n++)
+        ;
+    if (n == 0)
+        return;
+    metrics = calloc(n, sizeof(metrics[0]));
+    if (metrics == NULL)
+        return;
+
+    for (n = 0; cmds[n].name; n++) {
+        metrics[n] = osad(match, cmds[n].name);
+	if (metrics[n] < best_match)
+	    best_match = metrics[n];
+    }
+    if (best_match == INT_MAX) {
+        free(metrics);
+        fprintf(stderr, "What kind of command is %s", match);
+        return;
+    }
+
+    /* if match distance is low, propose that for the user */
+    if (best_match < 7) {
+
+	fprintf(stderr, "error: %s is not a known command, did you mean ?\n", match);
+	for (n = 0; cmds[n].name; n++) {
+	    if (metrics[n] == best_match) {
+		fprintf(stderr, "\t%s\n", cmds[n].name);
+	    }
+	}
+	fprintf(stderr, "\n");
+
+    } else {
+
+	fprintf(stderr, "error: %s is not a command, use \"help\" for more list of commands.\n", match);
+    }
+
+    free(metrics);
+
+    return;
 }

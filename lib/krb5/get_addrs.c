@@ -50,6 +50,14 @@ gethostname_fallback (krb5_context context, krb5_addresses *res)
     char hostname[MAXHOSTNAMELEN];
     struct hostent *hostent;
 
+    if (krb5_config_get_bool(context, NULL, "libdefaults", "block_dns",
+	    NULL)) {
+	ret = ENXIO;
+	krb5_set_error_message(context, ret,
+	    "DNS blocked in gethostname fallback");
+	return ret;
+    }
+
     if (gethostname (hostname, sizeof(hostname))) {
 	ret = errno;
 	krb5_set_error_message(context, ret, "gethostname: %s", strerror(ret));
@@ -64,10 +72,8 @@ gethostname_fallback (krb5_context context, krb5_addresses *res)
     }
     res->len = 1;
     res->val = malloc (sizeof(*res->val));
-    if (res->val == NULL) {
-	krb5_set_error_message(context, ENOMEM, N_("malloc: out of memory", ""));
-	return ENOMEM;
-    }
+    if (res->val == NULL)
+	return krb5_enomem(context);
     res->val[0].addr_type = hostent->h_addrtype;
     res->val[0].address.data = NULL;
     res->val[0].address.length = 0;
@@ -82,8 +88,8 @@ gethostname_fallback (krb5_context context, krb5_addresses *res)
 }
 
 enum {
-    LOOP            = 1,	/* do include loopback interfaces */
-    LOOP_IF_NONE    = 2,	/* include loopback if no other if's */
+    LOOP            = 1,	/* do include loopback addrs */
+    LOOP_IF_NONE    = 2,	/* include loopback addrs if no others */
     EXTRA_ADDRESSES = 4,	/* include extra addresses */
     SCAN_INTERFACES = 8		/* scan interfaces for addresses */
 };
@@ -130,10 +136,10 @@ find_all_addresses (krb5_context context, krb5_addresses *res, int flags)
     /* Allocate storage for them. */
     res->val = calloc(num, sizeof(*res->val));
     if (res->val == NULL) {
-	krb5_free_addresses(context, &ignore_addresses);
+	if (flags & EXTRA_ADDRESSES)
+	    krb5_free_addresses(context, &ignore_addresses);
 	freeifaddrs(ifa0);
-	krb5_set_error_message(context, ENOMEM, N_("malloc: out of memory", ""));
-	return ENOMEM;
+	return krb5_enomem(context);
     }
 
     /* Now traverse the list. */
@@ -146,11 +152,9 @@ find_all_addresses (krb5_context context, krb5_addresses *res, int flags)
 	    continue;
 	if (krb5_sockaddr_uninteresting(ifa->ifa_addr))
 	    continue;
-	if ((ifa->ifa_flags & IFF_LOOPBACK) != 0) {
+	if (krb5_sockaddr_is_loopback(ifa->ifa_addr) && (flags & LOOP) == 0)
 	    /* We'll deal with the LOOP_IF_NONE case later. */
-	    if ((flags & LOOP) == 0)
-		continue;
-	}
+	    continue;
 
 	ret = krb5_sockaddr2address(context, ifa->ifa_addr, &res->val[idx]);
 	if (ret) {
@@ -189,24 +193,22 @@ find_all_addresses (krb5_context context, krb5_addresses *res, int flags)
 		continue;
 	    if (krb5_sockaddr_uninteresting(ifa->ifa_addr))
 		continue;
-
-	    if ((ifa->ifa_flags & IFF_LOOPBACK) != 0) {
-		ret = krb5_sockaddr2address(context,
-					    ifa->ifa_addr, &res->val[idx]);
-		if (ret) {
-		    /*
-		     * See comment above.
-		     */
-		    continue;
-		}
-		if((flags & EXTRA_ADDRESSES) &&
-		   krb5_address_search(context, &res->val[idx],
-				       &ignore_addresses)) {
-		    krb5_free_address(context, &res->val[idx]);
-		    continue;
-		}
-		idx++;
+	    if (!krb5_sockaddr_is_loopback(ifa->ifa_addr))
+		continue;
+	    if ((ifa->ifa_flags & IFF_LOOPBACK) == 0)
+		/* Presumably loopback addrs are only used on loopback ifs! */
+		continue;
+	    ret = krb5_sockaddr2address(context,
+					ifa->ifa_addr, &res->val[idx]);
+	    if (ret)
+		continue; /* We don't consider this failure fatal */
+	    if((flags & EXTRA_ADDRESSES) &&
+	       krb5_address_search(context, &res->val[idx],
+				   &ignore_addresses)) {
+		krb5_free_address(context, &res->val[idx]);
+		continue;
 	    }
+	    idx++;
 	}
     }
 
@@ -266,7 +268,7 @@ get_addrs_int (krb5_context context, krb5_addresses *res, int flags)
  * Only include loopback address if there are no other.
  */
 
-krb5_error_code KRB5_LIB_FUNCTION
+KRB5_LIB_FUNCTION krb5_error_code KRB5_LIB_CALL
 krb5_get_all_client_addrs (krb5_context context, krb5_addresses *res)
 {
     int flags = LOOP_IF_NONE | EXTRA_ADDRESSES;
@@ -282,7 +284,7 @@ krb5_get_all_client_addrs (krb5_context context, krb5_addresses *res)
  * If that fails, we return the address corresponding to `hostname'.
  */
 
-krb5_error_code KRB5_LIB_FUNCTION
+KRB5_LIB_FUNCTION krb5_error_code KRB5_LIB_CALL
 krb5_get_all_server_addrs (krb5_context context, krb5_addresses *res)
 {
     return get_addrs_int (context, res, LOOP | SCAN_INTERFACES);

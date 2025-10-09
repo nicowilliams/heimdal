@@ -41,34 +41,42 @@ OM_uint32
 _gss_ntlm_allocate_ctx(OM_uint32 *minor_status, ntlm_ctx *ctx)
 {
     OM_uint32 maj_stat;
-    struct ntlm_server_interface *interface = NULL;
-    
-#ifdef DIGEST
-    interface = &ntlmsspi_kdc_digest;
-#endif
-    if (interface == NULL)
-	return GSS_S_FAILURE;
-    
-    *ctx = calloc(1, sizeof(**ctx));
+    struct ntlm_server_interface *ns_interface = NULL;
 
-    (*ctx)->server = interface;
+#ifdef DIGEST
+    ns_interface = &ntlmsspi_kdc_digest;
+#endif
+    if (ns_interface == NULL)
+	return GSS_S_FAILURE;
+
+    *ctx = calloc(1, sizeof(**ctx));
+    if (*ctx == NULL) {
+	*minor_status = ENOMEM;
+	return GSS_S_FAILURE;
+    }
+
+    (*ctx)->server = ns_interface;
 
     maj_stat = (*(*ctx)->server->nsi_init)(minor_status, &(*ctx)->ictx);
-    if (maj_stat != GSS_S_COMPLETE)
-	return maj_stat;
+    if (maj_stat == GSS_S_COMPLETE)
+    	return GSS_S_COMPLETE;
 
-    return GSS_S_COMPLETE;
+    if (*ctx) 
+	free(*ctx);
+    (*ctx) = NULL;
+
+    return maj_stat;
 }
 
 /*
  *
  */
 
-OM_uint32
+OM_uint32 GSSAPI_CALLCONV
 _gss_ntlm_accept_sec_context
 (OM_uint32 * minor_status,
  gss_ctx_id_t * context_handle,
- const gss_cred_id_t acceptor_cred_handle,
+ gss_const_cred_id_t acceptor_cred_handle,
  const gss_buffer_t input_token_buffer,
  const gss_channel_bindings_t input_chan_bindings,
  gss_name_t * src_name,
@@ -91,7 +99,7 @@ _gss_ntlm_accept_sec_context
 
     if (context_handle == NULL)
 	return GSS_S_FAILURE;
-	
+
     if (input_token_buffer == GSS_C_NO_BUFFER)
 	return GSS_S_FAILURE;
 
@@ -116,7 +124,7 @@ _gss_ntlm_accept_sec_context
 	if (major_status)
 	    return major_status;
 	*context_handle = (gss_ctx_id_t)ctx;
-	
+
 	/* check if the mechs is allowed by remote service */
 	major_status = (*ctx->server->nsi_probe)(minor_status, ctx->ictx, NULL);
 	if (major_status) {
@@ -126,12 +134,12 @@ _gss_ntlm_accept_sec_context
 
 	data.data = input_token_buffer->value;
 	data.length = input_token_buffer->length;
-	
+
 	ret = heim_ntlm_decode_type1(&data, &type1);
 	if (ret) {
 	    _gss_ntlm_delete_sec_context(minor_status, context_handle, NULL);
 	    *minor_status = ret;
-	    return GSS_S_FAILURE;
+	    return GSS_S_DEFECTIVE_TOKEN;
 	}
 
 	if ((type1.flags & NTLM_NEG_UNICODE) == 0) {
@@ -155,20 +163,22 @@ _gss_ntlm_accept_sec_context
 						 &out);
 	heim_ntlm_free_type1(&type1);
 	if (major_status != GSS_S_COMPLETE) {
-	    OM_uint32 junk;
-	    _gss_ntlm_delete_sec_context(&junk, context_handle, NULL);
+	    OM_uint32 gunk;
+	    _gss_ntlm_delete_sec_context(&gunk, context_handle, NULL);
 	    return major_status;
 	}
 
 	output_token->value = malloc(out.length);
-	if (output_token->value == NULL) {
-	    OM_uint32 junk;
-	    _gss_ntlm_delete_sec_context(&junk, context_handle, NULL);
+	if (output_token->value == NULL && out.length != 0) {
+	    OM_uint32 gunk;
+	    heim_ntlm_free_buf(&out);
+	    _gss_ntlm_delete_sec_context(&gunk, context_handle, NULL);
 	    *minor_status = ENOMEM;
 	    return GSS_S_FAILURE;
 	}
 	memcpy(output_token->value, out.data, out.length);
 	output_token->length = out.length;
+	heim_ntlm_free_buf(&out);
 
 	ctx->flags = retflags;
 
@@ -187,7 +197,7 @@ _gss_ntlm_accept_sec_context
 	if (ret) {
 	    _gss_ntlm_delete_sec_context(minor_status, context_handle, NULL);
 	    *minor_status = ret;
-	    return GSS_S_FAILURE;
+	    return GSS_S_DEFECTIVE_TOKEN;
 	}
 
 	maj_stat = (*ctx->server->nsi_type3)(minor_status,
@@ -215,42 +225,21 @@ _gss_ntlm_accept_sec_context
 		return maj_stat;
 	    }
 	    *src_name = (gss_name_t)n;
-	}	
+	}
 
 	heim_ntlm_free_type3(&type3);
 
 	ret = krb5_data_copy(&ctx->sessionkey,
 			     session.data, session.length);
-	if (ret) {	
+	if (ret) {
 	    if (src_name)
 		_gss_ntlm_release_name(&junk, src_name);
 	    _gss_ntlm_delete_sec_context(minor_status, context_handle, NULL);
 	    *minor_status = ret;
 	    return GSS_S_FAILURE;
 	}
-	
-	if (session.length != 0) {
 
-	    ctx->status |= STATUS_SESSIONKEY;
-
-	    if (ctx->flags & NTLM_NEG_NTLM2_SESSION) {
-		_gss_ntlm_set_key(&ctx->u.v2.send, 1,
-				  (ctx->flags & NTLM_NEG_KEYEX),
-				  ctx->sessionkey.data,
-				  ctx->sessionkey.length);
-		_gss_ntlm_set_key(&ctx->u.v2.recv, 0,
-				  (ctx->flags & NTLM_NEG_KEYEX),
-				  ctx->sessionkey.data,
-				  ctx->sessionkey.length);
-	    } else {
-		RC4_set_key(&ctx->u.v1.crypto_send.key,
-			    ctx->sessionkey.length,
-			    ctx->sessionkey.data);
-		RC4_set_key(&ctx->u.v1.crypto_recv.key,
-			    ctx->sessionkey.length,
-			    ctx->sessionkey.data);
-	    }
-	}
+	_gss_ntlm_set_keys(ctx);
 
 	if (mech_type)
 	    *mech_type = GSS_NTLM_MECHANISM;

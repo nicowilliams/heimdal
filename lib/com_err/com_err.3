@@ -45,7 +45,7 @@
 .Nm set_com_err_hook ,
 .Nm reset_com_err_hook ,
 .Nm add_to_error_table ,
-.Nm initialize_error_table_r
+.Nm initialize_error_table_r ,
 .Nm free_error_table ,
 .Nm com_right
 .Nd common error display library
@@ -99,7 +99,7 @@ where
 .Em name
 is the name of the error table.
 .Pp
-If a thread-safe version of the library is needed 
+If a thread-safe version of the library is needed
 .Fn initialize_<name>_error_table_r
 that internally calls
 .Fn initialize_error_table_r
@@ -134,10 +134,11 @@ This routine provides an interface, equivalent to
 which may be used by higher-level variadic functions (functions which
 accept variable numbers of arguments).
 .It Fn error_message "code"
-Returns the character string error message associate with
+Returns the character string error message associated with
 .Fa code .
 If
-.Fa code is associated with an unknown error table, or if
+.Fa code
+is associated with an unknown error table, or if
 .Fa code
 is associated with a known error table but is not in the table, a
 string of the form `Unknown code XXXX NN' is returned, where XXXX is

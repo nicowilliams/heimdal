@@ -30,38 +30,36 @@
 # LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY 
 # OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF 
 # SUCH DAMAGE. 
-#
-# $Id$
-#
 
 name=${1:-KDC}
 log=${2:-messages.log}
-waitfor=${3:-${name} started}
+waitfor="${3:-${name} started}"
 
 t=0
-waitsec=20
+waitsec=65
 
-echo "Waiting for ${name} to start, looking logfile ${log}"
+echo "Waiting for ${name} to start, see logfile ${log}"
 
 while true ; do
-    t=`expr ${t} + 2`
-    sleep 2
-    echo "Have waited $t seconds"
-    if tail -30 ${log} | grep "${waitfor}" > /dev/null; then
+    if grep "${waitfor}" ${log} > /dev/null; then
 	break
     fi
-    if tail -30 ${log} | grep "No sockets" ; then
+    if grep "No sockets" ${log} ; then
        echo "The ${name} failed to bind to any sockets, another ${name} running ?"
        exit 1
     fi
-    if tail -30 ${log} | grep "bind" | grep "Operation not permitted" ; then
+    if grep "bind" ${log} | grep "Operation not permitted" ; then
        echo "The ${name} failed to bind to any sockets, another ${name} running ?"
        exit 1
     fi
     if [ "$t" -gt $waitsec ]; then
-       echo "Waited for $waitsec for the ${name} to start, and it didnt happen"
+       echo "Error: ${name} failed to start after $waitsec seconds"
        exit 2
     fi
+
+    t=`expr ${t} + 2`
+    sleep 2
+    echo "Have waited $t seconds"
 done
 
 exit 0

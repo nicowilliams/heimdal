@@ -37,8 +37,6 @@
 #include <stdio.h>
 #include "windlocl.h"
 
-RCSID("$Id$");
-
 static uint32_t positives[] = {
     0x00A0, 0x3000,
     0x0080, 0x009F, 0x206A, 0x206F, 0xFEFF,
@@ -129,7 +127,7 @@ main(void)
 		    positives[i]);
 	    ++failures;
 	}
-	
+
     for (i = 0; i < sizeof(negatives)/sizeof(negatives[0]); ++i)
 	if (_wind_stringprep_error(negatives[i], WIND_PROFILE_NAME)) {
 	    printf ("code-point 0x%x not marked as non-prohibited\n",

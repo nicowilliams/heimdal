@@ -46,6 +46,9 @@
 #define AFSCALL_SETPAG 21
 
 #ifndef _VICEIOCTL
+#ifdef __GNU__
+#define _IOT_ViceIoctl _IOT(_IOTS(caddr_t), 2, _IOTS(short), 2, 0, 0)
+#endif
 #define _VICEIOCTL(id)  ((unsigned int ) _IOW('V', id, struct ViceIoctl))
 #define _AFSCIOCTL(id)  ((unsigned int ) _IOW('C', id, struct ViceIoctl))
 #endif /* _VICEIOCTL */
@@ -89,8 +92,8 @@
 
 struct ViceIoctl {
   caddr_t in, out;
-  short in_size;
-  short out_size;
+  unsigned short in_size;
+  unsigned short out_size;
 };
 
 struct ClearToken {

@@ -31,7 +31,7 @@
  * SUCH DAMAGE.
  */
 
-#include <krb5_locl.h>
+#include "krb5_locl.h"
 
 static krb5_error_code
 verify_checksum(krb5_context context,
@@ -41,7 +41,7 @@ verify_checksum(krb5_context context,
     krb5_error_code ret;
     u_char *buf;
     size_t buf_size;
-    size_t len;
+    size_t len = 0;
     Checksum c;
     krb5_crypto crypto;
     krb5_keyblock *key;
@@ -80,7 +80,7 @@ out:
     return ret;
 }
 
-krb5_error_code KRB5_LIB_FUNCTION
+KRB5_LIB_FUNCTION krb5_error_code KRB5_LIB_CALL
 krb5_rd_safe(krb5_context context,
 	     krb5_auth_context auth_context,
 	     const krb5_data *inbuf,
@@ -159,7 +159,7 @@ krb5_rd_safe(krb5_context context,
 
 	if (safe.safe_body.timestamp == NULL ||
 	    safe.safe_body.usec      == NULL ||
-	    abs(*safe.safe_body.timestamp - sec) > context->max_skew) {
+	    krb5_time_abs(*safe.safe_body.timestamp, sec) > context->max_skew) {
 	    ret = KRB5KRB_AP_ERR_SKEW;
 	    krb5_clear_error_message (context);
 	    goto failure;
@@ -191,8 +191,7 @@ krb5_rd_safe(krb5_context context,
     outbuf->length = safe.safe_body.user_data.length;
     outbuf->data   = malloc(outbuf->length);
     if (outbuf->data == NULL && outbuf->length != 0) {
-	ret = ENOMEM;
-	krb5_set_error_message(context, ret, N_("malloc: out of memory", ""));
+	ret = krb5_enomem(context);
 	krb5_data_zero(outbuf);
 	goto failure;
     }

@@ -57,9 +57,6 @@ case "$host" in
 esac
 
 AH_BOTTOM([
-#if defined(ENCRYPTION) && !defined(AUTHENTICATION)
-#define AUTHENTICATION 1
-#endif
 
 /* Set this to the default system lead string for telnetd 
  * can contain %-escapes: %s=sysname, %m=machine, %r=os-release

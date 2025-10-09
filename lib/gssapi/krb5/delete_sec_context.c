@@ -33,7 +33,7 @@
 
 #include "gsskrb5_locl.h"
 
-OM_uint32
+OM_uint32 GSSAPI_CALLCONV
 _gsskrb5_delete_sec_context(OM_uint32 * minor_status,
 			    gss_ctx_id_t * context_handle,
 			    gss_buffer_t output_token)
@@ -59,6 +59,7 @@ _gsskrb5_delete_sec_context(OM_uint32 * minor_status,
     HEIMDAL_MUTEX_lock(&ctx->ctx_id_mutex);
 
     krb5_auth_con_free (context, ctx->auth_context);
+    krb5_auth_con_free (context, ctx->deleg_auth_context);
     if (ctx->kcred)
 	krb5_free_creds(context, ctx->kcred);
     if(ctx->source)
@@ -74,6 +75,8 @@ _gsskrb5_delete_sec_context(OM_uint32 * minor_status,
     krb5_data_free(&ctx->fwd_data);
     if (ctx->crypto)
     	krb5_crypto_destroy(context, ctx->crypto);
+    if (ctx->ccache && (ctx->more_flags & CLOSE_CCACHE))
+	krb5_cc_close(context, ctx->ccache);
 
     HEIMDAL_MUTEX_unlock(&ctx->ctx_id_mutex);
     HEIMDAL_MUTEX_destroy(&ctx->ctx_id_mutex);

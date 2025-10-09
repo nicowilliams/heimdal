@@ -40,9 +40,11 @@ struct krb5_storage_data {
     ssize_t (*store)(struct krb5_storage_data*, const void*, size_t);
     off_t (*seek)(struct krb5_storage_data*, off_t, int);
     int (*trunc)(struct krb5_storage_data*, off_t);
+    int (*fsync)(struct krb5_storage_data*);
     void (*free)(struct krb5_storage_data*);
     krb5_flags flags;
     int eof_code;
+    size_t max_alloc;
 };
 
 #endif /* __store_int_h__ */

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2008 Kungliga Tekniska Högskolan
+ * Copyright (c) 2008 - 2010 Kungliga Tekniska Högskolan
  * (Royal Institute of Technology, Stockholm, Sweden).
  * All rights reserved.
  *
@@ -32,118 +32,148 @@
  */
 
 #include "kuser_locl.h"
+#include "heimtools-commands.h"
 
-RCSID("$Id$");
+#ifdef HAVE_READLINE
+char *readline(const char *prompt);
+#else
+
+static char *
+readline(const char *prompt)
+{
+    char buf[BUFSIZ];
+    printf ("%s", prompt);
+    fflush (stdout);
+    if(fgets(buf, sizeof(buf), stdin) == NULL)
+	return NULL;
+    buf[strcspn(buf, "\r\n")] = '\0';
+    return strdup(buf);
+}
+
+#endif
 
 /*
  *
  */
 
-static int version_flag		= 0;
-static int help_flag		= 0;
-static char *cache;
-static char *principal;
-static char *type;
-
-static struct getargs args[] = {
-    { "type",			't', arg_string, &type,
-      NP_("type of credential cache", ""), "type" },
-    { "cache",			'c', arg_string, &cache,
-      NP_("name of credential cache", ""), "cache" },
-    { "principal",		'p', arg_string, &principal,
-      NP_("name of principal", ""), "principal" },
-    { "version", 		0,   arg_flag, &version_flag,
-      NP_("print version", ""), NULL },
-    { "help",			0,   arg_flag, &help_flag, NULL, NULL}
-};
-
-static void
-usage (int ret)
-{
-    arg_printusage (args, sizeof(args)/sizeof(*args), NULL, "");
-    exit (ret);
-}
-
 int
-main (int argc, char **argv)
+kswitch(struct kswitch_options *opt, int argc, char **argv)
 {
-    krb5_context context;
     krb5_error_code ret;
-    krb5_ccache id;
-    int optidx = 0;
+    krb5_ccache id = NULL;
 
-    setprogname (argv[0]);
-
-    setlocale (LC_ALL, "");
-    bindtextdomain ("heimdal_kuser", HEIMDAL_LOCALEDIR);
-    textdomain("heimdal_kuser");
-
-    ret = krb5_init_context (&context);
-    if (ret == KRB5_CONFIG_BADFORMAT)
-	errx (1, "krb5_init_context failed to parse configuration file");
-    else if (ret)
-	errx(1, "krb5_init_context failed: %d", ret);
-
-    if(getarg(args, sizeof(args) / sizeof(args[0]), argc, argv, &optidx))
-	usage(1);
-
-    if (help_flag)
-	usage (0);
-
-    if(version_flag){
-	print_version(NULL);
-	exit(0);
-    }
-
-    argc -= optidx;
-    argv += optidx;
-
-    if (argc != 0)
-	usage (1);
-
-    if (cache && principal)
-	krb5_errx(context, 1,
+    if (opt->cache_string && opt->principal_string)
+	krb5_errx(heimtools_context, 1,
 		  N_("Both --cache and --principal given, choose one", ""));
 
-    if (principal) {
+    if (opt->interactive_flag) {
+	krb5_cc_cache_cursor cursor;
+	krb5_ccache *ids = NULL;
+	size_t i, len = 0;
+	char *name;
+	rtbl_t ct;
+
+	ct = rtbl_create();
+
+	rtbl_add_column_by_id(ct, 0, "#", 0);
+	rtbl_add_column_by_id(ct, 1, "Principal", 0);
+	rtbl_set_column_affix_by_id(ct, 1, "    ", "");
+        rtbl_add_column_by_id(ct, 2, "Type", 0);
+        rtbl_set_column_affix_by_id(ct, 2, "  ", "");
+
+	ret = krb5_cc_cache_get_first(heimtools_context, NULL, &cursor);
+	if (ret)
+	    krb5_err(heimtools_context, 1, ret, "krb5_cc_cache_get_first");
+
+	while (krb5_cc_cache_next(heimtools_context, cursor, &id) == 0) {
+	    krb5_principal p = NULL;
+	    char num[10];
+
+	    ret = krb5_cc_get_principal(heimtools_context, id, &p);
+            if (ret == 0)
+                ret = krb5_unparse_name(heimtools_context, p, &name);
+	    if (ret) {
+                krb5_cc_close(heimtools_context, id);
+		continue;
+            }
+
+	    krb5_free_principal(heimtools_context, p);
+
+	    snprintf(num, sizeof(num), "%d", (int)(len + 1));
+	    rtbl_add_column_entry_by_id(ct, 0, num);
+	    rtbl_add_column_entry_by_id(ct, 1, name);
+            rtbl_add_column_entry_by_id(ct, 2, krb5_cc_get_type(heimtools_context, id));
+	    free(name);
+
+	    ids = erealloc(ids, (len + 1) * sizeof(ids[0]));
+	    ids[len] = id;
+	    len++;
+	}
+	krb5_cc_cache_end_seq_get(heimtools_context, cursor);
+
+	rtbl_format(ct, stdout);
+	rtbl_destroy(ct);
+
+	name = readline("Select number: ");
+	if (name) {
+	    i = atoi(name);
+	    if (i == 0)
+		krb5_errx(heimtools_context, 1, "Cache number '%s' is invalid", name);
+	    if (i > len)
+		krb5_errx(heimtools_context, 1, "Cache number '%s' is too large", name);
+
+	    id = ids[i - 1];
+	    ids[i - 1] = NULL;
+	    free(name);
+	} else
+	    krb5_errx(heimtools_context, 1, "No cache selected");
+	for (i = 0; i < len; i++)
+	    if (ids[i])
+		krb5_cc_close(heimtools_context, ids[i]);
+	free(ids);
+    } else if (opt->principal_string) {
 	krb5_principal p;
 
-	ret = krb5_parse_name(context, principal, &p);
+	ret = krb5_parse_name(heimtools_context, opt->principal_string, &p);
 	if (ret)
-	    krb5_err (context, 1, ret, "krb5_parse_name: %s", principal);
+	    krb5_err(heimtools_context, 1, ret, "krb5_parse_name: %s",
+		     opt->principal_string);
 
-	ret = krb5_cc_cache_match(context, p, &id);
+	ret = krb5_cc_cache_match(heimtools_context, p, &id);
 	if (ret)
-	    krb5_err (context, 1, ret,
-		      N_("Did not find principal: %s", ""), principal);
+	    krb5_err(heimtools_context, 1, ret,
+		     N_("Did not find principal: %s", ""),
+		     opt->principal_string);
 
-	krb5_free_principal(context, p);
+	krb5_free_principal(heimtools_context, p);
 
-    } else if (cache) {
+    } else if (opt->cache_string) {
 	const krb5_cc_ops *ops;
 	char *str;
+	int aret;
 
-	ops = krb5_cc_get_prefix_ops(context, type);
+	ops = krb5_cc_get_prefix_ops(heimtools_context, opt->type_string);
 	if (ops == NULL)
-	    krb5_err (context, 1, 0, "krb5_cc_get_prefix_ops");
-	
-	asprintf(&str, "%s:%s", ops->prefix, cache);
-	if (str == NULL)
-	    krb5_errx(context, 1, N_("out of memory", ""));
-	
-	ret = krb5_cc_resolve(context, str, &id);
+	    krb5_err(heimtools_context, 1, 0, "krb5_cc_get_prefix_ops");
+
+	aret = asprintf(&str, "%s:%s", ops->prefix, opt->cache_string);
+	if (aret == -1)
+	    krb5_errx(heimtools_context, 1, N_("out of memory", ""));
+
+	ret = krb5_cc_resolve(heimtools_context, str, &id);
 	if (ret)
-	    krb5_err (context, 1, ret, "krb5_cc_resolve: %s", str);
-	
+	    krb5_err(heimtools_context, 1, ret, "krb5_cc_resolve: %s", str);
+
 	free(str);
-    } else
-	usage(1);
+    } else {
+	krb5_errx(heimtools_context, 1, "missing option for kswitch");
+    }
 
-    ret = krb5_cc_switch(context, id);
+    ret = krb5_cc_switch(heimtools_context, id);
     if (ret)
-	krb5_err (context, 1, ret, "krb5_cc_switch");
+	krb5_err(heimtools_context, 1, ret, "krb5_cc_switch");
 
-    krb5_cc_close(context, id);
+    krb5_cc_close(heimtools_context, id);
 
     return 0;
 }

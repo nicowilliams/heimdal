@@ -34,24 +34,25 @@
 #include "kadmin_locl.h"
 #include "kadmin-commands.h"
 
-RCSID("$Id$");
-
 struct cpw_entry_data {
+    int keepold;
     int random_key;
     int random_password;
     char *password;
     krb5_key_data *key_data;
+    void *kadm_handle;
 };
 
 static int
-set_random_key (krb5_principal principal)
+set_random_key(void *dup_kadm_handle, krb5_principal principal, int keepold)
 {
     krb5_error_code ret;
     int i;
     krb5_keyblock *keys;
     int num_keys;
 
-    ret = kadm5_randkey_principal(kadm_handle, principal, &keys, &num_keys);
+    ret = kadm5_randkey_principal_3(dup_kadm_handle, principal, keepold, 0,
+                                    NULL, &keys, &num_keys);
     if(ret)
 	return ret;
     for(i = 0; i < num_keys; i++)
@@ -61,58 +62,75 @@ set_random_key (krb5_principal principal)
 }
 
 static int
-set_random_password (krb5_principal principal)
+set_random_password(void *dup_kadm_handle,
+                    krb5_principal principal,
+                    int keepold)
 {
     krb5_error_code ret;
     char pw[128];
+    char *princ_name;
 
-    random_password (pw, sizeof(pw));
-    ret = kadm5_chpass_principal(kadm_handle, principal, pw);
-    if (ret == 0) {
-	char *princ_name;
+    ret = krb5_unparse_name(context, principal, &princ_name);
+    if (ret)
+	return ret;
 
-	krb5_unparse_name(context, principal, &princ_name);
-
+    random_password(pw, sizeof(pw));
+    ret = kadm5_chpass_principal_3(dup_kadm_handle, principal, keepold, 0,
+                                   NULL, pw);
+    if (ret == 0)
 	printf ("%s's password set to \"%s\"\n", princ_name, pw);
-	free (princ_name);
-    }
-    memset (pw, 0, sizeof(pw));
+    free(princ_name);
+    memset_s(pw, sizeof(pw), 0, sizeof(pw));
     return ret;
 }
 
 static int
-set_password (krb5_principal principal, char *password)
+set_password(void *dup_kadm_handle,
+             krb5_principal principal,
+             char *password,
+             int keepold)
 {
     krb5_error_code ret = 0;
     char pwbuf[128];
+    int aret;
 
     if(password == NULL) {
 	char *princ_name;
 	char *prompt;
 
-	krb5_unparse_name(context, principal, &princ_name);
-	asprintf(&prompt, "%s's Password: ", princ_name);
+	ret = krb5_unparse_name(context, principal, &princ_name);
+	if (ret)
+	    return ret;
+	aret = asprintf(&prompt, "%s's Password: ", princ_name);
 	free (princ_name);
-	ret = UI_UTIL_read_pw_string(pwbuf, sizeof(pwbuf), prompt, 1);
+	if (aret == -1)
+	    return ENOMEM;
+	ret = UI_UTIL_read_pw_string(pwbuf, sizeof(pwbuf), prompt,
+				     UI_UTIL_FLAG_VERIFY |
+				     UI_UTIL_FLAG_VERIFY_SILENT);
 	free (prompt);
 	if(ret){
-	    return 0; /* XXX error code? */
+            return KRB5_LIBOS_BADPWDMATCH;
 	}
 	password = pwbuf;
     }
     if(ret == 0)
-	ret = kadm5_chpass_principal(kadm_handle, principal, password);
-    memset(pwbuf, 0, sizeof(pwbuf));
+        ret = kadm5_chpass_principal_3(dup_kadm_handle, principal, keepold, 0,
+                                       NULL, password);
+    memset_s(pwbuf, sizeof(pwbuf), 0, sizeof(pwbuf));
     return ret;
 }
 
 static int
-set_key_data (krb5_principal principal, krb5_key_data *key_data)
+set_key_data(void *dup_kadm_handle,
+             krb5_principal principal,
+             krb5_key_data *key_data,
+             int keepold)
 {
     krb5_error_code ret;
 
-    ret = kadm5_chpass_principal_with_key (kadm_handle, principal,
-					   3, key_data);
+    ret = kadm5_chpass_principal_with_key_3(dup_kadm_handle, principal, keepold,
+					    3, key_data);
     return ret;
 }
 
@@ -122,13 +140,13 @@ do_cpw_entry(krb5_principal principal, void *data)
     struct cpw_entry_data *e = data;
 
     if (e->random_key)
-	return set_random_key (principal);
+	return set_random_key(e->kadm_handle, principal, e->keepold);
     else if (e->random_password)
-	return set_random_password (principal);
+	return set_random_password(e->kadm_handle, principal, e->keepold);
     else if (e->key_data)
-	return set_key_data (principal, e->key_data);
+	return set_key_data(e->kadm_handle, principal, e->key_data, e->keepold);
     else
-	return set_password (principal, e->password);
+	return set_password(e->kadm_handle, principal, e->password, e->keepold);
 }
 
 int
@@ -138,12 +156,41 @@ cpw_entry(struct passwd_options *opt, int argc, char **argv)
     int i;
     struct cpw_entry_data data;
     int num;
+    int16_t n_key_data = 0;
     krb5_key_data key_data[3];
 
+    memset(key_data, 0, sizeof(key_data));
+    data.kadm_handle = NULL;
+    ret = kadm5_dup_context(kadm_handle, &data.kadm_handle);
+    if (ret)
+        krb5_err(context, 1, ret, "Could not duplicate kadmin connection");
     data.random_key = opt->random_key_flag;
     data.random_password = opt->random_password_flag;
     data.password = opt->password_string;
     data.key_data	 = NULL;
+
+    /*
+     * --keepold is the the default, and it should mean "prune all old keys not
+     * needed to decrypt extant tickets".
+     */
+    num = 0;
+    data.keepold = 1;
+    if (opt->keepold_flag) {
+        data.keepold = 1;
+        num++;
+    }
+    if (opt->keepallold_flag) {
+        data.keepold = 2;
+        num++;
+    }
+    if (opt->pruneall_flag) {
+        data.keepold = 0;
+        num++;
+    }
+    if (num > 1) {
+        fprintf(stderr, "use only one of --keepold, --keepallold, and --pruneall\n");
+        return 1;
+    }
 
     num = 0;
     if (data.random_key)
@@ -160,7 +207,7 @@ cpw_entry(struct passwd_options *opt, int argc, char **argv)
 		"--random-key, --random-password, --password, --key\n");
 	return 1;
     }
-	
+
     if (opt->key_string) {
 	const char *error;
 
@@ -169,16 +216,17 @@ cpw_entry(struct passwd_options *opt, int argc, char **argv)
 		     opt->key_string, error);
 	    return 1;
 	}
+        n_key_data = sizeof(key_data)/sizeof(key_data[0]);
 	data.key_data = key_data;
     }
 
     for(i = 0; i < argc; i++)
 	ret = foreach_principal(argv[i], do_cpw_entry, "cpw", &data);
 
-    if (data.key_data) {
-	int16_t dummy;
-	kadm5_free_key_data (kadm_handle, &dummy, key_data);
-    }
+    kadm5_destroy(data.kadm_handle);
+
+    if (opt->key_string)
+        kadm5_free_key_data(kadm_handle, &n_key_data, key_data);
 
     return ret != 0;
 }

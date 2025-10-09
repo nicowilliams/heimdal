@@ -53,6 +53,11 @@ struct mbuf;
 
 #include <ifaddrs.h>
 
+#ifdef HAVE_IFADDRS_H
+ROKEN_LIB_FUNCTION void ROKEN_LIB_CALL
+rk_freeifaddrs(struct ifaddrs *ifp);
+#endif
+
 #ifdef __hpux
 #define lifconf if_laddrconf
 #define lifc_len iflc_len
@@ -498,7 +503,7 @@ nl_open(void)
 }
 
 /* ====================================================================== */
-int ROKEN_LIB_FUNCTION
+ROKEN_LIB_FUNCTION int ROKEN_LIB_CALL
 rk_getifaddrs(struct ifaddrs **ifap)
 {
   int sd;
@@ -632,7 +637,7 @@ rk_getifaddrs(struct ifaddrs **ifap)
 	default:
 	  continue;
 	}
-	
+
 	if (!build){
 	  if (max_ifindex < nlm_index)
 	    max_ifindex = nlm_index;
@@ -759,7 +764,7 @@ rk_getifaddrs(struct ifaddrs **ifap)
 	  }
 	  if (ifamap.address_len != ifamap.local_len ||
 	      (ifamap.address != NULL &&
-	       memcmp(ifamap.address, ifamap.local, ifamap.address_len))) {
+	       memcmp(ifamap.address, ifamap.local, ifamap.address_len) != 0)) {
 	    /* p2p; address is peer and local is ours */
 	    ifamap.broadcast = ifamap.address;
 	    ifamap.broadcast_len = ifamap.address_len;
@@ -851,6 +856,13 @@ rk_getifaddrs(struct ifaddrs **ifap)
   free_nlmsglist(nlmsg_list);
   nl_close(sd);
   return 0;
+}
+
+ROKEN_LIB_FUNCTION void ROKEN_LIB_CALL
+rk_freeifaddrs(struct ifaddrs *ifp)
+{
+    /* AF_NETLINK method uses a single allocation for all interfaces */
+    free(ifp);
 }
 
 #else /* !AF_NETLINK */
@@ -986,7 +998,7 @@ getifaddrs2(struct ifaddrs **ifap,
 	(*end)->ifa_data = NULL;
 
 	end = &(*end)->ifa_next;
-	
+
     }
     *ifap = start;
     close(fd);
@@ -1032,7 +1044,7 @@ getlifaddrs2(struct ifaddrs **ifap,
 	    goto error_out;
 	}
 #ifndef __hpux
-	ifconf.lifc_family = AF_UNSPEC;
+	ifconf.lifc_family = af;
 	ifconf.lifc_flags  = 0;
 #endif
 	ifconf.lifc_len    = buf_size;
@@ -1132,7 +1144,7 @@ getlifaddrs2(struct ifaddrs **ifap,
 	(*end)->ifa_data = NULL;
 
 	end = &(*end)->ifa_next;
-	
+
     }
     *ifap = start;
     close(fd);
@@ -1147,7 +1159,28 @@ getlifaddrs2(struct ifaddrs **ifap,
 }
 #endif /* defined(HAVE_IPV6) && defined(SIOCGLIFCONF) && defined(SIOCGLIFFLAGS) */
 
-int ROKEN_LIB_FUNCTION
+/**
+ * Join two struct ifaddrs lists by appending supp to base.
+ * Either may be NULL. The new list head (usually base) will be
+ * returned.
+ */
+static struct ifaddrs *
+append_ifaddrs(struct ifaddrs *base, struct ifaddrs *supp) {
+    if (!base)
+	return supp;
+
+    if (!supp)
+	return base;
+
+    while (base->ifa_next)
+	base = base->ifa_next;
+
+    base->ifa_next = supp;
+
+    return base;
+}
+
+ROKEN_LIB_FUNCTION int ROKEN_LIB_CALL
 rk_getifaddrs(struct ifaddrs **ifap)
 {
     int ret = -1;
@@ -1158,9 +1191,43 @@ rk_getifaddrs(struct ifaddrs **ifap)
 			   sizeof(struct in6_ifreq));
 #endif
 #if defined(HAVE_IPV6) && defined(SIOCGLIFCONF) && defined(SIOCGLIFFLAGS)
-    if (ret)
-	ret = getlifaddrs2 (ifap, AF_INET6, SIOCGLIFCONF, SIOCGLIFFLAGS,
+    /* Do IPv6 and IPv4 queries separately then join the result.
+     *
+     * HP-UX only returns IPv6 addresses using SIOCGLIFCONF,
+     * SIOCGIFCONF has to be used for IPv4 addresses. The result is then
+     * merged.
+     *
+     * Solaris needs particular care, because a SIOCGLIFCONF lookup using
+     * AF_UNSPEC can fail in a Zone requiring an AF_INET lookup, so we just
+     * do them separately the same as for HP-UX. See
+     * http://repo.or.cz/w/heimdal.git/commitdiff/76afc31e9ba2f37e64c70adc006ade9e37e9ef73
+     */
+    if (ret) {
+	int v6err, v4err;
+	struct ifaddrs *v6addrs, *v4addrs;
+
+	v6err = getlifaddrs2 (&v6addrs, AF_INET6, SIOCGLIFCONF, SIOCGLIFFLAGS,
 			    sizeof(struct lifreq));
+	v4err = getifaddrs2 (&v4addrs, AF_INET, SIOCGIFCONF, SIOCGIFFLAGS,
+			    sizeof(struct ifreq));
+	if (v6err)
+	    v6addrs = NULL;
+	if (v4err)
+	    v4addrs = NULL;
+
+	if (v6addrs) {
+	    if (v4addrs)
+		*ifap = append_ifaddrs(v6addrs, v4addrs);
+	    else
+		*ifap = v6addrs;
+	} else if (v4addrs) {
+	    *ifap = v4addrs;
+	} else {
+	    *ifap = NULL;
+	}
+
+	ret = (v6err || v4err) ? -1 : 0;
+    }
 #endif
 #if defined(HAVE_IPV6) && defined(SIOCGIFCONF)
     if (ret)
@@ -1175,9 +1242,7 @@ rk_getifaddrs(struct ifaddrs **ifap)
     return ret;
 }
 
-#endif /* !AF_NETLINK */
-
-void ROKEN_LIB_FUNCTION
+ROKEN_LIB_FUNCTION void ROKEN_LIB_CALL
 rk_freeifaddrs(struct ifaddrs *ifp)
 {
     struct ifaddrs *p, *q;
@@ -1197,6 +1262,8 @@ rk_freeifaddrs(struct ifaddrs *ifp)
 	free(q);
     }
 }
+
+#endif /* !AF_NETLINK */
 
 #ifdef TEST
 

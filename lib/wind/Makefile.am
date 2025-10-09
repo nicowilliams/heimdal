@@ -42,6 +42,8 @@ $(code:.c=.lo): $(built)
 dist_libwind_la_SOURCES = $(code) $(built)
 nodist_libwind_la_SOURCES = wind_err.c wind_err.h
 
+libwind_la_DEPENDENCIES = version-script.map
+
 dist_include_HEADERS = wind.h
 nodist_include_HEADERS = wind_err.h
 
@@ -50,6 +52,7 @@ $(libwind_la_OBJECTS): wind_err.h
 libwind_la_LDFLAGS = -version-info 0:0:0
 
 libwind_la_LIBADD = \
+	$(LIB_roken) \
 	$(LIB_com_err)
 
 if versionscript
@@ -86,27 +89,31 @@ idn_lookup_SOURCES = idn-lookup.c
 
 LDADD = libwind.la $(LIB_roken)
 
-PYTHON = python
+if !MAINTAINER_MODE
+skip_python = test -f $@ ||
+endif
 
 map_table.h map_table.c: rfc3454.txt gen-map.py stringprep.py
-	$(PYTHON) $(srcdir)/gen-map.py $(srcdir)/rfc3454.txt $(builddir)
+	$(skip_python) $(PYTHON) $(srcdir)/gen-map.py $(srcdir)/rfc3454.txt $(builddir)
 
 errorlist_table.h errorlist_table.c: rfc3454.txt gen-errorlist.py stringprep.py
-	$(PYTHON) $(srcdir)/gen-errorlist.py $(srcdir)/rfc3454.txt $(builddir)
+	$(skip_python) $(PYTHON) $(srcdir)/gen-errorlist.py $(srcdir)/rfc3454.txt $(builddir)
 
 normalize_table.h normalize_table.c: UnicodeData.txt CompositionExclusions-3.2.0.txt gen-normalize.py
-	$(PYTHON) $(srcdir)/gen-normalize.py $(srcdir)/UnicodeData.txt $(srcdir)/CompositionExclusions-3.2.0.txt $(builddir)
+	$(skip_python) $(PYTHON) $(srcdir)/gen-normalize.py $(srcdir)/UnicodeData.txt $(srcdir)/CompositionExclusions-3.2.0.txt $(builddir)
 
 combining_table.h combining_table.c: UnicodeData.txt gen-combining.py
-	$(PYTHON) $(srcdir)/gen-combining.py $(srcdir)/UnicodeData.txt $(builddir)
+	$(skip_python) $(PYTHON) $(srcdir)/gen-combining.py $(srcdir)/UnicodeData.txt $(builddir)
 
 bidi_table.h bidi_table.c: rfc3454.txt gen-bidi.py
-	$(PYTHON) $(srcdir)/gen-bidi.py $(srcdir)/rfc3454.txt $(builddir)
+	$(skip_python) $(PYTHON) $(srcdir)/gen-bidi.py $(srcdir)/rfc3454.txt $(builddir)
 
 punycode_examples.h punycode_examples.c: gen-punycode-examples.py rfc3492.txt
 	$(PYTHON) $(srcdir)/gen-punycode-examples.py $(srcdir)/rfc3492.txt $(builddir)
 
 EXTRA_DIST = \
+	NTMakefile \
+	libwind-exports.def \
 	CompositionExclusions-3.2.0.txt \
 	DerivedNormalizationProps.txt \
 	NormalizationCorrections.txt \

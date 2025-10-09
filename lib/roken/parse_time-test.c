@@ -40,8 +40,8 @@
 
 static struct testcase {
     size_t size;
-    time_t val;
-    char *str;
+    int    val;
+    char  *str;
 } tests[] = {
     { 8, 1,		"1 second" },
     { 17, 61,		"1 minute 1 second" },
@@ -49,7 +49,9 @@ static struct testcase {
     { 8, 60,		"1 minute" },
     { 6, 3600,	 	"1 hour" },
     { 15, 3601,	 	"1 hour 1 second" },
-    { 16, 3602,	 	"1 hour 2 seconds" }
+    { 16, 3602,	 	"1 hour 2 seconds" },
+    { 9, 300,	 	"5 minutes" },
+    { 1, 0,	 	"0" },
 };
 
 int
@@ -66,7 +68,7 @@ main(int argc, char **argv)
 	if  (sz != tests[i].size)
 	    errx(1, "sz (%lu) != tests[%d].size (%lu)",
 		 (unsigned long)sz, i, (unsigned long)tests[i].size);
-	
+
 	for (buf_sz = 0; buf_sz < tests[i].size + 2; buf_sz++) {
 
 	    buf = rk_test_mem_alloc(RK_TM_OVERRUN, "overrun",
@@ -85,18 +87,19 @@ main(int argc, char **argv)
 
 	    buf = rk_test_mem_alloc(RK_TM_UNDERRUN, "underrun",
 				    NULL, tests[i].size);
-	    sz = unparse_time(tests[i].val, buf, buf_sz);
+	    sz = unparse_time(tests[i].val, buf, min(buf_sz, tests[i].size));
 	    if (sz != tests[i].size)
 		errx(1, "sz (%lu) != tests[%d].size (%lu) with insize %lu",
 		     (unsigned long)sz, i,
 		     (unsigned long)tests[i].size,
 		     (unsigned long)buf_sz);
-	    if (buf_sz > 0 && strncmp(buf, tests[i].str, buf_sz - 1) != 0)
+	    if (buf_sz > 0 && strncmp(buf, tests[i].str, min(buf_sz, tests[i].size) - 1) != 0)
 		errx(1, "test %i wrong result %s vs %s", i, buf, tests[i].str);
-	    if (buf_sz > 0 && buf[buf_sz - 1] != '\0')
+	    if (buf_sz > 0 && buf[min(buf_sz, tests[i].size) - 1] != '\0')
 		errx(1, "test %i not zero terminated", i);
 	    rk_test_mem_free("underrun");
 	}
+
 	buf = rk_test_mem_alloc(RK_TM_OVERRUN, "overrun",
 				tests[i].str, tests[i].size + 1);
 	j = parse_time(buf, "s");
@@ -110,6 +113,7 @@ main(int argc, char **argv)
 	if (j != tests[i].val)
 	    errx(1, "parse_time failed for test %d", i);
 	rk_test_mem_free("underrun");
+
     }
     return 0;
 }

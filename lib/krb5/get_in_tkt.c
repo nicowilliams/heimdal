@@ -31,7 +31,7 @@
  * SUCH DAMAGE.
  */
 
-#define KRB5_DEPRECATED
+#define KRB5_DEPRECATED_FUNCTION(x)
 
 #include "krb5_locl.h"
 
@@ -44,7 +44,7 @@ make_pa_enc_timestamp(krb5_context context, PA_DATA *pa,
     PA_ENC_TS_ENC p;
     unsigned char *buf;
     size_t buf_size;
-    size_t len;
+    size_t len = 0;
     EncryptedData encdata;
     krb5_error_code ret;
     int32_t usec;
@@ -76,7 +76,7 @@ make_pa_enc_timestamp(krb5_context context, PA_DATA *pa,
     krb5_crypto_destroy(context, crypto);
     if (ret)
 	return ret;
-		
+
     ASN1_MALLOC_ENCODE(EncryptedData, buf, buf_size, &encdata, &len, ret);
     free_EncryptedData(&encdata);
     if (ret)
@@ -103,7 +103,7 @@ add_padata(krb5_context context,
     PA_DATA *pa2;
     krb5_salt salt2;
     krb5_enctype *ep;
-    int i;
+    size_t i;
 
     if(salt == NULL) {
 	/* default to standard salt */
@@ -119,10 +119,8 @@ add_padata(krb5_context context,
 	    netypes++;
     }
     pa2 = realloc (md->val, (md->len + netypes) * sizeof(*md->val));
-    if (pa2 == NULL) {
-	krb5_set_error_message(context, ENOMEM, N_("malloc: out of memory", ""));
-	return ENOMEM;
-    }
+    if (pa2 == NULL)
+	return krb5_enomem(context);
     md->val = pa2;
 
     for (i = 0; i < netypes; ++i) {
@@ -166,14 +164,12 @@ init_as_req (krb5_context context,
     a->req_body.kdc_options = opts;
     a->req_body.cname = malloc(sizeof(*a->req_body.cname));
     if (a->req_body.cname == NULL) {
-	ret = ENOMEM;
-	krb5_set_error_message(context, ret, N_("malloc: out of memory", ""));
+	ret = krb5_enomem(context);
 	goto fail;
     }
     a->req_body.sname = malloc(sizeof(*a->req_body.sname));
     if (a->req_body.sname == NULL) {
-	ret = ENOMEM;
-	krb5_set_error_message(context, ret, N_("malloc: out of memory", ""));
+	ret = krb5_enomem(context);
 	goto fail;
     }
     ret = _krb5_principal2principalname (a->req_body.cname, creds->client);
@@ -189,8 +185,7 @@ init_as_req (krb5_context context,
     if(creds->times.starttime) {
 	a->req_body.from = malloc(sizeof(*a->req_body.from));
 	if (a->req_body.from == NULL) {
-	    ret = ENOMEM;
-	    krb5_set_error_message(context, ret, N_("malloc: out of memory", ""));
+	    ret = krb5_enomem(context);
 	    goto fail;
 	}
 	*a->req_body.from = creds->times.starttime;
@@ -202,14 +197,14 @@ init_as_req (krb5_context context,
     if(creds->times.renew_till){
 	a->req_body.rtime = malloc(sizeof(*a->req_body.rtime));
 	if (a->req_body.rtime == NULL) {
-	    ret = ENOMEM;
-	    krb5_set_error_message(context, ret, N_("malloc: out of memory", ""));
+	    ret = krb5_enomem(context);
 	    goto fail;
 	}
 	*a->req_body.rtime = creds->times.renew_till;
     }
     a->req_body.nonce = nonce;
-    ret = krb5_init_etype (context,
+    ret = _krb5_init_etype(context,
+			   KRB5_PDU_AS_REQUEST,
 			   &a->req_body.etype.len,
 			   &a->req_body.etype.val,
 			   etypes);
@@ -225,8 +220,7 @@ init_as_req (krb5_context context,
     } else {
 	a->req_body.addresses = malloc(sizeof(*a->req_body.addresses));
 	if (a->req_body.addresses == NULL) {
-	    ret = ENOMEM;
-	    krb5_set_error_message(context, ret, N_("malloc: out of memory", ""));
+	    ret = krb5_enomem(context);
 	    goto fail;
 	}
 
@@ -247,18 +241,17 @@ init_as_req (krb5_context context,
     a->req_body.additional_tickets = NULL;
 
     if(preauth != NULL) {
-	int i;
+	size_t i;
 	ALLOC(a->padata, 1);
 	if(a->padata == NULL) {
-	    ret = ENOMEM;
-	    krb5_set_error_message(context, ret, N_("malloc: out of memory", ""));
+	    ret = krb5_enomem(context);
 	    goto fail;
 	}
 	a->padata->val = NULL;
 	a->padata->len = 0;
 	for(i = 0; i < preauth->len; i++) {
 	    if(preauth->val[i].type == KRB5_PADATA_ENC_TIMESTAMP){
-		int j;
+		size_t j;
 
 		for(j = 0; j < preauth->val[i].info.len; j++) {
 		    krb5_salt *sp = &salt;
@@ -289,8 +282,7 @@ init_as_req (krb5_context context,
     else if (*ptypes ==  KRB5_PADATA_ENC_TIMESTAMP) {
 	ALLOC(a->padata, 1);
 	if (a->padata == NULL) {
-	    ret = ENOMEM;
-	    krb5_set_error_message(context, ret, N_("malloc: out of memory", ""));
+	    ret = krb5_enomem(context);
 	    goto fail;
 	}
 	a->padata->len = 0;
@@ -300,7 +292,7 @@ init_as_req (krb5_context context,
 	add_padata(context, a->padata, creds->client,
 		   key_proc, keyseed, a->req_body.etype.val,
 		   a->req_body.etype.len, NULL);
-	
+
 	/* make a v4 salted pa-data */
 	salt.salttype = KRB5_PW_SALT;
 	krb5_data_zero(&salt.saltvalue);
@@ -327,11 +319,13 @@ set_ptypes(krb5_context context,
 	   krb5_preauthdata **preauth)
 {
     static krb5_preauthdata preauth2;
-    static krb5_preauthtype ptypes2[] = { KRB5_PADATA_ENC_TIMESTAMP, KRB5_PADATA_NONE };
+    static const krb5_preauthtype ptypes2[] = {
+	    KRB5_PADATA_ENC_TIMESTAMP, KRB5_PADATA_NONE
+    };
 
     if(error->e_data) {
 	METHOD_DATA md;
-	int i;
+	size_t i;
 	decode_METHOD_DATA(error->e_data->data,
 			   error->e_data->length,
 			   &md,
@@ -361,7 +355,7 @@ set_ptypes(krb5_context context,
     return(1);
 }
 
-krb5_error_code KRB5_LIB_FUNCTION
+KRB5_LIB_FUNCTION krb5_error_code KRB5_LIB_CALL
 krb5_get_in_cred(krb5_context context,
 		 krb5_flags options,
 		 const krb5_addresses *addrs,
@@ -374,13 +368,13 @@ krb5_get_in_cred(krb5_context context,
 		 krb5_const_pointer decryptarg,
 		 krb5_creds *creds,
 		 krb5_kdc_rep *ret_as_reply)
-    KRB5_DEPRECATED
+    KRB5_DEPRECATED_FUNCTION("Use X instead")
 {
     krb5_error_code ret;
     AS_REQ a;
     krb5_kdc_rep rep;
     krb5_data req, resp;
-    size_t len;
+    size_t len = 0;
     krb5_salt salt;
     krb5_keyblock *key;
     size_t size;
@@ -446,9 +440,6 @@ krb5_get_in_cred(krb5_context context,
                    one more try */
 		if (!ptypes && !preauth
 		    && ret == KRB5KDC_ERR_PREAUTH_REQUIRED
-#if 0
-			|| ret == KRB5KDC_ERR_BADOPTION
-#endif
 		    && set_ptypes(context, &error, &ptypes, &my_preauth)) {
 		    done = 0;
 		    preauth = my_preauth;
@@ -481,14 +472,14 @@ krb5_get_in_cred(krb5_context context,
 	}
     }
     if(pa) {
-	salt.salttype = pa->padata_type;
+	salt.salttype = (krb5_salttype)pa->padata_type;
 	salt.saltvalue = pa->padata_value;
-	
+
 	ret = (*key_proc)(context, etype, salt, keyseed, &key);
     } else {
 	/* make a v5 salted pa-data */
 	ret = krb5_get_pw_salt (context, creds->client, &salt);
-	
+
 	if (ret)
 	    goto out;
 	ret = (*key_proc)(context, etype, salt, keyseed, &key);
@@ -496,11 +487,11 @@ krb5_get_in_cred(krb5_context context,
     }
     if (ret)
 	goto out;
-	
+
     {
-	unsigned flags = 0;
+	unsigned flags = EXTRACT_TICKET_TIMESYNC;
 	if (opts.request_anonymous)
-	    flags |= EXTRACT_TICKET_ALLOW_SERVER_MISMATCH;
+	    flags |= EXTRACT_TICKET_ALLOW_SERVER_MISMATCH | EXTRACT_TICKET_MATCH_ANON;
 
 	ret = _krb5_extract_ticket(context,
 				   &rep,
@@ -511,6 +502,7 @@ krb5_get_in_cred(krb5_context context,
 				   NULL,
 				   nonce,
 				   flags,
+				   NULL,
 				   decrypt_proc,
 				   decryptarg);
     }
@@ -526,7 +518,7 @@ out:
     return ret;
 }
 
-krb5_error_code KRB5_LIB_FUNCTION
+KRB5_LIB_FUNCTION krb5_error_code KRB5_LIB_CALL
 krb5_get_in_tkt(krb5_context context,
 		krb5_flags options,
 		const krb5_addresses *addrs,
@@ -539,7 +531,7 @@ krb5_get_in_tkt(krb5_context context,
 		krb5_creds *creds,
 		krb5_ccache ccache,
 		krb5_kdc_rep *ret_as_reply)
-    KRB5_DEPRECATED
+    KRB5_DEPRECATED_FUNCTION("Use X instead")
 {
     krb5_error_code ret;
 

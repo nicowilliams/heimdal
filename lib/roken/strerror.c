@@ -38,9 +38,9 @@
 #include <errno.h>
 
 extern int sys_nerr;
-extern char *sys_errlist[];
+extern const char *const sys_errlist[];
 
-char* ROKEN_LIB_FUNCTION
+ROKEN_LIB_FUNCTION char* ROKEN_LIB_CALL
 strerror(int eno)
 {
     static char emsg[1024];

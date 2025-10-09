@@ -82,16 +82,10 @@
  * thanks to his work. Thank you Richard.
  */
 
-#ifdef HAVE_CONFIG_H
 #include <config.h>
-RCSID("$Id$");
-#endif
+#include <roken.h>
 
 #define HC_DEPRECATED
-
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
 #include <krb5-types.h>
 #include <assert.h>
 
@@ -183,13 +177,13 @@ static DES_cblock weak_keys[] = {
 int
 DES_is_weak_key(DES_cblock *key)
 {
+    int weak = 0;
     int i;
 
-    for (i = 0; i < sizeof(weak_keys)/sizeof(weak_keys[0]); i++) {
-	if (memcmp(weak_keys[i], key, DES_CBLOCK_LEN) == 0)
-	    return 1;
-    }
-    return 0;
+    for (i = 0; i < sizeof(weak_keys)/sizeof(weak_keys[0]); i++)
+	weak ^= (ct_memcmp(weak_keys[i], key, DES_CBLOCK_LEN) == 0);
+
+    return !!weak;
 }
 
 /**
@@ -231,8 +225,14 @@ DES_set_key_unchecked(DES_cblock *key, DES_key_schedule *ks)
     uint32_t *k = &ks->ks[0];
     int i;
 
-    t1 = (*key)[0] << 24 | (*key)[1] << 16 | (*key)[2] << 8 | (*key)[3];
-    t2 = (*key)[4] << 24 | (*key)[5] << 16 | (*key)[6] << 8 | (*key)[7];
+    t1 = (uint32_t)((*key)[0]) << 24
+       | (uint32_t)((*key)[1]) << 16
+       | (uint32_t)((*key)[2]) << 8
+       | (*key)[3];
+    t2 = (uint32_t)((*key)[4]) << 24
+       | (uint32_t)((*key)[5]) << 16
+       | (uint32_t)((*key)[6]) << 8
+       | (*key)[7];
 
     c =   (pc1_c_3[(t1 >> (5            )) & 0x7] << 3)
 	| (pc1_c_3[(t1 >> (5 + 8        )) & 0x7] << 2)
@@ -255,10 +255,10 @@ DES_set_key_unchecked(DES_cblock *key, DES_key_schedule *ks)
 
     for (i = 0; i < 16; i++) {
 	uint32_t kc, kd;
-	
+
 	ROTATE_LEFT28(c, shifts[i]);
 	ROTATE_LEFT28(d, shifts[i]);
-	
+
 	kc = pc2_c_1[(c >> 22) & 0x3f] |
 	    pc2_c_2[((c >> 16) & 0x30) | ((c >> 15) & 0xf)] |
 	    pc2_c_3[((c >> 9 ) & 0x3c) | ((c >> 8 ) & 0x3)] |
@@ -331,27 +331,27 @@ DES_key_sched(DES_cblock *key, DES_key_schedule *ks)
 static void
 load(const unsigned char *b, uint32_t v[2])
 {
-    v[0] =  b[0] << 24;
-    v[0] |= b[1] << 16;
-    v[0] |= b[2] << 8;
-    v[0] |= b[3] << 0;
-    v[1] =  b[4] << 24;
-    v[1] |= b[5] << 16;
-    v[1] |= b[6] << 8;
-    v[1] |= b[7] << 0;
+    v[0] =  (uint32_t)(b[0]) << 24;
+    v[0] |= (uint32_t)(b[1]) << 16;
+    v[0] |= (uint32_t)(b[2]) << 8;
+    v[0] |= b[3];
+    v[1] =  (uint32_t)(b[4]) << 24;
+    v[1] |= (uint32_t)(b[5]) << 16;
+    v[1] |= (uint32_t)(b[6]) << 8;
+    v[1] |= b[7];
 }
 
 static void
 store(const uint32_t v[2], unsigned char *b)
 {
-    b[0] = (v[0] >> 24) & 0xff;
-    b[1] = (v[0] >> 16) & 0xff;
-    b[2] = (v[0] >>  8) & 0xff;
-    b[3] = (v[0] >>  0) & 0xff;
-    b[4] = (v[1] >> 24) & 0xff;
-    b[5] = (v[1] >> 16) & 0xff;
-    b[6] = (v[1] >>  8) & 0xff;
-    b[7] = (v[1] >>  0) & 0xff;
+    b[0] = (v[0] >> 24) & 0xffU;
+    b[1] = (v[0] >> 16) & 0xffU;
+    b[2] = (v[0] >>  8) & 0xffU;
+    b[3] = (v[0] >>  0) & 0xffU;
+    b[4] = (v[1] >> 24) & 0xffU;
+    b[5] = (v[1] >> 16) & 0xffU;
+    b[6] = (v[1] >>  8) & 0xffU;
+    b[7] = (v[1] >>  0) & 0xffU;
 }
 
 /**
@@ -728,6 +728,7 @@ DES_cfb64_encrypt(const void *in, void *out,
 	int i = *num;
 	unsigned char c;
 
+	memset(tmp, 0, DES_CBLOCK_LEN);
 	while (length > 0) {
 	    if (i == 0) {
 		DES_encrypt(uiv, ks, 1);
@@ -781,7 +782,7 @@ DES_cbc_cksum(const void *in, DES_cblock *output,
 	u[0] ^= uiv[0]; u[1] ^= uiv[1];
 	DES_encrypt(u, ks, 1);
 	uiv[0] = u[0]; uiv[1] = u[1];
-	
+
 	length -= DES_CBLOCK_LEN;
 	input += DES_CBLOCK_LEN;
     }
@@ -850,7 +851,7 @@ DES_string_to_key(const char *str, DES_cblock *key)
 	k[7] ^= 0xF0;
     DES_set_key(key, &ks);
     DES_cbc_cksum(s, key, len, &ks, key);
-    memset(&ks, 0, sizeof(ks));
+    memset_s(&ks, sizeof(ks), 0, sizeof(ks));
     DES_set_odd_parity(key);
     if (DES_is_weak_key(key))
 	k[7] ^= 0xF0;

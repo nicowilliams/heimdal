@@ -33,11 +33,10 @@
 
 #include "ntlm.h"
 
-RCSID("$Id$");
-
-OM_uint32 _gss_ntlm_display_name
+OM_uint32 GSSAPI_CALLCONV
+_gss_ntlm_display_name
            (OM_uint32 * minor_status,
-            const gss_name_t input_name,
+            gss_const_name_t input_name,
             gss_buffer_t output_name_buffer,
             gss_OID * output_name_type
            )
@@ -49,9 +48,9 @@ OM_uint32 _gss_ntlm_display_name
 
     if (output_name_buffer) {
 	ntlm_name n = (ntlm_name)input_name;
-	char *str;
+	char *str = NULL;
 	int len;
-	
+
 	output_name_buffer->length = 0;
 	output_name_buffer->value = NULL;
 
@@ -61,7 +60,7 @@ OM_uint32 _gss_ntlm_display_name
 	}
 
 	len = asprintf(&str, "%s@%s", n->user, n->domain);
-	if (str == NULL) {
+	if (len < 0 || str == NULL) {
 	    *minor_status = ENOMEM;
 	    return GSS_S_FAILURE;
 	}

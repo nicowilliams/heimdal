@@ -35,6 +35,7 @@
 #include <config.h>
 #endif
 
+#include <roken.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -43,10 +44,9 @@
 #include <gssapi_krb5.h>
 #include <gssapi_spnego.h>
 #include <err.h>
-#include <roken.h>
 #include <getarg.h>
 
-RCSID("$Id$");
+static int anon_flag	= 0;
 
 static void
 gss_print_errors (int min_stat)
@@ -101,7 +101,7 @@ acquire_release_loop(gss_name_t name, int counter, gss_cred_usage_t usage)
 	if (maj_stat != GSS_S_COMPLETE)
 	    gss_err(1, min_stat, "aquire %d %d != GSS_S_COMPLETE",
 		    i, (int)maj_stat);
-				
+
 	maj_stat = gss_release_cred(&min_stat, &cred);
 	if (maj_stat != GSS_S_COMPLETE)
 	    gss_err(1, min_stat, "release %d %d != GSS_S_COMPLETE",
@@ -115,6 +115,7 @@ acquire_add_release_add(gss_name_t name, gss_cred_usage_t usage)
 {
     OM_uint32 maj_stat, min_stat;
     gss_cred_id_t cred, cred2, cred3;
+    gss_OID mech_oid = anon_flag ? GSS_SANON_X25519_MECHANISM : GSS_KRB5_MECHANISM;
 
     maj_stat = gss_acquire_cred(&min_stat, name,
 				GSS_C_INDEFINITE,
@@ -129,7 +130,7 @@ acquire_add_release_add(gss_name_t name, gss_cred_usage_t usage)
     maj_stat = gss_add_cred(&min_stat,
 			    cred,
 			    GSS_C_NO_NAME,
-			    GSS_KRB5_MECHANISM,
+			    mech_oid,
 			    usage,
 			    GSS_C_INDEFINITE,
 			    GSS_C_INDEFINITE,
@@ -137,7 +138,7 @@ acquire_add_release_add(gss_name_t name, gss_cred_usage_t usage)
 			    NULL,
 			    NULL,
 			    NULL);
-			
+
     if (maj_stat != GSS_S_COMPLETE)
 	gss_err(1, min_stat, "add_cred %d != GSS_S_COMPLETE", (int)maj_stat);
 
@@ -148,7 +149,7 @@ acquire_add_release_add(gss_name_t name, gss_cred_usage_t usage)
     maj_stat = gss_add_cred(&min_stat,
 			    cred2,
 			    GSS_C_NO_NAME,
-			    GSS_KRB5_MECHANISM,
+			    mech_oid,
 			    GSS_C_BOTH,
 			    GSS_C_INDEFINITE,
 			    GSS_C_INDEFINITE,
@@ -156,6 +157,8 @@ acquire_add_release_add(gss_name_t name, gss_cred_usage_t usage)
 			    NULL,
 			    NULL,
 			    NULL);
+    if (maj_stat != GSS_S_COMPLETE)
+	gss_err(1, min_stat, "add_cred 2 %d != GSS_S_COMPLETE", (int)maj_stat);
 
     maj_stat = gss_release_cred(&min_stat, &cred2);
     if (maj_stat != GSS_S_COMPLETE)
@@ -163,13 +166,14 @@ acquire_add_release_add(gss_name_t name, gss_cred_usage_t usage)
 
     maj_stat = gss_release_cred(&min_stat, &cred3);
     if (maj_stat != GSS_S_COMPLETE)
-	gss_err(1, min_stat, "release 2 %d != GSS_S_COMPLETE", (int)maj_stat);
+	gss_err(1, min_stat, "release 3 %d != GSS_S_COMPLETE", (int)maj_stat);
 }
 
 static int version_flag = 0;
 static int help_flag	= 0;
 
 static struct getargs args[] = {
+    {"anonymous", 0,	arg_flag,	&anon_flag, "try anonymous creds", NULL },
     {"version",	0,	arg_flag,	&version_flag, "print version", NULL },
     {"help",	0,	arg_flag,	&help_flag,  NULL, NULL }
 };

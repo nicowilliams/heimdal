@@ -37,7 +37,7 @@
 	do { if (r != e) krb5_errx(c, 1, "%s", s); } while (0)
 #define STRINGMATCH(c, s, _s1, _s2) \
 	do {							\
-		if (_s1 == NULL || _s2 == NULL) 		\
+		if (_s1 == NULL)				\
 			krb5_errx(c, 1, "s1 or s2 is NULL");	\
 		if (strcmp(_s1,_s2) != 0) 			\
 			krb5_errx(c, 1, "%s", s);		\
@@ -70,10 +70,10 @@ test_match_string(krb5_context context)
     RETVAL(context, ret, 0, "liternal fnmatch");
     ret = krb5_acl_match_string(context, "foo/bar", "f", "foo/*");
     RETVAL(context, ret, 0, "foo/*");
-    ret = krb5_acl_match_string(context, "foo/bar.example.org", "f", 
+    ret = krb5_acl_match_string(context, "foo/bar.example.org", "f",
 				"foo/*.example.org");
     RETVAL(context, ret, 0, "foo/*.example.org");
-    ret = krb5_acl_match_string(context, "foo/bar.example.com", "f", 
+    ret = krb5_acl_match_string(context, "foo/bar.example.com", "f",
 				"foo/*.example.org");
     RETVAL(context, ret, EACCES, "foo/*.example.com");
 

@@ -37,8 +37,6 @@
 #include <stdio.h>
 #include "windlocl.h"
 
-RCSID("$Id$");
-
 #define MAX_LENGTH 10
 
 struct test {
@@ -47,7 +45,7 @@ struct test {
 };
 
 static struct test passing_cases[] = {
-    {0, {}},
+    {0, {0}},
     {1, {0x0041}},
     {1, {0x05be}},
 };
@@ -70,7 +68,7 @@ main(void)
 	    ++failures;
 	}
     }
-	
+
     for (i = 0; i < sizeof(failing_cases)/sizeof(failing_cases[0]); ++i) {
 	const struct test *t = &failing_cases[i];
 	if (!_wind_stringprep_testbidi(t->vals, t->len, WIND_PROFILE_NAME)) {

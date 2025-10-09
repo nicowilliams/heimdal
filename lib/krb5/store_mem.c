@@ -44,7 +44,7 @@ static ssize_t
 mem_fetch(krb5_storage *sp, void *data, size_t size)
 {
     mem_storage *s = (mem_storage*)sp->data;
-    if(size > s->base + s->size - s->ptr)
+    if(size > (size_t)(s->base + s->size - s->ptr))
 	size = s->base + s->size - s->ptr;
     memmove(data, s->ptr, size);
     sp->seek(sp, size, SEEK_CUR);
@@ -55,7 +55,7 @@ static ssize_t
 mem_store(krb5_storage *sp, const void *data, size_t size)
 {
     mem_storage *s = (mem_storage*)sp->data;
-    if(size > s->base + s->size - s->ptr)
+    if(size > (size_t)(s->base + s->size - s->ptr))
 	size = s->base + s->size - s->ptr;
     memmove(s->ptr, data, size);
     sp->seek(sp, size, SEEK_CUR);
@@ -74,7 +74,7 @@ mem_seek(krb5_storage *sp, off_t offset, int whence)
     mem_storage *s = (mem_storage*)sp->data;
     switch(whence){
     case SEEK_SET:
-	if(offset > s->size)
+	if((size_t)offset > s->size)
 	    offset = s->size;
 	if(offset < 0)
 	    offset = 0;
@@ -95,7 +95,7 @@ static int
 mem_trunc(krb5_storage *sp, off_t offset)
 {
     mem_storage *s = (mem_storage*)sp->data;
-    if(offset > s->size)
+    if((size_t)offset > s->size)
 	return ERANGE;
     s->size = offset;
     if ((s->ptr - s->base) > offset)
@@ -110,7 +110,7 @@ mem_no_trunc(krb5_storage *sp, off_t offset)
 }
 
 /**
- * 
+ * Create a fixed size memory storage block
  *
  * @return A krb5_storage on success, or NULL on out of memory error.
  *
@@ -120,9 +120,10 @@ mem_no_trunc(krb5_storage *sp, off_t offset)
  * @sa krb5_storage_from_readonly_mem()
  * @sa krb5_storage_from_data()
  * @sa krb5_storage_from_fd()
+ * @sa krb5_storage_from_socket()
  */
 
-krb5_storage * KRB5_LIB_FUNCTION
+KRB5_LIB_FUNCTION krb5_storage * KRB5_LIB_CALL
 krb5_storage_from_mem(void *buf, size_t len)
 {
     krb5_storage *sp = malloc(sizeof(krb5_storage));
@@ -144,12 +145,14 @@ krb5_storage_from_mem(void *buf, size_t len)
     sp->store = mem_store;
     sp->seek = mem_seek;
     sp->trunc = mem_trunc;
+    sp->fsync = NULL;
     sp->free = NULL;
+    sp->max_alloc = UINT32_MAX/64;
     return sp;
 }
 
 /**
- * 
+ * Create a fixed size memory storage block
  *
  * @return A krb5_storage on success, or NULL on out of memory error.
  *
@@ -161,14 +164,14 @@ krb5_storage_from_mem(void *buf, size_t len)
  * @sa krb5_storage_from_fd()
  */
 
-krb5_storage * KRB5_LIB_FUNCTION
+KRB5_LIB_FUNCTION krb5_storage * KRB5_LIB_CALL
 krb5_storage_from_data(krb5_data *data)
 {
     return krb5_storage_from_mem(data->data, data->length);
 }
 
 /**
- * 
+ * Create a fixed size memory storage block that is read only
  *
  * @return A krb5_storage on success, or NULL on out of memory error.
  *
@@ -180,7 +183,7 @@ krb5_storage_from_data(krb5_data *data)
  * @sa krb5_storage_from_fd()
  */
 
-krb5_storage * KRB5_LIB_FUNCTION
+KRB5_LIB_FUNCTION krb5_storage * KRB5_LIB_CALL
 krb5_storage_from_readonly_mem(const void *buf, size_t len)
 {
     krb5_storage *sp = malloc(sizeof(krb5_storage));
@@ -202,6 +205,8 @@ krb5_storage_from_readonly_mem(const void *buf, size_t len)
     sp->store = mem_no_store;
     sp->seek = mem_seek;
     sp->trunc = mem_no_trunc;
+    sp->fsync = NULL;
     sp->free = NULL;
+    sp->max_alloc = UINT32_MAX/64;
     return sp;
 }

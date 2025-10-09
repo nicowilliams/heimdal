@@ -540,7 +540,7 @@ msgid "checksum type %s is disabled"
 msgstr ""
 
 #: lib/krb5/crypto.c:2979
-msgid "Encrypted data shorter then checksum + confunder"
+msgid "Encrypted data shorter then checksum + confounder"
 msgstr ""
 
 #: lib/krb5/crypto.c:3589
@@ -600,7 +600,7 @@ msgid "Failed to parse digest response"
 msgstr ""
 
 #: lib/krb5/digest.c:363
-msgid "Digest reply have no remote subkey"
+msgid "Digest reply has no remote subkey"
 msgstr ""
 
 #: lib/krb5/digest.c:383
@@ -1126,7 +1126,7 @@ msgstr ""
 
 #: lib/krb5/log.c:311
 #, c-format
-msgid "open(%s) logile: %s"
+msgid "open(%s) logfile: %s"
 msgstr ""
 
 #: lib/krb5/log.c:322
@@ -1664,18 +1664,18 @@ msgid "Authorization data contains unknown type (%d) "
 msgstr ""
 
 #: lib/krb5/ticket.c:270
-msgid "Ticket have not authorization data"
+msgid "Ticket has no authorization data"
 msgstr ""
 
 #: lib/krb5/ticket.c:280
 #, c-format
-msgid "Ticket have not authorization data of type %d"
+msgid "Ticket has no authorization data of type %d"
 msgstr ""
 
 #: lib/krb5/transited.c:457
 #: lib/krb5/transited.c:490
 #, c-format
-msgid "no transit allowed through realm %s"
+msgid "no transit allowed through realm %s from %s to %s"
 msgstr ""
 
 #: lib/krb5/v4_glue.c:151

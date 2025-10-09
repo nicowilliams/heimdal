@@ -40,10 +40,11 @@ static char *admin_principal_str;
 static char *cred_cache_str;
 
 static struct getargs args[] = {
-    { "admin-principal",	0,   arg_string, &admin_principal_str },
-    { "cache",			'c', arg_string, &cred_cache_str },
-    { "version", 		0,   arg_flag, &version_flag },
-    { "help",			0,   arg_flag, &help_flag }
+    { "admin-principal",	0,   arg_string, &admin_principal_str, NULL,
+   	 NULL },
+    { "cache",			'c', arg_string, &cred_cache_str, NULL, NULL },
+    { "version", 		0,   arg_flag, &version_flag, NULL, NULL },
+    { "help",			0,   arg_flag, &help_flag, NULL, NULL }
 };
 
 static void
@@ -63,25 +64,27 @@ change_password(krb5_context context,
     krb5_error_code ret;
     char pwbuf[BUFSIZ];
     char *msg, *name;
+    int aret;
 
     krb5_data_zero (&result_code_string);
     krb5_data_zero (&result_string);
 
     name = msg = NULL;
     if (principal == NULL)
-	asprintf(&msg, "New password: ");
+	aret = asprintf(&msg, "New password: ");
     else {
 	ret = krb5_unparse_name(context, principal, &name);
 	if (ret)
 	    krb5_err(context, 1, ret, "krb5_unparse_name");
 
-	asprintf(&msg, "New password for %s: ", name);
+	aret = asprintf(&msg, "New password for %s: ", name);
     }
 
-    if (msg == NULL)
+    if (aret == -1 || msg == NULL)
 	krb5_errx (context, 1, "out of memory");
 
-    ret = UI_UTIL_read_pw_string (pwbuf, sizeof(pwbuf), msg, 1);
+    ret = UI_UTIL_read_pw_string (pwbuf, sizeof(pwbuf), msg,
+				  UI_UTIL_FLAG_VERIFY);
     free(msg);
     if (name)
 	free(name);
@@ -117,24 +120,23 @@ main (int argc, char **argv)
     krb5_error_code ret;
     krb5_context context;
     krb5_principal principal;
-    int optind = 0;
     krb5_get_init_creds_opt *opt;
     krb5_ccache id = NULL;
     int exit_value;
+    int optidx = 0;
 
-    optind = krb5_program_setup(&context, argc, argv,
-				args, sizeof(args) / sizeof(args[0]), usage);
+    setprogname(argv[0]);
 
+    if(getarg(args, sizeof(args) / sizeof(args[0]), argc, argv, &optidx))
+	usage(1, args, sizeof(args) / sizeof(args[0]));
     if (help_flag)
-	usage (0, args, sizeof(args) / sizeof(args[0]));
-
-    if(version_flag){
-	print_version (NULL);
-	exit(0);
+	usage(0, args, sizeof(args) / sizeof(args[0]));
+    if (version_flag) {
+	print_version(NULL);
+	return 0;
     }
-
-    argc -= optind;
-    argv += optind;
+    argc -= optidx;
+    argv += optidx;
 
     ret = krb5_init_context (&context);
     if (ret)
@@ -198,9 +200,9 @@ main (int argc, char **argv)
 	default:
 	    krb5_err(context, 1, ret, "krb5_get_init_creds");
 	}
-	
+
 	krb5_get_init_creds_opt_free(context, opt);
-	
+
 	ret = krb5_cc_initialize(context, id, admin_principal);
 	krb5_free_principal(context, admin_principal);
 	if (ret)
@@ -209,7 +211,7 @@ main (int argc, char **argv)
 	ret = krb5_cc_store_cred(context, id, &cred);
 	if (ret)
 	    krb5_err(context, 1, ret, "krb5_cc_store_cred");
-	
+
 	krb5_free_cred_contents (context, &cred);
     }
 

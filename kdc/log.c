@@ -3,6 +3,8 @@
  * (Royal Institute of Technology, Stockholm, Sweden).
  * All rights reserved.
  *
+ * Portions Copyright (c) 2009 Apple Inc. All rights reserved.
+ *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
  * are met:
@@ -32,44 +34,51 @@
  */
 
 #include "kdc_locl.h"
-RCSID("$Id$");
 
-void
+KDC_LIB_FUNCTION void KDC_LIB_CALL
 kdc_openlog(krb5_context context,
+	    const char *service,
 	    krb5_kdc_configuration *config)
 {
     char **s = NULL, **p;
     krb5_initlog(context, "kdc", &config->logf);
-    s = krb5_config_get_strings(context, NULL, "kdc", "logging", NULL);
+    s = krb5_config_get_strings(context, NULL, service, "logging", NULL);
     if(s == NULL)
-	s = krb5_config_get_strings(context, NULL, "logging", "kdc", NULL);
+	s = krb5_config_get_strings(context, NULL, "logging", service, NULL);
     if(s){
 	for(p = s; *p; p++)
 	    krb5_addlog_dest(context, config->logf, *p);
 	krb5_config_free_strings(s);
     }else {
-	char *s;
-	asprintf(&s, "0-1/FILE:%s/%s", hdb_db_dir(context), KDC_LOG_FILE);
-	krb5_addlog_dest(context, config->logf, s);
-	free(s);
+	char *ss;
+	if (asprintf(&ss, "0-1/FILE:%s/%s", hdb_db_dir(context),
+	    KDC_LOG_FILE) < 0)
+	    err(1, "out of memory");
+	krb5_addlog_dest(context, config->logf, ss);
+	free(ss);
     }
     krb5_set_warn_dest(context, config->logf);
 }
 
-char*
+#undef __attribute__
+#define __attribute__(X)
+
+KDC_LIB_FUNCTION char * KDC_LIB_CALL
 kdc_log_msg_va(krb5_context context,
 	       krb5_kdc_configuration *config,
 	       int level, const char *fmt, va_list ap)
+    __attribute__ ((__format__ (__printf__, 4, 0)))
 {
     char *msg;
     krb5_vlog_msg(context, config->logf, &msg, level, fmt, ap);
     return msg;
 }
 
-char*
+KDC_LIB_FUNCTION char * KDC_LIB_CALL
 kdc_log_msg(krb5_context context,
 	    krb5_kdc_configuration *config,
 	    int level, const char *fmt, ...)
+    __attribute__ ((__format__ (__printf__, 4, 5)))
 {
     va_list ap;
     char *s;
@@ -79,15 +88,23 @@ kdc_log_msg(krb5_context context,
     return s;
 }
 
-void
+KDC_LIB_FUNCTION void KDC_LIB_CALL
+kdc_vlog(krb5_context context,
+         krb5_kdc_configuration *config,
+         int level, const char *fmt, va_list ap)
+    __attribute__ ((__format__ (__printf__, 4, 0)))
+{
+    free(kdc_log_msg_va(context, config, level, fmt, ap));
+}
+
+KDC_LIB_FUNCTION void KDC_LIB_CALL
 kdc_log(krb5_context context,
 	krb5_kdc_configuration *config,
 	int level, const char *fmt, ...)
+    __attribute__ ((__format__ (__printf__, 4, 5)))
 {
     va_list ap;
-    char *s;
     va_start(ap, fmt);
-    s = kdc_log_msg_va(context, config, level, fmt, ap);
-    if(s) free(s);
+    free(kdc_log_msg_va(context, config, level, fmt, ap));
     va_end(ap);
 }

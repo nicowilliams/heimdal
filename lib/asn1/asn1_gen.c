@@ -46,7 +46,7 @@ static int
 doit(const char *fn)
 {
     char buf[2048];
-    char *fnout;
+    char *fnout = NULL;
     const char *bname;
     unsigned long line = 0;
     FILE *f, *fout;
@@ -62,8 +62,7 @@ doit(const char *fn)
     else
 	bname = fn;
 
-    asprintf(&fnout, "%s.out", bname);
-    if (fnout == NULL)
+    if (asprintf(&fnout, "%s.out", bname) < 0 || fnout == NULL)
 	errx(1, "malloc");
 
     fout = fopen(fnout, "w");
@@ -142,7 +141,8 @@ doit(const char *fn)
     }
     printf("line: eof offset: %lu\n", (unsigned long)offset);
 
-    fclose(fout);
+    if (fclose(fout) == EOF)
+        err(1, "writes to file %s failed", fnout);
     fclose(f);
     return 0;
 }
@@ -151,8 +151,8 @@ doit(const char *fn)
 static int version_flag;
 static int help_flag;
 struct getargs args[] = {
-    { "version", 0, arg_flag, &version_flag },
-    { "help", 0, arg_flag, &help_flag }
+    { "version", 0, arg_flag, &version_flag, NULL, NULL },
+    { "help", 0, arg_flag, &help_flag, NULL, NULL }
 };
 int num_args = sizeof(args) / sizeof(args[0]);
 

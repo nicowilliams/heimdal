@@ -48,8 +48,6 @@
 
 #include "windlocl.h"
 
-RCSID("$Id$");
-
 static int version_flag = 0;
 static int help_flag	= 0;
 
@@ -71,11 +69,18 @@ lookup(const char *name)
     struct addrinfo *ai;
 
     size_t u_len = strlen(name);
-    uint32_t *u = malloc(u_len * sizeof(uint32_t));
-    size_t norm_len = u_len * 2;
-    uint32_t *norm = malloc(norm_len * sizeof(uint32_t));
+    uint32_t *u;
+    size_t norm_len = u_len * 8;
+    uint32_t *norm;
 
-    if (u == NULL || norm == NULL)
+    if (u_len == 0)
+	return;
+
+    u = calloc(u_len, sizeof(uint32_t));
+    if (u == NULL && u_len != 0)
+	errx(1, "malloc failed");
+    norm = calloc(norm_len, sizeof(uint32_t));
+    if (norm == NULL && norm_len != 0)
 	errx(1, "malloc failed");
 
     ret = wind_utf8ucs4(name, u, &u_len);

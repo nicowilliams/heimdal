@@ -34,14 +34,12 @@
 #ifdef HAVE_CONFIG_H
 #include <config.h>
 #endif
-
-RCSID("$Id$");
-
-#include <stdio.h>
-#include <stdlib.h>
-#include <dh.h>
-
 #include <roken.h>
+
+#include <krb5-types.h>
+#include <rfc2459_asn1.h>
+
+#include <dh.h>
 
 /**
  * @page page_dh DH - Diffie-Hellman key exchange
@@ -100,7 +98,7 @@ DH_new_method(ENGINE *engine)
     if (dh->engine) {
 	dh->meth = ENGINE_get_DH(dh->engine);
 	if (dh->meth == NULL) {
-	    ENGINE_finish(engine);
+	    ENGINE_finish(dh->engine);
 	    free(dh);
 	    return 0;
 	}
@@ -147,7 +145,7 @@ DH_free(DH *dh)
     free_if(dh->counter);
 #undef free_if
 
-    memset(dh, 0, sizeof(*dh));
+    memset_s(dh, sizeof(*dh), 0, sizeof(*dh));
     free(dh);
 }
 
@@ -303,15 +301,15 @@ DH_check_pubkey(const DH *dh, const BIGNUM *pub_key, int *codes)
     if (!BN_set_word(bn, 2))
 	goto out;
 
-    if (BN_cmp(bn, pub_key) == 0) {
+    if (BN_cmp(bn, dh->g) == 0) {
 	unsigned i, n = BN_num_bits(pub_key);
 	unsigned bits = 0;
 
-	for (i = 0; i <= n; i++)
+	for (i = 0; i < n; i++)
 	    if (BN_is_bit_set(pub_key, i))
 		bits++;
 
-	if (bits > 1) {
+	if (bits < 2) {
 	    *codes |= DH_CHECK_PUBKEY_TOO_SMALL;
 	    goto out;
 	}
@@ -444,8 +442,8 @@ static const DH_METHOD dh_null_method = {
     dh_null_generate_params
 };
 
-extern const DH_METHOD _hc_dh_imath_method;
-static const DH_METHOD *dh_default_method = &_hc_dh_imath_method;
+extern const DH_METHOD _hc_dh_ltm_method;
+static const DH_METHOD *dh_default_method = &_hc_dh_ltm_method;
 
 /**
  * Return the dummy DH implementation.
@@ -489,3 +487,65 @@ DH_get_default_method(void)
     return dh_default_method;
 }
 
+/*
+ *
+ */
+
+static int
+bn2heim_int(BIGNUM *bn, heim_integer *integer)
+{
+    integer->length = BN_num_bytes(bn);
+    integer->data = malloc(integer->length);
+    if (integer->data == NULL) {
+	integer->length = 0;
+	return ENOMEM;
+    }
+    BN_bn2bin(bn, integer->data);
+    integer->negative = BN_is_negative(bn);
+    return 0;
+}
+
+/**
+ *
+ */
+
+int
+i2d_DHparams(DH *dh, unsigned char **pp)
+{
+    DHParameter data;
+    size_t size;
+    int ret;
+
+    memset(&data, 0, sizeof(data));
+
+    if (bn2heim_int(dh->p, &data.prime) ||
+	bn2heim_int(dh->g, &data.base))
+    {
+	free_DHParameter(&data);
+	return -1;
+    }
+
+    if (pp == NULL) {
+	size = length_DHParameter(&data);
+	free_DHParameter(&data);
+    } else {
+	void *p;
+	size_t len;
+
+	ASN1_MALLOC_ENCODE(DHParameter, p, len, &data, &size, ret);
+	free_DHParameter(&data);
+	if (ret)
+	    return -1;
+	if (len != size) {
+	    abort();
+            return -1;
+        }
+
+	memcpy(*pp, p, size);
+	free(p);
+
+	*pp += size;
+    }
+
+    return size;
+}

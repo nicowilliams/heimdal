@@ -61,15 +61,16 @@ struct getargs args[] = {
     { "cell",	'c', arg_strings, &cells, "cells to get tokens for", "cell" },
     { "file",	'p', arg_strings, &files, "files to get tokens for", "path" },
     { "realm",	'k', arg_string, &realm, "realm for afs cell", "realm" },
-    { "unlog",	'u', arg_flag, &unlog_flag, "remove tokens" },
+    { "unlog",	'u', arg_flag, &unlog_flag, "remove tokens", NULL },
 #ifdef KRB5
     { "principal",'P',arg_string,&client_string,"principal to use","principal"},
     { "cache",   0,  arg_string, &cache_string, "ccache to use", "cache"},
-    { "v5",	 0,  arg_negative_flag, &use_krb5, "don't use Kerberos 5" },
+    { "v5",	 0,  arg_negative_flag, &use_krb5, "don't use Kerberos 5",
+      NULL },
 #endif
-    { "verbose",'v', arg_flag, &verbose },
-    { "version", 0,  arg_flag, &version_flag },
-    { "help",	'h', arg_flag, &help_flag },
+    { "verbose",'v', arg_flag, &verbose, NULL, NULL },
+    { "version", 0,  arg_flag, &version_flag, NULL, NULL },
+    { "help",	'h', arg_flag, &help_flag, NULL, NULL },
 };
 
 static int num_args = sizeof(args) / sizeof(args[0]);
@@ -103,12 +104,12 @@ expand_cell_name(const char *cell)
 {
     FILE *f;
     const char *c;
-    const char **fn, *files[] = { _PATH_CELLSERVDB,
-				  _PATH_ARLA_CELLSERVDB,
-				  _PATH_OPENAFS_DEBIAN_CELLSERVDB,
-				  _PATH_ARLA_DEBIAN_CELLSERVDB,
-				  NULL };
-    for(fn = files; *fn; fn++) {
+    const char **fn, *fns[] = { _PATH_CELLSERVDB,
+				_PATH_ARLA_CELLSERVDB,
+				_PATH_OPENAFS_DEBIAN_CELLSERVDB,
+				_PATH_ARLA_DEBIAN_CELLSERVDB,
+				NULL };
+    for(fn = fns; *fn; fn++) {
 	f = fopen(*fn, "r");
 	if(f == NULL)
 	    continue;
@@ -117,7 +118,7 @@ expand_cell_name(const char *cell)
 	if(c)
 	    return c;
     }
-    return cell;
+    return NULL;
 }
 
 static void
@@ -180,9 +181,9 @@ afslog_file(const char *path)
 static int
 do_afslog(const char *cell)
 {
-    int k5ret, k4ret;
+    int k5ret;
 
-    k5ret = k4ret = 0;
+    k5ret = 0;
 
 #ifdef KRB5
     if(context != NULL && id != NULL && use_krb5) {
@@ -195,9 +196,9 @@ do_afslog(const char *cell)
 	cell = "<default cell>";
 #ifdef KRB5
     if (k5ret)
-	warnx("krb5_afslog(%s): %s", cell, krb5_get_err_text(context, k5ret));
+	krb5_warn(context, k5ret, "krb5_afslog(%s)", cell);
 #endif
-    if (k5ret || k4ret)
+    if (k5ret)
 	return 1;
     return 0;
 }
@@ -211,7 +212,7 @@ log_func(void *ctx, const char *str)
 int
 main(int argc, char **argv)
 {
-    int optind = 0;
+    int optidx = 0;
     int i;
     int num;
     int ret = 0;
@@ -220,7 +221,7 @@ main(int argc, char **argv)
 
     setprogname(argv[0]);
 
-    if(getarg(args, num_args, argc, argv, &optind))
+    if(getarg(args, num_args, argc, argv, &optidx))
 	usage(1);
     if(help_flag)
 	usage(0);
@@ -277,7 +278,7 @@ main(int argc, char **argv)
 	num++;
     }
     free_getarg_strings (&cells);
-    for(i = optind; i < argc; i++){
+    for(i = optidx; i < argc; i++){
 	num++;
 	if(strcmp(argv[i], ".") == 0 ||
 	   strcmp(argv[i], "..") == 0 ||

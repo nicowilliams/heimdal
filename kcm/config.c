@@ -2,6 +2,8 @@
  * Copyright (c) 2005, PADL Software Pty Ltd.
  * All rights reserved.
  *
+ * Portions Copyright (c) 2009 Apple Inc. All rights reserved.
+ *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
  * are met:
@@ -34,20 +36,18 @@
 #include <getarg.h>
 #include <parse_bytes.h>
 
-RCSID("$Id$");
+#define MAX_REQUEST_MAX 67108864ll /* 64MB, the maximum accepted value of max_request */
 
 static const char *config_file;	/* location of kcm config file */
 
 size_t max_request = 0;		/* maximal size of a request */
 char *socket_path = NULL;
-char *door_path = NULL;
 
 static char *max_request_str;	/* `max_request' as a string */
 
-#ifdef SUPPORT_DETACH
 int detach_from_console = -1;
-#define DETACH_IS_DEFAULT FALSE
-#endif
+int daemon_child = -1;
+int automatic_renewal = -1;
 
 static const char *system_cache_name = NULL;
 static const char *system_keytab = NULL;
@@ -60,7 +60,8 @@ static const char *system_group = NULL;
 static const char *renew_life = NULL;
 static const char *ticket_life = NULL;
 
-int disallow_getting_krbtgt = -1;
+int launchd_flag = 0;
+int disallow_getting_krbtgt = 0;
 int name_constraints = -1;
 
 static int help_flag;
@@ -83,20 +84,23 @@ static struct getargs args[] = {
 	"max-request",	0,	arg_string, &max_request,
 	"max size for a kcm-request", "size"
     },
-#ifdef SUPPORT_DETACH
-#if DETACH_IS_DEFAULT
     {
-	"detach",       'D',      arg_negative_flag, &detach_from_console,
-	"don't detach from console"
+	"launchd",	0,	arg_flag, &launchd_flag,
+	"when in use by launchd", NULL
     },
-#else
     {
 	"detach",       0 ,      arg_flag, &detach_from_console,
-	"detach from console"
+	"detach from console", NULL
     },
-#endif
-#endif
-    {	"help",		'h',	arg_flag,   &help_flag },
+    {
+        "daemon-child",       0 ,      arg_integer, &daemon_child,
+        "private argument, do not use", NULL
+    },
+    {
+	"automatic-renewal",	0 , arg_negative_flag, &automatic_renewal,
+	"disable automatic TGT renewal", NULL
+    },
+    {	"help",		'h',	arg_flag,   &help_flag, NULL, NULL },
     {
 	"system-principal",	'k',	arg_string,	&system_principal,
 	"system principal name",	"principal"
@@ -111,26 +115,24 @@ static struct getargs args[] = {
     },
     {
 	"name-constraints",	'n', arg_negative_flag, &name_constraints,
-	"disable credentials cache name constraints"
+	"disable credentials cache name constraints", NULL
     },
     {
 	"disallow-getting-krbtgt", 0, arg_flag, &disallow_getting_krbtgt,
-	"disable fetching krbtgt from the cache"
+	"disable fetching krbtgt from the cache", NULL
     },
     {
 	"renewable-life",	'r', arg_string, &renew_life,
     	"renewable lifetime of system tickets", "time"
     },
     {
+	"max-request",	'r', arg_integer, &max_request_str,
+	"max request size", "bytes"
+    },
+    {
 	"socket-path",		's', arg_string, &socket_path,
     	"path to kcm domain socket", "path"
     },
-#ifdef HAVE_DOOR_CREATE
-    {
-	"door-path",		's', arg_string, &door_path,
-    	"path to kcm door", "path"
-    },
-#endif
     {
 	"server",		'S', arg_string, &system_server,
     	"server to get system ticket for", "principal"
@@ -143,7 +145,7 @@ static struct getargs args[] = {
 	"user",		'u',	arg_string,	&system_user,
 	"system cache owner",	"user"
     },
-    {	"version",	'v',	arg_flag,   &version_flag }
+    {	"version",	'v',	arg_flag,   &version_flag, NULL, NULL }
 };
 
 static int num_args = sizeof(args) / sizeof(args[0]);
@@ -240,7 +242,7 @@ ccache_init_system(void)
 
     ret = krb5_parse_name(kcm_context, system_principal, &ccache->client);
     if (ret) {
-	kcm_release_ccache(kcm_context, &ccache);
+	kcm_release_ccache(kcm_context, ccache);
 	return ret;
     }
 
@@ -250,7 +252,7 @@ ccache_init_system(void)
     if (system_server != NULL) {
 	ret = krb5_parse_name(kcm_context, system_server, &ccache->server);
 	if (ret) {
-	    kcm_release_ccache(kcm_context, &ccache);
+	    kcm_release_ccache(kcm_context, ccache);
 	    return ret;
 	}
     }
@@ -264,7 +266,7 @@ ccache_init_system(void)
 	ret = krb5_kt_default(kcm_context, &ccache->key.keytab);
     }
     if (ret) {
-	kcm_release_ccache(kcm_context, &ccache);
+	kcm_release_ccache(kcm_context, ccache);
 	return ret;
     }
 
@@ -272,12 +274,12 @@ ccache_init_system(void)
 	renew_life = kcm_system_config_get_string("renew_life");
 
     if (renew_life == NULL)
-	renew_life = "1 month";
+	renew_life = "6 months";
 
     if (renew_life != NULL) {
 	ccache->renew_life = parse_time(renew_life, "s");
 	if (ccache->renew_life < 0) {
-	    kcm_release_ccache(kcm_context, &ccache);
+	    kcm_release_ccache(kcm_context, ccache);
 	    return EINVAL;
 	}
     }
@@ -288,7 +290,7 @@ ccache_init_system(void)
     if (ticket_life != NULL) {
 	ccache->tkt_life = parse_time(ticket_life, "s");
 	if (ccache->tkt_life < 0) {
-	    kcm_release_ccache(kcm_context, &ccache);
+	    kcm_release_ccache(kcm_context, ccache);
 	    return EINVAL;
 	}
     }
@@ -314,7 +316,7 @@ ccache_init_system(void)
     /* enqueue default actions for credentials cache */
     ret = kcm_ccache_enqueue_default(kcm_context, ccache, NULL);
 
-    kcm_release_ccache(kcm_context, &ccache); /* retained by event queue */
+    kcm_release_ccache(kcm_context, ccache); /* retained by event queue */
 
     return ret;
 }
@@ -323,13 +325,13 @@ void
 kcm_configure(int argc, char **argv)
 {
     krb5_error_code ret;
-    int optind = 0;
+    int optidx = 0;
     const char *p;
 
-    while(getarg(args, num_args, argc, argv, &optind))
-	warnx("error at argument `%s'", argv[optind]);
+    while (getarg(args, num_args, argc, argv, &optidx))
+	warnx("error at argument `%s'", argv[optidx]);
 
-    if(help_flag)
+    if (help_flag)
 	usage (0);
 
     if (version_flag) {
@@ -337,8 +339,8 @@ kcm_configure(int argc, char **argv)
 	exit(0);
     }
 
-    argc -= optind;
-    argv += optind;
+    argc -= optidx;
+    argv += optidx;
 
     if (argc != 0)
 	usage(1);
@@ -352,15 +354,25 @@ kcm_configure(int argc, char **argv)
 	ret = krb5_prepend_config_files_default(config_file, &files);
 	if (ret)
 	    krb5_err(kcm_context, 1, ret, "getting configuration files");
-	
+
 	ret = krb5_set_config_files(kcm_context, files);
 	krb5_free_config_files(files);
 	if(ret)
 	    krb5_err(kcm_context, 1, ret, "reading configuration files");
     }
 
-    if(max_request_str)
-	max_request = parse_bytes(max_request_str, NULL);
+    if (max_request_str) {
+        int64_t bytes;
+
+        if ((bytes = parse_bytes(max_request_str, NULL)) < 0)
+            krb5_errx(kcm_context, 1,
+                      "--max-request size must be non-negative");
+        if (bytes > MAX_REQUEST_MAX)
+            krb5_errx(kcm_context, 1, "--max-request size is too big "
+                      "(must be smaller than %lld)", MAX_REQUEST_MAX);
+
+        max_request = bytes;
+    }
 
     if(max_request == 0){
 	p = krb5_config_get_string (kcm_context,
@@ -368,8 +380,18 @@ kcm_configure(int argc, char **argv)
 				    "kcm",
 				    "max-request",
 				    NULL);
-	if(p)
-	    max_request = parse_bytes(p, NULL);
+        if (p) {
+            int64_t bytes;
+
+            if ((bytes = parse_bytes(max_request_str, NULL)) < 0)
+                krb5_errx(kcm_context, 1,
+                          "[kcm] max-request size must be non-negative");
+            if (bytes > MAX_REQUEST_MAX)
+                krb5_errx(kcm_context, 1, "[kcm] max-request size is too big "
+                          "(must be smaller than %lld)", MAX_REQUEST_MAX);
+
+            max_request = bytes;
+        }
     }
 
     if (system_principal == NULL) {
@@ -382,13 +404,18 @@ kcm_configure(int argc, char **argv)
 	    krb5_err(kcm_context, 1, ret, "initializing system ccache");
     }
 
-#ifdef SUPPORT_DETACH
+    if(automatic_renewal == -1)
+	automatic_renewal = krb5_config_get_bool_default(kcm_context, NULL,
+							 TRUE,
+							 "kcm",
+							 "automatic_renewal",
+							 NULL);
+
     if(detach_from_console == -1)
 	detach_from_console = krb5_config_get_bool_default(kcm_context, NULL,
-							   DETACH_IS_DEFAULT,
+							   FALSE,
 							   "kcm",
 							   "detach", NULL);
-#endif
     kcm_openlog();
     if(max_request == 0)
 	max_request = 64 * 1024;

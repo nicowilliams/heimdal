@@ -50,7 +50,7 @@ struct hx509_collector {
 };
 
 
-int
+HX509_LIB_FUNCTION int HX509_LIB_CALL
 _hx509_collector_alloc(hx509_context context, hx509_lock lock, struct hx509_collector **collector)
 {
     struct hx509_collector *c;
@@ -85,14 +85,14 @@ _hx509_collector_alloc(hx509_context context, hx509_lock lock, struct hx509_coll
     return 0;
 }
 
-hx509_lock
+HX509_LIB_FUNCTION hx509_lock HX509_LIB_CALL
 _hx509_collector_get_lock(struct hx509_collector *c)
 {
     return c->lock;
 }
 
 
-int
+HX509_LIB_FUNCTION int HX509_LIB_CALL
 _hx509_collector_certs_add(hx509_context context,
 			   struct hx509_collector *c,
 			   hx509_cert cert)
@@ -105,12 +105,12 @@ free_private_key(struct private_key *key)
 {
     free_AlgorithmIdentifier(&key->alg);
     if (key->private_key)
-	_hx509_private_key_free(&key->private_key);
+	hx509_private_key_free(&key->private_key);
     der_free_octet_string(&key->localKeyId);
     free(key);
 }
 
-int
+HX509_LIB_FUNCTION int HX509_LIB_CALL
 _hx509_collector_private_key_add(hx509_context context,
 				 struct hx509_collector *c,
 				 const AlgorithmIdentifier *alg,
@@ -133,7 +133,7 @@ _hx509_collector_private_key_add(hx509_context context,
 	return ENOMEM;
     }
     c->val.data = d;
-	
+
     ret = copy_AlgorithmIdentifier(alg, &key->alg);
     if (ret) {
 	hx509_set_error_string(context, 0, ret, "Failed to copy "
@@ -143,9 +143,20 @@ _hx509_collector_private_key_add(hx509_context context,
     if (private_key) {
 	key->private_key = private_key;
     } else {
-	ret = _hx509_parse_private_key(context, alg,
+	ret = hx509_parse_private_key(context, alg,
 				       key_data->data, key_data->length,
+				       HX509_KEY_FORMAT_DER,
 				       &key->private_key);
+        if (ret && localKeyId) {
+            int ret2;
+
+            ret2 = hx509_parse_private_key(context, alg,
+                                           localKeyId->data, localKeyId->length,
+                                           HX509_KEY_FORMAT_PKCS8,
+                                           &key->private_key);
+            if (ret2 == 0)
+                ret = 0;
+        }
 	if (ret)
 	    goto out;
     }
@@ -190,8 +201,9 @@ match_localkeyid(hx509_context context,
     q.local_key_id = &value->localKeyId;
 
     ret = hx509_certs_find(context, certs, &q, &cert);
+    if (ret == 0 && cert == NULL)
+        ret = HX509_CERT_NOT_FOUND;
     if (ret == 0) {
-	
 	if (value->private_key)
 	    _hx509_cert_assign_key(cert, value->private_key);
 	hx509_cert_free(cert);
@@ -246,13 +258,14 @@ match_keys(hx509_context context, struct private_key *value, hx509_certs certs)
     return found;
 }
 
-int
+HX509_LIB_FUNCTION int HX509_LIB_CALL
 _hx509_collector_collect_certs(hx509_context context,
 			       struct hx509_collector *c,
 			       hx509_certs *ret_certs)
 {
     hx509_certs certs;
-    int ret, i;
+    int ret;
+    size_t i;
 
     *ret_certs = NULL;
 
@@ -280,12 +293,12 @@ _hx509_collector_collect_certs(hx509_context context,
     return 0;
 }
 
-int
+HX509_LIB_FUNCTION int HX509_LIB_CALL
 _hx509_collector_collect_private_keys(hx509_context context,
 				      struct hx509_collector *c,
 				      hx509_private_key **keys)
 {
-    int i, nkeys;
+    size_t i, nkeys;
 
     *keys = NULL;
 
@@ -311,10 +324,10 @@ _hx509_collector_collect_private_keys(hx509_context context,
 }
 
 
-void
+HX509_LIB_FUNCTION void HX509_LIB_CALL
 _hx509_collector_free(struct hx509_collector *c)
 {
-    int i;
+    size_t i;
 
     if (c->unenvelop_certs)
 	hx509_certs_free(&c->unenvelop_certs);

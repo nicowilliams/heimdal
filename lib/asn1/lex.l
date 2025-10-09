@@ -1,6 +1,6 @@
 %{
 /*
- * Copyright (c) 1997 - 2005 Kungliga Tekniska Högskolan
+ * Copyright (c) 1997 - 2017 Kungliga Tekniska Högskolan
  * (Royal Institute of Technology, Stockholm, Sweden).
  * All rights reserved.
  *
@@ -40,6 +40,7 @@
 #include <stdio.h>
 #include <stdarg.h>
 #include <stdlib.h>
+#include <stdint.h>
 #include <string.h>
 #ifdef HAVE_UNISTD_H
 #include <unistd.h>
@@ -149,6 +150,10 @@ WITH			{ return kw_WITH; }
 [-,;{}()|]		{ return *yytext; }
 "["			{ return *yytext; }
 "]"			{ return *yytext; }
+"&"			{ return *yytext; }
+"."			{ return *yytext; }
+":"			{ return *yytext; }
+"@"			{ return *yytext; }
 ::=			{ return EEQUAL; }
 --			{
 			    int c, start_lineno = lineno;
@@ -216,7 +221,7 @@ WITH			{ return kw_WITH; }
 			    char *p = buf;
 			    int f = 0;
 			    int skip_ws = 0;
-		
+
 			    while((c = input()) != EOF) {
 				if(isspace(c) && skip_ws) {
 				    if(c == '\n')
@@ -224,7 +229,7 @@ WITH			{ return kw_WITH; }
 				    continue;
 				}
 				skip_ws = 0;
-			
+
 				if(c == '"') {
 				    if(f) {
 					*p++ = '"';
@@ -249,40 +254,45 @@ WITH			{ return kw_WITH; }
 			    if(c == EOF)
 				unterminated("string", start_lineno);
 			    *p++ = '\0';
-			    fprintf(stderr, "string -- %s\n", buf);
 			    yylval.name = estrdup(buf);
 			    return STRING;
 			}
 
 -?0x[0-9A-Fa-f]+|-?[0-9]+ { char *e, *y = yytext;
-			  yylval.constant = strtol((const char *)yytext,
+			  yylval.constant = strtoll((const char *)yytext,
 						   &e, 0);
 			  if(e == y)
-			    error_message("malformed constant (%s)", yytext);
+			    lex_error_message("malformed constant (%s)", yytext);
 			  else
 			    return NUMBER;
 			}
-[A-Za-z][-A-Za-z0-9_]*	{
+[_][-A-Z0-9]*		{
 			  yylval.name =  estrdup ((const char *)yytext);
-			  return IDENTIFIER;
+			  return CLASS_IDENTIFIER;
+			}
+[A-Z][-A-Za-z0-9_]*	{
+			  yylval.name =  estrdup ((const char *)yytext);
+			  return TYPE_IDENTIFIER;
+			}
+[a-z][-A-Za-z0-9_]*	{
+			  yylval.name =  estrdup ((const char *)yytext);
+			  return VALUE_IDENTIFIER;
 			}
 [ \t]			;
 \n			{ ++lineno; }
 \.\.\.			{ return ELLIPSIS; }
 \.\.			{ return RANGE; }
-.			{ error_message("Ignoring char(%c)\n", *yytext); }
+.			{ lex_error_message("Ignoring char(%c)\n", *yytext); }
 %%
 
-#ifndef yywrap /* XXX */
 int
 yywrap ()
 {
      return 1;
 }
-#endif
 
 void
-error_message (const char *format, ...)
+lex_error_message (const char *format, ...)
 {
     va_list args;
 
@@ -296,5 +306,5 @@ error_message (const char *format, ...)
 static void
 unterminated(const char *type, unsigned start_lineno)
 {
-    error_message("unterminated %s, possibly started on line %d\n", type, start_lineno);
+    lex_error_message("unterminated %s, possibly started on line %d\n", type, start_lineno);
 }

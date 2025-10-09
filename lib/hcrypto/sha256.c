@@ -31,11 +31,8 @@
  * SUCH DAMAGE.
  */
 
-#ifdef HAVE_CONFIG_H
-#include "config.h"
-
-RCSID("$Id$");
-#endif
+#include <config.h>
+#include <roken.h>
 
 #include "hash.h"
 #include "sha.h"
@@ -78,7 +75,7 @@ static const uint32_t constant_256[64] = {
     0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2
 };
 
-void
+int
 SHA256_Init (SHA256_CTX *m)
 {
     m->sz[0] = 0;
@@ -91,6 +88,7 @@ SHA256_Init (SHA256_CTX *m)
     F = 0x9b05688c;
     G = 0x1f83d9ab;
     H = 0x5be0cd19;
+    return 1;
 }
 
 static void
@@ -120,7 +118,7 @@ calc (SHA256_CTX *m, uint32_t *in)
 
 	T1 = HH + Sigma1(EE) + Ch(EE, FF, GG) + constant_256[i] + data[i];
 	T2 = Sigma0(AA) + Maj(AA,BB,CC);
-			
+
 	HH = GG;
 	GG = FF;
 	FF = EE;
@@ -166,7 +164,7 @@ struct x32{
     unsigned int b:32;
 };
 
-void
+int
 SHA256_Update (SHA256_CTX *m, const void *v, size_t len)
 {
     const unsigned char *p = v;
@@ -187,10 +185,10 @@ SHA256_Update (SHA256_CTX *m, const void *v, size_t len)
 #if !defined(WORDS_BIGENDIAN) || defined(_CRAY)
 	    int i;
 	    uint32_t current[16];
-	    struct x32 *u = (struct x32*)m->save;
+	    struct x32 *us = (struct x32*)m->save;
 	    for(i = 0; i < 8; i++){
-		current[2*i+0] = swap_uint32_t(u[i].a);
-		current[2*i+1] = swap_uint32_t(u[i].b);
+		current[2*i+0] = swap_uint32_t(us[i].a);
+		current[2*i+1] = swap_uint32_t(us[i].b);
 	    }
 	    calc(m, current);
 #else
@@ -199,9 +197,10 @@ SHA256_Update (SHA256_CTX *m, const void *v, size_t len)
 	    offset = 0;
 	}
     }
+    return 1;
 }
 
-void
+int
 SHA256_Final (void *res, SHA256_CTX *m)
 {
     unsigned char zeros[72];
@@ -230,4 +229,5 @@ SHA256_Final (void *res, SHA256_CTX *m)
 	    r[4*i]   = (m->counter[i] >> 24) & 0xFF;
 	}
     }
+    return 1;
 }

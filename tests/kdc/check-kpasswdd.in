@@ -30,18 +30,20 @@
 # LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY 
 # OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF 
 # SUCH DAMAGE. 
-#
-# $Id$
-#
 
-srcdir="@srcdir@"
+top_builddir="@top_builddir@"
+env_setup="@env_setup@"
 objdir="@objdir@"
-EGREP="@EGREP@"
+
+. ${env_setup}
+
+# If there is no useful db support compiled in, disable test
+${have_db} || exit 77
 
 testfailed="echo test failed; cat messages.log; exit \$ec"
 
-# If there is no useful db support compile in, disable test
-../db/have-db || exit 77
+# If there is no useful db support compiled in, disable test
+${have_db} || exit 77
 
 R=TEST.H5L.SE
 R2=TEST2.H5L.SE
@@ -49,21 +51,19 @@ R2=TEST2.H5L.SE
 port=@port@
 pwport=@pwport@
 
-kadmin="${TESTS_ENVIRONMENT} ../../kadmin/kadmin -l -r $R"
-kdc="${TESTS_ENVIRONMENT} ../../kdc/kdc --addresses=localhost -P $port"
-kpasswdd="${TESTS_ENVIRONMENT} ../../kpasswd/kpasswdd --addresses=localhost -p $pwport"
+kadmin="${kadmin} -l -r $R"
+kdc="${kdc} --addresses=localhost -P $port"
+kpasswdd="${kpasswdd} --addresses=localhost -p $pwport"
 
 server=host/datan.test.h5l.se
 cache="FILE:${objdir}/cache.krb5"
 keytabfile=${objdir}/server.keytab
 keytab="FILE:${keytabfile}"
 
-kinit="${TESTS_ENVIRONMENT} ../../kuser/kinit -c $cache --no-afslog"
-klist="${TESTS_ENVIRONMENT} ../../kuser/klist -c $cache"
-kgetcred="${TESTS_ENVIRONMENT} ../../kuser/kgetcred -c $cache"
-kdestroy="${TESTS_ENVIRONMENT} ../../kuser/kdestroy -c $cache --no-unlog"
-test_apreq="${TESTS_ENVIRONMENT} ../../lib/krb5/test_ap-req"
-rkpty="${TESTS_ENVIRONMENT} ../../lib/roken/rkpty"
+kinit="${kinit} -c $cache ${afs_no_afslog}"
+klist="${klist} -c $cache"
+kgetcred="${kgetcred} -c $cache"
+kdestroy="${kdestroy} -c $cache ${afs_no_unlog}"
 
 KRB5_CONFIG="${objdir}/krb5.conf"
 export KRB5_CONFIG
@@ -76,47 +76,37 @@ rm -f mkey.file*
 > messages.log
 
 echo "Creating database for $R"
-${kadmin} \
-    init \
-    --realm-max-ticket-life=1day \
-    --realm-max-renewable-life=1month \
-    ${R} || exit 1
-
-${kadmin} add -p foo --use-defaults foo@${R} || exit 1
-${kadmin} add -p kaka --use-defaults ${server}@${R} || exit 1
-${kadmin} ext -k ${keytab} ${server}@${R} || exit 1
-
-echo "Creating database for ${R2}"
-${kadmin} \
-    init \
-    --realm-max-ticket-life=1day \
-    --realm-max-renewable-life=1month \
-    ${R2} || exit 1
-
-${kadmin} add -p foo --use-defaults bar@${R2} || exit 1
-
-echo "Doing database check for ${R} ${R2}"
-${kadmin} check ${R} || exit 1
-${kadmin} check ${R2} || exit 1
+${kadmin} <<EOF || exit 1
+init --realm-max-ticket-life=1day --realm-max-renewable-life=1month ${R}
+add -p foo --use-defaults foo@${R}
+add -p kaka --use-defaults ${server}@${R}
+ext -k ${keytab} ${server}@${R}
+init --realm-max-ticket-life=1day --realm-max-renewable-life=1month ${R2}
+add -p foo --use-defaults bar@${R2}
+check ${R}
+check ${R2}
+EOF
 
 echo foo > ${objdir}/foopassword
 
-echo Starting kdc
-${kdc} &
-kdcpid=$!
-
-sh ${srcdir}/wait-kdc.sh
-if [ "$?" != 0 ] ; then
-    kill -9 ${kdcpid}
-    exit 1
-fi
+echo Starting kdc ; > messages.log
+env ${HEIM_MALLOC_DEBUG} ${kdc} --detach --testing ||
+    { echo "kdc failed to start"; cat messages.log; exit 1; }
+kdcpid=`getpid kdc`
 
 echo Starting kpasswdd
-env MallocStackLogging=1 MallocStackLoggingNoCompact=1 MallocErrorAbort=1 MallocLogFile=${objdir}/malloc-log \
-${kpasswdd} &
-kpasswddpid=$!
+env ${HEIM_MALLOC_DEBUG} ${kpasswdd} --detach ||
+    { echo "kpasswdd failed to start"; exit 1; }
+kpasswddpid=`getpid kpasswdd`
 
-trap "kill -9 ${kdcpid} ${kpasswddpid}; echo signal killing kdc; exit \$ec;" EXIT
+cleanup() {
+    echo signal killing kdc and kpasswdd
+    kill -9 ${kdcpid} ${kpasswddpid} 2>/dev/null
+    trap '' EXIT INT TERM
+    cat messages.log
+    exit 1
+}
+trap cleanup EXIT INT TERM
 
 ec=0
 
@@ -127,7 +117,7 @@ echo "Getting tickets"; > messages.log
 ${kgetcred} ${server}@${R} || { ec=1 ; eval "${testfailed}"; }
 echo "Listing tickets"; > messages.log
 ${klist} > /dev/null || { ec=1 ; eval "${testfailed}"; }
-${test_apreq} ${server}@${R} ${keytab} ${cache} || \
+${test_ap_req} ${server}@${R} ${keytab} ${cache} || \
 	{ ec=1 ; eval "${testfailed}"; }
 ${kdestroy}
 
@@ -146,7 +136,7 @@ send ${pw}\n
 expect Success
 EOF
 
-${rkpty} cpw.tmp ../../kpasswd/kpasswd foo@${R} || \
+${rkpty} cpw.tmp env ${kpasswd} foo@${R} || \
 	{ ec=$? ; eval "${testfailed}"; }
 
 rm cpw.tmp
@@ -161,7 +151,7 @@ echo "Getting tickets"; > messages.log
 ${kgetcred} ${server}@${R} || { ec=1 ; eval "${testfailed}"; }
 echo "Listing tickets"; > messages.log
 ${klist} > /dev/null || { ec=1 ; eval "${testfailed}"; }
-${test_apreq} ${server}@${R} ${keytab} ${cache} || \
+${test_ap_req} ${server}@${R} ${keytab} ${cache} || \
 	{ ec=1 ; eval "${testfailed}"; }
 ${kdestroy}
 
@@ -191,8 +181,8 @@ ${kdestroy}
 
 
 echo "killing kdc (${kdcpid} ${kpasswddpid})"
-sh ${srcdir}/leaks-kill.sh kdc $kdcpid || exit 1
-sh ${srcdir}/leaks-kill.sh kpasswdd $kpasswddpid || exit 1
+sh ${leaks_kill} kdc $kdcpid || exit 1
+sh ${leaks_kill} kpasswdd $kpasswddpid || exit 1
 
 trap "" EXIT
 

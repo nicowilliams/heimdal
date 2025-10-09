@@ -31,12 +31,15 @@
  * ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. */
 
 #include <config.h>
+#include "roken.h"
 #ifdef TEST_STRPFTIME
 #include "strpftime-test.h"
 #endif
-#include "roken.h"
 
-RCSID("$Id$");
+#if defined(_WIN32)
+# define timezone _timezone
+# define tzname   _tzname
+#endif
 
 static const char *abb_weekdays[] = {
     "Sun",
@@ -168,7 +171,7 @@ week_number_mon4 (const struct tm *tm)
  *
  */
 
-size_t ROKEN_LIB_FUNCTION
+ROKEN_LIB_FUNCTION size_t ROKEN_LIB_CALL
 strftime (char *buf, size_t maxsize, const char *format,
 	  const struct tm *tm)
 {
@@ -288,7 +291,7 @@ strftime (char *buf, size_t maxsize, const char *format,
 				"%02d:%02d",
 				tm->tm_hour,
 				tm->tm_min);
-		
+		break;
 	    case 's' :
 		ret = snprintf (buf, maxsize - n,
 				"%d", (int)mktime(rk_UNCONST(tm)));
@@ -374,7 +377,7 @@ strftime (char *buf, size_t maxsize, const char *format,
 		break;
 	    case '\0' :
 		--format;
-		/* FALLTHROUGH */
+                HEIM_FALLTHROUGH;
 	    case '%' :
 		ret = snprintf (buf, maxsize - n,
 				"%%");
@@ -384,7 +387,7 @@ strftime (char *buf, size_t maxsize, const char *format,
 				"%%%c", *format);
 		break;
 	    }
-	    if (ret < 0 || ret >= maxsize - n)
+	    if (ret < 0 || ret >= (int)(maxsize - n))
 		return 0;
 	    n   += ret;
 	    buf += ret;
@@ -394,6 +397,6 @@ strftime (char *buf, size_t maxsize, const char *format,
 	    ++n;
 	}
     }
-    *buf++ = '\0';
+    *buf = '\0';
     return n;
 }

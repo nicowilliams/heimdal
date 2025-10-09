@@ -36,6 +36,8 @@
 #ifndef __DER_H__
 #define __DER_H__
 
+#include <stdint.h>
+
 typedef enum {
     ASN1_C_UNIV = 0,
     ASN1_C_APPL = 1,
@@ -65,9 +67,9 @@ enum {
     UT_IA5String	= 22,
     UT_UTCTime		= 23,
     UT_GeneralizedTime	= 24,
-    UT_UniversalString	= 25,
     UT_VisibleString	= 26,
     UT_GeneralString	= 27,
+    UT_UniversalString	= 28,
     UT_BMPString	= 30,
     /* unsupported types */
     UT_ObjectDescriptor = 7,
@@ -93,6 +95,8 @@ typedef struct heim_ber_time_t {
     unsigned bt_nsec;
     int bt_zone;
 } heim_ber_time_t;
+
+struct asn1_template;
 
 #include <der-protos.h>
 

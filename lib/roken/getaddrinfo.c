@@ -188,7 +188,7 @@ get_null (const struct addrinfo *hints,
     struct addrinfo *first = NULL;
     struct addrinfo **current = &first;
     int family = PF_UNSPEC;
-    int ret;
+    int ret = EAI_FAMILY;
 
     if (hints != NULL)
 	family = hints->ai_family;
@@ -216,7 +216,7 @@ get_null (const struct addrinfo *hints,
 		       &current, const_v4, &v4_addr, NULL);
     }
     *res = first;
-    return 0;
+    return ret;
 }
 
 static int
@@ -365,11 +365,11 @@ get_nodes (const char *nodename,
  * };
  */
 
-int ROKEN_LIB_FUNCTION
-getaddrinfo(const char *nodename,
-	    const char *servname,
-	    const struct addrinfo *hints,
-	    struct addrinfo **res)
+ROKEN_LIB_FUNCTION int ROKEN_LIB_CALL
+rk_getaddrinfo(const char *nodename,
+	       const char *servname,
+	       const struct addrinfo *hints,
+	       struct addrinfo **res)
 {
     int ret;
     int port     = 0;
@@ -409,6 +409,6 @@ getaddrinfo(const char *nodename,
 	ret = get_null (hints, port, protocol, socktype, res);
     }
     if (ret)
-	freeaddrinfo (*res);
+	rk_freeaddrinfo(*res);
     return ret;
 }

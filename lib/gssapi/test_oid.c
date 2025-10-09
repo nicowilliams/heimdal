@@ -35,14 +35,12 @@
 #include <config.h>
 #endif
 
+#include <roken.h>
 #include <stdio.h>
 #include <gssapi.h>
 #include <gssapi_krb5.h>
 #include <gssapi_spnego.h>
 #include <err.h>
-#include <roken.h>
-
-RCSID("$Id$");
 
 int
 main(int argc, char **argv)
@@ -57,7 +55,7 @@ main(int argc, char **argv)
 
     ret = strncmp(data.value, "1 2 840 113554 1 2 2", data.length);
     gss_release_buffer(&maj_stat, &data);
-    if (ret)
+    if (ret != 0)
 	return 1;
 
     maj_stat = gss_oid_to_str(&minor_status, GSS_C_NT_EXPORT_NAME, &data);
@@ -66,7 +64,7 @@ main(int argc, char **argv)
 
     ret = strncmp(data.value, "1 3 6 1 5 6 4", data.length);
     gss_release_buffer(&maj_stat, &data);
-    if (ret)
+    if (ret != 0)
 	return 1;
 
     return 0;

@@ -33,25 +33,25 @@
 
 #include "test_locl.h"
 
-RCSID("$Id$");
-
 static int help_flag;
 static int version_flag;
 static char *port_str;
-static char *keytab_str;
+char *keytab_str;
 krb5_keytab keytab;
 char *service = SERVICE;
 char *mech = "krb5";
 int fork_flag;
+char *password = NULL;
 
 static struct getargs args[] = {
     { "port", 'p', arg_string, &port_str, "port to listen to", "port" },
     { "service", 's', arg_string, &service, "service to use", "service" },
     { "keytab", 'k', arg_string, &keytab_str, "keytab to use", "keytab" },
     { "mech", 'm', arg_string, &mech, "gssapi mech to use", "mech" },
-    { "fork", 'f', arg_flag, &fork_flag, "do fork" },
-    { "help", 'h', arg_flag, &help_flag },
-    { "version", 0, arg_flag, &version_flag }
+    { "password", 'P', arg_string, &password, "password to use", "password" },
+    { "fork", 'f', arg_flag, &fork_flag, "do fork", NULL },
+    { "help", 'h', arg_flag, &help_flag, NULL, NULL },
+    { "version", 0, arg_flag, &version_flag, NULL, NULL }
 };
 
 static int num_args = sizeof(args) / sizeof(args[0]);
@@ -113,12 +113,15 @@ server_setup(krb5_context *context, int argc, char **argv)
 
     if(argv[argc] != NULL)
 	server_usage(1, args, num_args);
-    if (keytab_str != NULL)
-	ret = krb5_kt_resolve (*context, keytab_str, &keytab);
-    else
-	ret = krb5_kt_default (*context, &keytab);
-    if (ret)
-	krb5_err (*context, 1, ret, "krb5_kt_resolve/default");
+    if (keytab_str != NULL) {
+        ret = krb5_kt_resolve (*context, keytab_str, &keytab);
+        if (ret)
+            krb5_err (*context, 1, ret, "krb5_kt_resolve");
+    } else {
+        ret = krb5_kt_default (*context, &keytab);
+        if (ret)
+            krb5_err (*context, 1, ret, "krb5_kt_default");
+    }
     return port;
 }
 
@@ -160,6 +163,9 @@ client_doit (const char *hostname, int port, const char *service,
 	s = socket (a->ai_family, a->ai_socktype, a->ai_protocol);
 	if (s < 0)
 	    continue;
+
+	socket_set_ipv6only(s, 1);
+
 	if (connect (s, a->ai_addr, a->ai_addrlen) < 0) {
 	    warn ("connect(%s)", hostname);
 	    close (s);

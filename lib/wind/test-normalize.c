@@ -44,12 +44,10 @@
 #include "windlocl.h"
 #include "normalize_table.h"
 
-RCSID("$Id$");
-
 static size_t
 parse_vector(char *buf, uint32_t *v)
 {
-    char *last;
+    char *last = NULL;
     unsigned ret = 0;
     const char *n;
     unsigned u;
@@ -69,8 +67,20 @@ parse_vector(char *buf, uint32_t *v)
     return ret;
 }
 
+static void
+dump_vector(const char * msg, uint32_t * v, size_t len)
+{
+    size_t i;
+
+    printf("%s: (%d) ", msg, (int)len);
+    for (i=0; i < len; i++) {
+	printf("%s%x", (i > 0? " ":""), v[i]);
+    }
+    printf("\n");
+}
+
 static int
-test(char *buf)
+test(char *buf, unsigned lineno)
 {
     char *last;
     char *c;
@@ -97,13 +107,11 @@ test(char *buf)
     out_len = parse_vector(c, out);
     if (strtok_r(NULL, ";", &last) == NULL)
 	return 0;
-    c = strtok_r(NULL, ";", &last);
-    if (c == NULL)
-	return 0;
+    c = last;
 
     norm_len = MAX_LENGTH_CANON;
-    tmp = malloc(norm_len * sizeof(size_t));
-    if (tmp == NULL)
+    tmp = malloc(norm_len * sizeof(uint32_t));
+    if (tmp == NULL && norm_len != 0)
 	err(1, "malloc");
     ret = _wind_stringprep_normalize(in, in_len, tmp, &norm_len);
     if (ret) {
@@ -112,12 +120,16 @@ test(char *buf)
 	return 1;
     }
     if (out_len != norm_len) {
-	printf("wrong out len (%s)\n", c);
+	printf("%u: wrong out len (%s)\n", lineno, c);
+	dump_vector("Expected", out, out_len);
+	dump_vector("Received", tmp, norm_len);
 	free(tmp);
 	return 1;
     }
     if (memcmp(out, tmp, out_len * sizeof(uint32_t)) != 0) {
-	printf("wrong out data (%s)\n", c);
+	printf("%u: wrong out data (%s)\n", lineno, c);
+	dump_vector("Expected", out, out_len);
+	dump_vector("Received", tmp, norm_len);
 	free(tmp);
 	return 1;
     }
@@ -130,32 +142,37 @@ main(int argc, char **argv)
 {
     FILE *f;
     char buf[1024];
-    char filename[256] = "NormalizationTest.txt";
+    const char *fn = "NormalizationTest.txt";
     unsigned failures = 0;
+    unsigned lineno = 0;
 
     if (argc > 2)
 	errx(1, "usage: %s [file]", argv[0]);
     else if (argc == 2)
-	strlcpy(filename, argv[1], sizeof(filename));
+        fn = argv[1];
 
-    f = fopen(filename, "r");
+    f = fopen(fn, "r");
     if (f == NULL) {
 	const char *srcdir = getenv("srcdir");
 	if (srcdir != NULL) {
-	    char longname[256];
-	    snprintf(longname, sizeof(longname), "%s/%s", srcdir, filename);
-	    f = fopen(longname, "r");
+            char *long_fn = NULL;
+            if (asprintf(&long_fn, "%s/%s", srcdir, fn) == -1 ||
+                long_fn == NULL)
+                errx(1, "Out of memory");
+	    f = fopen(long_fn, "r");
+            free(long_fn);
 	}
 	if (f == NULL)
-	    err(1, "open %s", filename);
+	    err(1, "open %s", fn);
     }
     while (fgets(buf, sizeof(buf), f) != NULL) {
+	lineno++;
 	if (buf[0] == '#')
 	    continue;
 	if (buf[0] == '@') {
 	    continue;
 	}
-	failures += test(buf);
+	failures += test(buf, lineno);
     }
     fclose(f);
     return failures != 0;

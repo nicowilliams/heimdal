@@ -30,18 +30,17 @@
 # LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY 
 # OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF 
 # SUCH DAMAGE. 
-#
-# $Id$
-#
 
-srcdir="@srcdir@"
+env_setup="@env_setup@"
 objdir="@objdir@"
-EGREP="@EGREP@"
+srcdir="@srcdir@"
 
 testfailed="echo test failed; cat messages.log; exit 1"
 
-# If there is no useful db support compile in, disable test
-../db/have-db || exit 77
+. ${env_setup}
+
+# If there is no useful db support compiled in, disable test
+${have_db} || exit 77
 
 R=TEST.H5L.SE
 
@@ -55,13 +54,12 @@ kdc="${TESTS_ENVIRONMENT} ../../kdc/kdc --addresses=localhost -P $port"
 cache1="FILE:${objdir}/cache1.krb5"
 cache2="FILE:${objdir}/cache2.krb5"
 
-kinit1="${TESTS_ENVIRONMENT} ../../kuser/kinit -c $cache1 --no-afslog"
-kinit2="${TESTS_ENVIRONMENT} ../../kuser/kinit -c $cache2 --no-afslog"
-kdestroy1="${TESTS_ENVIRONMENT} ../../kuser/kdestroy -c $cache1 --no-unlog"
-kdestroy2="${TESTS_ENVIRONMENT} ../../kuser/kdestroy -c $cache2 --no-unlog"
+kinit1="${TESTS_ENVIRONMENT} ../../kuser/kinit -c $cache1 ${afs_no_afslog}"
+kinit2="${TESTS_ENVIRONMENT} ../../kuser/kinit -c $cache2 ${afs_no_afslog}"
+kdestroy1="${TESTS_ENVIRONMENT} ../../kuser/kdestroy -c $cache1 ${afs_no_unlog}"
+kdestroy2="${TESTS_ENVIRONMENT} ../../kuser/kdestroy -c $cache2 ${afs_no_unlog}"
 uu_server="${TESTS_ENVIRONMENT} ../../appl/test/uu_server"
 uu_client="${TESTS_ENVIRONMENT} ../../appl/test/uu_client"
-
 
 KRB5_CONFIG="${objdir}/krb5.conf"
 export KRB5_CONFIG
@@ -73,31 +71,27 @@ rm -f mkey.file*
 > messages.log
 
 echo Creating database
-${kadmin} \
-    init \
-    --realm-max-ticket-life=1day \
-    --realm-max-renewable-life=1month \
-    ${R} || exit 1
-
-${kadmin} add -p foo --use-defaults user1@${R} || exit 1
-${kadmin} add -p foo --use-defaults user2@${R} || exit 1
-
-echo "Doing database check"
-${kadmin} check ${R} || exit 1
+${kadmin} <<EOF || exit 1
+init --realm-max-ticket-life=1day --realm-max-renewable-life=1month ${R}
+add -p foo --use-defaults user1@${R}
+add -p foo --use-defaults user2@${R}
+check ${R}
+EOF
 
 echo foo > ${objdir}/foopassword
 
-echo Starting kdc
-${kdc} &
-kdcpid=$!
+echo Starting kdc ; > messages.log
+${kdc} --detach --testing || { echo "kdc failed to start"; cat messages.log; exit 1; }
+kdcpid=`getpid kdc`
 
-sh ${srcdir}/wait-kdc.sh
-if [ "$?" != 0 ] ; then
-    kill -9 ${kdcpid}
+cleanup() {
+    echo signal killing kdc
+    kill -9 ${kdcpid} ${uuspid} 2>/dev/null
+    trap '' EXIT INT TERM
+    cat messages.log
     exit 1
-fi
-
-trap "kill -9 ${kdcpid} ${uuspid}; echo signal killing kdc; exit 1;" EXIT
+}
+trap cleanup EXIT INT TERM
 
 ec=0
 
@@ -131,7 +125,7 @@ ${kdestroy1}
 ${kdestroy2}
 
 echo "killing kdc uu_server (${kdcpid} ${uuspid})"
-sh ${srcdir}/leaks-kill.sh kdc $kdcpid || exit 1
+sh ${leaks_kill} kdc $kdcpid || exit 1
 
 
 trap "" EXIT

@@ -31,9 +31,9 @@
  * SUCH DAMAGE.
  */
 
-#include <krb5_locl.h>
+#include "krb5_locl.h"
 
-krb5_error_code KRB5_LIB_FUNCTION
+KRB5_LIB_FUNCTION krb5_error_code KRB5_LIB_CALL
 krb5_mk_priv(krb5_context context,
 	     krb5_auth_context auth_context,
 	     const krb5_data *userdata,
@@ -45,7 +45,7 @@ krb5_mk_priv(krb5_context context,
     EncKrbPrivPart part;
     u_char *buf = NULL;
     size_t buf_size;
-    size_t len;
+    size_t len = 0;
     krb5_crypto crypto;
     krb5_keyblock *key;
     krb5_replay_data rdata;
@@ -135,10 +135,8 @@ krb5_mk_priv(krb5_context context,
 
     ret = krb5_data_copy(outbuf, buf + buf_size - len, len);
     if (ret) {
-	krb5_set_error_message(context, ENOMEM,
-			       N_("malloc: out of memory", ""));
 	free(buf);
-	return ENOMEM;
+	return krb5_enomem(context);
     }
     free (buf);
     if (auth_context->flags & KRB5_AUTH_CONTEXT_DO_SEQUENCE)

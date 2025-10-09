@@ -46,7 +46,7 @@
  * @ingroup krb5
  */
 
-krb5_error_code KRB5_LIB_FUNCTION
+KRB5_LIB_FUNCTION krb5_error_code KRB5_LIB_CALL
 krb5_copy_host_realm(krb5_context context,
 		     const krb5_realm *from,
 		     krb5_realm **to)
@@ -58,19 +58,14 @@ krb5_copy_host_realm(krb5_context context,
 	++n;
 
     *to = calloc (n, sizeof(**to));
-    if (*to == NULL) {
-	krb5_set_error_message (context, ENOMEM,
-				N_("malloc: out of memory", ""));
-	return ENOMEM;
-    }
+    if (*to == NULL)
+	return krb5_enomem(context);
 
     for (i = 0, p = from; *p != NULL; ++p, ++i) {
 	(*to)[i] = strdup(*p);
 	if ((*to)[i] == NULL) {
 	    krb5_free_host_realm (context, *to);
-	    krb5_set_error_message (context, ENOMEM,
-				    N_("malloc: out of memory", ""));
-	    return ENOMEM;
+	    return krb5_enomem(context);
 	}
     }
     return 0;

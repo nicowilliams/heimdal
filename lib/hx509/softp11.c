@@ -31,13 +31,23 @@
  * SUCH DAMAGE.
  */
 
+#define CRYPTOKI_EXPORTS 1
+
 #include "hx_locl.h"
-#include "pkcs11.h"
+#include "ref/pkcs11.h"
 
 #define OBJECT_ID_MASK		0xfff
 #define HANDLE_OBJECT_ID(h)	((h) & OBJECT_ID_MASK)
 #define OBJECT_ID(obj)		HANDLE_OBJECT_ID((obj)->object_handle)
 
+#ifndef HAVE_RANDOM
+#define random() rand()
+#define srandom(s) srand(s)
+#endif
+
+#ifdef _WIN32
+#include <shlobj.h>
+#endif
 
 struct st_attr {
     CK_ATTRIBUTE attribute;
@@ -130,9 +140,9 @@ snprintf_fill(char *str, size_t size, char fillchar, const char *fmt, ...)
     va_start(ap, fmt);
     len = vsnprintf(str, size, fmt, ap);
     va_end(ap);
-    if (len < 0 || len > size)
+    if (len < 0 || (size_t)len > size)
 	return;
-    while(len < size)
+    while ((size_t)len < size)
 	str[len++] = fillchar;
 }
 
@@ -142,9 +152,9 @@ snprintf_fill(char *str, size_t size, char fillchar, const char *fmt, ...)
 
 #define VERIFY_SESSION_HANDLE(s, state)			\
 {							\
-    CK_RV ret;						\
-    ret = verify_session_handle(s, state);		\
-    if (ret != CKR_OK) {				\
+    CK_RV xret;						\
+    xret = verify_session_handle(s, state);		\
+    if (xret != CKR_OK) {				\
 	/* return CKR_OK */;				\
     }							\
 }
@@ -153,7 +163,7 @@ static CK_RV
 verify_session_handle(CK_SESSION_HANDLE hSession,
 		      struct session_state **state)
 {
-    int i;
+    size_t i;
 
     for (i = 0; i < MAX_NUM_SESSION; i++){
 	if (soft_token.state[i].session_handle == hSession)
@@ -301,7 +311,7 @@ add_st_object(void)
 	return NULL;
 
     for (i = 0; i < soft_token.object.num_objs; i++) {
-	if (soft_token.object.objs == NULL) {
+	if (soft_token.object.objs[i] == NULL) {
 	    soft_token.object.objs[i] = o;
 	    break;
 	}
@@ -315,7 +325,7 @@ add_st_object(void)
 	}
 	soft_token.object.objs = objs;
 	soft_token.object.objs[soft_token.object.num_objs++] = o;
-    }	
+    }
     soft_token.object.objs[i]->object_handle =
 	(random() & (~OBJECT_ID_MASK)) | i;
 
@@ -332,6 +342,9 @@ add_object_attribute(struct st_object *o,
     struct st_attr *a;
     int i;
 
+    if (pValue == NULL && ulValueLen)
+        return CKR_ARGUMENTS_BAD;
+
     i = o->num_attributes;
     a = realloc(o->attrs, (i + 1) * sizeof(o->attrs[0]));
     if (a == NULL)
@@ -342,7 +355,8 @@ add_object_attribute(struct st_object *o,
     o->attrs[i].attribute.pValue = malloc(ulValueLen);
     if (o->attrs[i].attribute.pValue == NULL && ulValueLen != 0)
 	return CKR_DEVICE_MEMORY;
-    memcpy(o->attrs[i].attribute.pValue, pValue, ulValueLen);
+    if (ulValueLen)
+        memcpy(o->attrs[i].attribute.pValue, pValue, ulValueLen);
     o->attrs[i].attribute.ulValueLen = ulValueLen;
     o->num_attributes++;
 
@@ -382,7 +396,7 @@ add_pubkey_info(hx509_context hxctx, struct st_object *o,
 			 &modulus_bits, sizeof(modulus_bits));
 
     free(modulus);
-	
+
     num = _hx509_private_key_get_internal(context,
 					  _hx509_cert_private_key(cert),
 					  "rsa-exponent");
@@ -408,9 +422,10 @@ struct foo {
     char *id;
 };
 
-static int
+static int HX509_LIB_CALL
 add_cert(hx509_context hxctx, void *ctx, hx509_cert cert)
 {
+    static char empty[] = "";
     struct foo *foo = (struct foo *)ctx;
     struct st_object *o = NULL;
     CK_OBJECT_CLASS type;
@@ -510,8 +525,8 @@ add_cert(hx509_context hxctx, void *ctx, hx509_cert cert)
 
     add_object_attribute(o, 0, CKA_KEY_TYPE, &key_type, sizeof(key_type));
     add_object_attribute(o, 0, CKA_ID, foo->id, strlen(foo->id));
-    add_object_attribute(o, 0, CKA_START_DATE, "", 1); /* XXX */
-    add_object_attribute(o, 0, CKA_END_DATE, "", 1); /* XXX */
+    add_object_attribute(o, 0, CKA_START_DATE, empty, 1); /* XXX */
+    add_object_attribute(o, 0, CKA_END_DATE, empty, 1); /* XXX */
     add_object_attribute(o, 0, CKA_DERIVE, &bool_false, sizeof(bool_false));
     add_object_attribute(o, 0, CKA_LOCAL, &bool_false, sizeof(bool_false));
     mech_type = CKM_RSA_X_509;
@@ -532,6 +547,8 @@ add_cert(hx509_context hxctx, void *ctx, hx509_cert cert)
 	CK_FLAGS flags;
 
 	type = CKO_PRIVATE_KEY;
+
+        /* Note to static analyzers: `o' is still referred to via globals */
 	o = add_st_object();
 	if (o == NULL) {
 	    ret = CKR_DEVICE_MEMORY;
@@ -547,8 +564,8 @@ add_cert(hx509_context hxctx, void *ctx, hx509_cert cert)
 
 	add_object_attribute(o, 0, CKA_KEY_TYPE, &key_type, sizeof(key_type));
 	add_object_attribute(o, 0, CKA_ID, foo->id, strlen(foo->id));
-	add_object_attribute(o, 0, CKA_START_DATE, "", 1); /* XXX */
-	add_object_attribute(o, 0, CKA_END_DATE, "", 1); /* XXX */
+	add_object_attribute(o, 0, CKA_START_DATE, empty, 1); /* XXX */
+	add_object_attribute(o, 0, CKA_END_DATE, empty, 1); /* XXX */
 	add_object_attribute(o, 0, CKA_DERIVE, &bool_false, sizeof(bool_false));
 	add_object_attribute(o, 0, CKA_LOCAL, &bool_false, sizeof(bool_false));
 	mech_type = CKM_RSA_X_509;
@@ -582,6 +599,7 @@ add_cert(hx509_context hxctx, void *ctx, hx509_cert cert)
     hx509_xfree(issuer_data.data);
     hx509_xfree(subject_data.data);
 
+    /* Note to static analyzers: `o' is still referred to via globals */
     return 0;
 }
 
@@ -604,7 +622,11 @@ add_certificate(const char *cert_file,
 
     if (pin) {
 	char *str;
-	asprintf(&str, "PASS:%s", pin);
+	ret = asprintf(&str, "PASS:%s", pin);
+	if (ret == -1 || !str) {
+	    st_logf("failed to allocate memory\n");
+	    return CKR_GENERAL_ERROR;
+	}
 
 	hx509_lock_init(context, &lock);
 	hx509_lock_command_string(lock, str);
@@ -619,7 +641,7 @@ add_certificate(const char *cert_file,
 	return CKR_GENERAL_ERROR;
     }
 
-    ret = hx509_certs_iter(context, certs, add_cert, &foo);
+    ret = hx509_certs_iter_f(context, certs, add_cert, &foo);
     hx509_certs_free(&certs);
     if (ret) {
 	st_logf("failed adding certs from file %s\n", cert_file);
@@ -687,6 +709,11 @@ read_conf_file(const char *fn, CK_USER_TYPE userType, const char *pin)
     CK_RV ret = CKR_OK;
     CK_RV failed = CKR_OK;
 
+    if (fn == NULL) {
+        st_logf("Can't open configuration file.  No file specified\n");
+        return CKR_GENERAL_ERROR;
+    }
+
     f = fopen(fn, "r");
     if (f == NULL) {
 	st_logf("can't open configuration file %s\n", fn);
@@ -711,10 +738,10 @@ read_conf_file(const char *fn, CK_USER_TYPE userType, const char *pin)
 	type = strtok_r(p, "\t", &s);
 	if (type == NULL)
 	    continue;
-	
+
 	if (strcasecmp("certificate", type) == 0) {
 	    char *cert, *id, *label;
-	
+
 	    id = strtok_r(NULL, "\t", &s);
 	    if (id == NULL) {
 		st_logf("no id\n");
@@ -731,9 +758,9 @@ read_conf_file(const char *fn, CK_USER_TYPE userType, const char *pin)
 		st_logf("no certfiicate store\n");
 		continue;
 	    }
-	
+
 	    st_logf("adding: %s: %s in file %s\n", id, label, cert);
-	
+
 	    ret = add_certificate(cert, pin, id, label);
 	    if (ret)
 		failed = ret;
@@ -758,7 +785,7 @@ read_conf_file(const char *fn, CK_USER_TYPE userType, const char *pin)
 	    }
 	    if (soft_token.logfile == NULL)
 		st_logf("failed to open file: %s\n", name);
-		
+
 	} else if (strcasecmp("app-fatal", type) == 0) {
 	    char *name;
 
@@ -792,12 +819,40 @@ func_not_supported(void)
     return CKR_FUNCTION_NOT_SUPPORTED;
 }
 
-CK_RV
+static char *
+get_config_file_for_user(void)
+{
+    char *fn;
+    int ret;
+
+    fn = secure_getenv("SOFTPKCS11RC");
+    if (fn)
+        fn = strdup(fn);
+    if (fn == NULL) {
+        char homebuf[MAX_PATH];
+        const char *home = roken_get_appdatadir(homebuf, sizeof(homebuf));
+
+        if (home) {
+            ret = asprintf(&fn, "%s/.soft-token.rc", home);
+	    if (ret == -1)
+		fn = NULL;
+        } else {
+#ifndef WIN32
+            fn = strdup("/etc/soft-token.rc");
+#endif
+        }
+    }
+
+    return fn;
+}
+
+
+CK_RV CK_SPEC
 C_Initialize(CK_VOID_PTR a)
 {
     CK_C_INITIALIZE_ARGS_PTR args = a;
     CK_RV ret;
-    int i;
+    size_t i;
 
     st_logf("Initialize\n");
 
@@ -805,7 +860,7 @@ C_Initialize(CK_VOID_PTR a)
 
     OpenSSL_add_all_algorithms();
 
-    srandom(getpid() ^ time(NULL));
+    srandom(getpid() ^ (int) time(NULL));
 
     for (i = 0; i < MAX_NUM_SESSION; i++) {
 	soft_token.state[i].session_handle = CK_INVALID_HANDLE;
@@ -838,29 +893,7 @@ C_Initialize(CK_VOID_PTR a)
 	st_logf("\tFlags\t%04x\n", (unsigned int)args->flags);
     }
 
-    {
-	char *fn = NULL, *home = NULL;
-
-	if (getuid() == geteuid()) {
-	    fn = getenv("SOFTPKCS11RC");
-	    if (fn)
-		fn = strdup(fn);
-	    home = getenv("HOME");
-	}
-	if (fn == NULL && home == NULL) {
-	    struct passwd *pw = getpwuid(getuid());	
-	    if(pw != NULL)
-		home = pw->pw_dir;
-	}
-	if (fn == NULL) {
-	    if (home)
-		asprintf(&fn, "%s/.soft-token.rc", home);
-	    else
-		fn = strdup("/etc/soft-token.rc");
-	}
-
-	soft_token.config_file = fn;
-    }
+    soft_token.config_file = get_config_file_for_user();
 
     /*
      * This operations doesn't return CKR_OK if any of the
@@ -876,7 +909,7 @@ C_Initialize(CK_VOID_PTR a)
 CK_RV
 C_Finalize(CK_VOID_PTR args)
 {
-    int i;
+    size_t i;
 
     INIT_CONTEXT();
 
@@ -1036,7 +1069,7 @@ C_GetMechanismList(CK_SLOT_ID slotID,
     *pulCount = 1;
     if (pMechanismList == NULL_PTR)
 	return CKR_OK;
-    pMechanismList[1] = CKM_RSA_PKCS;
+    pMechanismList[0] = CKM_RSA_PKCS;
 
     return CKR_OK;
 }
@@ -1072,7 +1105,7 @@ C_OpenSession(CK_SLOT_ID slotID,
 	      CK_NOTIFY Notify,
 	      CK_SESSION_HANDLE_PTR phSession)
 {
-    int i;
+    size_t i;
     INIT_CONTEXT();
     st_logf("OpenSession: slot: %d\n", (int)slotID);
 
@@ -1115,7 +1148,7 @@ C_CloseSession(CK_SESSION_HANDLE hSession)
 CK_RV
 C_CloseAllSessions(CK_SLOT_ID slotID)
 {
-    int i;
+    size_t i;
     INIT_CONTEXT();
 
     st_logf("CloseAllSessions\n");
@@ -1164,8 +1197,13 @@ C_Login(CK_SESSION_HANDLE hSession,
     VERIFY_SESSION_HANDLE(hSession, NULL);
 
     if (pPin != NULL_PTR) {
-	asprintf(&pin, "%.*s", (int)ulPinLen, pPin);
-	st_logf("type: %d password: %s\n", (int)userType, pin);
+	int aret;
+
+	aret = asprintf(&pin, "%.*s", (int)ulPinLen, pPin);
+	if (aret != -1 && pin)
+		st_logf("type: %d password: %s\n", (int)userType, pin);
+	else
+		st_logf("memory error: asprintf failed\n");
     }
 
     /*
@@ -1389,7 +1427,7 @@ commonInit(CK_ATTRIBUTE *attr_match, int attr_match_len,
 
 
 static CK_RV
-dup_mechanism(CK_MECHANISM_PTR *dup, const CK_MECHANISM_PTR pMechanism)
+dup_mechanism(CK_MECHANISM_PTR *dp, const CK_MECHANISM_PTR pMechanism)
 {
     CK_MECHANISM_PTR p;
 
@@ -1397,9 +1435,9 @@ dup_mechanism(CK_MECHANISM_PTR *dup, const CK_MECHANISM_PTR pMechanism)
     if (p == NULL)
 	return CKR_DEVICE_MEMORY;
 
-    if (*dup)
-	free(*dup);
-    *dup = p;
+    if (*dp)
+	free(*dp);
+    *dp = p;
     memcpy(p, pMechanism, sizeof(*p));
 
     return CKR_OK;
@@ -1456,7 +1494,7 @@ C_Sign(CK_SESSION_HANDLE hSession,
     struct session_state *state;
     struct st_object *o;
     CK_RV ret;
-    uint hret;
+    int hret;
     const AlgorithmIdentifier *alg;
     heim_octet_string sig, data;
 
@@ -1575,7 +1613,7 @@ C_VerifyInit(CK_SESSION_HANDLE hSession,
     ret = dup_mechanism(&state->verify_mechanism, pMechanism);
     if (ret == CKR_OK)
 	state->verify_object = OBJECT_ID(o);
-			
+
     return ret;
 }
 
@@ -1617,7 +1655,7 @@ C_Verify(CK_SESSION_HANDLE hSession,
     data.length = ulSignatureLen;
 
     hret = _hx509_verify_signature(context,
-				   _hx509_get_cert(o->cert),
+				   o->cert,
 				   alg,
 				   &data,
 				   &sig);

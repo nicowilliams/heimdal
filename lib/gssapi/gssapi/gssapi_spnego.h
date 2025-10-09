@@ -46,8 +46,41 @@ GSSAPI_CPP_START
  *  negotiation token is identified by the Object Identifier
  *  iso.org.dod.internet.security.mechanism.snego (1.3.6.1.5.5.2).
  */
-extern GSSAPI_LIB_VARIABLE gss_OID GSS_SPNEGO_MECHANISM;
+extern GSSAPI_LIB_VARIABLE gss_OID_desc __gss_spnego_mechanism_oid_desc;
+#define GSS_SPNEGO_MECHANISM (&__gss_spnego_mechanism_oid_desc)
 #define gss_mech_spnego GSS_SPNEGO_MECHANISM
+
+/*
+ * NegoEx extensions, to be implemented by mechanisms
+ */
+GSSAPI_LIB_FUNCTION OM_uint32 GSSAPI_LIB_CALL
+gssspi_query_mechanism_info(
+    OM_uint32 * /* minor_status */,
+    gss_const_OID /* mech_oid */,
+    unsigned char[16] /* auth_scheme */
+);
+
+GSSAPI_LIB_FUNCTION OM_uint32 GSSAPI_LIB_CALL
+gssspi_query_meta_data(
+    OM_uint32 * /* minor_status */,
+    gss_const_OID /* mech_oid */,
+    gss_cred_id_t /* cred_handle */,
+    gss_ctx_id_t * /* context_handle */,
+    gss_const_name_t /* targ_name */,
+    OM_uint32 /* req_flags */,
+    gss_buffer_t /* meta_data */
+);
+
+GSSAPI_LIB_FUNCTION OM_uint32 GSSAPI_LIB_CALL
+gssspi_exchange_meta_data(
+    OM_uint32 * /* minor_status */,
+    gss_const_OID /* mech_oid */,
+    gss_cred_id_t /* cred_handle */,
+    gss_ctx_id_t * /* context_handle */,
+    gss_const_name_t /* targ_name */,
+    OM_uint32 /* req_flags */,
+    gss_const_buffer_t /* meta_data */
+);
 
 GSSAPI_CPP_END
 

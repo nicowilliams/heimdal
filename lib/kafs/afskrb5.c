@@ -33,8 +33,6 @@
 
 #include "kafs_locl.h"
 
-RCSID("$Id$");
-
 struct krb5_kafs_data {
     krb5_context context;
     krb5_ccache id;
@@ -52,10 +50,6 @@ v5_to_kt(krb5_creds *cred, uid_t uid, struct kafs_token *kt, int local524)
     int kvno, ret;
 
     kt->ticket = NULL;
-
-    /* check if des key */
-    if (cred->session.keyvalue.length != 8)
-	return EINVAL;
 
     if (local524) {
 	Ticket t;
@@ -91,8 +85,6 @@ v5_to_kt(krb5_creds *cred, uid_t uid, struct kafs_token *kt, int local524)
 	    return ENOMEM;
 	kt->ticket_len = cred->ticket.length;
 	memcpy(kt->ticket, cred->ticket.data, kt->ticket_len);
-
-	ret = 0;
     }
 
 
@@ -100,8 +92,16 @@ v5_to_kt(krb5_creds *cred, uid_t uid, struct kafs_token *kt, int local524)
      * Build a struct ClearToken
      */
 
+    ret = _kafs_derive_des_key(cred->session.keytype,
+			       cred->session.keyvalue.data,
+			       cred->session.keyvalue.length,
+			       kt->ct.HandShakeKey);
+    if (ret) {
+	free(kt->ticket);
+	kt->ticket = NULL;
+	return ret;
+    }
     kt->ct.AuthHandle = kvno;
-    memcpy(kt->ct.HandShakeKey, cred->session.keyvalue.data, 8);
     kt->ct.ViceId = uid;
     kt->ct.BeginTimestamp = cred->times.starttime;
     kt->ct.EndTimestamp = cred->times.endtime;
@@ -132,23 +132,9 @@ v5_convert(krb5_context context, krb5_ccache id,
     if (strcasecmp(val, "local") == 0 ||
 	strcasecmp(val, "2b") == 0)
 	ret = v5_to_kt(cred, uid, kt, 1);
-    else if(strcasecmp(val, "yes") == 0 ||
-	    strcasecmp(val, "true") == 0 ||
-	    atoi(val)) {
-	struct credentials cred4;
-	
-	if (id == NULL)
-	    ret = krb524_convert_creds_kdc(context, cred, &cred4);
-	else
-	    ret = krb524_convert_creds_kdc_ccache(context, id, cred, &cred4);
-	if (ret)
-	    goto out;
-
-	ret = _kafs_v4_to_kt(&cred4, uid, kt);
-    } else
+    else
 	ret = v5_to_kt(cred, uid, kt, 0);
 
- out:
     free(val);
     return ret;
 }
@@ -165,6 +151,7 @@ get_cred(struct kafs_data *data, const char *name, const char *inst,
     krb5_error_code ret;
     krb5_creds in_creds, *out_creds;
     struct krb5_kafs_data *d = data->data;
+    int invalid;
 
     memset(&in_creds, 0, sizeof(in_creds));
 
@@ -177,8 +164,17 @@ get_cred(struct kafs_data *data, const char *name, const char *inst,
 	krb5_free_principal(d->context, in_creds.server);
 	return ret;
     }
-    in_creds.session.keytype = ETYPE_DES_CBC_CRC;
+
+    /* check if des is disable, and in that case enable it for afs */
+    invalid = krb5_enctype_valid(d->context, ETYPE_DES_CBC_CRC);
+    if (invalid)
+	krb5_enctype_enable(d->context, ETYPE_DES_CBC_CRC);
+
     ret = krb5_get_credentials(d->context, 0, d->id, &in_creds, &out_creds);
+
+    if (invalid)
+	krb5_enctype_disable(d->context, ETYPE_DES_CBC_CRC);
+
     krb5_free_principal(d->context, in_creds.server);
     krb5_free_principal(d->context, in_creds.client);
     if(ret)
@@ -189,6 +185,20 @@ get_cred(struct kafs_data *data, const char *name, const char *inst,
     krb5_free_creds(d->context, out_creds);
 
     return ret;
+}
+
+static const char *
+get_error(struct kafs_data *data, int error)
+{
+    struct krb5_kafs_data *d = data->data;
+    return krb5_get_error_message(d->context, error);
+}
+
+static void
+free_error(struct kafs_data *data, const char *str)
+{
+    struct krb5_kafs_data *d = data->data;
+    krb5_free_error_message(d->context, str);
 }
 
 static krb5_error_code
@@ -250,6 +260,8 @@ krb5_afslog_uid_home(krb5_context context,
     kd.afslog_uid = afslog_uid_int;
     kd.get_cred = get_cred;
     kd.get_realm = get_realm;
+    kd.get_error = get_error;
+    kd.free_error = free_error;
     kd.data = &d;
     if (context == NULL) {
 	ret = krb5_init_context(&d.context);
@@ -313,6 +325,8 @@ krb5_realm_of_cell(const char *cell, char **realm)
 
     kd.name = "krb5";
     kd.get_realm = get_realm;
+    kd.get_error = get_error;
+    kd.free_error = free_error;
     return _kafs_realm_of_cell(&kd, cell, realm);
 }
 

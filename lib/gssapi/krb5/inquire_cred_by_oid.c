@@ -32,9 +32,9 @@
 
 #include "gsskrb5_locl.h"
 
-OM_uint32 _gsskrb5_inquire_cred_by_oid
+OM_uint32 GSSAPI_CALLCONV _gsskrb5_inquire_cred_by_oid
 	   (OM_uint32 * minor_status,
-	    const gss_cred_id_t cred_handle,
+	    gss_const_cred_id_t cred_handle,
 	    const gss_OID desired_object,
 	    gss_buffer_set_t *data_set)
 {

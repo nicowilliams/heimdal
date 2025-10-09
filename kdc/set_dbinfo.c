@@ -1,8 +1,9 @@
 /*
  * Copyright (c) 1997-2007 Kungliga Tekniska Högskolan
  * (Royal Institute of Technology, Stockholm, Sweden).
- *
  * All rights reserved.
+ *
+ * Portions Copyright (c) 2009 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -34,9 +35,36 @@
 
 #include "kdc_locl.h"
 
-RCSID("$Id: default_config.c 21296 2007-06-25 14:49:11Z lha $");
+static krb5_error_code
+add_db(krb5_context context, struct krb5_kdc_configuration *c,
+       const char *conf, const char *master_key)
+{
+    krb5_error_code ret;
+    void *ptr;
 
-krb5_error_code
+    ptr = realloc(c->db, (c->num_db + 1) * sizeof(*c->db));
+    if (ptr == NULL) {
+	krb5_set_error_message(context, ENOMEM, "malloc: out of memory");
+	return ENOMEM;
+    }
+    c->db = ptr;
+
+    ret = hdb_create(context, &c->db[c->num_db], conf);
+    if(ret)
+	return ret;
+
+    c->num_db++;
+
+    if (master_key) {
+	ret = hdb_set_master_keyfile(context, c->db[c->num_db - 1], master_key);
+	if (ret)
+	    return ret;
+    }
+
+    return 0;
+}
+
+KDC_LIB_FUNCTION krb5_error_code KDC_LIB_CALL
 krb5_kdc_set_dbinfo(krb5_context context, struct krb5_kdc_configuration *c)
 {
     struct hdb_dbinfo *info, *d;
@@ -50,35 +78,20 @@ krb5_kdc_set_dbinfo(krb5_context context, struct krb5_kdc_configuration *c)
 
     d = NULL;
     while ((d = hdb_dbinfo_get_next(info, d)) != NULL) {
-	void *ptr;
-	
-	ptr = realloc(c->db, (c->num_db + 1) * sizeof(*c->db));
-	if (ptr == NULL) {
-	    ret = ENOMEM;
-	    krb5_set_error_message(context, ret, "malloc: out of memory");
-	    goto out;
-	}
-	c->db = ptr;
-	
-	ret = hdb_create(context, &c->db[c->num_db],
-			 hdb_dbinfo_get_dbname(context, d));
-	if(ret)
-	    goto out;
-	
-	ret = hdb_set_master_keyfile(context, c->db[c->num_db],
-				     hdb_dbinfo_get_mkey_file(context, d));
+
+	ret = add_db(context, c,
+		     hdb_dbinfo_get_dbname(context, d),
+		     hdb_dbinfo_get_mkey_file(context, d));
 	if (ret)
 	    goto out;
-	
-	c->num_db++;
 
-	kdc_log(context, c, 0, "label: %s",
+	kdc_log(context, c, 3, "label: %s",
 		hdb_dbinfo_get_label(context, d));
-	kdc_log(context, c, 0, "\tdbname: %s",
+	kdc_log(context, c, 3, "\tdbname: %s",
 		hdb_dbinfo_get_dbname(context, d));
-	kdc_log(context, c, 0, "\tmkey_file: %s",
+	kdc_log(context, c, 3, "\tmkey_file: %s",
 		hdb_dbinfo_get_mkey_file(context, d));
-	kdc_log(context, c, 0, "\tacl_file: %s",
+	kdc_log(context, c, 3, "\tacl_file: %s",
 		hdb_dbinfo_get_acl_file(context, d));
     }
     hdb_free_dbinfo(context, &info);

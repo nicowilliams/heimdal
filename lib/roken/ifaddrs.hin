@@ -38,9 +38,11 @@
 
 #ifndef ROKEN_LIB_FUNCTION
 #ifdef _WIN32
-#define ROKEN_LIB_FUNCTION _stdcall
+#define ROKEN_LIB_FUNCTION
+#define ROKEN_LIB_CALL _stdcall
 #else
 #define ROKEN_LIB_FUNCTION
+#define ROKEN_LIB_CALL
 #endif
 #endif
 
@@ -65,10 +67,10 @@ struct ifaddrs {
 #define ifa_broadaddr ifa_dstaddr
 #endif
 
-int ROKEN_LIB_FUNCTION
+ROKEN_LIB_FUNCTION int ROKEN_LIB_CALL
 rk_getifaddrs(struct ifaddrs**);
 
-void ROKEN_LIB_FUNCTION
+ROKEN_LIB_FUNCTION void ROKEN_LIB_CALL
 rk_freeifaddrs(struct ifaddrs*);
 
 #define getifaddrs(a) rk_getifaddrs(a)

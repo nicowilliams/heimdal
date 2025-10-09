@@ -287,7 +287,7 @@ _kadm5_ad_connect(void *server_handle)
 	if (r == NULL) {
 	    krb5_set_error_message(context->context, KADM5_NO_SRV, "Didn't find ldap dns");
 	    return KADM5_NO_SRV;
-	}	
+	}
 
 	for (rr = r->head ; rr != NULL; rr = rr->next) {
 	    if (rr->type != rk_ns_t_srv)
@@ -318,20 +318,20 @@ _kadm5_ad_connect(void *server_handle)
 	lp = ldap_init(servers[i].server, servers[i].port);
 	if (lp == NULL)
 	    continue;
-	
+
 	if (ldap_set_option(lp, LDAP_OPT_PROTOCOL_VERSION, &version)) {
 	    ldap_unbind(lp);
 	    continue;
 	}
-	
+
 	if (ldap_set_option(lp, LDAP_OPT_REFERRALS, LDAP_OPT_OFF)) {
 	    ldap_unbind(lp);
 	    continue;
 	}
-	
+
 #ifdef HAVE_TSASL
 	lret = ldap_tsasl_bind_s(lp, NULL, NULL, NULL, servers[i].server);
-				
+
 #else
 	lret = ldap_sasl_interactive_bind_s(lp, NULL, NULL, NULL, NULL,
 					    LDAP_SASL_QUIET,
@@ -358,7 +358,7 @@ _kadm5_ad_connect(void *server_handle)
 	int attrlen = 0;
 	char **vals;
 	int ret;
-	
+
 	laddattr(&attr, &attrlen, "defaultNamingContext");
 
 	ret = ldap_search_s(CTX2LP(context), "", LDAP_SCOPE_BASE,
@@ -484,14 +484,15 @@ ad_get_cred(kadm5_ad_context *context, const char *password)
     kadm5_ret_t ret;
     krb5_ccache cc;
     char *service;
+    int aret;
 
     if (context->ccache)
 	return 0;
 
-    asprintf(&service, "%s/%s@%s", KRB5_TGS_NAME,
-	     context->realm, context->realm);
-    if (service == NULL)
-	return ENOMEM;
+    aret = asprintf(&service, "%s/%s@%s", KRB5_TGS_NAME,
+		    context->realm, context->realm);
+    if (aret == -1 || service == NULL)
+	return krb5_enomem(context->context);
 
     ret = _kadm5_c_get_cred_cache(context->context,
 				  context->client_name,
@@ -508,12 +509,21 @@ ad_get_cred(kadm5_ad_context *context, const char *password)
 static kadm5_ret_t
 kadm5_ad_chpass_principal(void *server_handle,
 			  krb5_principal principal,
+			  int keepold,
+			  int n_ks_tuple,
+			  krb5_key_salt_tuple *ks_tuple,
 			  const char *password)
 {
     kadm5_ad_context *context = server_handle;
     krb5_data result_code_string, result_string;
     int result_code;
     kadm5_ret_t ret;
+
+    if (keepold)
+	return KADM5_KEEPOLD_NOSUPP;
+
+    if (n_ks_tuple > 0)
+       return KADM5_KS_TUPLE_NOSUPP;
 
     ret = ad_get_cred(context, NULL);
     if (ret)
@@ -562,6 +572,8 @@ static kadm5_ret_t
 kadm5_ad_create_principal(void *server_handle,
 			  kadm5_principal_ent_t entry,
 			  uint32_t mask,
+			  int n_ks_tuple,
+			  krb5_key_salt_tuple *ks_tuple,
 			  const char *password)
 {
     kadm5_ad_context *context = server_handle;
@@ -586,6 +598,14 @@ kadm5_ad_create_principal(void *server_handle,
 
     if ((mask & KADM5_PRINCIPAL) == 0)
 	return KADM5_BAD_MASK;
+
+    /*
+     * We should get around to implementing this...  At the moment, the
+     * the server side API is implemented but the wire protocol has not
+     * been updated.
+     */
+    if (n_ks_tuple > 0)
+       return KADM5_KS_TUPLE_NOSUPP;
 
     for (i = 0; i < sizeof(rattrs)/sizeof(rattrs[0]); i++)
 	attrs[i] = &rattrs[i];
@@ -621,7 +641,7 @@ kadm5_ad_create_principal(void *server_handle,
 
     realmless_p = strdup(p);
     if (realmless_p == NULL) {
-	ret = ENOMEM;
+	ret = krb5_enomem(context->context);
 	goto out;
     }
     s = strrchr(realmless_p, '@');
@@ -632,7 +652,7 @@ kadm5_ad_create_principal(void *server_handle,
 	/* create computer account */
 	asprintf(&samname, "%s$", fqdn);
 	if (samname == NULL) {
-	    ret = ENOMEM;
+	    ret = krb5_enomem(context->context);
 	    goto out;
 	}
 	s = strchr(samname, '.');
@@ -640,10 +660,10 @@ kadm5_ad_create_principal(void *server_handle,
 	    s[0] = '$';
 	    s[1] = '\0';
 	}
-	
+
 	short_spn = strdup(p);
 	if (short_spn == NULL) {
-	    errno = ENOMEM;
+	    ret = krb5_enomem(context->context);
 	    goto out;
 	}
 	s = strchr(short_spn, '.');
@@ -656,7 +676,7 @@ kadm5_ad_create_principal(void *server_handle,
 
 	p_msrealm = strdup(p);
 	if (p_msrealm == NULL) {
-	    errno = ENOMEM;
+	    ret = krb5_enomem(context->context);
 	    goto out;
 	}
 	s = strrchr(p_msrealm, '@');
@@ -669,7 +689,7 @@ kadm5_ad_create_principal(void *server_handle,
 
 	asprintf(&dn, "cn=%s, cn=Computers, %s", fqdn, CTX2BASE(context));
 	if (dn == NULL) {
-	    ret = ENOMEM;
+	    ret = krb5_enomem(context->context);
 	    goto out;
 	}
 
@@ -733,7 +753,7 @@ kadm5_ad_create_principal(void *server_handle,
 
     } else {
 	/* create user account */
-	
+
 	a = &rattrs[0];
 	a->mod_op = LDAP_MOD_ADD;
 	a->mod_type = "userAccountControl";
@@ -1046,6 +1066,33 @@ kadm5_ad_get_principals(void *server_handle,
 }
 
 static kadm5_ret_t
+kadm5_ad_iter_principals(void *server_handle,
+			 const char *expression,
+			 int (*cb)(void *, const char *),
+			 void *cbdata)
+{
+    kadm5_ad_context *context = server_handle;
+
+#ifdef OPENLDAP
+    kadm5_ret_t ret;
+
+    ret = ad_get_cred(context, NULL);
+    if (ret)
+	return ret;
+
+    ret = _kadm5_ad_connect(server_handle);
+    if (ret)
+	return ret;
+
+    krb5_set_error_message(context->context, KADM5_RPC_ERROR, "Function not implemented");
+    return KADM5_RPC_ERROR;
+#else
+    krb5_set_error_message(context->context, KADM5_RPC_ERROR, "Function not implemented");
+    return KADM5_RPC_ERROR;
+#endif
+}
+
+static kadm5_ret_t
 kadm5_ad_get_privs(void *server_handle, uint32_t*privs)
 {
     kadm5_ad_context *context = server_handle;
@@ -1149,7 +1196,7 @@ kadm5_ad_modify_principal(void *server_handle,
 	if (entry->attributes & KRB5_KDB_REQUIRES_HW_AUTH)
 	    i |= UF_SMARTCARD_REQUIRED;
 	else
-	    i &= UF_SMARTCARD_REQUIRED;
+	    i &= ~UF_SMARTCARD_REQUIRED;
 	if (entry->attributes & KRB5_KDB_DISALLOW_SVR)
 	    i &= ~UF_WORKSTATION_TRUST_ACCOUNT;
 	else
@@ -1224,13 +1271,20 @@ kadm5_ad_modify_principal(void *server_handle,
 #endif
 }
 
+/*ARGSUSED*/
 static kadm5_ret_t
 kadm5_ad_randkey_principal(void *server_handle,
 			   krb5_principal principal,
+			   krb5_boolean keepold,
+			   int n_ks_tuple,
+			   krb5_key_salt_tuple *ks_tuple,
 			   krb5_keyblock **keys,
 			   int *n_keys)
 {
     kadm5_ad_context *context = server_handle;
+
+    if (keepold)
+	return KADM5_KEEPOLD_NOSUPP;
 
     /*
      * random key
@@ -1248,9 +1302,9 @@ kadm5_ad_randkey_principal(void *server_handle,
     {
 	char p[64];
 	krb5_generate_random_block(p, sizeof(p));
-	plen = base64_encode(p, sizeof(p), &password);
+	plen = rk_base64_encode(p, sizeof(p), &password);
 	if (plen < 0)
-	    return ENOMEM;
+	    return krb5_enomem(context->context);
     }
 
     ret = ad_get_cred(context, NULL);
@@ -1259,45 +1313,44 @@ kadm5_ad_randkey_principal(void *server_handle,
 	return ret;
     }
 
-    krb5_data_zero (&result_code_string);
-    krb5_data_zero (&result_string);
+    krb5_data_zero(&result_code_string);
+    krb5_data_zero(&result_string);
 
-    ret = krb5_set_password_using_ccache (context->context,
-					  context->ccache,
-					  password,
-					  principal,
-					  &result_code,
-					  &result_code_string,
-					  &result_string);
+    ret = krb5_set_password_using_ccache(context->context,
+					 context->ccache,
+					 password,
+					 principal,
+					 &result_code,
+					 &result_code_string,
+					 &result_string);
+    krb5_data_free(&result_code_string);
+    krb5_data_free(&result_string);
 
-    krb5_data_free (&result_code_string);
-    krb5_data_free (&result_string);
+    if (ret)
+        goto out;
 
-    if (ret == 0) {
-
-	*keys = malloc(sizeof(**keys) * 1);
-	if (*keys == NULL) {
-	    ret = ENOMEM;
-	    goto out;
-	}
-	*n_keys = 1;
-
-	ret = krb5_string_to_key(context->context,
-				 ENCTYPE_ARCFOUR_HMAC_MD5,
-				 password,
-				 principal,
-				 &(*keys)[0]);
-	memset(password, 0, sizeof(password));
-	if (ret) {
-	    free(*keys);
-	    *keys = NULL;
-	    *n_keys = 0;
-	    goto out;
-	}
+    *keys = malloc(sizeof(**keys) * 1);
+    if (*keys == NULL) {
+	ret = krb5_enomem(context->context);
+        goto out;
     }
+    *n_keys = 1;
+
+    ret = krb5_string_to_key(context->context,
+                             ENCTYPE_ARCFOUR_HMAC_MD5,
+                             password,
+                             principal,
+                             &(*keys)[0]);
+    if (ret) {
+        free(*keys);
+        *keys = NULL;
+        *n_keys = 0;
+        goto out;
+    }
+
+ out:
     memset(password, 0, plen);
     free(password);
- out:
     return ret;
 #else
     *keys = NULL;
@@ -1321,6 +1374,7 @@ kadm5_ad_rename_principal(void *server_handle,
 static kadm5_ret_t
 kadm5_ad_chpass_principal_with_key(void *server_handle,
 				   krb5_principal princ,
+				   int keepold,
 				   int n_key_data,
 				   krb5_key_data *key_data)
 {
@@ -1329,10 +1383,23 @@ kadm5_ad_chpass_principal_with_key(void *server_handle,
     return KADM5_RPC_ERROR;
 }
 
+static kadm5_ret_t
+kadm5_ad_lock(void *server_handle)
+{
+    return ENOTSUP;
+}
+
+static kadm5_ret_t
+kadm5_ad_unlock(void *server_handle)
+{
+    return ENOTSUP;
+}
+
 static void
 set_funcs(kadm5_ad_context *c)
 {
 #define SET(C, F) (C)->funcs.F = kadm5_ad_ ## F
+#define SETNOTIMP(C, F) (C)->funcs.F = 0
     SET(c, chpass_principal);
     SET(c, chpass_principal_with_key);
     SET(c, create_principal);
@@ -1345,6 +1412,12 @@ set_funcs(kadm5_ad_context *c)
     SET(c, modify_principal);
     SET(c, randkey_principal);
     SET(c, rename_principal);
+    SET(c, lock);
+    SET(c, unlock);
+    SETNOTIMP(c, setkey_principal_3);
+    SETNOTIMP(c, prune_principal);
+    SET(c, iter_principals);
+    SET(c, dup_context);
 }
 
 kadm5_ret_t
@@ -1361,8 +1434,8 @@ kadm5_ad_init_with_password_ctx(krb5_context context,
     kadm5_ad_context *ctx;
 
     ctx = malloc(sizeof(*ctx));
-    if(ctx == NULL)
-	return ENOMEM;
+    if (ctx == NULL)
+	return krb5_enomem(context);
     memset(ctx, 0, sizeof(*ctx));
     set_funcs(ctx);
 
@@ -1379,7 +1452,7 @@ kadm5_ad_init_with_password_ctx(krb5_context context,
 	ret = 0;
 	ctx->realm = strdup(realm_params->realm);
 	if (ctx->realm == NULL)
-	    ret = ENOMEM;
+	    ret = krb5_enomem(context);
     } else
 	ret = krb5_get_default_realm(ctx->context, &ctx->realm);
     if (ret) {
@@ -1395,6 +1468,7 @@ kadm5_ad_init_with_password_ctx(krb5_context context,
 	ret = ad_get_cred(ctx, NULL);
     if(ret) {
 	kadm5_ad_destroy(ctx);
+	free(ctx);
 	return ret;
     }
 
@@ -1402,12 +1476,19 @@ kadm5_ad_init_with_password_ctx(krb5_context context,
     ret = _kadm5_ad_connect(ctx);
     if (ret) {
 	kadm5_ad_destroy(ctx);
+	free(ctx);
 	return ret;
     }
 #endif
 
     *server_handle = ctx;
     return 0;
+}
+
+kadm5_ret_t
+kadm5_ad_dup_context(void *in, void **out)
+{
+    return ENOTSUP;
 }
 
 kadm5_ret_t

@@ -40,8 +40,6 @@
 #include <assert.h>
 #include "windlocl.h"
 
-RCSID("$Id: test-utf8.c 22571 2008-02-05 20:22:06Z lha $");
-
 #define MAX_LENGTH 10
 
 struct testcase {
@@ -52,11 +50,17 @@ struct testcase {
 };
 
 static const struct testcase testcases[] = {
-    { { 0x20 }, 1, { }, 0 },
+    { { 0x20 }, 1, { 0 }, 0 },
     { { 0x20, 0x61 }, 2, { 0x20, 0x61, 0x20}, 3 },
     { { 0x20, 0x61, 0x20 }, 3, { 0x20, 0x61, 0x20}, 3 },
     { { 0x20, 0x61, 0x20, 0x61 }, 4, { 0x20, 0x61, 0x20, 0x20, 0x61, 0x20}, 6 }
 };
+
+static const struct testcase testcases2[] = {
+    { { 0x20 }, 1, { 0x20 }, 1 },
+    { { 0x20, 0x41 }, 2, { 0x20, 0x61}, 2 }
+};
+
 
 int
 main(void)
@@ -81,13 +85,40 @@ main(void)
 	    continue;
 	}
 	if (olen != t->olen) {
-	    printf("len: %u %u != %u\n", i,
+	    printf("len wlcea: %u %u != %u\n", i,
 		   (unsigned)olen, (unsigned)t->olen);
 	    failures++;
 	    continue;
 	}
 	if (memcmp(t->out, out, sizeof(out[0]) * olen) != 0) {
-	    printf("memcmp: %u\n", i);
+	    printf("memcmp wlcea: %u\n", i);
+	    failures++;
+	    continue;
+	}
+    }
+
+    for (i = 0; i < sizeof(testcases2)/sizeof(testcases2[0]); ++i) {
+	const struct testcase *t = &testcases2[i];
+
+	olen = sizeof(out)/sizeof(out[0]);
+	assert(olen > t->olen);
+
+	ret = wind_stringprep(t->in, t->ilen, out, &olen,
+			      WIND_PROFILE_LDAP_CASE);
+
+	if (ret) {
+	    printf("wsplc: %u: %d\n", i, ret);
+	    ++failures;
+	    continue;
+	}
+
+	if (olen != t->olen) {
+	    printf("strlen wsplc: %u: %d\n", i, ret);
+	    ++failures;
+	    continue;
+	}
+	if (memcmp(t->out, out, sizeof(out[0]) * olen) != 0) {
+	    printf("memcmp wsplc: %u\n", i);
 	    failures++;
 	    continue;
 	}

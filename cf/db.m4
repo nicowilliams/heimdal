@@ -2,34 +2,72 @@ dnl $Id$
 dnl
 dnl tests for various db libraries
 dnl
+
 AC_DEFUN([rk_DB],[
-AC_ARG_ENABLE(berkeley-db,
-                       AS_HELP_STRING([--disable-berkeley-db],
-                                      [if you don't want berkeley db]),[
-])
+AC_ARG_WITH(db-type-preference,
+                       AS_HELP_STRING([--with-db-type-preference=list],
+                                      [specify HDB backend DB type preference as whitespace-separated list of db1, db3, lmdb, and/or sqlite]),
+                       [db_type_preference="$withval"],
+                       [db_type_preference="lmdb db3 db1 sqlite"])
+AC_ARG_WITH(berkeley-db,
+                       AS_HELP_STRING([--with-berkeley-db],
+                                      [enable support for berkeley db @<:@default=check@:>@]),
+                       [],
+                       [with_berkeley_db=check])
+
+dbheader=""
+AC_ARG_WITH(berkeley-db-include,
+                       AS_HELP_STRING([--with-berkeley-db-include=dir],
+		                      [use berkeley-db headers in dir]),
+		       [dbheader=$withval],
+		       [with_berkeley_db_include=check])
 
 AC_ARG_ENABLE(ndbm-db,
                        AS_HELP_STRING([--disable-ndbm-db],
                                       [if you don't want ndbm db]),[
 ])
 
-have_ndbm=no
+AC_ARG_ENABLE(mdb-db,
+                       AS_HELP_STRING([--disable-mdb-db],
+                                      [if you don't want LMDB]),[
+])
+
+have_db1=no
+have_db3=no
+have_lmdb=no
 db_type=unknown
 
-if test "$enable_berkeley_db" != no; then
+AS_IF([test "x$with_berkeley_db" != xno],
+  [AS_IF([test "x$with_berkeley_db_include" != xcheck],
+    [AC_CHECK_HEADERS(["$dbheader/db.h"],
+                   [AC_SUBST([DBHEADER], [$dbheader])
+		    AC_DEFINE([HAVE_DBHEADER], [1],
+		                      [Define if you have user supplied header location])
+	           ],
+		   [if test "x$with_berkeley_db_include" != xcheck; then
+		     AC_MSG_FAILURE(
+		       [--with-berkeley-db-include was given but include test failed])
+		    fi
+		   ])],
+    [AC_CHECK_HEADERS([					\
+	           db6/db.h				\
+	           db5/db.h				\
+	           db4/db.h				\
+	           db3/db.h				\
+	           db.h					\
+    ])])
 
-  AC_CHECK_HEADERS([				\
-	db4/db.h				\
-	db3/db.h				\
-	db.h					\
-	db_185.h				\
-  ])
+dnl db_create is used by db3 and db4 and db5 and db6
 
-dnl db_create is used by db3 and db4
-
-  AC_FIND_FUNC_NO_LIBS(db_create, db4 db3 db, [
+  AC_FIND_FUNC_NO_LIBS(db_create, [$dbheader] db-6 db-5 db4 db3 db, [
   #include <stdio.h>
-  #ifdef HAVE_DB4_DB_H
+  #ifdef HAVE_DBHEADER
+  #include <$dbheader/db.h>
+  #elif HAVE_DB6_DB_H
+  #include <db6/db.h>
+  #elif HAVE_DB5_DB_H
+  #include <db5/db.h>
+  #elif HAVE_DB4_DB_H
   #include <db4/db.h>
   #elif defined(HAVE_DB3_DB_H)
   #include <db3/db.h>
@@ -39,39 +77,36 @@ dnl db_create is used by db3 and db4
   ],[NULL, NULL, 0])
 
   if test "$ac_cv_func_db_create" = "yes"; then
-    db_type=db3
+    have_db3=yes
     if test "$ac_cv_funclib_db_create" != "yes"; then
-      DBLIB="$ac_cv_funclib_db_create"
+      DB3LIB="$ac_cv_funclib_db_create"
     else
-      DBLIB=""
+      DB3LIB=""
     fi
-    AC_DEFINE(HAVE_DB3, 1, [define if you have a berkeley db3/4 library])
-  else
+    AC_DEFINE(HAVE_DB3, 1, [define if you have a berkeley db3/4/5/6 library])
+  fi
 
 dnl dbopen is used by db1/db2
 
-    AC_FIND_FUNC_NO_LIBS(dbopen, db2 db, [
-    #include <stdio.h>
-    #if defined(HAVE_DB2_DB_H)
-    #include <db2/db.h>
-    #elif defined(HAVE_DB_185_H)
-    #include <db_185.h>
-    #elif defined(HAVE_DB_H)
-    #include <db.h>
-    #else
-    #error no db.h
-    #endif
-    ],[NULL, 0, 0, 0, NULL])
+  AC_FIND_FUNC_NO_LIBS(dbopen, db2 db, [
+  #include <stdio.h>
+  #if defined(HAVE_DB2_DB_H)
+  #include <db2/db.h>
+  #elif defined(HAVE_DB_H)
+  #include <db.h>
+  #else
+  #error no db.h
+  #endif
+  ],[NULL, 0, 0, 0, NULL])
 
-    if test "$ac_cv_func_dbopen" = "yes"; then
-      db_type=db1
-      if test "$ac_cv_funclib_dbopen" != "yes"; then
-        DBLIB="$ac_cv_funclib_dbopen"
-      else
-        DBLIB=""
-      fi
-      AC_DEFINE(HAVE_DB1, 1, [define if you have a berkeley db1/2 library])
+  if test "$ac_cv_func_dbopen" = "yes"; then
+    have_db1=yes
+    if test "$ac_cv_funclib_dbopen" != "yes"; then
+      DB1LIB="$ac_cv_funclib_dbopen"
+    else
+      DB1LIB=""
     fi
+    AC_DEFINE(HAVE_DB1, 1, [define if you have a berkeley db1/2 library])
   fi
 
 dnl test for ndbm compatability
@@ -86,9 +121,9 @@ dnl test for ndbm compatability
   
     if test "$ac_cv_func_dbm_firstkey" = "yes"; then
       if test "$ac_cv_funclib_dbm_firstkey" != "yes"; then
-        LIB_NDBM="$ac_cv_funclib_dbm_firstkey"
+        NDBMLIB="$ac_cv_funclib_dbm_firstkey"
       else
-        LIB_NDBM=""
+        NDBMLIB=""
       fi
       AC_DEFINE(HAVE_DB_NDBM, 1, [define if you have ndbm compat in db])
       AC_DEFINE(HAVE_NEW_DB, 1, [Define if NDBM really is DB (creates files *.db)])
@@ -98,7 +133,24 @@ dnl test for ndbm compatability
     fi
   fi
 
-fi # berkeley db
+]) # fi berkeley db
+
+
+AS_IF([test "x$enable_mdb_db" != xno],
+    [AC_CHECK_HEADER(lmdb.h, [
+		AC_CHECK_LIB(lmdb, mdb_env_create, have_lmdb=yes; LMDBLIB="-llmdb"
+		AC_DEFINE(HAVE_LMDB, 1, [define if you have the LMDB library]))])])
+
+for db_type in unknown $db_type_preference; do
+    if eval test \"x\$have_${db_type}\" = xyes -o ${db_type} = sqlite; then
+        break
+    fi
+    db_type=unknown
+done
+
+AS_IF([test "x$have_db3" = xyes -a "$db_type" = unknown], db_type=db3, db_type="$db_type")
+AS_IF([test "x$have_db1" = xyes -a "$db_type" = unknown], db_type=db1, db_type="$db_type")
+AS_IF([test "x$have_lmdb" = xyes -a "$db_type" = unknown], db_type=lmdb, db_type="$db_type")
 
 if test "$enable_ndbm_db" != "no"; then
 
@@ -121,16 +173,12 @@ if test "$enable_ndbm_db" != "no"; then
   
     if test "$ac_cv_func_dbm_firstkey" = "yes"; then
       if test "$ac_cv_funclib_dbm_firstkey" != "yes"; then
-        LIB_NDBM="$ac_cv_funclib_dbm_firstkey"
+        NDBMLIB="$ac_cv_funclib_dbm_firstkey"
       else
-        LIB_NDBM=""
+        NDBMLIB=""
       fi
       AC_DEFINE(HAVE_NDBM, 1, [define if you have a ndbm library])dnl
       have_ndbm=yes
-      if test "$db_type" = "unknown"; then
-        db_type=ndbm
-        DBLIB="$LIB_NDBM"
-      fi
     else
   
       $as_unset ac_cv_func_dbm_firstkey
@@ -148,15 +196,14 @@ if test "$enable_ndbm_db" != "no"; then
   
       if test "$ac_cv_func_dbm_firstkey" = "yes"; then
         if test "$ac_cv_funclib_dbm_firstkey" != "yes"; then
-  	LIB_NDBM="$ac_cv_funclib_dbm_firstkey"
+	NDBMLIB="$ac_cv_funclib_dbm_firstkey"
         else
-  	LIB_NDBM=""
+	NDBMLIB=""
         fi
         AC_DEFINE(HAVE_NDBM, 1, [define if you have a ndbm library])dnl
         have_ndbm=yes
         if test "$db_type" = "unknown"; then
   	db_type=ndbm
-  	DBLIB="$LIB_NDBM"
         fi
       fi
     fi
@@ -190,12 +237,14 @@ int main(int argc, char **argv)
       AC_DEFINE(HAVE_NEW_DB, 1, [Define if NDBM really is DB (creates files *.db)])
     else
       AC_MSG_RESULT([no])
-    fi],[AC_MSG_RESULT([no])])
+    fi],[AC_MSG_RESULT([no])],[AC_MSG_RESULT([no-cross])])
 fi
 
-AM_CONDITIONAL(HAVE_DB1, test "$db_type" = db1)dnl
-AM_CONDITIONAL(HAVE_DB3, test "$db_type" = db3)dnl
-AM_CONDITIONAL(HAVE_NDBM, test "$db_type" = ndbm)dnl
+AM_CONDITIONAL(HAVE_DB1, test "$have_db1" = yes)dnl
+AM_CONDITIONAL(HAVE_DB3, test "$have_db3" = yes)dnl
+AM_CONDITIONAL(HAVE_LMDB, test "$have_lmdb" = yes)dnl
+AM_CONDITIONAL(HAVE_NDBM, test "$have_ndbm" = yes)dnl
+AM_CONDITIONAL(HAVE_DBHEADER, test "$dbheader" != "")dnl
 
 ## it's probably not correct to include LDFLAGS here, but we might
 ## need it, for now just add any possible -L
@@ -205,7 +254,15 @@ for i in $LDFLAGS; do
 	-L*) z="$z $i";;
 	esac
 done
-DBLIB="$z $DBLIB"
-AC_SUBST(DBLIB)dnl
-AC_SUBST(LIB_NDBM)dnl
+DB3LIB="$z $DB3LIB"
+DB1LIB="$z $DB1LIB"
+LMDBLIB="$z $LMDBLIB"
+NDMBLIB="$z $NDBMLIB"
+AC_SUBST(DB3LIB)dnl
+AC_SUBST(DB1LIB)dnl
+AC_SUBST(LMDBLIB)dnl
+AC_SUBST(NDBMLIB)dnl
+AC_SUBST(NDBMLIB)dnl
+AC_SUBST(db_type)dnl
+AC_SUBST(db_type_preference)dnl
 ])

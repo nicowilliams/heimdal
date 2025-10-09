@@ -31,11 +31,8 @@
  * SUCH DAMAGE.
  */
 
-#ifdef HAVE_CONFIG_H
-#include "config.h"
-
-RCSID("$Id$");
-#endif
+#include <config.h>
+#include <roken.h>
 
 #include "hash.h"
 #include "md4.h"
@@ -46,7 +43,7 @@ RCSID("$Id$");
 #define D m->counter[3]
 #define X data
 
-void
+int
 MD4_Init (struct md4 *m)
 {
   m->sz[0] = 0;
@@ -55,6 +52,7 @@ MD4_Init (struct md4 *m)
   C = 0x98badcfe;
   B = 0xefcdab89;
   A = 0x67452301;
+  return 1;
 }
 
 #define F(x,y,z) CRAYFIX((x & y) | (~x & z))
@@ -174,7 +172,7 @@ struct x32{
   unsigned int b:32;
 };
 
-void
+int
 MD4_Update (struct md4 *m, const void *v, size_t len)
 {
     const unsigned char *p = v;
@@ -195,10 +193,10 @@ MD4_Update (struct md4 *m, const void *v, size_t len)
 #if defined(WORDS_BIGENDIAN)
 	    int i;
 	    uint32_t current[16];
-	    struct x32 *u = (struct x32*)m->save;
+	    struct x32 *us = (struct x32*)m->save;
 	    for(i = 0; i < 8; i++){
-		current[2*i+0] = swap_uint32_t(u[i].a);
-		current[2*i+1] = swap_uint32_t(u[i].b);
+		current[2*i+0] = swap_uint32_t(us[i].a);
+		current[2*i+1] = swap_uint32_t(us[i].b);
 	    }
 	    calc(m, current);
 #else
@@ -207,9 +205,10 @@ MD4_Update (struct md4 *m, const void *v, size_t len)
 	    offset = 0;
 	}
     }
+    return 1;
 }
 
-void
+int
 MD4_Final (void *res, struct md4 *m)
 {
   unsigned char zeros[72];
@@ -247,4 +246,5 @@ MD4_Final (void *res, struct md4 *m)
       r[i] = swap_uint32_t (m->counter[i]);
   }
 #endif
+  return 1;
 }

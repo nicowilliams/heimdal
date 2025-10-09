@@ -3,6 +3,8 @@
  * (Royal Institute of Technology, Stockholm, Sweden).
  * All rights reserved.
  *
+ * Portions Copyright (c) 2009 Apple Inc. All rights reserved.
+ *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
  * are met:
@@ -33,16 +35,33 @@
 
 #include "krb5_locl.h"
 
-KRB5_LIB_VARIABLE const char *krb5_config_file =
+KRB5_LIB_VARIABLE const char *const krb5_config_file =
+#ifdef KRB5_DEFAULT_CONFIG_FILE
+KRB5_DEFAULT_CONFIG_FILE
+#else
 #ifdef __APPLE__
-"~/Library/Preferences/edu.mit.Kerberos:"
-"/Library/Preferences/edu.mit.Kerberos:"
-#endif
-SYSCONFDIR "/krb5.conf:/etc/krb5.conf";
-KRB5_LIB_VARIABLE const char *krb5_defkeyname = KEYTAB_DEFAULT;
+"~/Library/Preferences/com.apple.Kerberos.plist" PATH_SEP
+"/Library/Preferences/com.apple.Kerberos.plist" PATH_SEP
+"~/Library/Preferences/edu.mit.Kerberos" PATH_SEP
+"/Library/Preferences/edu.mit.Kerberos" PATH_SEP
+#endif	/* __APPLE__ */
+"~/.krb5/config" PATH_SEP
+SYSCONFDIR "/krb5.conf" PATH_SEP
+#ifdef _WIN32
+"%{COMMON_APPDATA}/Kerberos/krb5.conf" PATH_SEP
+"%{WINDOWS}/krb5.ini"
+#else /* _WIN32 */
+"/etc/krb5.conf"
+#endif /* _WIN32 */
+#endif /* KRB5_DEFAULT_CONFIG_FILE */
+;
 
-KRB5_LIB_VARIABLE const char *krb5_cc_type_api = "API";
-KRB5_LIB_VARIABLE const char *krb5_cc_type_file = "FILE";
-KRB5_LIB_VARIABLE const char *krb5_cc_type_memory = "MEMORY";
-KRB5_LIB_VARIABLE const char *krb5_cc_type_kcm = "KCM";
-KRB5_LIB_VARIABLE const char *krb5_cc_type_scc = "SCC";
+KRB5_LIB_VARIABLE const char *const krb5_defkeyname = KEYTAB_DEFAULT;
+
+KRB5_LIB_VARIABLE const char *const krb5_cc_type_api = "API";
+KRB5_LIB_VARIABLE const char *const krb5_cc_type_file = "FILE";
+KRB5_LIB_VARIABLE const char *const krb5_cc_type_memory = "MEMORY";
+KRB5_LIB_VARIABLE const char *const krb5_cc_type_kcm = "KCM";
+KRB5_LIB_VARIABLE const char *const krb5_cc_type_scc = "SCC";
+KRB5_LIB_VARIABLE const char *const krb5_cc_type_dcc = "DIR";
+KRB5_LIB_VARIABLE const char *const krb5_cc_type_keyring = "KEYRING";

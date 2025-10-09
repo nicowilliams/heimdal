@@ -38,11 +38,70 @@ static int help_flag;
 static int version_flag;
 
 struct getargs args[] = {
-    { "help",		'h',	arg_flag,   &help_flag },
-    { "version",	0,	arg_flag,   &version_flag }
+    { "help",		'h',	arg_flag,   &help_flag,    NULL, NULL },
+    { "version",	0,	arg_flag,   &version_flag, NULL, NULL }
 };
 
 static int num_args = sizeof(args) / sizeof(args[0]);
+
+/*
+ * Prove that HDB_EntryOrAlias being a CHOICE of hdb_entry or hdb_entry_alias
+ * adds nothing to the encoding of those types.
+ */
+static
+void
+check_HDB_EntryOrAlias(krb5_context context)
+{
+    HDB_EntryOrAlias eoa;
+    hdb_entry entry;
+    hdb_entry_alias alias;
+    krb5_data v;
+    size_t len;
+    int ret;
+
+    memset(&entry, 0, sizeof(entry));
+    memset(&alias, 0, sizeof(alias));
+    memset(&eoa, 0, sizeof(eoa));
+    krb5_data_zero(&v);
+
+    ret = krb5_make_principal(context, &alias.principal, "KTH.SE", "foo",
+                              NULL);
+    if (ret)
+        krb5_err(context, 1, ret, "krb5_make_principal");
+    ASN1_MALLOC_ENCODE(HDB_entry_alias, v.data, v.length, &alias, &len, ret);
+    if (ret)
+        krb5_err(context, 1, ret, "encode_HDB_EntryOrAlias");
+    if (v.length != len)
+        abort();
+    ret = decode_HDB_EntryOrAlias(v.data, v.length, &eoa, &len);
+    if (ret)
+        krb5_err(context, 1, ret, "decode_HDB_EntryOrAlias");
+    if (v.length != len)
+        abort();
+    free_HDB_EntryOrAlias(&eoa);
+    free_HDB_entry_alias(&alias);
+    krb5_data_free(&v);
+
+    ret = krb5_make_principal(context, &entry.principal, "KTH.SE", "foo",
+                              NULL);
+    if (ret)
+        krb5_err(context, 1, ret, "krb5_make_principal");
+    entry.kvno = 5;
+    entry.flags.initial = 1;
+    ASN1_MALLOC_ENCODE(HDB_entry, v.data, v.length, &entry, &len, ret);
+    if (ret)
+        krb5_err(context, 1, ret, "encode_HDB_EntryOrAlias");
+    if (v.length != len)
+        abort();
+    ret = decode_HDB_EntryOrAlias(v.data, v.length, &eoa, &len);
+    if (ret)
+        krb5_err(context, 1, ret, "decode_HDB_EntryOrAlias");
+    if (v.length != len)
+        abort();
+    free_HDB_EntryOrAlias(&eoa);
+    free_HDB_entry(&entry);
+    krb5_data_free(&v);
+}
 
 int
 main(int argc, char **argv)
@@ -68,17 +127,25 @@ main(int argc, char **argv)
     if (ret)
 	errx (1, "krb5_init_context failed: %d", ret);
 
+    check_HDB_EntryOrAlias(context);
+
     ret = hdb_get_dbinfo(context, &info);
     if (ret)
 	krb5_err(context, 1, ret, "hdb_get_dbinfo");
 
     d = NULL;
     while ((d = hdb_dbinfo_get_next(info, d)) != NULL) {
-	printf("label: %s\n", hdb_dbinfo_get_label(context, d));
-	printf("\trealm: %s\n", hdb_dbinfo_get_realm(context, d));
-	printf("\tdbname: %s\n", hdb_dbinfo_get_dbname(context, d));
-	printf("\tmkey_file: %s\n", hdb_dbinfo_get_mkey_file(context, d));
-	printf("\tacl_file: %s\n", hdb_dbinfo_get_acl_file(context, d));
+	const char *s;
+	s = hdb_dbinfo_get_label(context, d);
+	printf("label: %s\n", s ? s : "no label");
+	s = hdb_dbinfo_get_realm(context, d);
+	printf("\trealm: %s\n", s ? s : "no realm");
+	s = hdb_dbinfo_get_dbname(context, d);
+	printf("\tdbname: %s\n", s ? s : "no dbname");
+	s = hdb_dbinfo_get_mkey_file(context, d);
+	printf("\tmkey_file: %s\n", s ? s : "no mkey file");
+	s = hdb_dbinfo_get_acl_file(context, d);
+	printf("\tacl_file: %s\n", s ? s : "no acl file");
     }
 
     hdb_free_dbinfo(context, &info);

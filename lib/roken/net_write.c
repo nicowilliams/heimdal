@@ -33,37 +33,102 @@
 
 #include <config.h>
 
-#include <sys/types.h>
-#include <unistd.h>
-#include <errno.h>
-
 #include "roken.h"
 
 /*
- * Like write but never return partial data.
+ * Like write but blocking sockets never return partial data, i.e. we retry on
+ * EINTR.  With non-blocking sockets (EWOULDBLOCK or EAGAIN) we return the
+ * number of bytes written.
  */
 
-ssize_t ROKEN_LIB_FUNCTION
-net_write (int fd, const void *buf, size_t nbytes)
+#ifndef _WIN32
+
+ROKEN_LIB_FUNCTION ssize_t ROKEN_LIB_CALL
+net_write (rk_socket_t fd, const void *buf, size_t nbytes)
 {
     const char *cbuf = (const char *)buf;
     ssize_t count;
     size_t rem = nbytes;
 
     while (rem > 0) {
-#ifdef WIN32
-	count = send (fd, cbuf, rem, 0);
-#else
 	count = write (fd, cbuf, rem);
-#endif
 	if (count < 0) {
-	    if (errno == EINTR)
+            switch (errno) {
+            case EINTR:
 		continue;
-	    else
+#if defined(EAGAIN) && EAGAIN != EWOULDBLOCK
+            case EAGAIN:
+#endif
+            case EWOULDBLOCK:
+                return nbytes - rem;
+            default:
 		return count;
+            }
 	}
 	cbuf += count;
 	rem -= count;
     }
     return nbytes;
 }
+
+#else /* defined(_WIN32) */
+
+ROKEN_LIB_FUNCTION ssize_t ROKEN_LIB_CALL
+net_write(rk_socket_t sock, const void *buf, size_t nbytes)
+{
+    const char *cbuf = (const char *)buf;
+    ssize_t count;
+    size_t rem = nbytes;
+#ifdef SOCKET_IS_NOT_AN_FD
+    int use_write = 0;
+#endif
+
+    while (rem > 0) {
+#ifdef SOCKET_IS_NOT_AN_FD
+	if (use_write)
+	    count = _write (sock, cbuf, rem);
+	else
+	    count = send (sock, cbuf, rem, 0);
+
+	if (use_write == 0 &&
+	    rk_IS_SOCKET_ERROR(count) &&
+	    (rk_SOCK_ERRNO == WSANOTINITIALISED ||
+             rk_SOCK_ERRNO == WSAENOTSOCK)) {
+	    use_write = 1;
+
+	    count = _write (sock, cbuf, rem);
+	}
+#else
+	count = send (sock, cbuf, rem, 0);
+#endif
+	if (count < 0) {
+#ifdef SOCKET_IS_NOT_AN_FD
+            if (!use_write) {
+                switch (rk_SOCK_ERRNO) {
+                case WSAEINTR:
+                    continue;
+                case WSAEWOULDBLOCK:
+                    return nbytes - rem;
+                default:
+                    return count;
+                }
+            } else
+#endif
+	    {
+                switch (errno) {
+                case EINTR:
+                    continue;
+                case EWOULDBLOCK:
+                    return nbytes - rem;
+                default:
+                    return count;
+                }
+            }
+	}
+	cbuf += count;
+	rem -= count;
+    }
+    return nbytes;
+}
+
+#endif

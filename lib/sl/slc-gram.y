@@ -46,6 +46,12 @@
 #include "slc.h"
 extern FILE *yyin;
 extern struct assignment *assignment;
+
+/* Declarations for Bison:
+ */
+#define YYMALLOC        malloc
+#define YYFREE          free
+
 %}
 
 %union {
@@ -120,6 +126,7 @@ check_option(struct assignment *as)
 {
     struct assignment *a;
     int seen_long = 0;
+    int seen_name = 0;
     int seen_short = 0;
     int seen_type = 0;
     int seen_argument = 0;
@@ -132,6 +139,8 @@ check_option(struct assignment *as)
 	    seen_long++;
 	else if(strcmp(a->name, "short") == 0)
 	    seen_short++;
+	else if(strcmp(a->name, "name") == 0)
+	    seen_name++;
 	else if(strcmp(a->name, "type") == 0)
 	    seen_type++;
 	else if(strcmp(a->name, "argument") == 0)
@@ -141,12 +150,16 @@ check_option(struct assignment *as)
 	else if(strcmp(a->name, "default") == 0)
 	    seen_default++;
 	else {
-	    ex(a, "unknown name");
+	    ex(a, "unknown name %s", a->name);
 	    ret++;
 	}
     }
     if(seen_long == 0 && seen_short == 0) {
 	ex(as, "neither long nor short option");
+	ret++;
+    }
+    if (seen_long == 0 && seen_name == 0) {
+	ex(as, "either of long or name option must be used");
 	ret++;
     }
     if(seen_long > 1) {
@@ -203,7 +216,7 @@ check_command(struct assignment *as)
 		} else if(strcmp(a->name, "max_args") == 0) {
 			seen_maxargs++;
 		} else {
-			ex(a, "unknown name");
+			ex(a, "unknown name: %s", a->name);
 			ret++;
 		}
 	}
@@ -231,7 +244,7 @@ check_command(struct assignment *as)
 		ex(as, "multiple max_args strings");
 		ret++;
 	}
-	
+
 	return ret;
 }
 
@@ -241,7 +254,7 @@ check(struct assignment *as)
     struct assignment *a;
     int ret = 0;
     for(a = as; a != NULL; a = a->next) {
-	if(strcmp(a->name, "command")) {
+	if (strcmp(a->name, "command") != 0) {
 	    fprintf(stderr, "unknown type %s line %d\n", a->name, a->lineno);
 	    ret++;
 	    continue;
@@ -315,6 +328,7 @@ gen_command(struct assignment *as)
     cprint(1, "    { ");
     fprintf(cfile, "\"%s\", ", a->u.value);
     fprintf(cfile, "%s_wrap, ", f);
+    free(f);
     b = find(as, "argument");
     if(b)
 	fprintf(cfile, "\"%s %s\", ", a->u.value, b->u.value);
@@ -328,7 +342,7 @@ gen_command(struct assignment *as)
     fprintf(cfile, " },\n");
     for(a = a->next; a != NULL; a = a->next)
 	if(strcmp(a->name, "name") == 0)
-	    cprint(1, "    { \"%s\" },\n", a->u.value);
+	    cprint(1, "    { \"%s\", NULL, NULL, NULL },\n", a->u.value);
     cprint(0, "\n");
 }
 
@@ -347,6 +361,7 @@ make_name(struct assignment *as)
     struct assignment *lopt;
     struct assignment *type;
     char *s;
+    int ret;
 
     lopt = find(as, "long");
     if(lopt == NULL)
@@ -356,9 +371,11 @@ make_name(struct assignment *as)
 
     type = find(as, "type");
     if(strcmp(type->u.value, "-flag") == 0)
-	asprintf(&s, "%s_flag", lopt->u.value);
+	ret = asprintf(&s, "%s_flag", lopt->u.value);
     else
-	asprintf(&s, "%s_%s", lopt->u.value, type->u.value);
+	ret = asprintf(&s, "%s_%s", lopt->u.value, type->u.value);
+    if (ret == -1)
+	return NULL;
     gen_name(s);
     return s;
 }
@@ -381,7 +398,7 @@ static void defval_neg_flag(const char *name, struct assignment *defval)
 static void defval_string(const char *name, struct assignment *defval)
 {
     if(defval != NULL)
-	cprint(1, "opt.%s = \"%s\";\n", name, defval->u.value);
+	cprint(1, "opt.%s = (char *)(uintptr_t)\"%s\";\n", name, defval->u.value);
     else
 	cprint(1, "opt.%s = NULL;\n", name);
 }
@@ -433,7 +450,7 @@ struct type_handler {
 	  defval_neg_flag,
 	  NULL
 	},
-	{ NULL }
+	{ NULL, NULL, NULL, NULL, NULL }
 };
 
 static struct type_handler *find_handler(struct assignment *type)
@@ -459,7 +476,7 @@ gen_options(struct assignment *opt1, const char *name)
 	struct assignment *type;
 	struct type_handler *th;
 	char *s;
-	
+
 	s = make_name(tmp->u.assignment);
 	type = find(tmp->u.assignment, "type");
 	th = find_handler(type);
@@ -479,11 +496,14 @@ gen_wrapper(struct assignment *as)
     struct assignment *tmp;
     char *n, *f;
     int nargs = 0;
+    int narguments = 0;
 
     name = find(as, "name");
     n = strdup(name->u.value);
     gen_name(n);
     arg = find(as, "argument");
+    if (arg)
+        narguments++;
     opt1 = find(as, "option");
     function = find(as, "function");
     if(function)
@@ -517,7 +537,7 @@ gen_wrapper(struct assignment *as)
 	struct assignment *help = find(tmp->u.assignment, "help");
 
 	struct type_handler *th;
-	
+
 	cprint(2, "{ ");
 	if(lopt)
 	    fprintf(cfile, "\"%s\", ", lopt->u.value);
@@ -534,9 +554,10 @@ gen_wrapper(struct assignment *as)
 	    fprintf(cfile, "\"%s\", ", help->u.value);
 	else
 	    fprintf(cfile, "NULL, ");
-	if(aarg)
+	if(aarg) {
 	    fprintf(cfile, "\"%s\"", aarg->u.value);
-	else
+            narguments++;
+	} else
 	    fprintf(cfile, "NULL");
 	fprintf(cfile, " },\n");
     }
@@ -553,7 +574,7 @@ gen_wrapper(struct assignment *as)
 	struct assignment *defval = find(tmp->u.assignment, "default");
 
 	struct type_handler *th;
-	
+
 	s = make_name(tmp->u.assignment);
 	th = find_handler(type);
 	(*th->defval)(s, defval);
@@ -576,7 +597,7 @@ gen_wrapper(struct assignment *as)
 	int min_args = -1;
 	int max_args = -1;
 	char *end;
-	if(arg == NULL) {
+	if(narguments == 0) {
 	    max_args = 0;
 	} else {
 	    if((tmp = find(as, "min_args")) != NULL) {
@@ -665,9 +686,10 @@ gen_wrapper(struct assignment *as)
 	(*th->free)(s);
 	free(s);
     }
-    cprint(1, "return 0;\n");
+    cprint(1, "return 1;\n");
     cprint(0, "}\n");
     cprint(0, "\n");
+    free(n);
 }
 
 char cname[PATH_MAX];
@@ -678,6 +700,7 @@ gen(struct assignment *as)
 {
     struct assignment *a;
     cprint(0, "#include <stdio.h>\n");
+    cprint(0, "#include <stdint.h>\n");
     cprint(0, "#include <getarg.h>\n");
     cprint(0, "#include <sl.h>\n");
     cprint(0, "#include \"%s\"\n\n", hname);
@@ -693,7 +716,7 @@ gen(struct assignment *as)
     cprint(0, "SL_cmd commands[] = {\n");
     for(a = as; a != NULL; a = a->next)
 	gen_command(a->u.assignment);
-    cprint(1, "{ NULL }\n");
+    cprint(1, "{ NULL, NULL, NULL, NULL }\n");
     cprint(0, "};\n");
 
     hprint(0, "extern SL_cmd commands[];\n");
@@ -702,8 +725,8 @@ gen(struct assignment *as)
 int version_flag;
 int help_flag;
 struct getargs args[] = {
-    { "version", 0, arg_flag, &version_flag },
-    { "help", 0, arg_flag, &help_flag }
+    { "version", 0, arg_flag, &version_flag, NULL, NULL },
+    { "help", 0, arg_flag, &help_flag, NULL, NULL }
 };
 int num_args = sizeof(args) / sizeof(args[0]);
 

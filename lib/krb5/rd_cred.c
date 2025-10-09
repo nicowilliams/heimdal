@@ -31,7 +31,7 @@
  * SUCH DAMAGE.
  */
 
-#include <krb5_locl.h>
+#include "krb5_locl.h"
 
 static krb5_error_code
 compare_addrs(krb5_context context,
@@ -52,7 +52,7 @@ compare_addrs(krb5_context context,
     return KRB5KRB_AP_ERR_BADADDR;
 }
 
-krb5_error_code KRB5_LIB_FUNCTION
+KRB5_LIB_FUNCTION krb5_error_code KRB5_LIB_CALL
 krb5_rd_cred(krb5_context context,
 	     krb5_auth_context auth_context,
 	     krb5_data *in_data,
@@ -65,9 +65,10 @@ krb5_rd_cred(krb5_context context,
     EncKrbCredPart enc_krb_cred_part;
     krb5_data enc_krb_cred_part_data;
     krb5_crypto crypto;
-    int i;
+    size_t i;
 
     memset(&enc_krb_cred_part, 0, sizeof(enc_krb_cred_part));
+    krb5_data_zero(&enc_krb_cred_part_data);
 
     if ((auth_context->flags &
 	 (KRB5_AUTH_CONTEXT_RET_TIME | KRB5_AUTH_CONTEXT_RET_SEQUENCE)) &&
@@ -118,7 +119,7 @@ krb5_rd_cred(krb5_context context,
 					     KRB5_KU_KRB_CRED,
 					     &cred.enc_part,
 					     &enc_krb_cred_part_data);
-	
+
 	    krb5_crypto_destroy(context, crypto);
 	}
 
@@ -134,13 +135,13 @@ krb5_rd_cred(krb5_context context,
 
 	    if (ret)
 		goto out;
-	
+
 	    ret = krb5_decrypt_EncryptedData(context,
 					     crypto,
 					     KRB5_KU_KRB_CRED,
 					     &cred.enc_part,
 					     &enc_krb_cred_part_data);
-	
+
 	    krb5_crypto_destroy(context, crypto);
 	}
 	if (ret)
@@ -195,7 +196,7 @@ krb5_rd_cred(krb5_context context,
 				      auth_context->local_port);
 	    if (ret)
 		goto out;
-	
+
 	    ret = compare_addrs(context, a, enc_krb_cred_part.r_address,
 				N_("receiver address is wrong "
 				   "in received creds", ""));
@@ -221,7 +222,7 @@ krb5_rd_cred(krb5_context context,
 
 	if (enc_krb_cred_part.timestamp == NULL ||
 	    enc_krb_cred_part.usec      == NULL ||
-	    abs(*enc_krb_cred_part.timestamp - sec)
+	    krb5_time_abs(*enc_krb_cred_part.timestamp, sec)
 	    > context->max_skew) {
 	    krb5_clear_error_message (context);
 	    ret = KRB5KRB_AP_ERR_SKEW;
@@ -248,9 +249,7 @@ krb5_rd_cred(krb5_context context,
 			sizeof(**ret_creds));
 
     if (*ret_creds == NULL) {
-	ret = ENOMEM;
-	krb5_set_error_message(context, ret,
-			       N_("malloc: out of memory", ""));
+	ret = krb5_enomem(context);
 	goto out;
     }
 
@@ -260,9 +259,7 @@ krb5_rd_cred(krb5_context context,
 
 	creds = calloc(1, sizeof(*creds));
 	if(creds == NULL) {
-	    ret = ENOMEM;
-	    krb5_set_error_message(context, ret,
-				   N_("malloc: out of memory", ""));
+	    ret = krb5_enomem(context);
 	    goto out;
 	}
 
@@ -274,7 +271,11 @@ krb5_rd_cred(krb5_context context,
 	}
 	if(creds->ticket.length != len)
 	    krb5_abortx(context, "internal error in ASN.1 encoder");
-	copy_EncryptionKey (&kci->key, &creds->session);
+	ret = copy_EncryptionKey (&kci->key, &creds->session);
+	if (ret) {
+	    krb5_free_creds(context, creds);
+	    goto out;
+	}
 	if (kci->prealm && kci->pname)
 	    _krb5_principalname2krb5_principal (context,
 						&creds->client,
@@ -299,9 +300,9 @@ krb5_rd_cred(krb5_context context,
 	    krb5_copy_addresses (context,
 				 kci->caddr,
 				 &creds->addresses);
-	
+
 	(*ret_creds)[i] = creds;
-	
+
     }
     (*ret_creds)[i] = NULL;
 
@@ -322,7 +323,7 @@ krb5_rd_cred(krb5_context context,
     return ret;
 }
 
-krb5_error_code KRB5_LIB_FUNCTION
+KRB5_LIB_FUNCTION krb5_error_code KRB5_LIB_CALL
 krb5_rd_cred2 (krb5_context      context,
 	       krb5_auth_context auth_context,
 	       krb5_ccache       ccache,

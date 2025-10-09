@@ -35,6 +35,58 @@
 
 RCSID("$Id$");
 
+struct randkey_principal_hook_ctx {
+    kadm5_server_context *context;
+    enum kadm5_hook_stage stage;
+    krb5_error_code code;
+    krb5_const_principal princ;
+};
+
+static krb5_error_code KRB5_LIB_CALL
+randkey_principal_hook_cb(krb5_context context,
+			 const void *hook,
+			 void *hookctx,
+			 void *userctx)
+{
+    krb5_error_code ret;
+    const struct kadm5_hook_ftable *ftable = hook;
+    struct randkey_principal_hook_ctx *ctx = userctx;
+
+    ret = ftable->randkey(context, hookctx,
+			 ctx->stage, ctx->code, ctx->princ);
+    if (ret != 0 && ret != KRB5_PLUGIN_NO_HANDLE)
+	_kadm5_s_set_hook_error_message(ctx->context, ret, "randkey",
+					hook, ctx->stage);
+
+    /* only pre-commit plugins can abort */
+    if (ret == 0 || ctx->stage == KADM5_HOOK_STAGE_POSTCOMMIT)
+	ret = KRB5_PLUGIN_NO_HANDLE;
+
+    return ret;
+}
+
+static kadm5_ret_t
+randkey_principal_hook(kadm5_server_context *context,
+		      enum kadm5_hook_stage stage,
+		      krb5_error_code code,
+		      krb5_const_principal princ)
+{
+    krb5_error_code ret;
+    struct randkey_principal_hook_ctx ctx;
+
+    ctx.context = context;
+    ctx.stage = stage;
+    ctx.code = code;
+    ctx.princ = princ;
+
+    ret = _krb5_plugin_run_f(context->context, &kadm5_hook_plugin_data,
+			     0, &ctx, randkey_principal_hook_cb);
+    if (ret == KRB5_PLUGIN_NO_HANDLE)
+	ret = 0;
+
+    return ret;
+}
+
 /*
  * Set the keys of `princ' to random values, returning the random keys
  * in `new_keys', `n_keys'.
@@ -43,65 +95,110 @@ RCSID("$Id$");
 kadm5_ret_t
 kadm5_s_randkey_principal(void *server_handle,
 			  krb5_principal princ,
+			  krb5_boolean keepold,
+			  int n_ks_tuple,
+			  krb5_key_salt_tuple *ks_tuple,
 			  krb5_keyblock **new_keys,
 			  int *n_keys)
 {
     kadm5_server_context *context = server_handle;
-    hdb_entry_ex ent;
+    hdb_entry ent;
     kadm5_ret_t ret;
+    size_t i;
 
     memset(&ent, 0, sizeof(ent));
-    ret = context->db->hdb_open(context->context, context->db, O_RDWR, 0);
-    if(ret)
-	return ret;
-    ret = context->db->hdb_fetch(context->context, context->db, princ,
-				 HDB_F_GET_ANY, &ent);
-    if(ret)
-	goto out;
+    if (!context->keep_open) {
+	ret = context->db->hdb_open(context->context, context->db, O_RDWR, 0);
+	if(ret)
+	    return ret;
+    }
 
-    ret = _kadm5_set_keys_randomly (context,
-				    &ent.entry,
-				    new_keys,
-				    n_keys);
+    ret = kadm5_log_init(context);
     if (ret)
-	goto out2;
-    ent.entry.kvno++;
+        goto out;
 
-    ret = _kadm5_set_modifier(context, &ent.entry);
+    /* NOTE: We do not use hdb_fetch_kvno() here (maybe we should) */
+    ret = context->db->hdb_fetch_kvno(context->context, context->db, princ,
+                                      HDB_F_DECRYPT|HDB_F_GET_ANY|HDB_F_ADMIN_DATA,
+                                      0, &ent);
     if(ret)
+	goto out2;
+
+    ret = randkey_principal_hook(context, KADM5_HOOK_STAGE_PRECOMMIT, 0, princ);
+    if (ret)
 	goto out3;
-    ret = _kadm5_bump_pw_expire(context, &ent.entry);
+
+    if (keepold) {
+	ret = hdb_add_current_keys_to_history(context->context, &ent);
+        if (ret == 0 && keepold == 1)
+            ret = hdb_prune_keys_kvno(context->context, &ent, 0);
+	if (ret)
+	    goto out3;
+    } else {
+        /* Remove all key history */
+        ret = hdb_clear_extension(context->context, &ent,
+                                  choice_HDB_extension_data_hist_keys);
+	if (ret)
+	    goto out3;
+    }
+
+    ret = _kadm5_set_keys_randomly(context, &ent, n_ks_tuple, ks_tuple,
+                                   new_keys, n_keys);
     if (ret)
-	goto out2;
+	goto out3;
+    ent.kvno++;
 
-    ret = hdb_seal_keys(context->context, context->db, &ent.entry);
+    ent.flags.require_pwchange = 0;
+
+    ret = _kadm5_set_modifier(context, &ent);
+    if(ret)
+	goto out4;
+    ret = _kadm5_bump_pw_expire(context, &ent);
     if (ret)
-	goto out2;
+	goto out4;
 
-    ret = context->db->hdb_store(context->context, context->db,
-				 HDB_F_REPLACE, &ent);
-    if (ret)
-	goto out2;
+    if (keepold) {
+	ret = hdb_seal_keys(context->context, context->db, &ent);
+	if (ret)
+	    goto out4;
+    } else {
+	HDB_extension ext;
 
-    kadm5_log_modify (context,
-		      &ent.entry,
-		      KADM5_PRINCIPAL | KADM5_MOD_NAME | KADM5_MOD_TIME |
-		      KADM5_KEY_DATA | KADM5_KVNO | KADM5_PW_EXPIRATION |
-		      KADM5_TL_DATA);
+	memset(&ext, 0, sizeof (ext));
+        ext.mandatory = FALSE;
+	ext.data.element = choice_HDB_extension_data_hist_keys;
+	ext.data.u.hist_keys.len = 0;
+	ext.data.u.hist_keys.val = NULL;
+	hdb_replace_extension(context->context, &ent, &ext);
+    }
 
-out3:
+    /* This logs the change for iprop and writes to the HDB */
+    ret = kadm5_log_modify(context, &ent,
+                           KADM5_ATTRIBUTES | KADM5_PRINCIPAL |
+                           KADM5_MOD_NAME | KADM5_MOD_TIME |
+                           KADM5_KEY_DATA | KADM5_KVNO |
+                           KADM5_PW_EXPIRATION | KADM5_TL_DATA);
+
+    (void) randkey_principal_hook(context, KADM5_HOOK_STAGE_POSTCOMMIT, ret, princ);
+
+ out4:
     if (ret) {
-	int i;
-
 	for (i = 0; i < *n_keys; ++i)
-	    krb5_free_keyblock_contents (context->context, &(*new_keys)[i]);
+	    krb5_free_keyblock_contents(context->context, &(*new_keys)[i]);
 	free (*new_keys);
 	*new_keys = NULL;
 	*n_keys = 0;
     }
-out2:
-    hdb_free_entry(context->context, &ent);
-out:
-    context->db->hdb_close(context->context, context->db);
+ out3:
+    hdb_free_entry(context->context, context->db, &ent);
+ out2:
+    (void) kadm5_log_end(context);
+ out:
+    if (!context->keep_open) {
+        kadm5_ret_t ret2;
+        ret2 = context->db->hdb_close(context->context, context->db);
+        if (ret == 0 && ret2 != 0)
+            ret = ret2;
+    }
     return _kadm5_error_code(ret);
 }

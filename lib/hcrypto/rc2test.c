@@ -31,15 +31,10 @@
  * SUCH DAMAGE.
  */
 
-#ifdef HAVE_CONFIG_H
 #include <config.h>
-RCSID("$Id$");
-#endif
+#include <roken.h>
 
 #include <rc2.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
 
 struct {
     const void *key;

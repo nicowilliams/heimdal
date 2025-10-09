@@ -33,11 +33,8 @@
 
 /* implemented from description in draft-kaukonen-cipher-arcfour-03.txt */
 
-#ifdef HAVE_CONFIG_H
-#include "config.h"
-
-RCSID("$Id$");
-#endif
+#include <config.h>
+#include <roken.h>
 
 #include <rc4.h>
 
@@ -49,7 +46,7 @@ RCSID("$Id$");
 }
 
 void
-RC4_set_key(RC4_KEY *key, const int len, unsigned char *data)
+RC4_set_key(RC4_KEY *key, const int len, const unsigned char *data)
 {
     int i, j;
 

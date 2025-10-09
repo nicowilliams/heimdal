@@ -3,6 +3,8 @@
  * (Royal Institute of Technology, Stockholm, Sweden).
  * All rights reserved.
  *
+ * Portions Copyright (c) 2010 Apple Inc. All rights reserved.
+ *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
  * are met:
@@ -39,36 +41,59 @@ RCSID("$Id$");
 #include <string.h>
 #include <stdlib.h>
 #include <ctype.h>
+#ifdef WIN32
+#include <winsock2.h>
+#include <ws2tcpip.h>
+#endif
 
-#define BITSIZE(TYPE)						\
-{								\
-    int b = 0; TYPE x = 1, zero = 0; const char *pre = "u";	\
-    char tmp[128], tmp2[128];					\
-    while(x){ x <<= 1; b++; if(x < zero) pre=""; }		\
-    if(b >= len){						\
-        int tabs;						\
-	sprintf(tmp, "%sint%d_t" , pre, len);			\
-	sprintf(tmp2, "typedef %s %s;", #TYPE, tmp);		\
-	tabs = 5 - strlen(tmp2) / 8;				\
-        fprintf(f, "%s", tmp2);					\
-	while(tabs-- > 0) fprintf(f, "\t");			\
-	fprintf(f, "/* %2d bits */\n", b);			\
-        return;                                                 \
-    }								\
+#ifdef HAVE_SNPRINTF
+#define BITSIZE(TYPE)							\
+{									\
+    int b = 0; TYPE x = 1, zero = 0; const char *pre = "u";		\
+    char tmp[128];							\
+    while(x){ x <<= 1; b++; if(x < zero) pre=""; }			\
+    if(b >= len){							\
+        size_t tabs;							\
+	snprintf(tmp, sizeof(tmp), "typedef %s %sint%d_t;", #TYPE,	\
+                 pre, len);						\
+	tabs = 5 - strlen(tmp) / 8;					\
+        fprintf(f, "%s", tmp);						\
+	while(tabs-- > 0) fprintf(f, "\t");				\
+	fprintf(f, "/* %2d bits */\n", b);				\
+        return;                                                 	\
+    }									\
 }
-
+#else
+#define BITSIZE(TYPE)                                          \
+{                                                              \
+    int b = 0; TYPE x = 1, zero = 0; const char *pre = "u";    \
+    char tmp[128], tmp2[128];                                  \
+    while(x){ x <<= 1; b++; if(x < zero) pre=""; }             \
+    if(b >= len){                                              \
+        size_t tabs;                                           \
+        sprintf(tmp, "%sint%d_t" , pre, len);                  \
+        sprintf(tmp2, "typedef %s %s;", #TYPE, tmp);           \
+        tabs = 5 - strlen(tmp2) / 8;                           \
+        fprintf(f, "%s", tmp2);                                \
+	while(tabs-- > 0)                                      \
+	    fprintf(f, "\t");                                  \
+        fprintf(f, "/* %2d bits */\n", b);                     \
+        return;                                                \
+    }							       \
+}
+#endif
 #ifndef HAVE___ATTRIBUTE__
 #define __attribute__(x)
 #endif
 
 static void
-try_signed(FILE *f, int len)  __attribute__ ((unused));
+try_signed(FILE *f, int len)  __attribute__ ((__unused__));
 
 static void
-try_unsigned(FILE *f, int len) __attribute__ ((unused));
+try_unsigned(FILE *f, int len) __attribute__ ((__unused__));
 
 static int
-print_bt(FILE *f, int flag) __attribute__ ((unused));
+print_bt(FILE *f, int flag) __attribute__ ((__unused__));
 
 static void
 try_signed(FILE *f, int len)
@@ -112,7 +137,8 @@ int main(int argc, char **argv)
 {
     FILE *f;
     int flag;
-    const char *fn, *hb;
+    char *p = NULL;
+    const char *hb;
 
     if (argc > 1 && strcmp(argv[1], "--version") == 0) {
 	printf("some version");
@@ -120,14 +146,11 @@ int main(int argc, char **argv)
     }
 
     if(argc < 2){
-	fn = "bits.h";
 	hb = "__BITS_H__";
 	f = stdout;
     } else {
-	char *p;
-	fn = argv[1];
-	p = malloc(strlen(fn) + 5);
-	sprintf(p, "__%s__", fn);
+	p = malloc(strlen(argv[1]) + 5);
+	sprintf(p, "__%s__", argv[1]);
 	hb = p;
 	for(; *p; p++){
 	    if(!isalnum((unsigned char)*p))
@@ -135,9 +158,6 @@ int main(int argc, char **argv)
 	}
 	f = fopen(argv[1], "w");
     }
-    fprintf(f, "/* %s -- this file was generated for %s by\n", fn, HOST);
-    fprintf(f, "   %*s    %s */\n\n", (int)strlen(fn), "",
-	    "$Id$");
     fprintf(f, "#ifndef %s\n", hb);
     fprintf(f, "#define %s\n", hb);
     fprintf(f, "\n");
@@ -157,7 +177,12 @@ int main(int argc, char **argv)
     fprintf(f, "#include <netinet/in6_machtypes.h>\n");
 #endif
 #ifdef HAVE_SOCKLEN_T
+#ifndef WIN32
     fprintf(f, "#include <sys/socket.h>\n");
+#else
+    fprintf(f, "#include <winsock2.h>\n");
+    fprintf(f, "#include <ws2tcpip.h>\n");
+#endif
 #endif
     fprintf(f, "\n");
 
@@ -234,7 +259,68 @@ int main(int argc, char **argv)
     fprintf(f, "typedef int krb5_ssize_t;\n");
 #endif
     fprintf(f, "\n");
+
+#if defined(_WIN32)
+    fprintf(f, "typedef SOCKET krb5_socket_t;\n");
+#else
+    fprintf(f, "typedef int krb5_socket_t;\n");
+#endif
+    fprintf(f, "\n");
+
 #endif /* KRB5 */
+
+    fprintf(f, "#if !defined(__has_extension)\n");
+    fprintf(f, "#define __has_extension(x) 0\n");
+    fprintf(f, "#endif\n\n");
+
+    fprintf(f, "#ifndef KRB5TYPES_REQUIRE_GNUC\n");
+    fprintf(f, "#define KRB5TYPES_REQUIRE_GNUC(m,n,p) \\\n");
+    fprintf(f, "    (((__GNUC__ * 10000) + (__GNUC_MINOR__ * 100) + __GNUC_PATCHLEVEL__) >= \\\n");
+    fprintf(f, "     (((m) * 10000) + ((n) * 100) + (p)))\n");
+    fprintf(f, "#endif\n\n");
+
+    fprintf(f, "#ifndef HEIMDAL_DEPRECATED\n");
+    fprintf(f, "#if __has_extension(deprecated) || KRB5TYPES_REQUIRE_GNUC(3,1,0)\n");
+    fprintf(f, "#define HEIMDAL_DEPRECATED __attribute__ ((__deprecated__))\n");
+    fprintf(f, "#elif defined(_MSC_VER) && (_MSC_VER>1200)\n");
+    fprintf(f, "#define HEIMDAL_DEPRECATED __declspec(deprecated)\n");
+    fprintf(f, "#else\n");
+    fprintf(f, "#define HEIMDAL_DEPRECATED\n");
+    fprintf(f, "#endif\n");
+    fprintf(f, "#endif\n\n");
+
+    fprintf(f, "#ifndef HEIMDAL_PRINTF_ATTRIBUTE\n");
+    fprintf(f, "#if __has_extension(format) || KRB5TYPES_REQUIRE_GNUC(3,1,0)\n");
+    fprintf(f, "#define HEIMDAL_PRINTF_ATTRIBUTE(x) __attribute__ ((__format__ x))\n");
+    fprintf(f, "#else\n");
+    fprintf(f, "#define HEIMDAL_PRINTF_ATTRIBUTE(x)\n");
+    fprintf(f, "#endif\n");
+    fprintf(f, "#endif\n\n");
+
+    fprintf(f, "#ifndef HEIMDAL_NORETURN_ATTRIBUTE\n");
+    fprintf(f, "#if __has_extension(noreturn) || KRB5TYPES_REQUIRE_GNUC(3,1,0)\n");
+    fprintf(f, "#define HEIMDAL_NORETURN_ATTRIBUTE __attribute__ ((__noreturn__))\n");
+    fprintf(f, "#else\n");
+    fprintf(f, "#define HEIMDAL_NORETURN_ATTRIBUTE\n");
+    fprintf(f, "#endif\n");
+    fprintf(f, "#endif\n\n");
+
+    fprintf(f, "#ifndef HEIMDAL_UNUSED_ATTRIBUTE\n");
+    fprintf(f, "#if __has_extension(unused) || KRB5TYPES_REQUIRE_GNUC(3,1,0)\n");
+    fprintf(f, "#define HEIMDAL_UNUSED_ATTRIBUTE __attribute__ ((__unused__))\n");
+    fprintf(f, "#else\n");
+    fprintf(f, "#define HEIMDAL_UNUSED_ATTRIBUTE\n");
+    fprintf(f, "#endif\n");
+    fprintf(f, "#endif\n\n");
+
+    fprintf(f, "#ifndef HEIMDAL_WARN_UNUSED_RESULT_ATTRIBUTE\n");
+    fprintf(f, "#if __has_extension(warn_unused_result) || KRB5TYPES_REQUIRE_GNUC(3,3,0)\n");
+    fprintf(f, "#define HEIMDAL_WARN_UNUSED_RESULT_ATTRIBUTE __attribute__ ((__warn_unused_result__))\n");
+    fprintf(f, "#else\n");
+    fprintf(f, "#define HEIMDAL_WARN_UNUSED_RESULT_ATTRIBUTE\n");
+    fprintf(f, "#endif\n");
+    fprintf(f, "#endif\n\n");
+
     fprintf(f, "#endif /* %s */\n", hb);
 
     if (f != stdout)

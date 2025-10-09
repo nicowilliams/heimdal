@@ -35,15 +35,19 @@
 #
 
 srcdir="@srcdir@"
+env_setup="@env_setup@"
 objdir="@objdir@"
 EGREP="@EGREP@"
 
+. ${env_setup}
+
 testfailed="echo test failed; cat messages.log; exit 1"
 
-# If there is no useful db support compile in, disable test
+# If there is no useful db support compiled in, disable test
 ../db/have-db || exit 77
 
 R=TEST.H5L.SE
+R2=TEST2.H5L.SE
 
 port=@port@
 
@@ -54,11 +58,12 @@ server=host/datan.test.h5l.se
 cache="FILE:${objdir}/cache.krb5"
 keytabfile=${objdir}/server.keytab
 keytab="FILE:${keytabfile}"
+rodc_kvno="3058761729"
 
-kinit="${TESTS_ENVIRONMENT} ../../kuser/kinit -c $cache --no-afslog"
+kinit="${TESTS_ENVIRONMENT} ../../kuser/kinit -c $cache ${afs_no_afslog}"
 klist="${TESTS_ENVIRONMENT} ../../kuser/klist -c $cache"
 kgetcred="${TESTS_ENVIRONMENT} ../../kuser/kgetcred -c $cache"
-kdestroy="${TESTS_ENVIRONMENT} ../../kuser/kdestroy -c $cache --no-unlog"
+kdestroy="${TESTS_ENVIRONMENT} ../../kuser/kdestroy -c $cache ${afs_no_unlog}"
 test_apreq="${TESTS_ENVIRONMENT} ../../lib/krb5/test_ap-req"
 
 KRB5_CONFIG="${objdir}/krb5.conf"
@@ -80,7 +85,18 @@ ${kadmin} \
 
 ${kadmin} add -p foo --use-defaults foo@${R} || exit 1
 ${kadmin} add -p bar --use-defaults ${server}@${R} || exit 1
+${kadmin} modify --kvno=$rodc_kvno "krbtgt/${R}@${R}" || exit 1
 ${kadmin} ext -k ${keytab} ${server}@${R} || exit 1
+
+${kadmin} \
+    init \
+    --realm-max-ticket-life=1day \
+    --realm-max-renewable-life=1month \
+    ${R2} || exit 1
+
+${kadmin} add -p foo --use-defaults foo@${R2} || exit 1
+${kadmin} add -p bar --use-defaults bar@${R2} || exit 1
+${kadmin} ext -k ${keytab} bar@${R2} || exit 1
 
 echo "Doing database check"
 ${kadmin} check ${R} || exit 1
@@ -92,21 +108,22 @@ echo "Empty log"
 > messages.log
 
 echo Starting kdc
-${kdc} &
-kdcpid=$!
+${kdc} --detach --testing || { echo "kdc failed to start"; cat messages.log; exit 1; }
+kdcpid=`getpid kdc`
 
-sh ${srcdir}/../kdc/wait-kdc.sh
-if [ "$?" != 0 ] ; then
-    kill ${kdcpid}
+cleanup() {
+    echo signal killing kdc
+    kill -9 ${kdcpid}
+    trap '' EXIT INT TERM
+    cat messages.log
     exit 1
-fi
-
-trap "kill ${kdcpid}; echo signal killing kdc; exit 1;" EXIT
+}
+trap cleanup EXIT INT TERM
 
 ec=0
 
-echo "Check that WINDC module was loaded "
-grep "windc init" messages.log >/dev/null || \
+echo "Check that KDC plugin module was loaded "
+grep "kdc plugin init" messages.log >/dev/null || \
 	{ ec=1 ; eval "${testfailed}"; }
 
 echo "Getting client initial tickets"; > messages.log
@@ -119,25 +136,41 @@ ${test_apreq} --verify-pac ${server}@${R} ${keytab} ${cache} || \
 	{ ec=1 ; eval "${testfailed}"; }
 ${kdestroy}
 
-echo "Getting client initial tickets (pag)"; > messages.log
+echo "Getting client initial tickets (pac)"; > messages.log
 ${kinit} --request-pac --password-file=${objdir}/foopassword foo@${R} || \
 	{ ec=1 ; eval "${testfailed}"; }
 echo "Getting tickets" ; > messages.log
 ${kgetcred} ${server}@${R} || { ec=1 ; eval "${testfailed}"; }
-echo "Verify PAC on server (pag)"; > messages.log
+echo "Verify PAC on server (pac)"; > messages.log
 ${test_apreq} --verify-pac ${server}@${R} ${keytab} ${cache} || \
 	{ ec=1 ; eval "${testfailed}"; }
 ${kdestroy}
 
-echo "Getting client initial tickets (no pag)"; > messages.log
+echo "Getting client initial tickets (no pac)"; > messages.log
 ${kinit} --no-request-pac --password-file=${objdir}/foopassword foo@${R} || \
 	{ ec=1 ; eval "${testfailed}"; }
 echo "Getting tickets" ; > messages.log
 ${kgetcred} ${server}@${R} || { ec=1 ; eval "${testfailed}"; }
-echo "Verify PAC on server (no pag)"; > messages.log
+echo "Verify PAC on server (no pac)"; > messages.log
 ${test_apreq} --verify-pac ${server}@${R} ${keytab} ${cache} 2> /dev/null && \
 	{ ec=1 ; eval "${testfailed}"; }
+${test_apreq} ${server}@${R} ${keytab} ${cache} 2> /dev/null && \
+	{ ec=1 ; eval "${testfailed}"; }
+echo "Check the --no-verify-pac option"; > messages.log
+${test_apreq} --no-verify-pac ${server}@${R} ${keytab} ${cache} 2> /dev/null || \
+	{ ec=1 ; eval "${testfailed}"; }
 ${kdestroy}
+
+echo "Getting client initial tickets (no pac - realm config)"; > messages.log
+${kinit} --no-request-pac --password-file=${objdir}/foopassword foo@${R2} || \
+	{ ec=1 ; eval "${testfailed}"; }
+echo "Getting tickets" ; > messages.log
+${kgetcred} bar@${R2} || { ec=1 ; eval "${testfailed}"; }
+echo "Verify PAC on server (no pac - realm config)"; > messages.log
+${test_apreq} --verify-pac bar@${R2} ${keytab} ${cache} 2> /dev/null && \
+	{ ec=1 ; eval "${testfailed}"; }
+${test_apreq} bar@${R2} ${keytab} ${cache} 2> /dev/null && \
+	{ ec=1 ; eval "${testfailed}"; }
 
 
 echo "killing kdc (${kdcpid})"

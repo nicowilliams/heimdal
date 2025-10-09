@@ -31,24 +31,10 @@
  * SUCH DAMAGE.
  */
 
-#ifdef HAVE_CONFIG_H
 #include <config.h>
-#endif
-
-RCSID("$Id$");
-
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
+#include <roken.h>
 
 #include <engine.h>
-
-#ifdef HAVE_DLFCN_H
-#include <dlfcn.h>
-#ifndef RTLD_NOW
-#define RTLD_NOW 0
-#endif
-#endif
 
 struct hc_engine {
     int references;
@@ -58,7 +44,31 @@ struct hc_engine {
     const RSA_METHOD *rsa;
     const DH_METHOD *dh;
     const RAND_METHOD *rand;
+    void *dso_handle;
 };
+
+ENGINE *
+ENGINE_new(void)
+{
+    ENGINE *engine;
+
+    engine = calloc(1, sizeof(*engine));
+    if (engine == NULL)
+        return NULL;
+    engine->references = 1;
+    engine->destroy = 0;
+    engine->dh = 0;
+    engine->rand = 0;
+    engine->dso_handle = 0;
+
+    return engine;
+}
+
+int
+ENGINE_free(ENGINE *engine)
+{
+    return ENGINE_finish(engine);
+}
 
 int
 ENGINE_finish(ENGINE *engine)
@@ -74,8 +84,10 @@ ENGINE_finish(ENGINE *engine)
 	free(engine->id);
     if(engine->destroy)
 	(*engine->destroy)(engine);
+    if (engine->dso_handle)
+	dlclose(engine->dso_handle);
 
-    memset(engine, 0, sizeof(engine));
+    memset_s(engine, sizeof(*engine), 0, sizeof(*engine));
     engine->references = -1;
 
 
@@ -199,10 +211,8 @@ add_engine(ENGINE *engine)
     ENGINE **d, *dup;
 
     dup = ENGINE_by_id(engine->id);
-    if (dup) {
-	ENGINE_finish(dup);
+    if (dup)
 	return 0;
-    }
 
     d = realloc(engines, (num_engines + 1) * sizeof(*engines));
     if (d == NULL)
@@ -219,19 +229,78 @@ ENGINE_load_builtin_engines(void)
     ENGINE *engine;
     int ret;
 
-    engine = calloc(1, sizeof(*engine));
+    engine = ENGINE_new();
     if (engine == NULL)
 	return;
 
     ENGINE_set_id(engine, "builtin");
     ENGINE_set_name(engine,
-		    "Heimdal crypto builtin engine version " PACKAGE_VERSION);
-    ENGINE_set_RSA(engine, RSA_imath_method());
-    ENGINE_set_DH(engine, DH_imath_method());
+		    "Heimdal crypto builtin (ltm) engine version " PACKAGE_VERSION);
+    ENGINE_set_RSA(engine, RSA_ltm_method());
+    ENGINE_set_DH(engine, DH_ltm_method());
 
     ret = add_engine(engine);
     if (ret != 1)
 	ENGINE_finish(engine);
+
+#ifdef USE_HCRYPTO_TFM
+    /*
+     * TFM
+     */
+
+    engine = ENGINE_new();
+    if (engine == NULL)
+	return;
+
+    ENGINE_set_id(engine, "tfm");
+    ENGINE_set_name(engine,
+		    "Heimdal crypto tfm engine version " PACKAGE_VERSION);
+    ENGINE_set_RSA(engine, RSA_tfm_method());
+    ENGINE_set_DH(engine, DH_tfm_method());
+
+    ret = add_engine(engine);
+    if (ret != 1)
+	ENGINE_finish(engine);
+#endif /* USE_HCRYPTO_TFM */
+
+#ifdef USE_HCRYPTO_LTM
+    /*
+     * ltm
+     */
+
+    engine = ENGINE_new();
+    if (engine == NULL)
+	return;
+
+    ENGINE_set_id(engine, "ltm");
+    ENGINE_set_name(engine,
+		    "Heimdal crypto ltm engine version " PACKAGE_VERSION);
+    ENGINE_set_RSA(engine, RSA_ltm_method());
+    ENGINE_set_DH(engine, DH_ltm_method());
+
+    ret = add_engine(engine);
+    if (ret != 1)
+	ENGINE_finish(engine);
+#endif
+
+#ifdef HAVE_GMP
+    /*
+     * gmp
+     */
+
+    engine = ENGINE_new();
+    if (engine == NULL)
+	return;
+
+    ENGINE_set_id(engine, "gmp");
+    ENGINE_set_name(engine,
+		    "Heimdal crypto gmp engine version " PACKAGE_VERSION);
+    ENGINE_set_RSA(engine, RSA_gmp_method());
+
+    ret = add_engine(engine);
+    if (ret != 1)
+	ENGINE_finish(engine);
+#endif
 }
 
 ENGINE *
@@ -239,15 +308,17 @@ ENGINE_by_dso(const char *path, const char *id)
 {
 #ifdef HAVE_DLOPEN
     ENGINE *engine;
-    void *handle;
     int ret;
 
     engine = calloc(1, sizeof(*engine));
     if (engine == NULL)
 	return NULL;
-
-    handle = dlopen(path, RTLD_NOW);
-    if (handle == NULL) {
+    engine->references = 0; /* ref will be added below */
+    engine->destroy = 0;
+    engine->dh = 0;
+    engine->rand = 0;
+    engine->dso_handle = dlopen(path, RTLD_NOW | RTLD_LOCAL | RTLD_GROUP);
+    if (engine->dso_handle == NULL) {
 	/* printf("error: %s\n", dlerror()); */
 	free(engine);
 	return NULL;
@@ -257,44 +328,44 @@ ENGINE_by_dso(const char *path, const char *id)
 	unsigned long version;
 	openssl_v_check v_check;
 
-	v_check = (openssl_v_check)dlsym(handle, "v_check");
+	v_check = (openssl_v_check)dlsym(engine->dso_handle, "v_check");
 	if (v_check == NULL) {
-	    dlclose(handle);
+	    dlclose(engine->dso_handle);
 	    free(engine);
 	    return NULL;
 	}
 
 	version = (*v_check)(OPENSSL_DYNAMIC_VERSION);
 	if (version == 0) {
-	    dlclose(handle);
+	    dlclose(engine->dso_handle);
 	    free(engine);
 	    return NULL;
-	}	
+	}
     }
 
     {
 	openssl_bind_engine bind_engine;
 
-	bind_engine = (openssl_bind_engine)dlsym(handle, "bind_engine");
+	bind_engine =
+            (openssl_bind_engine)dlsym(engine->dso_handle, "bind_engine");
 	if (bind_engine == NULL) {
-	    dlclose(handle);
+	    dlclose(engine->dso_handle);
 	    free(engine);
 	    return NULL;
 	}
 
 	ret = (*bind_engine)(engine, id, NULL); /* XXX fix third arg */
 	if (ret != 1) {
-	    dlclose(handle);
+	    dlclose(engine->dso_handle);
 	    free(engine);
 	    return NULL;
-	}	
+	}
     }
 
     ENGINE_up_ref(engine);
 
     ret = add_engine(engine);
     if (ret != 1) {
-	dlclose(handle);
 	ENGINE_finish(engine);
 	return NULL;
     }

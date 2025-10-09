@@ -31,20 +31,12 @@
  * SUCH DAMAGE.
  */
 
-#ifdef HAVE_CONFIG_H
 #include <config.h>
-#endif
-
-RCSID("$Id$");
-
-#include <stdio.h>
-#include <stdlib.h>
+#include <roken.h>
 #include <assert.h>
 
 #include <pkcs12.h>
 #include <bn.h>
-
-#include <roken.h>
 
 int
 PKCS12_key_gen(const void *key, size_t keylen,
@@ -58,6 +50,13 @@ PKCS12_key_gen(const void *key, size_t keylen,
     EVP_MD_CTX *ctx;
     unsigned char *outp = out;
     int i, vlen;
+
+    /**
+     * The argument key is pointing to an utf16 string, and thus
+     * keylen that is no a multiple of 2 is invalid.
+     */
+    if (keylen & 1)
+	return 0;
 
     ctx = EVP_MD_CTX_create();
     if (ctx == NULL)
@@ -79,7 +78,7 @@ PKCS12_key_gen(const void *key, size_t keylen,
 
     if (salt && saltlen > 0) {
 	for (i = 0; i < vlen; i++)
-	    I[i] = ((unsigned char*)salt)[i % saltlen];
+	    I[i] = ((const unsigned char*)salt)[i % saltlen];
 	size_I += vlen;
     }
     /*
@@ -87,10 +86,10 @@ PKCS12_key_gen(const void *key, size_t keylen,
      * empty string, in the empty string the UTF16 NUL terminator is
      * included into the string.
      */
-    if (key && keylen >= 0) {
+    if (key) {
 	for (i = 0; i < vlen / 2; i++) {
 	    I[(i * 2) + size_I] = 0;
-	    I[(i * 2) + size_I + 1] = ((unsigned char*)key)[i % (keylen + 1)];
+	    I[(i * 2) + size_I + 1] = ((const unsigned char*)key)[i % (keylen + 1)];
 	}
 	size_I += vlen;
     }
@@ -145,7 +144,7 @@ PKCS12_key_gen(const void *key, size_t keylen,
 		BN_bn2bin(bnI, I + i + vlen - j);
 	    }
 	    BN_free(bnI);
-	}	
+	}
 	BN_free(bnB);
 	BN_free(bnOne);
 	size_I = vlen * 2;

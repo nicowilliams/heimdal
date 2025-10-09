@@ -3,6 +3,23 @@
 BEGIN {
 	print "#include <config.h>"
 	print "#include <stdio.h>"
+	print "#ifdef HAVE_SYS_TYPES_H"
+	print "#include <sys/types.h>"
+	print "#endif"
+	print "#ifdef HAVE_SYS_SOCKET_H"
+	print "#include <sys/socket.h>"
+	print "#endif"
+	print "#ifdef HAVE_ERRNO_H"
+	print "#include <errno.h>"
+	print "#endif"
+        print "#if !defined(__has_extension)"
+        print "#define __has_extension(x) 0"
+        print "#endif"
+        print "#ifndef ROKEN_REQUIRE_GNUC"
+        print "#define ROKEN_REQUIRE_GNUC(m,n,p) \\"
+        print "    (((__GNUC__ * 10000) + (__GNUC_MINOR__ * 100) + __GNUC_PATCHLEVEL__) >= \\"
+        print "     (((m) * 10000) + ((n) * 100) + (p)))"
+        print "#endif"
 	print ""
 	print "int main(int argc, char **argv)"
 	print "{"
@@ -30,7 +47,6 @@ $1 == "#ifdef" || $1 == "#ifndef" || $1 == "#if" || $1 == "#else" || $1 == "#eli
 }
 
 END {
-	print "puts(\"#define ROKEN_VERSION \" VERSION );"
 	print "puts(\"\");"
 	print "puts(\"#endif /* __ROKEN_H__ */\");"
 	print "return 0;"

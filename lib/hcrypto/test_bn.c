@@ -31,19 +31,8 @@
  * SUCH DAMAGE.
  */
 
-#ifdef HAVE_CONFIG_H
 #include <config.h>
-#endif
-
-#ifdef RCSID
-RCSID("$Id$");
-#endif
-
-#include <sys/types.h>
-#include <limits.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
+#include <roken.h>
 
 #include <bn.h>
 #include <rand.h>
@@ -354,7 +343,7 @@ test_BN_CTX(void)
 
     if ((c = BN_CTX_new()) == NULL)
 	return 1;
-    
+
     for (i = 0; i < testnum; i++) {
 	BN_CTX_start(c);
 	BN_CTX_end(c);

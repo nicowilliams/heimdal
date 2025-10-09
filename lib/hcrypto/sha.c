@@ -31,11 +31,8 @@
  * SUCH DAMAGE.
  */
 
-#ifdef HAVE_CONFIG_H
-#include "config.h"
-
-RCSID("$Id$");
-#endif
+#include <config.h>
+#include <roken.h>
 
 #include "hash.h"
 #include "sha.h"
@@ -47,7 +44,7 @@ RCSID("$Id$");
 #define E m->counter[4]
 #define X data
 
-void
+int
 SHA1_Init (struct sha *m)
 {
   m->sz[0] = 0;
@@ -57,6 +54,7 @@ SHA1_Init (struct sha *m)
   C = 0x98badcfe;
   D = 0x10325476;
   E = 0xc3d2e1f0;
+  return 1;
 }
 
 
@@ -224,7 +222,7 @@ struct x32{
   unsigned int b:32;
 };
 
-void
+int
 SHA1_Update (struct sha *m, const void *v, size_t len)
 {
   const unsigned char *p = v;
@@ -244,22 +242,23 @@ SHA1_Update (struct sha *m, const void *v, size_t len)
     if(offset == 64){
 #if !defined(WORDS_BIGENDIAN) || defined(_CRAY)
       int i;
-      uint32_t current[16];
-      struct x32 *u = (struct x32*)m->save;
+      uint32_t SHA1current[16];
+      struct x32 *us = (struct x32*)m->save;
       for(i = 0; i < 8; i++){
-	current[2*i+0] = swap_uint32_t(u[i].a);
-	current[2*i+1] = swap_uint32_t(u[i].b);
+	SHA1current[2*i+0] = swap_uint32_t(us[i].a);
+	SHA1current[2*i+1] = swap_uint32_t(us[i].b);
       }
-      calc(m, current);
+      calc(m, SHA1current);
 #else
       calc(m, (uint32_t*)m->save);
 #endif
       offset = 0;
     }
   }
+  return 1;
 }
 
-void
+int
 SHA1_Final (void *res, struct sha *m)
 {
   unsigned char zeros[72];
@@ -297,4 +296,5 @@ SHA1_Final (void *res, struct sha *m)
       r[i] = swap_uint32_t (m->counter[i]);
   }
 #endif
+  return 1;
 }

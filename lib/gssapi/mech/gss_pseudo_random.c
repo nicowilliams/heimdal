@@ -34,9 +34,8 @@
 /* $Id$ */
 
 #include "mech_locl.h"
-RCSID("$Id$");
 
-OM_uint32 GSSAPI_LIB_FUNCTION
+GSSAPI_LIB_FUNCTION OM_uint32 GSSAPI_LIB_CALL
 gss_pseudo_random(OM_uint32 *minor_status,
 		  gss_ctx_id_t context,
 		  int prf_key,
@@ -65,7 +64,7 @@ gss_pseudo_random(OM_uint32 *minor_status,
 					  prf_key, prf_in, desired_output_len,
 					  prf_out);
     if (major_status != GSS_S_COMPLETE)
-	_gss_mg_error(m, major_status, *minor_status);
+	_gss_mg_error(m, *minor_status);
 
     return major_status;
 }

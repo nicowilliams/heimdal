@@ -8,10 +8,14 @@ CLEANFILES =		\
 	des.h		\
 	dh.h		\
 	dsa.h		\
+	ec.h		\
+	ecdsa.h		\
+	ecdh.h		\
 	engine.h	\
 	evp.h		\
+	evp-hcrypto.h	\
+	evp-cc.h	\
 	hmac.h		\
-	md2.h		\
 	md4.h		\
 	md5.h		\
 	pkcs12.h	\
@@ -20,4 +24,7 @@ CLEANFILES =		\
 	rc4.h		\
 	rsa.h		\
 	sha.h		\
-	ui.h
+	ui.h		\
+	undef.h
+
+EXTRA_DIST = NTMakefile

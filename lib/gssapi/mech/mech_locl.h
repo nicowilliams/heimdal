@@ -35,33 +35,44 @@
 
 #include <config.h>
 
+#include <roken.h>
+
 #include <krb5-types.h>
 
-#include <sys/types.h>
-
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
 #include <ctype.h>
-#include <dlfcn.h>
-#include <errno.h>
+
+#include <heimbase.h>
+#include "heimbase-atomics.h"
 
 #include <gssapi_asn1.h>
 #include <der.h>
 
-#include <roken.h>
-
 #include <gssapi.h>
 #include <gssapi_mech.h>
 #include <gssapi_krb5.h>
+#include <gssapi_spnego.h>
 
-#include "mechqueue.h"
+#include <heimqueue.h>
 
 #include "context.h"
 #include "cred.h"
 #include "mech_switch.h"
 #include "name.h"
 #include "utils.h"
+#include "compat.h"
 
 #define _mg_buffer_zero(buffer) \
-	do { (buffer)->value = NULL; (buffer)->length = 0; } while(0)
+	do {					\
+		if (buffer) {			\
+			(buffer)->value = NULL;	\
+			(buffer)->length = 0;	\
+		 }				\
+	} while(0)
+
+#define _mg_oid_set_zero(oid_set) \
+	do {						\
+		if (oid_set) {				\
+			(oid_set)->elements = NULL;	\
+			(oid_set)->count = 0;		\
+		 }					\
+	} while(0)

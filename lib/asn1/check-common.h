@@ -3,6 +3,8 @@
  * (Royal Institute of Technology, Stockholm, Sweden).
  * All rights reserved.
  *
+ * Portions Copyright (c) 2009 Apple Inc. All rights reserved.
+ *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
  * are met:
@@ -31,33 +33,53 @@
  * SUCH DAMAGE.
  */
 
+#define IF_OPT_COMPARE(ac,bc,e) \
+	if (((ac)->e == NULL && (bc)->e != NULL) || (((ac)->e != NULL && (bc)->e == NULL))) return 1; \
+        if ((ac)->e)
+#define COMPARE_OPT_STRING(ac,bc,e) \
+	do { if (strcmp(*(ac)->e, *(bc)->e) != 0) return 1; } while(0)
+#define COMPARE_OPT_OCTET_STRING(ac,bc,e) \
+	do { if ((ac)->e->length != (bc)->e->length || memcmp((ac)->e->data, (bc)->e->data, (ac)->e->length) != 0) return 1; } while(0)
+#define COMPARE_STRING(ac,bc,e) \
+	do { if (strcmp((ac)->e, (bc)->e) != 0) return 1; } while(0)
+#define COMPARE_INTEGER(ac,bc,e) \
+	do { if ((ac)->e != (bc)->e) return 1; } while(0)
+#define COMPARE_OPT_INTEGER(ac,bc,e) \
+	do { if (*(ac)->e != *(bc)->e) return 1; } while(0)
+#define COMPARE_MEM(ac,bc,e,len) \
+	do { if (memcmp((ac)->e, (bc)->e,len) != 0) return 1; } while(0)
+#define COMPARE_OCTET_STRING(ac,bc,e) \
+	do { if ((ac)->e.length != (bc)->e.length || memcmp((ac)->e.data, (bc)->e.data, (ac)->e.length) != 0) return 1; } while(0)
+
 struct test_case {
     void *val;
-    int byte_len;
+    ssize_t byte_len;
     const char *bytes;
     char *name;
 };
 
-typedef int (*generic_encode)(unsigned char *, size_t, void *, size_t *);
-typedef int (*generic_length)(void *);
-typedef int (*generic_decode)(unsigned char *, size_t, void *, size_t *);
-typedef int (*generic_free)(void *);
+typedef int (ASN1CALL *generic_encode)(unsigned char *, size_t, void *, size_t *);
+typedef size_t (ASN1CALL *generic_length)(void *);
+typedef int (ASN1CALL *generic_decode)(unsigned char *, size_t, void *, size_t *);
+typedef void (ASN1CALL *generic_free)(void *);
+typedef int (ASN1CALL *generic_copy)(const void *, void *);
 
 int
 generic_test (const struct test_case *tests,
 	      unsigned ntests,
 	      size_t data_size,
-	      int (*encode)(unsigned char *, size_t, void *, size_t *),
-	      int (*length)(void *),
-	      int (*decode)(unsigned char *, size_t, void *, size_t *),
-	      int (*free_data)(void *),
-	      int (*cmp)(void *a, void *b));
+	      int (ASN1CALL *encode)(unsigned char *, size_t, void *, size_t *),
+	      size_t (ASN1CALL *length)(void *),
+	      int (ASN1CALL *decode)(unsigned char *, size_t, void *, size_t *),
+	      void (ASN1CALL *free_data)(void *),
+	      int (*cmp)(void *a, void *b),
+	      int (ASN1CALL *copy)(const void *a, void *b));
 
 int
 generic_decode_fail(const struct test_case *tests,
 		    unsigned ntests,
 		    size_t data_size,
-		    int (*decode)(unsigned char *, size_t, void *, size_t *));
+		    int (ASN1CALL *decode)(unsigned char *, size_t, void *, size_t *));
 
 
 struct map_page;

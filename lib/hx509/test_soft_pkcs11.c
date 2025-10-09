@@ -32,7 +32,7 @@
  */
 
 #include "hx_locl.h"
-#include "pkcs11.h"
+#include "ref/pkcs11.h"
 #include <err.h>
 
 static CK_FUNCTION_LIST_PTR func;
@@ -159,7 +159,7 @@ main(int argc, char **argv)
 	ret = (*func->C_SignInit)(session, &mechanism, private);
 	if (ret != CKR_OK)
 	    return 1;
-	
+
 	ck_sigsize = sizeof(signature);
 	ret = (*func->C_Sign)(session, (CK_BYTE *)sighash, strlen(sighash),
 			      (CK_BYTE *)signature, &ck_sigsize);
@@ -192,7 +192,7 @@ main(int argc, char **argv)
 	ret = (*func->C_EncryptInit)(session, &mechanism, public);
 	if (ret != CKR_OK)
 	    return 1;
-	
+
 	ck_sigsize = sizeof(signature);
 	ret = (*func->C_Encrypt)(session, (CK_BYTE *)sighash, strlen(sighash),
 				 (CK_BYTE *)signature, &ck_sigsize);
@@ -213,7 +213,7 @@ main(int argc, char **argv)
 	    return 1;
 	}
 
-	if (memcmp(sighash, outdata, strlen(sighash)) != 0)
+	if (ct_memcmp(sighash, outdata, strlen(sighash)) != 0)
 	    return 1;
     }
 #endif

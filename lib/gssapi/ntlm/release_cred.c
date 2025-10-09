@@ -33,9 +33,7 @@
 
 #include "ntlm.h"
 
-RCSID("$Id$");
-
-OM_uint32 _gss_ntlm_release_cred
+OM_uint32 GSSAPI_CALLCONV _gss_ntlm_release_cred
            (OM_uint32 * minor_status,
             gss_cred_id_t * cred_handle
            )
@@ -59,6 +57,9 @@ OM_uint32 _gss_ntlm_release_cred
 	memset(cred->key.data, 0, cred->key.length);
 	free(cred->key.data);
     }
+
+    memset(cred, 0, sizeof(*cred));
+    free(cred);
 
     return GSS_S_COMPLETE;
 }

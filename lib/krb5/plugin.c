@@ -3,6 +3,8 @@
  * (Royal Institute of Technology, Stockholm, Sweden).
  * All rights reserved.
  *
+ * Portions Copyright (c) 2018 AuriStor, Inc.
+ *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
  * are met:
@@ -32,96 +34,30 @@
  */
 
 #include "krb5_locl.h"
-
-#ifdef HAVE_DLFCN_H
-#include <dlfcn.h>
-#endif
-#include <dirent.h>
-
-struct krb5_plugin {
-    void *symbol;
-    struct krb5_plugin *next;
-};
-
-struct plugin {
-    enum { DSO, SYMBOL } type;
-    union {
-	struct {
-	    char *path;
-	    void *dsohandle;
-	} dso;
-	struct {
-	    enum krb5_plugin_type type;
-	    char *name;
-	    char *symbol;
-	} symbol;
-    } u;
-    struct plugin *next;
-};
-
-static HEIMDAL_MUTEX plugin_mutex = HEIMDAL_MUTEX_INITIALIZER;
-static struct plugin *registered = NULL;
-static int plugins_needs_scan = 1;
-
-static const char *sysplugin_dirs[] =  { 
-    LIBDIR "/plugin/krb5",
-#ifdef __APPLE__
-    "/System/Library/KerberosPlugins/KerberosFrameworkPlugins",
-#endif
-    NULL
-};
+#include "common_plugin.h"
 
 /*
+ * Definitions:
  *
- */
-
-void *
-_krb5_plugin_get_symbol(struct krb5_plugin *p)
-{
-    return p->symbol;
-}
-
-struct krb5_plugin *
-_krb5_plugin_get_next(struct krb5_plugin *p)
-{
-    return p->next;
-}
-
-/*
+ *	module	    - a category of plugin module, identified by subsystem
+ *		      (typically "krb5")
+ *	dso	    - a library for a module containing a map of plugin
+ *		      types to plugins (e.g. "service_locator")
+ *	plugin	    - a set of callbacks and state that follows the
+ *		      common plugin module definition (version, init, fini)
  *
+ * Obviously it would have been clearer to use the term "module" rather than
+ * "DSO" given there is an internal "DSO", but "module" was already taken...
+ *
+ *	modules := { module: dsos }
+ *	dsos := { path, dsohandle, plugins-by-name }
+ *	plugins-by-name := { plugin-name: [plug] }
+ *	plug := { ftable, ctx }
+ *
+ * Some existing plugin consumers outside libkrb5 use the "krb5" module
+ * namespace, but going forward the module should match the consumer library
+ * name (e.g. libhdb should use the "hdb" module rather than "krb5").
  */
-
-#ifdef HAVE_DLOPEN
-
-static krb5_error_code
-loadlib(krb5_context context, char *path)
-{
-    struct plugin *e;
-
-    e = calloc(1, sizeof(*e));
-    if (e == NULL) {
-	krb5_set_error_message(context, ENOMEM, "malloc: out of memory");
-	free(path);
-	return ENOMEM;
-    }
-
-#ifndef RTLD_LAZY
-#define RTLD_LAZY 0
-#endif
-#ifndef RTLD_LOCAL
-#define RTLD_LOCAL 0
-#endif
-    e->type = DSO;
-    /* ignore error from dlopen, and just keep it as negative cache entry */
-    e->u.dso.dsohandle = dlopen(path, RTLD_LOCAL|RTLD_LAZY);
-    e->u.dso.path = path;
-
-    e->next = registered;
-    registered = e;
-
-    return 0;
-}
-#endif /* HAVE_DLOPEN */
 
 /**
  * Register a plugin symbol name of specific type.
@@ -135,192 +71,138 @@ loadlib(krb5_context context, char *path)
  * @ingroup krb5_support
  */
 
-krb5_error_code
+KRB5_LIB_FUNCTION krb5_error_code KRB5_LIB_CALL
 krb5_plugin_register(krb5_context context,
 		     enum krb5_plugin_type type,
 		     const char *name,
-		     void *symbol)
+		     const void *symbol)
 {
-    struct plugin *e;
-
-    HEIMDAL_MUTEX_lock(&plugin_mutex);
-
-    /* check for duplicates */
-    for (e = registered; e != NULL; e = e->next) {
-	if (e->type == SYMBOL &&
-	    strcmp(e->u.symbol.name, name) == 0 &&
-	    e->u.symbol.type == type && e->u.symbol.symbol == symbol) {
-	    HEIMDAL_MUTEX_unlock(&plugin_mutex);
-	    return 0;
-	}
+    /*
+     * It's not clear that PLUGIN_TYPE_FUNC was ever used or supported. It likely
+     * would have caused _krb5_plugin_run_f() to crash as the previous implementation
+     * assumed PLUGIN_TYPE_DATA.
+     */
+    if (type != PLUGIN_TYPE_DATA) {
+	krb5_warnx(context, "krb5_plugin_register: PLUGIN_TYPE_DATA no longer supported");
+	return EINVAL;
     }
 
-    e = calloc(1, sizeof(*e));
-    if (e == NULL) {
-	HEIMDAL_MUTEX_unlock(&plugin_mutex);
-	krb5_set_error_message(context, ENOMEM, "malloc: out of memory");
-	return ENOMEM;
-    }
-    e->type = SYMBOL;
-    e->u.symbol.type = type;
-    e->u.symbol.name = strdup(name);
-    if (e->u.symbol.name == NULL) {
-	HEIMDAL_MUTEX_unlock(&plugin_mutex);
-	free(e);
-	krb5_set_error_message(context, ENOMEM, "malloc: out of memory");
-	return ENOMEM;
-    }
-    e->u.symbol.symbol = symbol;
-
-    e->next = registered;
-    registered = e;
-    HEIMDAL_MUTEX_unlock(&plugin_mutex);
-
-    return 0;
+    return heim_plugin_register(context->hcontext, (heim_pcontext)context,
+                                "krb5", name, symbol);
 }
 
-static krb5_error_code
-load_plugins(krb5_context context)
+/**
+ * Load plugins (new system) for the given module @name (typically
+ * "krb5") from the given directory @paths.
+ *
+ * Inputs:
+ *
+ * @context A krb5_context
+ * @name    Name of plugin module (typically "krb5")
+ * @paths   Array of directory paths where to look
+ */
+KRB5_LIB_FUNCTION void KRB5_LIB_CALL
+_krb5_load_plugins(krb5_context context, const char *name, const char **paths)
 {
-    struct plugin *e;
-    krb5_error_code ret;
-    char **dirs = NULL, **di;
-    struct dirent *entry;
-    char *path;
-    DIR *d = NULL;
+    heim_load_plugins(context->hcontext, name, paths);
+}
 
-    if (!plugins_needs_scan)
-	return 0;
-    plugins_needs_scan = 0;
+/**
+ * Unload plugins (new system)
+ */
+KRB5_LIB_FUNCTION void KRB5_LIB_CALL
+_krb5_unload_plugins(krb5_context context, const char *name)
+{
+    heim_unload_plugins(context->hcontext, name);
+}
 
-#ifdef HAVE_DLOPEN
+/**
+ * Run plugins for the given @module (e.g., "krb5") and @name (e.g.,
+ * "kuserok").  Specifically, the @func is invoked once per-plugin with
+ * four arguments: the @context, the plugin symbol value (a pointer to a
+ * struct whose first three fields are the same as common_plugin_ftable),
+ * a context value produced by the plugin's init method, and @userctx.
+ *
+ * @func should unpack arguments for a plugin function and invoke it
+ * with arguments taken from @userctx.  @func should save plugin
+ * outputs, if any, in @userctx.
+ *
+ * All loaded and registered plugins are invoked via @func until @func
+ * returns something other than KRB5_PLUGIN_NO_HANDLE.  Plugins that
+ * have nothing to do for the given arguments should return
+ * KRB5_PLUGIN_NO_HANDLE.
+ *
+ * Inputs:
+ *
+ * @context     A krb5_context
+ * @module      Name of module (typically "krb5")
+ * @name        Name of pluggable interface (e.g., "kuserok")
+ * @min_version Lowest acceptable plugin minor version number
+ * @flags       Flags (none defined at this time)
+ * @userctx     Callback data for the callback function @func
+ * @func        A callback function, invoked once per-plugin
+ *
+ * Outputs: None, other than the return value and such outputs as are
+ *          gathered by @func.
+ */
+KRB5_LIB_FUNCTION krb5_error_code KRB5_LIB_CALL
+_krb5_plugin_run_f(krb5_context context,
+		   const struct heim_plugin_data *caller,
+		   int flags,
+		   void *userctx,
+		   krb5_error_code (KRB5_LIB_CALL *func)(krb5_context, const void *, void *, void *))
+{
+    int32_t (HEIM_LIB_CALL *func2)(void *, const void *, void *, void *) = (void *)func;
+    return heim_plugin_run_f(context->hcontext, (heim_pcontext)context, caller,
+                             flags, KRB5_PLUGIN_NO_HANDLE, userctx, func2);
+}
 
-    dirs = krb5_config_get_strings(context, NULL, "libdefaults",
-				   "plugin_dir", NULL);
-    if (dirs == NULL)
-	dirs = rk_UNCONST(sysplugin_dirs);
+/**
+ * Return a cookie identifying this instance of a library.
+ *
+ * Inputs:
+ *
+ * @context     A krb5_context
+ * @module      Our library name or a library we depend on
+ *
+ * Outputs:	The instance cookie
+ *
+ * @ingroup	krb5_support
+ */
 
-    for (di = dirs; *di != NULL; di++) {
+#ifdef WIN32
+static uintptr_t
+djb2(uintptr_t hash, unsigned char *str)
+{
+    int c;
 
-	d = opendir(*di);
-	if (d == NULL)
-	    continue;
-	rk_cloexec(dirfd(d));
+    while (c = *str++)
+	hash = ((hash << 5) + hash) + c; /* hash * 33 + c */
 
-	while ((entry = readdir(d)) != NULL) {
-	    char *n = entry->d_name;
-
-	    /* skip . and .. */
-	    if (n[0] == '.' && (n[1] == '\0' || (n[1] == '.' && n[2] == '\0')))
-		continue;
-
-	    path = NULL;
-#ifdef __APPLE__
-	    { /* support loading bundles on MacOS */
-		size_t len = strlen(n);
-		if (len > 7 && strcmp(&n[len - 7],  ".bundle") == 0)
-		    asprintf(&path, "%s/%s/Contents/MacOS/%.*s", *di, n, (int)(len - 7), n);
-	    }
+    return hash;
+}
 #endif
-	    if (path == NULL)
-		asprintf(&path, "%s/%s", *di, n);
 
-	    if (path == NULL) {
-		ret = ENOMEM;
-		krb5_set_error_message(context, ret, "malloc: out of memory");
-		return ret;
-	    }
-
-	    /* check if already tried */
-	    for (e = registered; e != NULL; e = e->next)
-		if (e->type == DSO && strcmp(e->u.dso.path, path) == 0)
-		    break;
-	    if (e) {
-		free(path);
-	    } else {
-		loadlib(context, path); /* store or frees path */
-	    }
-	}
-	closedir(d);
-    }
-    if (dirs != rk_UNCONST(sysplugin_dirs))
-	krb5_config_free_strings(dirs);
-#endif /* HAVE_DLOPEN */
-    return 0;
-}
-
-static krb5_error_code
-add_symbol(krb5_context context, struct krb5_plugin **list, void *symbol)
+KRB5_LIB_FUNCTION uintptr_t KRB5_LIB_CALL
+krb5_get_instance(const char *libname)
 {
-    struct krb5_plugin *e;
-    
-    e = calloc(1, sizeof(*e));
-    if (e == NULL) {
-	krb5_set_error_message(context, ENOMEM, "malloc: out of memory");
-	return ENOMEM;
-    }
-    e->symbol = symbol;
-    e->next = *list;
-    *list = e;
+#ifdef WIN32
+    char *version;
+    char *name;
+    uintptr_t instance;
+
+    if (win32_getLibraryVersion("heimdal", &name, &version))
+	return 0;
+    instance = djb2(5381, name);
+    instance = djb2(instance, version);
+    free(name);
+    free(version);
+    return instance;
+#else
+    static const char *instance = "libkrb5";
+
+    if (strcmp(libname, "krb5") == 0)
+	return (uintptr_t)instance;
     return 0;
-}
-
-krb5_error_code
-_krb5_plugin_find(krb5_context context,
-		  enum krb5_plugin_type type,
-		  const char *name,
-		  struct krb5_plugin **list)
-{
-    struct plugin *e;
-    krb5_error_code ret;
-
-    *list = NULL;
-
-    HEIMDAL_MUTEX_lock(&plugin_mutex);
-    
-    load_plugins(context);
-
-    for (ret = 0, e = registered; e != NULL; e = e->next) {
-	switch(e->type) {
-	case DSO: {
-	    void *sym;
-	    if (e->u.dso.dsohandle == NULL)
-		continue;
-	    sym = dlsym(e->u.dso.dsohandle, name);
-	    if (sym)
-		ret = add_symbol(context, list, sym);
-	    break;
-	}
-	case SYMBOL:
-	    if (strcmp(e->u.symbol.name, name) == 0 && e->u.symbol.type == type)
-		ret = add_symbol(context, list, e->u.symbol.symbol);
-	    break;
-	}
-	if (ret) {
-	    _krb5_plugin_free(*list);
-	    *list = NULL;
-	}
-    }
-
-    HEIMDAL_MUTEX_unlock(&plugin_mutex);
-    if (ret)
-	return ret;
-
-    if (*list == NULL) {
-	krb5_set_error_message(context, ENOENT, "Did not find a plugin for %s", name);
-	return ENOENT;
-    }
-
-    return 0;
-}
-
-void
-_krb5_plugin_free(struct krb5_plugin *list)
-{
-    struct krb5_plugin *next;
-    while (list) {
-	next = list->next;
-	free(list);
-	list = next;
-    }
+#endif
 }

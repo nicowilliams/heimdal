@@ -40,7 +40,7 @@ verify_common (krb5_context context,
 	       krb5_keytab keytab,
 	       krb5_boolean secure,
 	       const char *service,
-	       krb5_creds cred)
+	       krb5_creds *cred)
 {
     krb5_error_code ret;
     krb5_principal server;
@@ -56,7 +56,7 @@ verify_common (krb5_context context,
     krb5_verify_init_creds_opt_set_ap_req_nofail(&vopt, secure);
 
     ret = krb5_verify_init_creds(context,
-				 &cred,
+				 cred,
 				 server,
 				 keytab,
 				 NULL,
@@ -71,12 +71,11 @@ verify_common (krb5_context context,
     if(ret == 0){
 	ret = krb5_cc_initialize(context, id, principal);
 	if(ret == 0){
-	    ret = krb5_cc_store_cred(context, id, &cred);
+	    ret = krb5_cc_store_cred(context, id, cred);
 	}
 	if(ccache == NULL)
 	    krb5_cc_close(context, id);
     }
-    krb5_free_cred_contents(context, &cred);
     return ret;
 }
 
@@ -88,7 +87,7 @@ verify_common (krb5_context context,
  * As a side effect, fresh tickets are obtained and stored in `ccache'.
  */
 
-void KRB5_LIB_FUNCTION
+KRB5_LIB_FUNCTION void KRB5_LIB_CALL
 krb5_verify_opt_init(krb5_verify_opt *opt)
 {
     memset(opt, 0, sizeof(*opt));
@@ -96,50 +95,47 @@ krb5_verify_opt_init(krb5_verify_opt *opt)
     opt->service = "host";
 }
 
-int KRB5_LIB_FUNCTION
+KRB5_LIB_FUNCTION int KRB5_LIB_CALL
 krb5_verify_opt_alloc(krb5_context context, krb5_verify_opt **opt)
 {
     *opt = calloc(1, sizeof(**opt));
-    if ((*opt) == NULL) {
-	krb5_set_error_message(context, ENOMEM,
-			       N_("malloc: out of memory", ""));
-	return ENOMEM;
-    }
+    if ((*opt) == NULL)
+	return krb5_enomem(context);
     krb5_verify_opt_init(*opt);
     return 0;
 }
 
-void KRB5_LIB_FUNCTION
+KRB5_LIB_FUNCTION void KRB5_LIB_CALL
 krb5_verify_opt_free(krb5_verify_opt *opt)
 {
     free(opt);
 }
 
-void KRB5_LIB_FUNCTION
+KRB5_LIB_FUNCTION void KRB5_LIB_CALL
 krb5_verify_opt_set_ccache(krb5_verify_opt *opt, krb5_ccache ccache)
 {
     opt->ccache = ccache;
 }
 
-void KRB5_LIB_FUNCTION
+KRB5_LIB_FUNCTION void KRB5_LIB_CALL
 krb5_verify_opt_set_keytab(krb5_verify_opt *opt, krb5_keytab keytab)
 {
     opt->keytab = keytab;
 }
 
-void KRB5_LIB_FUNCTION
+KRB5_LIB_FUNCTION void KRB5_LIB_CALL
 krb5_verify_opt_set_secure(krb5_verify_opt *opt, krb5_boolean secure)
 {
     opt->secure = secure;
 }
 
-void KRB5_LIB_FUNCTION
+KRB5_LIB_FUNCTION void KRB5_LIB_CALL
 krb5_verify_opt_set_service(krb5_verify_opt *opt, const char *service)
 {
     opt->service = service;
 }
 
-void KRB5_LIB_FUNCTION
+KRB5_LIB_FUNCTION void KRB5_LIB_CALL
 krb5_verify_opt_set_flags(krb5_verify_opt *opt, unsigned int flags)
 {
     opt->flags |= flags;
@@ -175,13 +171,15 @@ verify_user_opt_int(krb5_context context,
     if(ret)
 	return ret;
 #define OPT(V, D) ((vopt && (vopt->V)) ? (vopt->V) : (D))
-    return verify_common (context, principal, OPT(ccache, NULL),
+    ret = verify_common (context, principal, OPT(ccache, NULL),
 			  OPT(keytab, NULL), vopt ? vopt->secure : TRUE,
-			  OPT(service, "host"), cred);
+			  OPT(service, "host"), &cred);
 #undef OPT
+    krb5_free_cred_contents(context, &cred);
+    return ret;
 }
 
-krb5_error_code KRB5_LIB_FUNCTION
+KRB5_LIB_FUNCTION krb5_error_code KRB5_LIB_CALL
 krb5_verify_user_opt(krb5_context context,
 		     krb5_principal principal,
 		     const char *password,
@@ -195,7 +193,7 @@ krb5_verify_user_opt(krb5_context context,
 	if (ret)
 	    return ret;
 	ret = KRB5_CONFIG_NODEFREALM;
-	
+
 	for (r = realms; *r != NULL && ret != 0; ++r) {
 	    ret = krb5_principal_set_realm(context, principal, *r);
 	    if (ret) {
@@ -215,7 +213,7 @@ krb5_verify_user_opt(krb5_context context,
 
 /* compat function that calls above */
 
-krb5_error_code KRB5_LIB_FUNCTION
+KRB5_LIB_FUNCTION krb5_error_code KRB5_LIB_CALL
 krb5_verify_user(krb5_context context,
 		 krb5_principal principal,
 		 krb5_ccache ccache,
@@ -239,7 +237,7 @@ krb5_verify_user(krb5_context context,
  * ignored and all the local realms are tried.
  */
 
-krb5_error_code KRB5_LIB_FUNCTION
+KRB5_LIB_FUNCTION krb5_error_code KRB5_LIB_CALL
 krb5_verify_user_lrealm(krb5_context context,
 			krb5_principal principal,
 			krb5_ccache ccache,

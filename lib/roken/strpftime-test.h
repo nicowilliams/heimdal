@@ -42,7 +42,20 @@
  * these evil hacks
  */
 
+#ifdef strftime
+#undef strftime
+#endif
 #define strftime test_strftime
+#ifdef strptime
+#undef strptime
+#endif
 #define strptime test_strptime
+
+ROKEN_LIB_FUNCTION size_t ROKEN_LIB_CALL
+strftime (char *buf, size_t maxsize, const char *format,
+          const struct tm *tm);
+
+ROKEN_LIB_FUNCTION char * ROKEN_LIB_CALL
+strptime (const char *buf, const char *format, struct tm *timeptr);
 
 #endif /* __STRFTIME_TEST_H__ */

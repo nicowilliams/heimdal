@@ -4,11 +4,15 @@ include $(top_srcdir)/Makefile.am.common
 
 AUTOMAKE_OPTIONS = no-texinfo.tex
 
-MAKEINFOFLAGS = --no-split --css-include=$(srcdir)/heimdal.css
+MAKEINFOFLAGS = --css-include=$(srcdir)/heimdal.css
 
-TEXI2DVI = true # ARGH, make distcheck can't be disabled to not build dvifiles
+#TEXI2DVI = true # ARGH, make distcheck can't be disabled to not build dvifiles
 
 info_TEXINFOS = heimdal.texi hx509.texi
+
+BUILT_SOURCES = vars.texi
+
+#all: html pdf dvi ps info
 
 dxy_subst = sed -e 's,[@]srcdir[@],$(srcdir),g' \
 	-e 's,[@]objdir[@],.,g' \
@@ -23,6 +27,11 @@ hdb.dxy: hdb.din Makefile
 	$(dxy_subst) < $(srcdir)/hdb.din > hdb.dxy.tmp
 	chmod +x hdb.dxy.tmp
 	mv hdb.dxy.tmp hdb.dxy
+
+base.dxy: base.din Makefile
+	$(dxy_subst) < $(srcdir)/base.din > base.dxy.tmp
+	chmod +x base.dxy.tmp
+	mv base.dxy.tmp base.dxy
 
 hx509.dxy: hx509.din Makefile
 	$(dxy_subst) < $(srcdir)/hx509.din > hx509.dxy.tmp
@@ -50,6 +59,7 @@ wind.dxy: wind.din Makefile
 	mv wind.dxy.tmp wind.dxy
 
 texi_subst = sed -e 's,[@]dbdir[@],$(localstatedir),g' \
+	-e 's,[@]dbtype[@],$(db_type),g' \
 	-e 's,[@]PACKAGE_VERSION[@],$(PACKAGE_VERSION),g'
 
 vars.texi: vars.tin Makefile
@@ -57,17 +67,24 @@ vars.texi: vars.tin Makefile
 	chmod +x vars.texi.tmp
 	mv vars.texi.tmp vars.texi
 
-PROJECTS = hcrypto hdb hx509 gssapi krb5 ntlm wind 
+PROJECTS = base hdb hx509 gssapi krb5 ntlm wind 
 
-$(PROJECTS): doxygen
+PROJECTS += hcrypto
 
-doxygen: hdb.dxy hx509.dxy hcrypto.dxy gssapi.dxy krb5.dxy ntlm.dxy wind.dxy
-	@for a in $(PROJECTS) ; do \
+doxyout doxygen: base.dxy hdb.dxy hx509.dxy hcrypto.dxy gssapi.dxy krb5.dxy ntlm.dxy wind.dxy
+	@test -d $(srcdir)/doxyout && \
+	find $(srcdir)/doxyout -type d ! -perm -200 -exec chmod u+w {} ';' ; \
+	rm -rf $(srcdir)/doxyout ; \
+	mkdir $(srcdir)/doxyout ; \
+	for a in $(PROJECTS) ; do \
 		echo $$a ; \
-		rm -rf $(srcdir)/$$a ; \
-		mkdir $(srcdir)/$$a ; \
 		doxygen $$a.dxy; \
-		(cd $(srcdir) && find $$a/man -type f > $$a/manpages ) ; \
+		(cd $(srcdir)/doxyout && \
+		    find $$a/man -name '_*' -type f -print | \
+			perl -lne unlink && \
+		    find $$a/html -name 'dir_*.html' -type f -print | \
+			perl -lne unlink && \
+		 find $$a/man -type f > $$a/manpages ) ; \
 	done
 
 install-data-hook: install-doxygen-manpage
@@ -76,19 +93,19 @@ dist-hook: doxygen
 
 install-doxygen-manpage:
 	for a in $(PROJECTS) ; do \
-		f="$(srcdir)/$$a/manpages" ; \
+		f="$(srcdir)/doxyout/$$a/manpages" ; \
 		test -f $$f || continue ; \
-		echo "install $$a manual pages" ; \
+		echo "install $$a manual pages $$(wc -l < $$f)" ; \
 		while read x ; do \
 			section=`echo "$$x" | sed 's/.*\.\([0-9]\)/\1/'` ; \
 			$(mkinstalldirs) "$(DESTDIR)$(mandir)/man$$section" ; \
-			$(INSTALL_DATA) $(srcdir)/$$x "$(DESTDIR)$(mandir)/man$$section" ; \
+			$(INSTALL_DATA) $(srcdir)/doxyout/$$x "$(DESTDIR)$(mandir)/man$$section" ; \
 		done < $$f ; \
 	done ; exit 0
 
 uninstall-doxygen-manpage:
 	@for a in $(PROJECTS) ; do \
-		f="$(srcdir)/$$a/manpages" ; \
+		f="$(srcdir)/doxyout/$$a/manpages" ; \
 		test -f $$f || continue ; \
 		echo "removing $$a manual pages" ; \
 		while read x ; do \
@@ -106,7 +123,6 @@ heimdal_TEXINFOS = \
 	heimdal.texi \
 	install.texi \
 	intro.texi \
-	kerberos4.texi \
 	migration.texi \
 	misc.texi \
 	programming.texi \
@@ -116,10 +132,15 @@ heimdal_TEXINFOS = \
 	win2k.texi
 
 EXTRA_DIST = \
-	$(PROJECTS) \
+	NTMakefile \
+	doxyout \
+	footer.html \
+	gssapi.din \
 	hdb.din \
 	hcrypto.din \
+	header.html \
 	heimdal.css \
+	base.din \
 	hx509.din \
 	krb5.din \
 	ntlm.din \
@@ -128,10 +149,14 @@ EXTRA_DIST = \
 	layman.asc \
 	doxytmpl.dxy \
 	wind.din \
+	base.hhp \
+	heimdal.hhp \
+	hx509.hhp \
 	vars.tin
 
 CLEANFILES = \
 	hcrypto.dxy* \
+	base.dxy* \
 	hx509.dxy* \
 	hdb.dxy* \
 	gssapi.dxy* \

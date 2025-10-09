@@ -64,19 +64,15 @@ get_ccache(krb5_context context, int *destroy, krb5_ccache *id)
     krb5_principal principal = NULL;
     krb5_error_code ret;
     krb5_keytab kt = NULL;
+    const char *cache = secure_getenv("NTLM_ACCEPTOR_CCACHE");
 
     *id = NULL;
 
-    if (!issuid()) {
-	const char *cache;
-
-	cache = getenv("NTLM_ACCEPTOR_CCACHE");
-	if (cache) {
-	    ret = krb5_cc_resolve(context, cache, id);
-	    if (ret)
-		goto out;
-	    return 0;
-	}
+    if (cache) {
+        ret = krb5_cc_resolve(context, cache, id);
+        if (ret)
+            goto out;
+        return 0;
     }
 
     ret = krb5_sname_to_principal(context, NULL, "host",
@@ -86,7 +82,7 @@ get_ccache(krb5_context context, int *destroy, krb5_ccache *id)
 
     ret = krb5_cc_cache_match(context, principal, id);
     if (ret == 0)
-	return 0;
+	goto out;
 
     /* did not find in default credcache, lets try default keytab */
     ret = krb5_kt_default(context, &kt);
@@ -251,11 +247,12 @@ kdc_type2(OM_uint32 *minor_status,
     struct ntlmkrb5 *c = ctx;
     krb5_error_code ret;
     struct ntlm_type2 type2;
-    krb5_data challange;
+    krb5_data challenge;
     struct ntlm_buf data;
     krb5_data ti;
 
     memset(&type2, 0, sizeof(type2));
+    memset(out, 0, sizeof(*out));
 
     /*
      * Request data for type 2 packet from the KDC.
@@ -293,18 +290,18 @@ kdc_type2(OM_uint32 *minor_status,
     }
     *ret_flags = type2.flags;
 
-    ret = krb5_ntlm_init_get_challange(c->context, c->ntlm, &challange);
+    ret = krb5_ntlm_init_get_challenge(c->context, c->ntlm, &challenge);
     if (ret) {
 	*minor_status = ret;
 	return GSS_S_FAILURE;
     }
 
-    if (challange.length != sizeof(type2.challange)) {
+    if (challenge.length != sizeof(type2.challenge)) {
 	*minor_status = EINVAL;
 	return GSS_S_FAILURE;
     }
-    memcpy(type2.challange, challange.data, sizeof(type2.challange));
-    krb5_data_free(&challange);
+    memcpy(type2.challenge, challenge.data, sizeof(type2.challenge));
+    krb5_data_free(&challenge);
 
     ret = krb5_ntlm_init_get_targetname(c->context, c->ntlm,
 					&type2.targetname);
@@ -322,7 +319,7 @@ kdc_type2(OM_uint32 *minor_status,
 
     type2.targetinfo.data = ti.data;
     type2.targetinfo.length = ti.length;
-	
+
     ret = heim_ntlm_encode_type2(&type2, &data);
     free(type2.targetname);
     krb5_data_free(&ti);
@@ -330,7 +327,7 @@ kdc_type2(OM_uint32 *minor_status,
 	*minor_status = ret;
 	return GSS_S_FAILURE;
     }
-	
+
     out->data = data.data;
     out->length = data.length;
 

@@ -59,6 +59,12 @@ dir_init(hx509_context context,
 {
     *data = NULL;
 
+    if (residue == NULL || residue[0] == '\0') {
+        hx509_set_error_string(context, 0, EINVAL,
+                               "DIR file name not specified");
+        return EINVAL;
+    }
+
     {
 	struct stat sb;
 	int ret;
@@ -93,8 +99,6 @@ dir_free(hx509_certs certs, void *data)
     return 0;
 }
 
-
-
 static int
 dir_iter_start(hx509_context context,
 	       hx509_certs certs, void *data, void **cursor)
@@ -115,7 +119,7 @@ dir_iter_start(hx509_context context,
 	free(d);
 	return errno;
     }
-    rk_cloexec(dirfd(d->dir));
+    rk_cloexec_dir(d->dir);
     d->certs = NULL;
     d->iter = NULL;
 
@@ -160,10 +164,10 @@ dir_iter(hx509_context context,
 	}
 	if (strcmp(dir->d_name, ".") == 0 || strcmp(dir->d_name, "..") == 0)
 	    continue;
-	
+
 	if (asprintf(&fn, "FILE:%s/%s", (char *)data, dir->d_name) == -1)
 	    return ENOMEM;
-	
+
 	ret = hx509_certs_init(context, fn, 0, NULL, &d->certs);
 	if (ret == 0) {
 
@@ -213,10 +217,14 @@ static struct hx509_keyset_ops keyset_dir = {
     NULL,
     dir_iter_start,
     dir_iter,
-    dir_iter_end
+    dir_iter_end,
+    NULL,
+    NULL,
+    NULL,
+    NULL
 };
 
-void
+HX509_LIB_FUNCTION void HX509_LIB_CALL
 _hx509_ks_dir_register(hx509_context context)
 {
     _hx509_ks_register(context, &keyset_dir);

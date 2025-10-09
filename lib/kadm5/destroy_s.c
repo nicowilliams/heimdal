@@ -42,10 +42,12 @@ RCSID("$Id$");
 static void
 destroy_config (kadm5_config_params *c)
 {
-    free (c->realm);
-    free (c->dbname);
-    free (c->acl_file);
-    free (c->stash_file);
+    if (!c)
+        return;
+    free(c->realm);
+    free(c->dbname);
+    free(c->acl_file);
+    free(c->stash_file);
 }
 
 /*
@@ -55,8 +57,17 @@ destroy_config (kadm5_config_params *c)
 static void
 destroy_kadm5_log_context (kadm5_log_context *c)
 {
-    free (c->log_file);
-    close (c->socket_fd);
+    if (!c)
+        return;
+    free(c->log_file);
+    if (c->socket_fd != rk_INVALID_SOCKET)
+        rk_closesocket(c->socket_fd);
+#ifdef NO_UNIX_SOCKETS
+    if (c->socket_info) {
+	freeaddrinfo(c->socket_info);
+	c->socket_info = NULL;
+    }
+#endif
 }
 
 /*
@@ -66,16 +77,19 @@ destroy_kadm5_log_context (kadm5_log_context *c)
 kadm5_ret_t
 kadm5_s_destroy(void *server_handle)
 {
-    kadm5_ret_t ret;
+    kadm5_ret_t ret = 0;
     kadm5_server_context *context = server_handle;
     krb5_context kcontext = context->context;
 
-    ret = context->db->hdb_destroy(kcontext, context->db);
-    destroy_kadm5_log_context (&context->log_context);
-    destroy_config (&context->config);
-    krb5_free_principal (kcontext, context->caller);
-    if(context->my_context)
+    _kadm5_s_free_hooks(context);
+    if (context->db != NULL)
+        ret = context->db->hdb_destroy(kcontext, context->db);
+    destroy_kadm5_log_context(&context->log_context);
+    destroy_config(&context->config);
+    krb5_free_principal(kcontext, context->caller);
+    if (context->my_context)
 	krb5_free_context(kcontext);
-    free (context);
+    free(context);
+
     return ret;
 }

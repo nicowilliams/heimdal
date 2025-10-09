@@ -32,11 +32,10 @@
  */
 
 #include "mech_locl.h"
-RCSID("$Id$");
 
-OM_uint32 GSSAPI_LIB_FUNCTION
-gss_encapsulate_token(gss_buffer_t input_token,
-		      gss_OID oid,
+GSSAPI_LIB_FUNCTION OM_uint32 GSSAPI_LIB_CALL
+gss_encapsulate_token(gss_const_buffer_t input_token,
+		      gss_const_OID oid,
 		      gss_buffer_t output_token)
 {
     GSSAPIContextToken ct;
@@ -59,7 +58,7 @@ gss_encapsulate_token(gss_buffer_t input_token,
     if (ret) {
 	_mg_buffer_zero(output_token);
 	return GSS_S_FAILURE;
-    }	
+    }
     if (output_token->length != size)
 	abort();
 

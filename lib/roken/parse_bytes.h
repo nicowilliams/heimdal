@@ -36,21 +36,15 @@
 #ifndef __PARSE_BYTES_H__
 #define __PARSE_BYTES_H__
 
-#ifndef ROKEN_LIB_FUNCTION
-#ifdef _WIN32
-#define ROKEN_LIB_FUNCTION _stdcall
-#else
-#define ROKEN_LIB_FUNCTION
-#endif
-#endif
+#include <roken.h>
 
-int ROKEN_LIB_FUNCTION
-parse_bytes (const char *s, const char *def_unit);
+ROKEN_LIB_FUNCTION int64_t ROKEN_LIB_CALL
+parse_bytes(const char *s, const char *def_unit);
 
-int ROKEN_LIB_FUNCTION
-unparse_bytes (int t, char *s, size_t len);
+ROKEN_LIB_FUNCTION int ROKEN_LIB_CALL
+unparse_bytes(int64_t t, char *s, size_t len);
 
-int ROKEN_LIB_FUNCTION
-unparse_bytes_short (int t, char *s, size_t len);
+ROKEN_LIB_FUNCTION int ROKEN_LIB_CALL
+unparse_bytes_short(int64_t t, char *s, size_t len);
 
 #endif /* __PARSE_BYTES_H__ */

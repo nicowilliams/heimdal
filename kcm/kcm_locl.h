@@ -2,6 +2,8 @@
  * Copyright (c) 2005, PADL Software Pty Ltd.
  * All rights reserved.
  *
+ * Portions Copyright (c) 2009 Apple Inc. All rights reserved.
+ *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
  * are met:
@@ -65,6 +67,15 @@
 struct kcm_ccache_data;
 struct kcm_creds;
 
+struct kcm_default_cache {
+    uid_t uid;
+    pid_t session; /* really au_asid_t */
+    char *name;
+    struct kcm_default_cache *next;
+};
+
+extern struct kcm_default_cache *default_caches;
+
 struct kcm_creds {
     kcmuuid_t uuid;
     krb5_creds cred;
@@ -73,16 +84,19 @@ struct kcm_creds {
 
 typedef struct kcm_ccache_data {
     char *name;
+    kcmuuid_t uuid;
     unsigned refcnt;
     uint16_t flags;
     uint16_t mode;
     uid_t uid;
     gid_t gid;
+    pid_t session; /* really au_asid_t */
     krb5_principal client; /* primary client principal */
     krb5_principal server; /* primary server principal (TGS if NULL) */
     struct kcm_creds *creds;
     krb5_deltat tkt_life;
     krb5_deltat renew_life;
+    int32_t kdc_offset;
     union {
 	krb5_keytab keytab;
 	krb5_keyblock keyblock;
@@ -132,6 +146,7 @@ typedef struct kcm_client {
     pid_t pid;
     uid_t uid;
     gid_t gid;
+    pid_t session;
 } kcm_client;
 
 #define CLIENT_IS_ROOT(client) ((client)->uid == 0)
@@ -149,19 +164,21 @@ struct kcm_op {
 #define _PATH_KCM_CONF	    SYSCONFDIR "/kcm.conf"
 
 extern krb5_context kcm_context;
-extern char *socket_path;
-extern char *door_path;
 extern size_t max_request;
 extern sig_atomic_t exit_flag;
 extern int name_constraints;
-#ifdef SUPPORT_DETACH
 extern int detach_from_console;
-#endif
+extern int daemon_child;
+extern int automatic_renewal;
+extern int launchd_flag;
 extern int disallow_getting_krbtgt;
 
 #if 0
 extern const krb5_cc_ops krb5_kcmss_ops;
 #endif
+
+void	kcm_service(void *, const heim_idata *, const heim_icred,
+		    heim_ipc_complete, heim_sipc_call);
 
 #include <kcm-protos.h>
 

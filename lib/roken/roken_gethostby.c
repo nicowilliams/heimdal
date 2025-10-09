@@ -66,26 +66,31 @@ setup_int(const char *proxy_host, short proxy_port,
     memset(&dns_addr, 0, sizeof(dns_addr));
     if(dns_req)
 	free(dns_req);
+    dns_req = NULL;
     if(proxy_host) {
 	if(make_address(proxy_host, &dns_addr.sin_addr) != 0)
 	    return -1;
 	dns_addr.sin_port = htons(proxy_port);
-	asprintf(&dns_req, "http://%s:%d%s", dns_host, dns_port, dns_path);
+	if (asprintf(&dns_req, "http://%s:%d%s", dns_host, dns_port, dns_path) < 0)
+	    return -1;
     } else {
 	if(make_address(dns_host, &dns_addr.sin_addr) != 0)
 	    return -1;
 	dns_addr.sin_port = htons(dns_port);
-	asprintf(&dns_req, "%s", dns_path);
+	if (asprintf(&dns_req, "%s", dns_path) < 0)
+	    return -1;
     }
     dns_addr.sin_family = AF_INET;
     return 0;
 }
 
-static void
+static int
 split_spec(const char *spec, char **host, int *port, char **path, int def_port)
 {
     char *p;
     *host = strdup(spec);
+    if (*host == NULL)
+	return -1;
     p = strchr(*host, ':');
     if(p) {
 	*p++ = '\0';
@@ -95,31 +100,43 @@ split_spec(const char *spec, char **host, int *port, char **path, int def_port)
 	*port = def_port;
     p = strchr(p ? p : *host, '/');
     if(p) {
-	if(path)
+	if(path) {
 	    *path = strdup(p);
+	    if (*path == NULL) {
+		free(*host);
+		*host = NULL;
+		return -1;
+	    }
+	}
 	*p = '\0';
     }else
 	if(path)
 	    *path = NULL;
+    return 0;
 }
 
 
-int ROKEN_LIB_FUNCTION
+ROKEN_LIB_FUNCTION int ROKEN_LIB_CALL
 roken_gethostby_setup(const char *proxy_spec, const char *dns_spec)
 {
     char *proxy_host = NULL;
     int proxy_port = 0;
-    char *dns_host, *dns_path;
+    char *dns_host = NULL, *dns_path = NULL;
     int dns_port;
+    int ret;
 
-    int ret = -1;
-
-    split_spec(dns_spec, &dns_host, &dns_port, &dns_path, 80);
-    if(dns_path == NULL)
+    ret = split_spec(dns_spec, &dns_host, &dns_port, &dns_path, 80);
+    if(ret)
 	goto out;
-    if(proxy_spec)
-	split_spec(proxy_spec, &proxy_host, &proxy_port, NULL, 80);
+    if(proxy_spec) {
+	ret = split_spec(proxy_spec, &proxy_host, &proxy_port, NULL, 80);
+	if (ret)
+	    goto out;
+    }
     ret = setup_int(proxy_host, proxy_port, dns_host, dns_port, dns_path);
+    if (ret)
+	goto out;
+
 out:
     free(proxy_host);
     free(dns_host);
@@ -135,16 +152,18 @@ roken_gethostby(const char *hostname)
 {
     int s;
     struct sockaddr_in addr;
-    char *request;
+    char *request = NULL;
     char buf[1024];
     int offset = 0;
     int n;
     char *p, *foo;
+    size_t len;
 
     if(dns_addr.sin_family == 0)
 	return NULL; /* no configured host */
     addr = dns_addr;
-    asprintf(&request, "GET %s?%s HTTP/1.0\r\n\r\n", dns_req, hostname);
+    if (asprintf(&request, "GET %s?%s HTTP/1.0\r\n\r\n", dns_req, hostname) < 0)
+	return NULL;
     if(request == NULL)
 	return NULL;
     s  = socket(AF_INET, SOCK_STREAM, 0);
@@ -157,7 +176,9 @@ roken_gethostby(const char *hostname)
 	free(request);
 	return NULL;
     }
-    if(write(s, request, strlen(request)) != strlen(request)) {
+
+    len = strlen(request);
+    if(write(s, request, len) != (ssize_t)len) {
 	close(s);
 	free(request);
 	return NULL;
@@ -185,12 +206,12 @@ roken_gethostby(const char *hostname)
 	static char addrs[4 * MAX_ADDRS];
 	static char *addr_list[MAX_ADDRS + 1];
 	int num_addrs = 0;
-	
+
 	he.h_name = p;
 	he.h_aliases = NULL;
 	he.h_addrtype = AF_INET;
 	he.h_length = 4;
-	
+
 	while((p = strtok_r(NULL, " \t\r\n", &foo)) && num_addrs < MAX_ADDRS) {
 	    struct in_addr ip;
 	    inet_aton(p, &ip);
@@ -207,7 +228,7 @@ roken_gethostby(const char *hostname)
     }
 }
 
-struct hostent*
+ROKEN_LIB_FUNCTION struct hostent* ROKEN_LIB_CALL
 roken_gethostbyname(const char *hostname)
 {
     struct hostent *he;
@@ -217,7 +238,7 @@ roken_gethostbyname(const char *hostname)
     return roken_gethostby(hostname);
 }
 
-struct hostent* ROKEN_LIB_FUNCTION
+ROKEN_LIB_FUNCTION struct hostent* ROKEN_LIB_CALL
 roken_gethostbyaddr(const void *addr, size_t len, int type)
 {
     struct in_addr a;

@@ -30,22 +30,25 @@
 # LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY 
 # OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF 
 # SUCH DAMAGE. 
-#
-# $Id$
-#
 
-srcdir="@srcdir@"
+top_builddir="@top_builddir@"
+env_setup="@env_setup@"
 objdir="@objdir@"
+srcdir="@srcdir@"
 
-# If there is no useful db support compile in, disable test
-../db/have-db || exit 77
+testfailed="echo test failed; cat messages.log; exit 1"
+
+. ${env_setup}
+
+# If there is no useful db support compiled in, disable test
+${have_db} || exit 77
 
 R=TEST.H5L.SE
 
 port=@port@
 
-kadmin="${TESTS_ENVIRONMENT} ../../kadmin/kadmin -l -r $R"
-kdc="${TESTS_ENVIRONMENT} ../../kdc/kdc --addresses=localhost -P $port"
+kadmin="${kadmin} -l -r $R"
+kdc="${kdc} --addresses=localhost -P $port"
 
 server=host/datan.test.h5l.se
 cache="FILE:${objdir}/cache.krb5"
@@ -53,11 +56,9 @@ ocache="FILE:${objdir}/ocache.krb5"
 keytabfile=${objdir}/server.keytab
 keytab="FILE:${keytabfile}"
 
-kinit="${TESTS_ENVIRONMENT} ../../kuser/kinit -c $cache --no-afslog"
-klist="${TESTS_ENVIRONMENT} ../../kuser/klist -c $cache"
-kdigest="${TESTS_ENVIRONMENT} ../../kuser/kdigest --ccache=$cache"
-test_ntlm="${TESTS_ENVIRONMENT} ../../lib/gssapi/test_ntlm"
-context="${TESTS_ENVIRONMENT} ../../lib/gssapi/test_context"
+kinit="${kinit} -c $cache ${afs_no_afslog}"
+klist="${klist} -c $cache"
+kdigest="${kdigest} --ccache=$cache"
 
 username=foo
 userpassword=digestpassword
@@ -75,39 +76,31 @@ rm -f mkey.file*
 > messages.log
 
 echo Creating database
-${kadmin} \
-    init \
-    --realm-max-ticket-life=1day \
-    --realm-max-renewable-life=1month \
-    ${R} || exit 1
-
-${kadmin} add -p $userpassword --use-defaults ${username}@${R} || exit 1
-${kadmin} add -p $password --use-defaults ${server}@${R} || exit 1
-${kadmin} add -p kaka --use-defaults digest/${R}@${R} || exit 1
-${kadmin} modify --attributes=+allow-digest ${server}@${R} || exit 1
-${kadmin} ext -k ${keytab} ${server}@${R} || exit 1
-
-echo "Doing database check"
-${kadmin} check ${R} || exit 1
+${kadmin} <<EOF || exit 1
+init --realm-max-ticket-life=1day --realm-max-renewable-life=1month ${R}
+add -p $userpassword --use-defaults ${username}@${R}
+add -p $password --use-defaults ${server}@${R}
+add -p kaka --use-defaults digest/${R}@${R}
+modify --attributes=+allow-digest ${server}@${R}
+ext -k ${keytab} ${server}@${R}
+check ${R}
+EOF
 
 echo $password > ${objdir}/foopassword
 
-echo Starting kdc
-env \
-MallocStackLogging=1 \
-MallocStackLoggingNoCompact=1 \
-MallocErrorAbort=1 \
-MallocLogFile=${objdir}/malloc-log \
-${kdc} &
-kdcpid=$!
+echo "Starting kdc" ; > messages.log
+env ${HEIM_MALLOC_DEBUG} ${kdc} --detach --testing ||
+    { echo "kdc failed to start"; cat messages.log; exit 1; }
+kdcpid=`getpid kdc`
 
-sh ${srcdir}/wait-kdc.sh
-if [ "$?" != 0 ] ; then
+cleanup() {
+    echo signal killing kdc
     kill -9 ${kdcpid}
+    trap '' EXIT INT TERM
+    cat messages.log
     exit 1
-fi
-
-trap "kill -9 ${kdcpid}; echo signal killing kdc; cat messages.log; exit 1;" EXIT
+}
+trap cleanup EXIT INT TERM
 
 exitcode=0
 
@@ -123,7 +116,7 @@ NTLM_ACCEPTOR_CCACHE="$cache"
 export NTLM_ACCEPTOR_CCACHE
 
 echo "Trying server-init"
-echo ${kdigest} ntlm-server-init \
+${kdigest} ntlm-server-init \
     --kerberos-realm=${R} \
     > sdigest-init || exitcode=1
 
@@ -134,21 +127,20 @@ NTLM_USER_FILE="${srcdir}/ntlm-user-file.txt"
 export NTLM_USER_FILE
 
 echo "test_context --mech-type=ntlm"
-${context} --mech-type=ntlm \
-	    --name-type=hostbased-service datan@TEST || \
-		{ echo "test_context 1 failed"; exit 1; }
+${test_context} --mech-type=ntlm \
+    --client-name=foo@TEST \
+    --name-type=hostbased-service datan@TEST || \
+    { echo "test_context 1 failed"; exit 1; }
 
-${context} --mech-type=ntlm \
-	    --name-type=hostbased-service datan@host.TEST || \
-		{ echo "test_context 2 failed"; exit 1; }
+${test_context} --mech-type=ntlm \
+    --client-name=foo@TEST \
+    --name-type=hostbased-service datan@host.TEST || \
+    { echo "test_context 2 failed"; exit 1; }
 
-${context} --mech-type=ntlm \
-	    --name-type=hostbased-service datan@host.test.domain2 || \
-		{ echo "test_context 3 failed"; exit 1; }
-
-${context} --mech-type=ntlm \
-	    --name-type=hostbased-service datan@host.foo 2>/dev/null && \
-		{ echo "test_context 4 failed"; exit 1; }
+${test_context} --mech-type=ntlm \
+    --client-name=foo@TEST \
+    --name-type=hostbased-service datan@host.test.domain2 || \
+    { echo "test_context 3 failed"; exit 1; }
 
 echo "Trying SL in NTLM"
 
@@ -161,7 +153,8 @@ for type in \
     ; do
 
 	echo "Trying NTLM type: ${type}"
-	${context} --mech-type=ntlm ${type} \
+	${test_context} --mech-type=ntlm ${type} \
+	    --client-name=foo@TEST \
 	    --name-type=hostbased-service datan@TEST || \
 	    { echo "test_context 1 failed"; exit 1; }
 
@@ -294,7 +287,7 @@ fi
 trap "" EXIT
 
 echo "killing kdc (${kdcpid})"
-sh ${srcdir}/leaks-kill.sh kdc $kdcpid || exit 1
+sh ${leaks_kill} kdc $kdcpid || exit 1
 
 exit $exitcode
 

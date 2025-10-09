@@ -1,5 +1,5 @@
 #!/usr/local/bin/python
-# -*- coding: iso-8859-1 -*-
+# -*- coding: utf-8 -*-
 
 # $Id$
 
@@ -42,7 +42,7 @@ import generate
 import UnicodeData
 
 if len(sys.argv) != 3:
-    print "usage: %s UnicodeData.txt out-dir" % sys.argv[0]
+    print("usage: %s UnicodeData.txt out-dir" % sys.argv[0])
     sys.exit(1)
 
 ud = UnicodeData.read(sys.argv[1])
@@ -74,12 +74,12 @@ extern const size_t _wind_combining_table_size;
 combining_c.file.write(
 '''
 #include "combining_table.h"
+#include <stdlib.h>
 
 const struct translation _wind_combining_table[] = {
 ''')
 
-s = trans.keys()
-s.sort()
+s = sorted(trans)
 for k in s:
     v = trans[k]
     combining_c.file.write("{0x%x, %u}, /* %s */\n"

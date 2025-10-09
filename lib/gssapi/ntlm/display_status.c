@@ -33,9 +33,8 @@
 
 #include "ntlm.h"
 
-RCSID("$Id$");
-
-OM_uint32 _gss_ntlm_display_status
+OM_uint32 GSSAPI_CALLCONV
+_gss_ntlm_display_status
            (OM_uint32		*minor_status,
 	    OM_uint32		 status_value,
 	    int			 status_type,

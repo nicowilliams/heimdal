@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1997-2003 Kungliga Tekniska Högskolan
+ * Copyright (c) 1997-2022 Kungliga Tekniska Högskolan
  * (Royal Institute of Technology, Stockholm, Sweden).
  *
  * Copyright (c) 2005 Andrew Bartlett <abartlet@samba.org>
@@ -41,7 +41,10 @@
 #ifndef __KDC_H__
 #define __KDC_H__
 
+#include <hdb.h>
 #include <krb5.h>
+#include <kx509_asn1.h>
+#include <gssapi/gssapi.h>
 
 enum krb5_kdc_trpolicy {
     TRPOLICY_ALWAYS_CHECK,
@@ -49,64 +52,63 @@ enum krb5_kdc_trpolicy {
     TRPOLICY_ALWAYS_HONOUR_REQUEST
 };
 
-typedef struct krb5_kdc_configuration {
-    krb5_boolean require_preauth; /* require preauth for all principals */
-    time_t kdc_warn_pwexpire; /* time before expiration to print a warning */
+struct krb5_kdc_configuration;
+typedef struct krb5_kdc_configuration krb5_kdc_configuration;
 
-    struct HDB **db;
-    int num_db;
+/*
+ * Access to request fields by plugins and other out-of-tree
+ * consumers should be via the functions in kdc-accessors.h.
+ */
 
-    krb5_boolean encode_as_rep_as_tgs_rep; /* bug compatibility */
-	
-    krb5_boolean check_ticket_addresses;
-    krb5_boolean allow_null_ticket_addresses;
-    krb5_boolean allow_anonymous;
-    enum krb5_kdc_trpolicy trpolicy;
+struct kdc_request_desc;
+typedef struct kdc_request_desc *kdc_request_t;
 
-    char *v4_realm;
-    krb5_boolean enable_v4;
-    krb5_boolean enable_v4_cross_realm;
-    krb5_boolean enable_v4_per_principal;
+struct astgs_request_desc;
+typedef struct astgs_request_desc *astgs_request_t;
 
-    krb5_boolean enable_kaserver;
-
-    krb5_boolean enable_524;
-
-    krb5_boolean enable_pkinit;
-    krb5_boolean pkinit_princ_in_cert;
-    char *pkinit_kdc_ocsp_file;
-    char *pkinit_kdc_friendly_name;
-    int pkinit_dh_min_bits;
-    int pkinit_require_binding;
-    int pkinit_allow_proxy_certs;
-
-    krb5_log_facility *logf;
-
-    int enable_digest;
-    int digests_allowed;
-
-    size_t max_datagram_reply_length;
-
-    int enable_kx509;
-    const char *kx509_template;
-    const char *kx509_ca;
-
-} krb5_kdc_configuration;
+struct kx509_req_context_desc;
+typedef struct kx509_req_context_desc *kx509_req_context;
 
 struct krb5_kdc_service {
     unsigned int flags;
 #define KS_KRB5		1
 #define KS_NO_LENGTH	2
-    krb5_error_code (*process)(krb5_context context,
-			       krb5_kdc_configuration *config,
-			       krb5_data *req_buffer,
-			       krb5_data *reply,
-			       const char *from,
-			       struct sockaddr *addr,
-			       int datagram_reply,
-			       int *claim);
+    const char *name;
+    krb5_error_code (*process)(kdc_request_t *, int *claim);
 };
+
+/*
+ * The following fields are guaranteed stable within a major
+ * release of Heimdal and can be manipulated by applications
+ * that manage KDC requests themselves using libkdc.
+ *
+ * Applications can make custom KDC configuration available
+ * to libkdc by using krb5_set_config().
+ */
+
+#define KRB5_KDC_CONFIGURATION_COMMON_ELEMENTS			\
+    krb5_log_facility *logf;					\
+    struct HDB **db;						\
+    size_t num_db;						\
+    const char *app
+
+#ifndef __KDC_LOCL_H__
+struct krb5_kdc_configuration {
+    KRB5_KDC_CONFIGURATION_COMMON_ELEMENTS;
+};
+#endif
+
+typedef void *kdc_object_t;
+typedef struct kdc_array_data *kdc_array_t;
+typedef struct kdc_dict_data *kdc_dict_t;
+typedef struct kdc_string_data *kdc_string_t;
+typedef struct kdc_data_data *kdc_data_t;
+typedef struct kdc_number_data *kdc_number_t;
+
+typedef void (KRB5_CALLCONV *kdc_array_iterator_t)(kdc_object_t, void *, int *);
+
+typedef void (KRB5_CALLCONV *kdc_type_dealloc)(kdc_object_t);
 
 #include <kdc-protos.h>
 
-#endif
+#endif /* __KDC_H__ */

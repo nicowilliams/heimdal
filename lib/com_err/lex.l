@@ -1,6 +1,6 @@
 %{
 /*
- * Copyright (c) 1998 - 2000 Kungliga Tekniska Högskolan
+ * Copyright (c) 1998 - 2017 Kungliga Tekniska Högskolan
  * (Royal Institute of Technology, Stockholm, Sweden).
  * All rights reserved.
  *
@@ -53,7 +53,6 @@ static int getstring(void);
 
 %}
 
-
 %%
 et			{ return ET; }
 error_table		{ return ET; }
@@ -72,13 +71,11 @@ end			{ return END; }
 .			{ return *yytext; }
 %%
 
-#ifndef yywrap /* XXX */
 int
 yywrap ()
 {
      return 1;
 }
-#endif
 
 static int
 getstring(void)
@@ -94,7 +91,7 @@ getstring(void)
 	    continue;
 	}
 	if(c == '\n'){
-	    error_message("unterminated string");
+	    _lex_error_message("unterminated string");
 	    lineno++;
 	    break;
 	}
@@ -114,7 +111,7 @@ getstring(void)
 }
 
 void
-error_message (const char *format, ...)
+_lex_error_message (const char *format, ...)
 {
      va_list args;
 

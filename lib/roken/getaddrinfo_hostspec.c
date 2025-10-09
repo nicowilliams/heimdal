@@ -37,7 +37,7 @@
 
 /* getaddrinfo via string specifying host and port */
 
-int ROKEN_LIB_FUNCTION
+ROKEN_LIB_FUNCTION int ROKEN_LIB_CALL
 roken_getaddrinfo_hostspec2(const char *hostspec,
 			    int socktype,
 			    int port,
@@ -57,15 +57,15 @@ roken_getaddrinfo_hostspec2(const char *hostspec,
     } *hstp, hst[] = {
 	{ "http://", SOCK_STREAM, IPPROTO_TCP, 80 },
 	{ "http/", SOCK_STREAM, IPPROTO_TCP, 80 },
-	{ "tcp/", SOCK_STREAM, IPPROTO_TCP },
-	{ "udp/", SOCK_DGRAM, IPPROTO_UDP },
-	{ NULL }
+	{ "tcp/", SOCK_STREAM, IPPROTO_TCP, 0 },
+	{ "udp/", SOCK_DGRAM, IPPROTO_UDP, 0 },
+	{ NULL, 0, 0, 0 }
     };
 
     memset(&hints, 0, sizeof(hints));
 
     hints.ai_socktype = socktype;
-	
+
     for(hstp = hst; hstp->prefix; hstp++) {
 	if(strncmp(hostspec, hstp->prefix, strlen(hstp->prefix)) == 0) {
 	    hints.ai_socktype = hstp->socktype;
@@ -92,7 +92,7 @@ roken_getaddrinfo_hostspec2(const char *hostspec,
     return getaddrinfo (host, portstr, &hints, ai);
 }
 
-int ROKEN_LIB_FUNCTION
+ROKEN_LIB_FUNCTION int ROKEN_LIB_CALL
 roken_getaddrinfo_hostspec(const char *hostspec,
 			   int port,
 			   struct addrinfo **ai)

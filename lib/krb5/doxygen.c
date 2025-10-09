@@ -96,6 +96,9 @@
  * structure, including default encryption types, credential cache
  * (for example, a ticket file), and default realms.
  *
+ * The internals of the structure should never be accessed directly,
+ * functions exist for extracting information.
+ *
  * See the manual page for krb5_init_context() how to create a context
  * and module @ref krb5 for more information about the functions.
  *
@@ -160,7 +163,7 @@
  * database has expired''.
  *
  * This is a great improvement compared to just getting one of the unix
- * error-codes back.  However, Heimdal have an extention to pass back
+ * error-codes back.  However, Heimdal have an extension to pass back
  * customised errors messages.  Instead of getting ``Key table entry not
  * found'', the user might back ``failed to find
  * host/host.example.com\@EXAMLE.COM(kvno 3) in keytab /etc/krb5.keytab
@@ -184,7 +187,7 @@
  * @subsection intro_krb5_crypto Kerberos crypto
  *
  * Heimdal includes a implementation of the Kerberos crypto framework,
- * all crypto operations.
+ * all crypto operations. To create a crypto context call krb5_crypto_init().
  *
  * See also module @ref krb5_crypto .
  *
@@ -198,7 +201,7 @@
  * this program are passed to krb5_err, that will print a
  * descriptive text of the error code and exit. Graphical programs can
  * convert error-code to a human readable error-string with the
- * krb5_get_err_text() function.
+ * krb5_get_error_message() function.
  *
  * Note that you should not use any Kerberos function before
  * krb5_init_context() have completed successfully. That is the
@@ -305,8 +308,8 @@
  *
  * In this case, mutual authentication will be tried. That means that the server
  * will authenticate to the client. Using mutual authentication
- * is good since it enables the user to verify that they are talking to the
- * right server (a server that knows the key).
+ * is required to avoid man-in-the-middle attacks, since it enables the user to
+ * verify that they are talking to the right server (a server that knows the key).
  *
  * If you are using a non-blocking socket you will need to do all work of
  * krb5_sendauth() yourself. Basically you need to send over the
@@ -429,8 +432,7 @@
  * @subsection mit_krb5_error_code Error messages
  *
  * To get the error string, Heimdal uses
- * krb5_get_error_message() or, if NULL is returned,
- * krb5_get_err_text(). This is to return custom error messages
+ * krb5_get_error_message(). This is to return custom error messages
  * (like ``Can't find host/datan.example.com\@CODE.COM in
  * /etc/krb5.conf.'' instead of a ``Key table entry not found'' that
  * error_message returns.
@@ -544,7 +546,7 @@
  * The last field of the keytab_entry structure is optional. If the size of
  * the keytab_entry indicates that there are at least 4 bytes remaining,
  * a 32 bit value representing the key version number is present. This
- * value supersedes the 8 bit vno8 value preceeding the keyblock.
+ * value supersedes the 8 bit vno8 value preceding the keyblock.
  *
  * Older keytabs with a file_format_version of 0x501 are different in
  * three ways:
@@ -570,7 +572,7 @@
  * Fields and their types are:
  *
  * @code
- * 	Quoted princial (quote character is \) [string]
+ * 	Quoted principal (quote character is \) [string]
  * 	Keys [keys]
  * 	Created by [event]
  * 	Modified by [event optional]
@@ -581,7 +583,7 @@
  * 	Max renew time of ticket [integer optional]
  * 	Flags [hdb flags]
  * 	Generation number [generation optional]
- * 	Extensions [extentions optional]
+ * 	Extensions [extensions optional]
  * @endcode
  *
  * Fields following these silently are ignored.
@@ -634,7 +636,7 @@
  * @endcode
  *
  * - time
- * 	
+ *
  * Format of the time is: YYYYmmddHHMMSS, corresponding to strftime
  * format "%Y%m%d%k%M%S".
  *

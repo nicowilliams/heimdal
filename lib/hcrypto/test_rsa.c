@@ -31,16 +31,7 @@
  * SUCH DAMAGE.
  */
 
-#ifdef HAVE_CONFIG_H
 #include <config.h>
-#endif
-
-#ifdef RCSID
-RCSID("$Id$");
-#endif
-
-#include <stdio.h>
-
 #include <roken.h>
 #include <getarg.h>
 
@@ -87,6 +78,7 @@ static void
 check_rsa(const unsigned char *in, size_t len, RSA *rsa, int padding)
 {
     unsigned char *res, *res2;
+    unsigned int len2;
     int keylen;
 
     res = malloc(RSA_size(rsa));
@@ -135,6 +127,14 @@ check_rsa(const unsigned char *in, size_t len, RSA *rsa, int padding)
     if (memcmp(res2, in, len) != 0)
 	errx(1, "string not the same after decryption");
 
+    len2 = keylen;
+
+    if (RSA_sign(NID_sha1, in, len, res, &len2, rsa) != 1)
+	errx(1, "RSA_sign failed");
+
+    if (RSA_verify(NID_sha1, in, len, res, len2, rsa) != 1)
+	errx(1, "RSA_verify failed");
+
     free(res);
     free(res2);
 }
@@ -146,7 +146,7 @@ cb_func(int a, int b, BN_GENCB *c)
 }
 
 static RSA *
-read_key(ENGINE *engine, const char *rsa_key)
+read_key(ENGINE *engine, const char *keyfile)
 {
     unsigned char buf[1024 * 4];
     const unsigned char *p;
@@ -154,22 +154,22 @@ read_key(ENGINE *engine, const char *rsa_key)
     RSA *rsa;
     FILE *f;
 
-    f = fopen(rsa_key, "r");
+    f = fopen(keyfile, "rb");
     if (f == NULL)
-	err(1, "could not open file %s", rsa_key);
+	err(1, "could not open file %s", keyfile);
     rk_cloexec_file(f);
 
     size = fread(buf, 1, sizeof(buf), f);
     fclose(f);
     if (size == 0)
-	err(1, "failed to read file %s", rsa_key);
+	err(1, "failed to read file %s", keyfile);
     if (size == sizeof(buf))
-	err(1, "key too long in file %s!", rsa_key);
+	err(1, "key too long in file %s!", keyfile);
 
     p = buf;
     rsa = d2i_RSAPrivateKey(NULL, &p, size);
     if (rsa == NULL)
-	err(1, "failed to parse key in file %s", rsa_key);
+	err(1, "failed to parse key in file %s", keyfile);
 
     RSA_set_method(rsa, ENGINE_get_RSA(engine));
 
@@ -217,13 +217,17 @@ main(int argc, char **argv)
     argv += idx;
 
     OpenSSL_add_all_algorithms();
+#ifdef OPENSSL
+    ENGINE_load_openssl();
+#endif
+    ENGINE_load_builtin_engines();
 
     if (argc == 0) {
-	OpenSSL_add_all_algorithms();
-	ENGINE_load_builtin_engines();
 	engine = ENGINE_by_id("builtin");
     } else {
-	engine = ENGINE_by_dso(argv[0], id_flag);
+	engine = ENGINE_by_id(argv[0]);
+	if (engine == NULL)
+	    engine = ENGINE_by_dso(argv[0], id_flag);
     }
     if (engine == NULL)
 	errx(1, "ENGINE_by_dso failed");
@@ -238,7 +242,6 @@ main(int argc, char **argv)
 
     if (time_keygen) {
 	struct timeval tv1, tv2;
-	const int num = 10;
 	BIGNUM *e;
 
 	rsa = RSA_new_method(engine);
@@ -248,9 +251,11 @@ main(int argc, char **argv)
 	e = BN_new();
 	BN_set_word(e, 0x10001);
 
+	printf("running keygen with %d loops\n", loops);
+
 	gettimeofday(&tv1, NULL);
 
-	for (i = 0; i < num; i++) {
+	for (i = 0; i < loops; i++) {
 	    rsa = RSA_new_method(engine);
 	    if (RSA_generate_key_ex(rsa, 1024, e, NULL) != 1)
 		errx(1, "RSA_generate_key_ex");
@@ -272,18 +277,32 @@ main(int argc, char **argv)
 
     if (time_key) {
 	const int size = 20;
-	const int num = 128;
 	struct timeval tv1, tv2;
 	unsigned char *p;
 
-	rsa = read_key(engine, time_key);
+	if (strcmp(time_key, "generate") == 0) {
+	    BIGNUM *e;
 
-	p = emalloc(num * size);
+	    rsa = RSA_new_method(engine);
+	    if (!key_blinding)
+		rsa->flags |= RSA_FLAG_NO_BLINDING;
 
-	RAND_bytes(p, num * size);
+	    e = BN_new();
+	    BN_set_word(e, 0x10001);
+
+	    if (RSA_generate_key_ex(rsa, 1024, e, NULL) != 1)
+		errx(1, "RSA_generate_key_ex");
+            BN_free(e);
+	} else {
+	    rsa = read_key(engine, time_key);
+	}
+
+	p = emalloc(loops * size);
+
+	RAND_bytes(p, loops * size);
 
 	gettimeofday(&tv1, NULL);
-	for (i = 0; i < num; i++)
+	for (i = 0; i < loops; i++)
 	    check_rsa(p + (i * size), size, rsa, RSA_PKCS1_PADDING);
 	gettimeofday(&tv2, NULL);
 
@@ -296,6 +315,7 @@ main(int argc, char **argv)
 	RSA_free(rsa);
 	ENGINE_finish(engine);
 
+        free(p);
 	return 0;
     }
 
@@ -313,13 +333,13 @@ main(int argc, char **argv)
 		0x6d, 0x33, 0xf9, 0x40, 0x75, 0x5b, 0x4e, 0xc5, 0x90, 0x35,
 		0x48, 0xab, 0x75, 0x02, 0x09, 0x76, 0x9a, 0xb4, 0x7d, 0x6b
 	    };
-	
+
 	    check_rsa(sha1, sizeof(sha1), rsa, RSA_PKCS1_PADDING);
 	}
-	
+
 	for (i = 0; i < 128; i++) {
 	    unsigned char sha1[20];
-	
+
 	    RAND_bytes(sha1, sizeof(sha1));
 	    check_rsa(sha1, sizeof(sha1), rsa, RSA_PKCS1_PADDING);
 	}
@@ -350,9 +370,9 @@ main(int argc, char **argv)
 
 	e = BN_new();
 	BN_set_word(e, 0x10001);
-	
+
 	BN_GENCB_set(&cb, cb_func, NULL);
-	
+
 	RAND_bytes(&n, sizeof(n));
 	n &= 0x1ff;
 	n += 1024;
@@ -361,7 +381,7 @@ main(int argc, char **argv)
 	    errx(1, "RSA_generate_key_ex");
 
 	BN_free(e);
-	
+
 	for (j = 0; j < 8; j++) {
 	    unsigned char sha1[20];
 	    RAND_bytes(sha1, sizeof(sha1));

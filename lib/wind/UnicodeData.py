@@ -1,5 +1,5 @@
 #!/usr/local/bin/python
-# -*- coding: iso-8859-1 -*-
+# -*- coding: utf-8 -*-
 
 # $Id$
 
@@ -50,7 +50,7 @@ def read(filename):
             continue
         f = l.split(';')
         key = int(f[0], 0x10)
-	if key in ret:
+        if key in ret:
             raise Exception('Duplicate key in UnicodeData')
         ret[key] = f[1:]
     ud.close()

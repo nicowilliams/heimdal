@@ -35,7 +35,7 @@
 
 #include "roken.h"
 
-int ROKEN_LIB_FUNCTION
+ROKEN_LIB_FUNCTION int ROKEN_LIB_CALL
 roken_concat (char *s, size_t len, ...)
 {
     int ret;
@@ -47,7 +47,7 @@ roken_concat (char *s, size_t len, ...)
     return ret;
 }
 
-int ROKEN_LIB_FUNCTION
+ROKEN_LIB_FUNCTION int ROKEN_LIB_CALL
 roken_vconcat (char *s, size_t len, va_list args)
 {
     const char *a;
@@ -65,7 +65,7 @@ roken_vconcat (char *s, size_t len, va_list args)
     return 0;
 }
 
-size_t ROKEN_LIB_FUNCTION
+ROKEN_LIB_FUNCTION size_t ROKEN_LIB_CALL
 roken_vmconcat (char **s, size_t max_len, va_list args)
 {
     const char *a;
@@ -78,7 +78,7 @@ roken_vmconcat (char **s, size_t max_len, va_list args)
     len = 1;
     while ((a = va_arg(args, const char*))) {
 	size_t n = strlen (a);
-	
+
 	if(max_len && len + n > max_len){
 	    free(p);
 	    return 0;
@@ -97,10 +97,10 @@ roken_vmconcat (char **s, size_t max_len, va_list args)
     return len;
 }
 
-size_t ROKEN_LIB_FUNCTION
+ROKEN_LIB_FUNCTION size_t ROKEN_LIB_CALL
 roken_mconcat (char **s, size_t max_len, ...)
 {
-    int ret;
+    size_t ret;
     va_list args;
 
     va_start(args, max_len);

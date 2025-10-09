@@ -37,8 +37,10 @@
 #define HEIMDAL_HX509_H 1
 
 #include <rfc2459_asn1.h>
+#include <rfc4108_asn1.h>
 #include <stdarg.h>
 #include <stdio.h>
+#include <heimbase.h>
 
 typedef struct hx509_cert_attribute_data *hx509_cert_attribute;
 typedef struct hx509_cert_data *hx509_cert;
@@ -48,6 +50,7 @@ typedef struct hx509_crypto_data *hx509_crypto;
 typedef struct hx509_lock_data *hx509_lock;
 typedef struct hx509_name_data *hx509_name;
 typedef struct hx509_private_key *hx509_private_key;
+typedef struct hx509_private_key_ops hx509_private_key_ops;
 typedef struct hx509_validate_ctx_data *hx509_validate_ctx;
 typedef struct hx509_verify_ctx_data *hx509_verify_ctx;
 typedef struct hx509_revoke_ctx_data *hx509_revoke_ctx;
@@ -62,6 +65,29 @@ typedef struct hx509_crl *hx509_crl;
 
 typedef void (*hx509_vprint_func)(void *, const char *, va_list);
 
+typedef enum {
+    HX509_SAN_TYPE_UNSUPPORTED = 0,
+    /* The following correspond to the enum GeneralName_enum values: */
+    HX509_SAN_TYPE_EMAIL = 2,
+    HX509_SAN_TYPE_DNSNAME = 3,
+    HX509_SAN_TYPE_DN = 4,
+    HX509_SAN_TYPE_REGISTERED_ID = 7,
+    /*
+     * Missing support for:
+     *  - URI SANs
+     *  - IP address SANs
+     *  - various otherName SANs we know about (e.g., DNSSRV)
+     *
+     * The following are otherName SAN types, and assigned manually here:
+     */
+    HX509_SAN_TYPE_XMPP = 32,
+    HX509_SAN_TYPE_PKINIT = 33,
+    HX509_SAN_TYPE_MS_UPN = 34,
+    HX509_SAN_TYPE_DNSSRV = 35,         /* SRVName             [RFC4985] */
+    HX509_SAN_TYPE_PERMANENT_ID = 36,   /* PermanentIdentifier [RFC4043] */
+    HX509_SAN_TYPE_HW_MODULE = 37,      /* HardwareModuleName  [RFC4108] */
+} hx509_san_type;
+
 enum {
     HX509_VHN_F_ALLOW_NO_MATCH = 1
 };
@@ -70,6 +96,19 @@ enum {
     HX509_VALIDATE_F_VALIDATE = 1,
     HX509_VALIDATE_F_VERBOSE = 2
 };
+
+enum {
+    HX509_CRYPTO_PADDING_PKCS7 = 0,
+    HX509_CRYPTO_PADDING_NONE = 1
+};
+
+enum {
+    HX509_KEY_FORMAT_GUESS = 0,
+    HX509_KEY_FORMAT_DER = 1,
+    HX509_KEY_FORMAT_WIN_BACKUPKEY = 2,
+    HX509_KEY_FORMAT_PKCS8 = 3,
+};
+typedef uint32_t hx509_key_format_t;
 
 struct hx509_cert_attribute_data {
     heim_oid oid;
@@ -119,6 +158,12 @@ typedef enum {
 /* flags to hx509_certs_init */
 #define HX509_CERTS_CREATE				0x01
 #define HX509_CERTS_UNPROTECT_ALL			0x02
+#define HX509_CERTS_NO_PRIVATE_KEYS			0x04
+
+/* flags to hx509_certs_store */
+#define HX509_CERTS_STORE_NO_PRIVATE_KEYS		0x04
+#define HX509_CERTS_STORE_NO_ROOTS			0x08
+
 
 /* flags to hx509_set_error_string */
 #define HX509_ERROR_APPEND				0x01
@@ -130,12 +175,16 @@ typedef enum {
 /* flags to hx509_cms_envelope_1 */
 #define HX509_CMS_EV_NO_KU_CHECK			0x01
 #define HX509_CMS_EV_ALLOW_WEAK				0x02
+#define HX509_CMS_EV_ID_NAME				0x04
 
 /* flags to hx509_cms_verify_signed */
 #define HX509_CMS_VS_ALLOW_DATA_OID_MISMATCH		0x01
 #define HX509_CMS_VS_NO_KU_CHECK			0x02
 #define HX509_CMS_VS_ALLOW_ZERO_SIGNER			0x04
 #define HX509_CMS_VS_NO_VALIDATE			0x08
+
+/* flags from hx509_cms_verify_signed_ext (out verify_flags) */
+#define HX509_CMS_VSE_VALIDATED				0x01
 
 /* selectors passed to hx509_crypto_select and hx509_crypto_available */
 #define HX509_SELECT_ALL 0
@@ -152,11 +201,14 @@ typedef enum {
 #define HX509_CA_TEMPLATE_SPKI 16
 #define HX509_CA_TEMPLATE_KU 32
 #define HX509_CA_TEMPLATE_EKU 64
+#define HX509_CA_TEMPLATE_PKINIT_MAX_LIFE 128
 
 /* flags hx509_cms_create_signed* */
 #define HX509_CMS_SIGNATURE_DETACHED			0x01
 #define HX509_CMS_SIGNATURE_ID_NAME			0x02
 #define HX509_CMS_SIGNATURE_NO_SIGNER			0x04
+#define HX509_CMS_SIGNATURE_LEAF_ONLY			0x08
+#define HX509_CMS_SIGNATURE_NO_CERTS			0x10
 
 /* hx509_verify_hostname nametype */
 typedef enum  {

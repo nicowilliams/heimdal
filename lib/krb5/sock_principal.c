@@ -33,7 +33,7 @@
 
 #include "krb5_locl.h"
 
-krb5_error_code KRB5_LIB_FUNCTION
+KRB5_LIB_FUNCTION krb5_error_code KRB5_LIB_CALL
 krb5_sock_to_principal (krb5_context context,
 			int sock,
 			const char *sname,
@@ -45,6 +45,14 @@ krb5_sock_to_principal (krb5_context context,
     struct sockaddr *sa = (struct sockaddr *)&__ss;
     socklen_t salen = sizeof(__ss);
     char hostname[NI_MAXHOST];
+
+    if (krb5_config_get_bool(context, NULL, "libdefaults", "block_dns",
+	    NULL)) {
+	ret = HEIM_EAI_FAIL;
+	krb5_set_error_message (context, ret,
+				"krb5_sock_to_principal: block_dns enabled");
+	return ret;
+    }
 
     if (getsockname (sock, sa, &salen) < 0) {
 	ret = errno;

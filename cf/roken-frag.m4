@@ -17,16 +17,21 @@ AC_REQUIRE([AC_PROG_CC])
 AC_REQUIRE([AC_PROG_AWK])
 AC_REQUIRE([AC_OBJEXT])
 AC_REQUIRE([AC_EXEEXT])
-AC_REQUIRE([AC_PROG_LIBTOOL])
+AC_REQUIRE([LT_INIT])
 
 AC_REQUIRE([AC_MIPS_ABI])
+
+AC_DEFINE(rk_PATH_DELIM, '/', [Path name delimiter])
 
 dnl C characteristics
 
 AC_REQUIRE([AC_C___ATTRIBUTE__])
 AC_REQUIRE([AC_C_INLINE])
 AC_REQUIRE([AC_C_CONST])
-rk_WFLAGS(-Wall -Wmissing-prototypes -Wpointer-arith -Wbad-function-cast -Wmissing-declarations -Wnested-externs)
+rk_WFLAGS(-Wall -Wextra -Wno-sign-compare -Wno-unused-parameter -Wmissing-prototypes -Wpointer-arith -Wbad-function-cast -Wmissing-declarations -Wnested-externs -Wshadow)
+
+dnl -Wmissing-prototypes -Wpointer-arith -Wreturn-type -Wstrict-prototypes
+dnl -Wcast-qual -Wswitch -Wformat=2 -Wwrite-strings
 
 AC_REQUIRE([rk_DB])
 
@@ -45,6 +50,7 @@ AC_REQUIRE([AC_HEADER_STDC])
 AC_REQUIRE([AC_HEADER_TIME])
 
 AC_CHECK_HEADERS([\
+	auxv.h					\
 	arpa/inet.h				\
 	config.h				\
 	crypt.h					\
@@ -63,9 +69,13 @@ AC_CHECK_HEADERS([\
 	poll.h					\
 	pwd.h					\
 	rpcsvc/ypclnt.h				\
+	search.h				\
 	shadow.h				\
 	stdint.h				\
+	sys/auxv.h				\
 	sys/bswap.h				\
+	sys/errno.h				\
+	sys/exec_elf.h				\
 	sys/ioctl.h				\
 	sys/mman.h				\
 	sys/param.h				\
@@ -80,10 +90,20 @@ AC_CHECK_HEADERS([\
 	sys/wait.h				\
 	syslog.h				\
 	termios.h				\
+	winsock2.h				\
+	ws2tcpip.h				\
 	unistd.h				\
 	userconf.h				\
 	usersec.h				\
 	util.h					\
+])
+
+AC_HAVE_TYPE([auxv_t],[#ifdef HAVE_AUXV_H
+#include <auxv.h>
+#endif
+#ifdef HAVE_SYS_AUXV_H
+#include <sys/auxv.h>
+#endif
 ])
 
 AC_HAVE_TYPE([uintptr_t],[#ifdef HAVE_STDINT_H
@@ -145,13 +165,10 @@ AC_REQUIRE([CHECK_NETINET_IP_AND_TCP])
 
 AM_CONDITIONAL(have_err_h, test "$ac_cv_header_err_h" = yes)
 AM_CONDITIONAL(have_ifaddrs_h, test "$ac_cv_header_ifaddrs_h" = yes)
+AM_CONDITIONAL(have_search_h, test "$ac_cv_header_search_h" = yes)
 AM_CONDITIONAL(have_vis_h, test "$ac_cv_header_vis_h" = yes)
 
 dnl Check for functions and libraries
-
-AC_FIND_FUNC(socket, socket)
-AC_FIND_FUNC(gethostbyname, nsl)
-AC_FIND_FUNC(syslog, syslog)
 
 AC_KRB_IPV6
 
@@ -162,47 +179,41 @@ rk_RESOLV
 AC_BROKEN_SNPRINTF
 AC_BROKEN_VSNPRINTF
 
-AC_BROKEN_GLOB
-if test "$ac_cv_func_glob_working" != yes; then
-	AC_LIBOBJ(glob)
-fi
-AM_CONDITIONAL(have_glob_h, test "$ac_cv_func_glob_working" = yes)
-
-
 AC_CHECK_FUNCS([				\
 	asnprintf				\
 	asprintf				\
 	atexit					\
-	cgetent					\
+	getauxval				\
 	getconfattr				\
 	getprogname				\
 	getrlimit				\
-	getspnam				\
-	initstate				\
 	issetugid				\
+	memmem					\
+	mkdtemp					\
+	mkostemp				\
 	on_exit					\
 	poll					\
 	random					\
+	secure_getenv				\
 	setprogname				\
-	setstate				\
 	strsvis					\
+	strsvisx				\
 	strunvis				\
 	strvis					\
 	strvisx					\
 	svis					\
 	sysconf					\
 	sysctl					\
+	tdelete					\
+	tfind					\
+	twalk					\
 	uname					\
+	unlinkat				\
 	unvis					\
 	vasnprintf				\
 	vasprintf				\
 	vis					\
 ])
-
-if test "$ac_cv_func_cgetent" = no; then
-	AC_LIBOBJ(getcap)
-fi
-AM_CONDITIONAL(have_cgetent, test "$ac_cv_func_cgetent" = yes)
 
 AC_REQUIRE([AC_FUNC_GETLOGIN])
 
@@ -258,6 +269,14 @@ AC_FIND_FUNC_NO_LIBS(bswap32,,
 #include <sys/bswap.h>
 #endif],0)
 
+AC_FIND_FUNC_NO_LIBS(bswap64,,
+[#ifdef HAVE_SYS_TYPES_H
+#include <sys/types.h>
+#endif
+#ifdef HAVE_SYS_BSWAP_H
+#include <sys/bswap.h>
+#endif],0)
+
 AC_FIND_FUNC_NO_LIBS(pidfile,util,
 [#ifdef HAVE_UTIL_H
 #include <util.h>
@@ -266,34 +285,43 @@ AC_FIND_FUNC_NO_LIBS(pidfile,util,
 AC_FIND_IF_NOT_BROKEN(getaddrinfo,,
 [#ifdef HAVE_NETDB_H
 #include <netdb.h>
+#endif
+#ifdef HAVE_WS2TCPIP_H
+#include <ws2tcpip.h>
 #endif],[0,0,0,0])
 
 AC_FIND_IF_NOT_BROKEN(getnameinfo,,
 [#ifdef HAVE_NETDB_H
 #include <netdb.h>
+#endif
+#ifdef HAVE_WS2TCPIP_H
+#include <ws2tcpip.h>
 #endif],[0,0,0,0,0,0,0])
 
 AC_FIND_IF_NOT_BROKEN(freeaddrinfo,,
 [#ifdef HAVE_NETDB_H
 #include <netdb.h>
+#endif
+#ifdef HAVE_WS2TCPIP_H
+#include <ws2tcpip.h>
 #endif],[0])
 
 AC_FIND_IF_NOT_BROKEN(gai_strerror,,
 [#ifdef HAVE_NETDB_H
 #include <netdb.h>
+#endif
+#ifdef HAVE_WS2TCPIP_H
+#include <ws2tcpip.h>
 #endif],[0])
 
-dnl Darwin is weird, and in some senses not unix, launchd doesn't want
-dnl servers to use daemon(), so its deprecated.
+AC_CHECK_LIB(util, emalloc)
+
 case "$host_os" in
 	darwin*)
 		;;
 	*)
-		AC_DEFINE([SUPPORT_DETACH], 1,
-		    [Define if os support want to detach is daemonens.])
 		AC_BROKEN([daemon]) ;;
 esac
-
 
 AC_BROKEN([					\
 	chown					\
@@ -324,10 +352,12 @@ AC_BROKEN([					\
 	getusershell				\
 	initgroups				\
 	innetgr					\
-	iruserok				\
 	localtime_r				\
 	lstat					\
 	memmove					\
+	memset_s				\
+	mergesort				\
+	mergesort_r				\
 	mkstemp					\
 	putenv					\
 	rcmd					\
@@ -351,8 +381,11 @@ AC_BROKEN([					\
 	strsep					\
 	strsep_copy				\
 	strtok_r				\
+	strtoll					\
+	strtoull				\
 	strupr					\
 	swab					\
+	tsearch					\
 	timegm					\
 	unsetenv				\
 	verr					\
@@ -365,16 +398,49 @@ AC_BROKEN([					\
 	writev					\
 ])
 
+rk_LIBOBJ(closefrom)
+
 AM_CONDITIONAL(have_fnmatch_h,
 	test "$ac_cv_header_fnmatch_h" = yes -a "$ac_cv_func_fnmatch" = yes)
 
 AC_FOREACH([rk_func], [strndup strsep strtok_r],
 	[AC_NEED_PROTO([#include <string.h>], rk_func)])
 
-AC_FOREACH([rk_func], [strsvis strunvis strvis strvisx svis unvis vis],
+AC_CHECK_FUNC([strtoll],
+    [AC_DEFINE_UNQUOTED(HAVE_STRTOLL, 1,
+        [Define if you have the function strtoll.])])
+
+AC_CHECK_FUNC([strtoull],
+    [AC_DEFINE_UNQUOTED(HAVE_STRTOULL, 1,
+        [Define if you have the function strtoull.])])
+
+AC_FOREACH([rk_func], [strsvis strsvisx strunvis strvis strvisx svis unvis vis],
 [AC_NEED_PROTO([#ifdef HAVE_VIS_H
 #include <vis.h>
 #endif], rk_func)])
+
+AC_MSG_CHECKING([checking for dirfd])
+AC_LINK_IFELSE([AC_LANG_PROGRAM([[#include <sys/types.h>
+#ifdef HAVE_DIRENT_H
+#include <dirent.h>
+#endif
+]],
+	[[DIR *d = 0; dirfd(d);]])],
+	[ac_rk_have_dirfd=yes], [ac_rk_have_dirfd=no])
+if test "$ac_rk_have_dirfd" = "yes" ; then
+	AC_DEFINE_UNQUOTED(HAVE_DIRFD, 1, [have a dirfd function/macro])
+fi
+AC_MSG_RESULT($ac_rk_have_dirfd)
+
+AC_HAVE_STRUCT_FIELD(DIR, dd_fd, [#include <sys/types.h>
+#ifdef HAVE_DIRENT_H
+#include <dirent.h>
+#endif])
+
+AC_HAVE_STRUCT_FIELD(DIR, d_fd, [#include <sys/types.h>
+#ifdef HAVE_DIRENT_H
+#include <dirent.h>
+#endif])
 
 AC_BROKEN2(inet_aton,
 [#ifdef HAVE_SYS_TYPES_H
@@ -428,13 +494,13 @@ dnl
 AC_HAVE_STRUCT_FIELD(struct sockaddr, sa_len, [#include <sys/types.h>
 #include <sys/socket.h>])
 
-if test "$ac_cv_func_getaddrinfo" = "yes"; then
-  rk_BROKEN_GETADDRINFO
-  if test "$ac_cv_func_getaddrinfo_numserv" = no; then
-	AC_LIBOBJ(getaddrinfo)
-	AC_LIBOBJ(freeaddrinfo)
-  fi
-fi
+#if test "$ac_cv_func_getaddrinfo" = "yes"; then
+#  rk_BROKEN_GETADDRINFO
+#  if test "$ac_cv_func_getaddrinfo_numserv" = no; then
+#	AC_LIBOBJ(getaddrinfo)
+#	AC_LIBOBJ(freeaddrinfo)
+#  fi
+#fi
 
 AC_NEED_PROTO([#include <stdlib.h>], setenv)
 AC_NEED_PROTO([#include <stdlib.h>], unsetenv)
@@ -442,26 +508,6 @@ AC_NEED_PROTO([#include <unistd.h>], gethostname)
 AC_NEED_PROTO([#include <unistd.h>], mkstemp)
 AC_NEED_PROTO([#include <unistd.h>], getusershell)
 AC_NEED_PROTO([#include <unistd.h>], daemon)
-AC_NEED_PROTO([
-#ifdef HAVE_SYS_TYPES_H
-#include <sys/types.h>
-#endif
-#ifdef HAVE_SYS_SOCKET_H
-#include <sys/socket.h>
-#endif
-#ifdef HAVE_NETINET_IN_H
-#include <netinet/in.h>
-#endif
-#ifdef HAVE_ARPA_INET_H
-#include <arpa/inet.h>
-#endif
-#ifdef HAVE_NETDB_H
-#include <netdb.h>
-#endif
-#ifdef HAVE_UNISTD_H
-#include <unistd.h>
-#endif],
-iruserok)
 
 AC_NEED_PROTO([
 #ifdef HAVE_SYS_TYPES_H
@@ -482,7 +528,18 @@ AC_FIND_FUNC_NO_LIBS(crypt, crypt)dnl
 
 AC_REQUIRE([rk_BROKEN_REALLOC])dnl
 
-dnl AC_KRB_FUNC_GETCWD_BROKEN
+dnl strerror_r is great fun, on linux it exists before sus catched up,
+dnl so the return type is diffrent, lets check for both
+
+AC_PROTO_COMPAT([
+#include <stdio.h>
+#include <string.h>
+],
+strerror_r, int strerror_r(int, char *, size_t))
+
+AC_CHECK_FUNC([strerror_r],
+    [AC_DEFINE_UNQUOTED(HAVE_STRERROR_R, 1,
+        [Define if you have the function strerror_r.])])
 
 dnl
 dnl Checks for prototypes and declarations
@@ -580,16 +637,26 @@ rk_CHECK_VAR(h_errno,
 #endif
 #ifdef HAVE_NETDB_H
 #include <netdb.h>
-#endif])
+#endif
+#ifdef HAVE_WS2TCPIP_H
+#include <ws2tcpip.h>
+#endif
+])
 
 rk_CHECK_VAR(h_errlist, 
 [#ifdef HAVE_NETDB_H
 #include <netdb.h>
+#endif
+#ifdef HAVE_WS2TCPIP_H
+#include <ws2tcpip.h>
 #endif])
 
 rk_CHECK_VAR(h_nerr, 
 [#ifdef HAVE_NETDB_H
 #include <netdb.h>
+#endif
+#ifdef HAVE_WS2TCPIP_H
+#include <ws2tcpip.h>
 #endif])
 
 rk_CHECK_VAR([__progname], 
@@ -619,19 +686,44 @@ rk_CHECK_VAR(altzone,[#include <time.h>])
 
 AC_HAVE_TYPE([sa_family_t],[
 #include <sys/types.h>
-#include <sys/socket.h>])
+#ifdef HAVE_SYS_SOCKET_H
+#include <sys/socket.h>
+#endif
+#ifdef HAVE_WS2TCPIP_H
+#include <ws2tcpip.h>
+#endif])
 AC_HAVE_TYPE([socklen_t],[
 #include <sys/types.h>
-#include <sys/socket.h>])
+#ifdef HAVE_SYS_SOCKET_H
+#include <sys/socket.h>
+#endif
+#ifdef HAVE_WS2TCPIP_H
+#include <ws2tcpip.h>
+#endif])
 AC_HAVE_TYPE([struct sockaddr], [
 #include <sys/types.h>
-#include <sys/socket.h>])
+#ifdef HAVE_SYS_SOCKET_H
+#include <sys/socket.h>
+#endif
+#ifdef HAVE_WS2TCPIP_H
+#include <ws2tcpip.h>
+#endif])
 AC_HAVE_TYPE([struct sockaddr_storage], [
 #include <sys/types.h>
-#include <sys/socket.h>])
+#ifdef HAVE_SYS_SOCKET_H
+#include <sys/socket.h>
+#endif
+#ifdef HAVE_WS2TCPIP_H
+#include <ws2tcpip.h>
+#endif])
 AC_HAVE_TYPE([struct addrinfo], [
 #include <sys/types.h>
-#include <netdb.h>])
+#ifdef HAVE_NETDB_H
+#include <netdb.h>
+#endif
+#ifdef HAVE_WS2TCPIP_H
+#include <ws2tcpip.h>
+#endif])
 AC_HAVE_TYPE([struct ifaddrs], [#include <ifaddrs.h>])
 AC_HAVE_TYPE([struct iovec],[
 #include <sys/types.h>
@@ -639,8 +731,12 @@ AC_HAVE_TYPE([struct iovec],[
 ])
 AC_HAVE_TYPE([struct msghdr],[
 #include <sys/types.h>
+#ifdef HAVE_SYS_SOCKET_H
 #include <sys/socket.h>
-])
+#endif
+#ifdef HAVE_WS2TCPIP_H
+#include <ws2tcpip.h>
+#endif])
 
 dnl
 dnl Check for struct winsize

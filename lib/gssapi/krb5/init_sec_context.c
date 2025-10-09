@@ -33,6 +33,12 @@
 
 #include "gsskrb5_locl.h"
 
+static OM_uint32
+gsskrb5_set_authorization_data(OM_uint32 *,
+                               krb5_context,
+                               krb5_auth_context,
+                               gss_const_name_t);
+
 /*
  * copy the addresses from `input_chan_bindings' (if any) to
  * the auth context `ac'
@@ -41,7 +47,7 @@
 static OM_uint32
 set_addresses (krb5_context context,
 	       krb5_auth_context ac,
-	       const gss_channel_bindings_t input_chan_bindings)	
+	       const gss_channel_bindings_t input_chan_bindings)
 {
     /* Port numbers are expected to be in application_data.value,
      * initator's port first */
@@ -117,6 +123,7 @@ _gsskrb5_create_ctx(
 	return GSS_S_FAILURE;
     }
     ctx->auth_context		= NULL;
+    ctx->deleg_auth_context	= NULL;
     ctx->source			= NULL;
     ctx->target			= NULL;
     ctx->kcred			= NULL;
@@ -127,7 +134,7 @@ _gsskrb5_create_ctx(
     ctx->service_keyblock	= NULL;
     ctx->ticket			= NULL;
     krb5_data_zero(&ctx->fwd_data);
-    ctx->lifetime		= GSS_C_INDEFINITE;
+    ctx->endtime		= 0;
     ctx->order			= NULL;
     ctx->crypto			= NULL;
     HEIMDAL_MUTEX_init(&ctx->ctx_id_mutex);
@@ -136,6 +143,16 @@ _gsskrb5_create_ctx(
     if (kret) {
 	*minor_status = kret;
 	HEIMDAL_MUTEX_destroy(&ctx->ctx_id_mutex);
+	free(ctx);
+	return GSS_S_FAILURE;
+    }
+
+    kret = krb5_auth_con_init (context, &ctx->deleg_auth_context);
+    if (kret) {
+	*minor_status = kret;
+	krb5_auth_con_free(context, ctx->auth_context);
+	HEIMDAL_MUTEX_destroy(&ctx->ctx_id_mutex);
+	free(ctx);
 	return GSS_S_FAILURE;
     }
 
@@ -143,10 +160,23 @@ _gsskrb5_create_ctx(
     if (kret) {
 	*minor_status = kret;
 
+	krb5_auth_con_free(context, ctx->auth_context);
+	krb5_auth_con_free(context, ctx->deleg_auth_context);
+
 	HEIMDAL_MUTEX_destroy(&ctx->ctx_id_mutex);
+	free(ctx);
+	return GSS_S_BAD_BINDINGS;
+    }
+
+    kret = set_addresses(context, ctx->deleg_auth_context, input_chan_bindings);
+    if (kret) {
+	*minor_status = kret;
 
 	krb5_auth_con_free(context, ctx->auth_context);
+	krb5_auth_con_free(context, ctx->deleg_auth_context);
 
+	HEIMDAL_MUTEX_destroy(&ctx->ctx_id_mutex);
+	free(ctx);
 	return GSS_S_BAD_BINDINGS;
     }
 
@@ -156,6 +186,16 @@ _gsskrb5_create_ctx(
 
     krb5_auth_con_addflags(context,
 			   ctx->auth_context,
+			   KRB5_AUTH_CONTEXT_DO_SEQUENCE |
+			   KRB5_AUTH_CONTEXT_CLEAR_FORWARDED_CRED,
+			   NULL);
+
+    /*
+     * We need a sequence number
+     */
+
+    krb5_auth_con_addflags(context,
+			   ctx->deleg_auth_context,
 			   KRB5_AUTH_CONTEXT_DO_SEQUENCE |
 			   KRB5_AUTH_CONTEXT_CLEAR_FORWARDED_CRED,
 			   NULL);
@@ -172,26 +212,26 @@ gsskrb5_get_creds(
 	krb5_context context,
 	krb5_ccache ccache,
 	gsskrb5_ctx ctx,
-	const gss_name_t target_name,
-	int use_dns,
+	gss_const_name_t target_name,
 	OM_uint32 time_req,
-	OM_uint32 * time_rec,
-	krb5_creds ** cred)
+	OM_uint32 * time_rec)
 {
     OM_uint32 ret;
     krb5_error_code kret;
     krb5_creds this_cred;
     OM_uint32 lifetime_rec;
 
-    *cred = NULL;
-
     if (ctx->target) {
 	krb5_free_principal(context, ctx->target);
 	ctx->target = NULL;
     }
+    if (ctx->kcred) {
+	krb5_free_creds(context, ctx->kcred);
+	ctx->kcred = NULL;
+    }
 
-    ret = _gsskrb5_canon_name(minor_status, context, use_dns,
-			      ctx->source, target_name, &ctx->target);
+    ret = _gsskrb5_canon_name(minor_status, context, target_name,
+                              &ctx->target);
     if (ret)
 	return ret;
 
@@ -214,16 +254,23 @@ gsskrb5_get_creds(
 				0,
 				ccache,
 				&this_cred,
-				cred);
+				&ctx->kcred);
     if (kret) {
 	*minor_status = kret;
 	return GSS_S_FAILURE;
     }
 
-    ctx->lifetime = (*cred)->times.endtime;
+    krb5_free_principal(context, ctx->target);
+    kret = krb5_copy_principal(context, ctx->kcred->server, &ctx->target);
+    if (kret) {
+	*minor_status = kret;
+	return GSS_S_FAILURE;
+    }
+
+    ctx->endtime = ctx->kcred->times.endtime;
 
     ret = _gsskrb5_lifetime_left(minor_status, context,
-				 ctx->lifetime, &lifetime_rec);
+				 ctx->endtime, &lifetime_rec);
     if (ret) return ret;
 
     if (lifetime_rec == 0) {
@@ -254,7 +301,7 @@ gsskrb5_initiator_ready(
 	krb5_cc_close(context, ctx->ccache);
     ctx->ccache = NULL;
 
-    krb5_auth_getremoteseqnumber (context, ctx->auth_context, &seq_number);
+    krb5_auth_con_getremoteseqnumber (context, ctx->auth_context, &seq_number);
 
     _gsskrb5i_is_cfx(context, ctx, 0);
     is_cfx = (ctx->more_flags & IS_CFX);
@@ -280,49 +327,28 @@ do_delegation (krb5_context context,
 	       krb5_auth_context ac,
 	       krb5_ccache ccache,
 	       krb5_creds *cred,
-	       krb5_const_principal name,
 	       krb5_data *fwd_data,
 	       uint32_t flagmask,
 	       uint32_t *flags)
 {
-    krb5_creds creds;
-    KDCOptions fwd_flags;
     krb5_error_code kret;
+    krb5_principal client;
+    const char *host;
 
-    memset (&creds, 0, sizeof(creds));
     krb5_data_zero (fwd_data);
 
-    kret = krb5_cc_get_principal(context, ccache, &creds.client);
+    kret = krb5_cc_get_principal(context, ccache, &client);
     if (kret)
 	goto out;
 
-    kret = krb5_build_principal(context,
-				&creds.server,
-				strlen(creds.client->realm),
-				creds.client->realm,
-				KRB5_TGS_NAME,
-				creds.client->realm,
-				NULL);
-    if (kret)
+    /* We can't generally enforce server.name_type == KRB5_NT_SRV_HST */
+    if (cred->server->name.name_string.len < 2)
 	goto out;
+    host = krb5_principal_get_comp_string(context, cred->server, 1);
 
-    creds.times.endtime = 0;
-
-    memset(&fwd_flags, 0, sizeof(fwd_flags));
-    fwd_flags.forwarded = 1;
-    fwd_flags.forwardable = 1;
-
-    if ( /*target_name->name.name_type != KRB5_NT_SRV_HST ||*/
-	name->name.name_string.len < 2)
-	goto out;
-
-    kret = krb5_get_forwarded_creds(context,
-				    ac,
-				    ccache,
-				    KDCOptions2int(fwd_flags),
-				    name->name.name_string.val[1],
-				    &creds,
-				    fwd_data);
+#define FWDABLE 1
+    kret = krb5_fwd_tgt_creds(context, ac, host, client, cred->server, ccache,
+			      FWDABLE, fwd_data);
 
  out:
     if (kret)
@@ -330,10 +356,8 @@ do_delegation (krb5_context context,
     else
 	*flags |= flagmask;
 
-    if (creds.client)
-	krb5_free_principal(context, creds.client);
-    if (creds.server)
-	krb5_free_principal(context, creds.server);
+    if (client)
+	krb5_free_principal(context, client);
 }
 
 /*
@@ -346,7 +370,7 @@ init_auth
  gsskrb5_cred cred,
  gsskrb5_ctx ctx,
  krb5_context context,
- gss_name_t name,
+ gss_const_name_t name,
  const gss_OID mech_type,
  OM_uint32 req_flags,
  OM_uint32 time_req,
@@ -359,12 +383,9 @@ init_auth
 {
     OM_uint32 ret = GSS_S_FAILURE;
     krb5_error_code kret;
-    krb5_data outbuf;
     krb5_data fwd_data;
     OM_uint32 lifetime_rec;
-    int allow_dns = 1;
 
-    krb5_data_zero(&outbuf);
     krb5_data_zero(&fwd_data);
 
     *minor_status = 0;
@@ -390,56 +411,33 @@ init_auth
 	goto failure;
     }
 
+    /*
+     * This is hideous glue for (NFS) clients that wants to limit the
+     * available enctypes to what it can support (encryption in
+     * kernel).
+     */
+    if (cred && cred->enctypes)
+	krb5_set_default_in_tkt_etypes(context, cred->enctypes);
+
+    ret = gsskrb5_get_creds(minor_status, context, ctx->ccache,
+			    ctx, name, time_req, time_rec);
+    if (ret)
+	goto failure;
+
+    ret = gsskrb5_set_authorization_data(minor_status, context,
+                                         ctx->auth_context, name);
+    if (ret)
+	goto failure;
+
+    ctx->endtime = ctx->kcred->times.endtime;
+
     ret = _gss_DES3_get_mic_compat(minor_status, ctx, context);
     if (ret)
 	goto failure;
 
-
-    /*
-     * This is hideous glue for (NFS) clients that wants to limit the
-     * available enctypes to what it can support (encryption in
-     * kernel). If there is no enctypes selected for this credential,
-     * reset it to the default set of enctypes.
-     */
-    {
-	krb5_enctype *enctypes = NULL;
-
-	if (cred && cred->enctypes)
-	    enctypes = cred->enctypes;
-	krb5_set_default_in_tkt_etypes(context, enctypes);
-    }
-
-    /* canon name if needed for client + target realm */
-    kret = krb5_cc_get_config(context, ctx->ccache, NULL,
-			      "realm-config", &outbuf);
-    if (kret == 0) {
-	/* XXX 2 is no server canon */
-	if (outbuf.length < 1 || ((((unsigned char *)outbuf.data)[0]) & 2))
-	    allow_dns = 0;
-	krb5_data_free(&outbuf);
-    }
-
-    /*
-     * First we try w/o dns, hope that the KDC have register alias
-     * (and referrals if cross realm) for this principal. If that
-     * fails and if we are allowed to using this realm try again with
-     * DNS canonicalizion.
-     */
-    ret = gsskrb5_get_creds(minor_status, context, ctx->ccache,
-			    ctx, name, 0, time_req, 
-			    time_rec, &ctx->kcred);
-    if (ret && allow_dns)
-	ret = gsskrb5_get_creds(minor_status, context, ctx->ccache,
-				ctx, name, 1, time_req, 
-				time_rec, &ctx->kcred);
-    if (ret)
-	goto failure;
-
-    ctx->lifetime = ctx->kcred->times.endtime;
-
     ret = _gsskrb5_lifetime_left(minor_status,
 				 context,
-				 ctx->lifetime,
+				 ctx->endtime,
 				 &lifetime_rec);
     if (ret)
 	goto failure;
@@ -498,8 +496,9 @@ init_auth_restart
     Checksum cksum;
     krb5_enctype enctype;
     krb5_data fwd_data, timedata;
-    int32_t offset = 0, oldoffset;
+    int32_t offset = 0, oldoffset = 0;
     uint32_t flagmask;
+    krb5_boolean channel_bound = FALSE;
 
     krb5_data_zero(&outbuf);
     krb5_data_zero(&fwd_data);
@@ -507,12 +506,23 @@ init_auth_restart
     *minor_status = 0;
 
     /*
+     * Check if our configuration requires us to follow the KDC's
+     * guidance.  If so, we transmogrify the GSS_C_DELEG_FLAG into
+     * the GSS_C_DELEG_POLICY_FLAG.
+     */
+    if ((context->flags & KRB5_CTX_F_ENFORCE_OK_AS_DELEGATE)
+	&& (req_flags & GSS_C_DELEG_FLAG)) {
+        req_flags &= ~GSS_C_DELEG_FLAG;
+        req_flags |= GSS_C_DELEG_POLICY_FLAG;
+    }
+
+    /*
      * If the credential doesn't have ok-as-delegate, check if there
      * is a realm setting and use that.
      */
     if (!ctx->kcred->flags.b.ok_as_delegate) {
 	krb5_data data;
-	
+
 	ret = krb5_cc_get_config(context, ctx->ccache, NULL,
 				 "realm-config", &data);
 	if (ret == 0) {
@@ -538,8 +548,8 @@ init_auth_restart
     ap_options = 0;
     if (flagmask & GSS_C_DELEG_FLAG) {
 	do_delegation (context,
-		       ctx->auth_context,
-		       ctx->ccache, ctx->kcred, ctx->target,
+		       ctx->deleg_auth_context,
+		       ctx->ccache, ctx->kcred,
 		       &fwd_data, flagmask, &flags);
     }
 
@@ -578,6 +588,11 @@ init_auth_restart
     }
     flags |= GSS_C_TRANS_FLAG;
 
+    if (req_flags & GSS_C_CHANNEL_BOUND_FLAG) {
+	flags |= GSS_C_CHANNEL_BOUND_FLAG;
+	channel_bound = TRUE;
+    }
+
     if (ret_flags)
 	*ret_flags = flags;
     ctx->flags = flags;
@@ -599,7 +614,10 @@ init_auth_restart
     if (ret == 0) {
 	if (timedata.length == 4) {
 	    const u_char *p = timedata.data;
-	    offset = (p[0] <<24) | (p[1] << 16) | (p[2] << 8) | (p[3] << 0);
+	    offset = ((uint32_t)p[0] << 24)
+		   | ((uint32_t)p[1] << 16)
+		   | ((uint32_t)p[2] << 8)
+		   | ((uint32_t)p[3] << 0);
 	}
 	krb5_data_free(&timedata);
     }
@@ -609,12 +627,12 @@ init_auth_restart
 	krb5_set_kdc_sec_offset (context, offset, -1);
     }
 
-    kret = krb5_build_authenticator (context,
+    kret = _krb5_build_authenticator(context,
 				     ctx->auth_context,
 				     enctype,
 				     ctx->kcred,
 				     &cksum,
-				     NULL,
+				     channel_bound,
 				     &authenticator,
 				     KRB5_KU_AP_REQ_AUTH);
 
@@ -645,7 +663,8 @@ init_auth_restart
 	output_token->length = outbuf.length;
     } else {
         ret = _gsskrb5_encapsulate (minor_status, &outbuf, output_token,
-				    (u_char *)"\x01\x00", GSS_KRB5_MECHANISM);
+				    (u_char *)(intptr_t)"\x01\x00",
+				    GSS_KRB5_MECHANISM);
 	krb5_data_free (&outbuf);
 	if (ret)
 	    goto failure;
@@ -654,7 +673,7 @@ init_auth_restart
     free_Checksum(&cksum);
 
     if (flags & GSS_C_MUTUAL_FLAG) {
-	ctx->state = INITIATOR_WAIT_FOR_MUTAL;
+	ctx->state = INITIATOR_WAIT_FOR_MUTUAL;
 	return GSS_S_CONTINUE_NEEDED;
     }
 
@@ -665,6 +684,44 @@ failure:
     ctx->ccache = NULL;
 
     return ret;
+}
+
+static krb5_error_code
+handle_error_packet(krb5_context context,
+		    gsskrb5_ctx ctx,
+		    krb5_data indata)
+{
+    krb5_error_code kret;
+    KRB_ERROR error;
+
+    kret = krb5_rd_error(context, &indata, &error);
+    if (kret == 0) {
+	kret = krb5_error_from_rd_error(context, &error, NULL);
+
+	/* save the time skrew for this host */
+	if (kret == KRB5KRB_AP_ERR_SKEW) {
+	    krb5_data timedata;
+	    unsigned char p[4];
+	    int32_t t = error.stime - time(NULL);
+
+	    p[0] = (t >> 24) & 0xFF;
+	    p[1] = (t >> 16) & 0xFF;
+	    p[2] = (t >> 8)  & 0xFF;
+	    p[3] = (t >> 0)  & 0xFF;
+
+	    timedata.data = p;
+	    timedata.length = sizeof(p);
+
+	    krb5_cc_set_config(context, ctx->ccache, ctx->target,
+			       "time-offset", &timedata);
+
+	    if ((ctx->more_flags & RETRIED) == 0)
+		 ctx->state = INITIATOR_RESTART;
+	    ctx->more_flags |= RETRIED;
+	}
+	free_KRB_ERROR (&error);
+    }
+    return kret;
 }
 
 
@@ -692,6 +749,9 @@ repl_mutual
     output_token->length = 0;
     output_token->value = NULL;
 
+    if (input_token == GSS_C_NO_BUFFER)
+        return GSS_S_FAILURE;
+
     if (actual_mech_type)
 	*actual_mech_type = GSS_KRB5_MECHANISM;
 
@@ -699,6 +759,23 @@ repl_mutual
 	/* There is no OID wrapping. */
 	indata.length	= input_token->length;
 	indata.data	= input_token->value;
+	kret = krb5_rd_rep(context,
+			   ctx->auth_context,
+			   &indata,
+			   &repl);
+	if (kret) {
+	    ret = _gsskrb5_decapsulate(minor_status,
+				       input_token,
+				       &indata,
+				       "\x03\x00",
+				       GSS_KRB5_MECHANISM);
+	    if (ret == GSS_S_COMPLETE) {
+		*minor_status = handle_error_packet(context, ctx, indata);
+	    } else {
+		*minor_status = kret;
+	    }
+	    return GSS_S_FAILURE;
+	}
     } else {
 	ret = _gsskrb5_decapsulate (minor_status,
 				    input_token,
@@ -713,62 +790,32 @@ repl_mutual
 					"\x03\x00",
 					GSS_KRB5_MECHANISM);
 	    if (ret == GSS_S_COMPLETE) {
-		KRB_ERROR error;
-		
-		kret = krb5_rd_error(context, &indata, &error);
-		if (kret == 0) {
-		    kret = krb5_error_from_rd_error(context, &error, NULL);
-
-		    /* save the time skrew for this host */
-		    if (kret == KRB5KRB_AP_ERR_SKEW) {
-			krb5_data timedata;
-			unsigned char p[4];
-			int32_t t = error.stime - time(NULL);
-
-			p[0] = (t >> 24) & 0xFF;
-			p[1] = (t >> 16) & 0xFF;
-			p[2] = (t >> 8)  & 0xFF;
-			p[3] = (t >> 0)  & 0xFF;
-
-			timedata.data = p;
-			timedata.length = sizeof(p);
-
-			krb5_cc_set_config(context, ctx->ccache, ctx->target,
-					   "time-offset", &timedata);
-
-			if ((ctx->more_flags & RETRIED) == 0)
-			    ctx->state = INITIATOR_RESTART;
-			ctx->more_flags |= RETRIED;
-		    }
-		    free_KRB_ERROR (&error);
-		}
-		*minor_status = kret;
+		*minor_status = handle_error_packet(context, ctx, indata);
 		return GSS_S_FAILURE;
 	    }
-	    return ret;
+	}
+	if (ret != GSS_S_COMPLETE) {
+		return ret;
+	}
+	kret = krb5_rd_rep (context,
+			    ctx->auth_context,
+			    &indata,
+			    &repl);
+	if (kret) {
+	    *minor_status = kret;
+	    return GSS_S_FAILURE;
 	}
     }
 
-    kret = krb5_rd_rep (context,
-			ctx->auth_context,
-			&indata,
-			&repl);
-    if (kret) {
-	*minor_status = kret;
-	return GSS_S_FAILURE;
-    }
     krb5_free_ap_rep_enc_part (context,
 			       repl);
 
     *minor_status = 0;
-    if (time_rec) {
-	ret = _gsskrb5_lifetime_left(minor_status,
-				     context,
-				     ctx->lifetime,
-				     time_rec);
-    } else {
-	ret = GSS_S_COMPLETE;
-    }
+    if (time_rec)
+        (void) _gsskrb5_lifetime_left(minor_status,
+				      context,
+				      ctx->endtime,
+				      time_rec);
     if (ret_flags)
 	*ret_flags = ctx->flags;
 
@@ -783,7 +830,7 @@ repl_mutual
 	 * for the gss_wrap calls.
 	 */
 
-	krb5_auth_getremoteseqnumber(context, ctx->auth_context, &remote_seq);
+	krb5_auth_con_getremoteseqnumber(context, ctx->auth_context, &remote_seq);
 	krb5_auth_con_getlocalseqnumber(context, ctx->auth_context, &local_seq);
 	krb5_auth_con_setlocalseqnumber(context, ctx->auth_context, remote_seq);
 
@@ -792,9 +839,9 @@ repl_mutual
 	    *minor_status = kret;
 	    return GSS_S_FAILURE;
 	}
-	
+
 	/* reset local seq number */
-	krb5_auth_con_setlocalseqnumber(context, ctx->auth_context, local_seq);	
+	krb5_auth_con_setlocalseqnumber(context, ctx->auth_context, local_seq);
 
 	output_token->length = outbuf.length;
 	output_token->value  = outbuf.data;
@@ -807,11 +854,11 @@ repl_mutual
  * gss_init_sec_context
  */
 
-OM_uint32 _gsskrb5_init_sec_context
+OM_uint32 GSSAPI_CALLCONV _gsskrb5_init_sec_context
 (OM_uint32 * minor_status,
- const gss_cred_id_t cred_handle,
+ gss_const_cred_id_t cred_handle,
  gss_ctx_id_t * context_handle,
- const gss_name_t target_name,
+ gss_const_name_t target_name,
  const gss_OID mech_type,
  OM_uint32 req_flags,
  OM_uint32 time_req,
@@ -855,20 +902,20 @@ OM_uint32 _gsskrb5_init_sec_context
 	return GSS_S_BAD_MECH;
 
     if (input_token == GSS_C_NO_BUFFER || input_token->length == 0) {
-	OM_uint32 ret;
+	OM_uint32 ret1;
 
 	if (*context_handle != GSS_C_NO_CONTEXT) {
 	    *minor_status = 0;
 	    return GSS_S_FAILURE | GSS_S_CALL_BAD_STRUCTURE;
 	}
 
-	ret = _gsskrb5_create_ctx(minor_status,
+	ret1 = _gsskrb5_create_ctx(minor_status,
 				  context_handle,
 				  context,
 				  input_chan_bindings,
 				  INITIATOR_START);
-	if (ret)
-	    return ret;
+	if (ret1)
+	    return ret1;
     }
 
     if (*context_handle == GSS_C_NO_CONTEXT) {
@@ -897,8 +944,8 @@ OM_uint32 _gsskrb5_init_sec_context
 			ret_flags,
 			time_rec);
 	if (ret != GSS_S_COMPLETE)
-	    break;	
-	/* FALL THOUGH */
+	    break;
+        HEIM_FALLTHROUGH;
     case INITIATOR_RESTART:
 	ret = init_auth_restart(minor_status,
 				cred,
@@ -912,7 +959,7 @@ OM_uint32 _gsskrb5_init_sec_context
 				ret_flags,
 				time_rec);
 	break;
-    case INITIATOR_WAIT_FOR_MUTAL:
+    case INITIATOR_WAIT_FOR_MUTUAL:
 	ret = repl_mutual(minor_status,
 			  ctx,
 			  context,
@@ -956,4 +1003,32 @@ OM_uint32 _gsskrb5_init_sec_context
 
     return ret;
 
+}
+
+static OM_uint32
+gsskrb5_set_authorization_data(OM_uint32 *minor_status,
+                               krb5_context context,
+                               krb5_auth_context auth_context,
+                               gss_const_name_t gn)
+{
+    const CompositePrincipal *name = (const void *)gn;
+    AuthorizationData *ad;
+    krb5_error_code kret = 0;
+    size_t i;
+
+    if (name->nameattrs == NULL || name->nameattrs->want_ad == NULL)
+        return GSS_S_COMPLETE;
+
+    ad = name->nameattrs->want_ad;
+    for (i = 0; kret == 0 && i < ad->len; i++) {
+        kret = krb5_auth_con_add_AuthorizationData(context, auth_context,
+                                                   ad->val[0].ad_type,
+                                                   &ad->val[0].ad_data);
+    }
+
+    if (kret) {
+        *minor_status = kret;
+        return GSS_S_FAILURE;
+    }
+    return GSS_S_COMPLETE;
 }

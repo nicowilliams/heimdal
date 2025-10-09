@@ -33,8 +33,6 @@
 
 #include "kadmin_locl.h"
 
-RCSID("$Id$");
-
 /* This file defines some a function that generates a random password,
    that can be used when creating a large amount of principals (such
    as for a batch of students). Since this is a political matter, you
@@ -70,7 +68,8 @@ random_password(char *pw, size_t len)
 		      "ABCDEFGHIJKLMNOPQRSTUVWXYZ", 2,
 		      "@$%&*()-+=:,/<>1234567890", 1);
     strlcpy(pw, pass, len);
-    memset(pass, 0, strlen(pass));
+    len = strlen(pass);
+    memset_s(pass, len, 0, len);
     free(pass);
 #endif
 }
@@ -157,7 +156,7 @@ generate_password(char **pw, int num_classes, ...)
 	}
     }
     (*pw)[len] = '\0';
-    memset(rbuf, 0, sizeof(rbuf));
+    memset_s(rbuf, sizeof(rbuf), 0, sizeof(rbuf));
     free(classes);
 }
 #endif

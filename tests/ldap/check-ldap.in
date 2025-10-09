@@ -1,6 +1,6 @@
 #!/bin/sh
 #
-# Copyright (c) 2006 - 2007 Kungliga Tekniska Högskolan
+# Copyright (c) 2006 - 2016 Kungliga Tekniska Högskolan
 # (Royal Institute of Technology, Stockholm, Sweden). 
 # All rights reserved. 
 #
@@ -34,8 +34,12 @@
 # $Id$
 #
 
+env_setup="@env_setup@"
 srcdir="@srcdir@"
 objdir="@objdir@"
+
+. ${env_setup}
+
 EGREP="@EGREP@"
 
 R=TEST.H5L.SE
@@ -45,14 +49,19 @@ port=@port@
 server=host/datan.test.h5l.se
 cache="FILE:${objdir}/cache.krb5"
 
-kinit="${TESTS_ENVIRONMENT} ../../kuser/kinit -c $cache --no-afslog"
+kinit="${TESTS_ENVIRONMENT} ../../kuser/kinit -c $cache ${afs_no_afslog}"
 kgetcred="${TESTS_ENVIRONMENT} ../../kuser/kgetcred -c $cache"
 kadmin="${TESTS_ENVIRONMENT} ../../kadmin/kadmin -l -r $R"
 kdc="${TESTS_ENVIRONMENT} ../../kdc/kdc --addresses=localhost -P $port"
 
+foopassword="fooLongPasswordYo123;"
+
 testfailed="echo test failed; exit 1"
 
-# If there is no ldap support compile in, disable test
+KRB5_CONFIG="${objdir}/krb5.conf"
+export KRB5_CONFIG
+
+# If there is no ldap support compiled in, disable test
 if ${kdc} --builtin-hdb | grep ldap > /dev/null ; then
    :
 else
@@ -82,10 +91,19 @@ done
 
 sh ${objdir}/slapd-init || exit 1
 
-trap "sh ${srcdir}/slapd-stop ; exit 1;" EXIT
-
-KRB5_CONFIG="${objdir}/krb5.conf"
-export KRB5_CONFIG
+kdcpid=
+cleanup() {
+    if test -n "$kdcpid"; then
+        echo signal killing kdc
+        kill -9 ${kdcpid} 2>/dev/null
+    fi
+    echo Stopping slapd
+    sh ${srcdir}/slapd-stop
+    trap '' EXIT INT TERM
+    cat messages.log
+    exit 1
+}
+trap cleanup EXIT INT TERM
 
 rm -f current-db*
 
@@ -98,8 +116,8 @@ ${kadmin} \
     --realm-max-renewable-life=1month \
     ${R} || exit 1
 
-${kadmin} add -p foo --use-defaults foo@${R} || exit 1
-${kadmin} add -p foo --use-defaults bar@${R} || exit 1
+${kadmin} add -p "$foopassword" --use-defaults foo@${R} || exit 1
+${kadmin} add -p "$foopassword" --use-defaults bar@${R} || exit 1
 ${kadmin} add -p kaka --use-defaults ${server}@${R} || exit 1
 
 ${kadmin} cpw --random-password bar@${R} > /dev/null || exit 1
@@ -107,24 +125,15 @@ ${kadmin} cpw --random-password bar@${R} > /dev/null || exit 1
 ${kadmin} cpw --random-password bar@${R} > /dev/null || exit 1
 
 ${kadmin} cpw --random-password suser@${R} > /dev/null|| exit 1
-${kadmin} cpw --password=foo suser@${R} || exit 1
+${kadmin} cpw --password="$foopassword" suser@${R} || exit 1
 
 ${kadmin} list '*' > /dev/null || exit 1
 
-echo foo > ${objdir}/foopassword
+echo "$foopassword" > ${objdir}/foopassword
 
 echo Starting kdc
-${kdc} &
-kdcpid=$!
-
-sh ${srcdir}/../kdc/wait-kdc.sh
-if [ "$?" != 0 ] ; then
-    kill ${kdcpid}
-    sh ${srcdir}/slapd-stop
-    exit 1
-fi
-
-trap "kill ${kdcpid}; echo signal killing kdc; sh ${srcdir}/slapd-stop ; exit 1;" EXIT
+${kdc} --detach --testing || { echo "kdc failed to start"; cat messages.log; exit 1; }
+kdcpid=`getpid kdc`
 
 ec=0
 
@@ -136,7 +145,7 @@ echo "Getting ${server} ticket"
 ${kgetcred} ${server}@${R} || { ec=1 ; eval "${testfailed}"; }
 
 
-echo "Getting *@$R inital ticket (fail)";
+echo "Getting *@$R initial ticket (fail)";
 ${kinit} --password-file=${objdir}/foopassword '*'@$R 2>/dev/null && \
 	{ ec=1 ; eval "${testfailed}"; }
 

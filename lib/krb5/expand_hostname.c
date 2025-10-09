@@ -39,11 +39,8 @@ copy_hostname(krb5_context context,
 	      char **new_hostname)
 {
     *new_hostname = strdup (orig_hostname);
-    if (*new_hostname == NULL) {
-	krb5_set_error_message(context, ENOMEM,
-			       N_("malloc: out of memory", ""));
-	return ENOMEM;
-    }
+    if (*new_hostname == NULL)
+	return krb5_enomem(context);
     strlwr (*new_hostname);
     return 0;
 }
@@ -63,7 +60,7 @@ copy_hostname(krb5_context context,
  * @ingroup krb5_support
  */
 
-krb5_error_code KRB5_LIB_FUNCTION
+KRB5_LIB_FUNCTION krb5_error_code KRB5_LIB_CALL
 krb5_expand_hostname (krb5_context context,
 		      const char *orig_hostname,
 		      char **new_hostname)
@@ -71,7 +68,8 @@ krb5_expand_hostname (krb5_context context,
     struct addrinfo *ai, *a, hints;
     int error;
 
-    if ((context->flags & KRB5_CTX_F_DNS_CANONICALIZE_HOSTNAME) == 0)
+    if ((context->flags & KRB5_CTX_F_DNS_CANONICALIZE_HOSTNAME) == 0 ||
+	krb5_config_get_bool(context, NULL, "libdefaults", "block_dns", NULL))
 	return copy_hostname (context, orig_hostname, new_hostname);
 
     memset (&hints, 0, sizeof(hints));
@@ -84,13 +82,10 @@ krb5_expand_hostname (krb5_context context,
 	if (a->ai_canonname != NULL) {
 	    *new_hostname = strdup (a->ai_canonname);
 	    freeaddrinfo (ai);
-	    if (*new_hostname == NULL) {
-		krb5_set_error_message(context, ENOMEM,
-				       N_("malloc: out of memory", ""));
-		return ENOMEM;
-	    } else {
+	    if (*new_hostname == NULL)
+		return krb5_enomem(context);
+	    else
 		return 0;
-	    }
 	}
     }
     freeaddrinfo (ai);
@@ -140,7 +135,7 @@ vanilla_hostname (krb5_context context,
  * @ingroup krb5_support
  */
 
-krb5_error_code KRB5_LIB_FUNCTION
+KRB5_LIB_FUNCTION krb5_error_code KRB5_LIB_CALL
 krb5_expand_hostname_realms (krb5_context context,
 			     const char *orig_hostname,
 			     char **new_hostname,

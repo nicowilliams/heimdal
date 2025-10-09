@@ -35,6 +35,63 @@
 
 RCSID("$Id$");
 
+static kadm5_ret_t
+kadm5_s_lock(void *server_handle)
+{
+    kadm5_server_context *context = server_handle;
+    kadm5_ret_t ret;
+
+    if (context->keep_open) {
+	/*
+	 * We open/close around every operation, but we retain the DB
+	 * open if the DB was locked with a prior call to kadm5_lock(),
+	 * so if it's open here that must be because the DB is locked.
+	 */
+	heim_assert(context->db->lock_count > 0,
+		    "Internal error in tracking HDB locks");
+	return KADM5_ALREADY_LOCKED;
+    }
+
+    ret = context->db->hdb_open(context->context, context->db, O_RDWR, 0);
+    if (ret)
+	return ret;
+
+    ret = context->db->hdb_lock(context->context, context->db, HDB_WLOCK);
+    if (ret) {
+        (void) context->db->hdb_close(context->context, context->db);
+	return ret;
+    }
+
+    /*
+     * Attempt to recover the log.  This will generally fail on slaves,
+     * and we can't tell if we're on a slave here.
+     *
+     * Perhaps we could set a flag in the kadm5_server_context to
+     * indicate whether a read has been done without recovering the log,
+     * in which case we could fail any subsequent writes.
+     */
+    if (kadm5_log_init(context) == 0)
+        (void) kadm5_log_end(context);
+
+    context->keep_open = 1;
+    return 0;
+}
+
+static kadm5_ret_t
+kadm5_s_unlock(void *server_handle)
+{
+    kadm5_server_context *context = server_handle;
+    kadm5_ret_t ret;
+
+    if (!context->keep_open)
+	return KADM5_NOT_LOCKED;
+
+    context->keep_open = 0;
+    ret = context->db->hdb_unlock(context->context, context->db);
+    (void) context->db->hdb_close(context->context, context->db);
+    return ret;
+}
+
 static void
 set_funcs(kadm5_server_context *c)
 {
@@ -49,9 +106,17 @@ set_funcs(kadm5_server_context *c)
     SET(c, get_principals);
     SET(c, get_privs);
     SET(c, modify_principal);
+    SET(c, prune_principal);
     SET(c, randkey_principal);
     SET(c, rename_principal);
+    SET(c, lock);
+    SET(c, unlock);
+    SET(c, setkey_principal_3);
+    SET(c, iter_principals);
+    SET(c, dup_context);
 }
+
+#ifndef NO_UNIX_SOCKETS
 
 static void
 set_socket_name(krb5_context context, struct sockaddr_un *un)
@@ -61,7 +126,17 @@ set_socket_name(krb5_context context, struct sockaddr_un *un)
     memset(un, 0, sizeof(*un));
     un->sun_family = AF_UNIX;
     strlcpy (un->sun_path, fn, sizeof(un->sun_path));
+
 }
+#else
+
+static void
+set_socket_info(krb5_context context, struct addrinfo **info)
+{
+    kadm5_log_signal_socket_info(context, 0, info);
+}
+
+#endif
 
 static kadm5_ret_t
 find_db_spec(kadm5_server_context *ctx)
@@ -69,36 +144,57 @@ find_db_spec(kadm5_server_context *ctx)
     krb5_context context = ctx->context;
     struct hdb_dbinfo *info, *d;
     krb5_error_code ret;
+    int aret;
 
     if (ctx->config.realm) {
 	/* fetch the databases */
 	ret = hdb_get_dbinfo(context, &info);
 	if (ret)
 	    return ret;
-	
+
 	d = NULL;
 	while ((d = hdb_dbinfo_get_next(info, d)) != NULL) {
 	    const char *p = hdb_dbinfo_get_realm(context, d);
-	
+
 	    /* match default (realm-less) */
 	    if(p != NULL && strcmp(ctx->config.realm, p) != 0)
 		continue;
-	
+
 	    p = hdb_dbinfo_get_dbname(context, d);
-	    if (p)
+	    if (p) {
 		ctx->config.dbname = strdup(p);
-	
+                if (ctx->config.dbname == NULL) {
+		    hdb_free_dbinfo(context, &info);
+		    return krb5_enomem(context);
+		}
+            }
+
 	    p = hdb_dbinfo_get_acl_file(context, d);
-	    if (p)
+	    if (p) {
 		ctx->config.acl_file = strdup(p);
-	
+                if (ctx->config.acl_file == NULL) {
+		    hdb_free_dbinfo(context, &info);
+		    return krb5_enomem(context);
+		}
+            }
+
 	    p = hdb_dbinfo_get_mkey_file(context, d);
-	    if (p)
+	    if (p) {
 		ctx->config.stash_file = strdup(p);
-	
+                if (ctx->config.stash_file == NULL) {
+		    hdb_free_dbinfo(context, &info);
+		    return krb5_enomem(context);
+		}
+            }
+
 	    p = hdb_dbinfo_get_log_file(context, d);
-	    if (p)
+	    if (p) {
 		ctx->log_context.log_file = strdup(p);
+                if (ctx->log_context.log_file == NULL) {
+		    hdb_free_dbinfo(context, &info);
+		    return krb5_enomem(context);
+		}
+            }
 	    break;
 	}
 	hdb_free_dbinfo(context, &info);
@@ -106,16 +202,35 @@ find_db_spec(kadm5_server_context *ctx)
 
     /* If any of the values was unset, pick up the default value */
 
-    if (ctx->config.dbname == NULL)
+    if (ctx->config.dbname == NULL) {
 	ctx->config.dbname = strdup(hdb_default_db(context));
-    if (ctx->config.acl_file == NULL)
-	asprintf(&ctx->config.acl_file, "%s/kadmind.acl", hdb_db_dir(context));
-    if (ctx->config.stash_file == NULL)
-	asprintf(&ctx->config.stash_file, "%s/m-key", hdb_db_dir(context));
-    if (ctx->log_context.log_file == NULL)
-	asprintf(&ctx->log_context.log_file, "%s/log", hdb_db_dir(context));
+        if (ctx->config.dbname == NULL)
+	    return krb5_enomem(context);
+    }
+    if (ctx->config.acl_file == NULL) {
+	aret = asprintf(&ctx->config.acl_file, "%s/kadmind.acl",
+			hdb_db_dir(context));
+	if (aret == -1)
+	    return krb5_enomem(context);
+    }
+    if (ctx->config.stash_file == NULL) {
+	aret = asprintf(&ctx->config.stash_file, "%s/m-key",
+			hdb_db_dir(context));
+	if (aret == -1)
+	    return krb5_enomem(context);
+    }
+    if (ctx->log_context.log_file == NULL) {
+	aret = asprintf(&ctx->log_context.log_file, "%s/log",
+			hdb_db_dir(context));
+	if (aret == -1)
+	    return krb5_enomem(context);
+    }
 
+#ifndef NO_UNIX_SOCKETS
     set_socket_name(context, &ctx->log_context.socket_name);
+#else
+    set_socket_info(context, &ctx->log_context.socket_info);
+#endif
 
     return 0;
 }
@@ -125,26 +240,53 @@ _kadm5_s_init_context(kadm5_server_context **ctx,
 		      kadm5_config_params *params,
 		      krb5_context context)
 {
-    *ctx = malloc(sizeof(**ctx));
-    if(*ctx == NULL)
-	return ENOMEM;
-    memset(*ctx, 0, sizeof(**ctx));
+    kadm5_ret_t ret = 0;
+
+    *ctx = calloc(1, sizeof(**ctx));
+    if (*ctx == NULL)
+	return krb5_enomem(context);
+    (*ctx)->log_context.socket_fd = rk_INVALID_SOCKET;
+
     set_funcs(*ctx);
     (*ctx)->context = context;
     krb5_add_et_list (context, initialize_kadm5_error_table_r);
-#define is_set(M) (params && params->mask & KADM5_CONFIG_ ## M)
-    if(is_set(REALM))
-	(*ctx)->config.realm = strdup(params->realm);
-    else
-	krb5_get_default_realm(context, &(*ctx)->config.realm);
-    if(is_set(DBNAME))
-	(*ctx)->config.dbname = strdup(params->dbname);
-    if(is_set(ACL_FILE))
-	(*ctx)->config.acl_file = strdup(params->acl_file);
-    if(is_set(STASH_FILE))
-	(*ctx)->config.stash_file = strdup(params->stash_file);
 
-    find_db_spec(*ctx);
+#define is_set(M) (params && params->mask & KADM5_CONFIG_ ## M)
+    if (params)
+        (*ctx)->config.mask = params->mask;
+    if (is_set(REALM)) {
+	(*ctx)->config.realm = strdup(params->realm);
+        if ((*ctx)->config.realm == NULL)
+	    return krb5_enomem(context);
+    } else {
+	ret = krb5_get_default_realm(context, &(*ctx)->config.realm);
+        if (ret)
+            return ret;
+    }
+    if (is_set(DBNAME)) {
+	(*ctx)->config.dbname = strdup(params->dbname);
+        if ((*ctx)->config.dbname == NULL)
+	    return krb5_enomem(context);
+    }
+    if (is_set(ACL_FILE)) {
+	(*ctx)->config.acl_file = strdup(params->acl_file);
+        if ((*ctx)->config.acl_file == NULL)
+	    return krb5_enomem(context);
+    }
+    if (is_set(STASH_FILE)) {
+	(*ctx)->config.stash_file = strdup(params->stash_file);
+        if ((*ctx)->config.stash_file == NULL)
+	    return krb5_enomem(context);
+    }
+
+    ret = find_db_spec(*ctx);
+    if (ret == 0)
+        ret = _kadm5_s_init_hooks(*ctx);
+    if (ret != 0) {
+	kadm5_s_destroy(*ctx);
+	*ctx = NULL;
+	return ret;
+    }
 
     /* PROFILE can't be specified for now */
     /* KADMIND_PORT is supposed to be used on the server also,

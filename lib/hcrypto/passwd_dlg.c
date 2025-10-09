@@ -36,13 +36,10 @@
  * Date:	June 1996
  */
 
-#ifdef HAVE_CONFIG_H
 #include <config.h>
-RCSID("$Id$");
-#endif
+#include <roken.h>
 
 #ifdef WIN32	/* Visual C++ 4.0 (Windows95/NT) */
-#include <Windows.h>
 #include "passwd_dlg.h"
 #include "Resource.h"
 #define passwdBufSZ 64
@@ -80,11 +77,11 @@ pwd_dialog(char *buf, int size)
     {
     case IDOK:
 	strlcpy(buf, passwd, size);
-	memset (passwd, 0, sizeof(passwd));
+	memset_s (passwd, sizeof(passwd), 0, sizeof(passwd));
 	return 0;
     case IDCANCEL:
     default:
-	memset (passwd, 0, sizeof(passwd));
+	memset_s (passwd, sizeof(passwd), 0, sizeof(passwd));
 	return 1;
     }
 }

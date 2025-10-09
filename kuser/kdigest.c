@@ -31,8 +31,10 @@
  * SUCH DAMAGE.
  */
 
+#define HC_DEPRECATED_CRYPTO
+
 #include "kuser_locl.h"
-RCSID("$Id$");
+
 #include <kdigest-commands.h>
 #include <hex.h>
 #include <base64.h>
@@ -225,15 +227,19 @@ client_chap(const void *server_nonce, size_t snoncelen,
 	    unsigned char server_identifier,
 	    const char *password)
 {
-    MD5_CTX ctx;
+    EVP_MD_CTX *ctx;
     unsigned char md[MD5_DIGEST_LENGTH];
     char *h;
 
-    MD5_Init(&ctx);
-    MD5_Update(&ctx, &server_identifier, 1);
-    MD5_Update(&ctx, password, strlen(password));
-    MD5_Update(&ctx, server_nonce, snoncelen);
-    MD5_Final(md, &ctx);
+    ctx = EVP_MD_CTX_create();
+    EVP_DigestInit_ex(ctx, EVP_md5(), NULL);
+
+    EVP_DigestUpdate(ctx, &server_identifier, 1);
+    EVP_DigestUpdate(ctx, password, strlen(password));
+    EVP_DigestUpdate(ctx, server_nonce, snoncelen);
+    EVP_DigestFinal_ex(ctx, md, NULL);
+
+    EVP_MD_CTX_destroy(ctx);
 
     hex_encode(md, 16, &h);
 
@@ -266,27 +272,31 @@ client_mschapv2(const void *server_nonce, size_t snoncelen,
 		const char *username,
 		const char *password)
 {
-    SHA_CTX ctx;
-    MD4_CTX hctx;
-    unsigned char md[SHA_DIGEST_LENGTH], challange[SHA_DIGEST_LENGTH];
+    EVP_MD_CTX *hctx, *ctx;
+    unsigned char md[SHA_DIGEST_LENGTH], challenge[SHA_DIGEST_LENGTH];
     unsigned char hmd[MD4_DIGEST_LENGTH];
     struct ntlm_buf answer;
     int i, len, ret;
     char *h;
 
-    SHA1_Init(&ctx);
-    SHA1_Update(&ctx, client_nonce, cnoncelen);
-    SHA1_Update(&ctx, server_nonce, snoncelen);
-    SHA1_Update(&ctx, username, strlen(username));
-    SHA1_Final(md, &ctx);
+    ctx = EVP_MD_CTX_create();
+    EVP_DigestInit_ex(ctx, EVP_sha1(), NULL);
 
-    MD4_Init(&hctx);
+    EVP_DigestUpdate(ctx, client_nonce, cnoncelen);
+    EVP_DigestUpdate(ctx, server_nonce, snoncelen);
+    EVP_DigestUpdate(ctx, username, strlen(username));
+    EVP_DigestFinal_ex(ctx, md, NULL);
+
+
+    hctx = EVP_MD_CTX_create();
+    EVP_DigestInit_ex(hctx, EVP_md4(), NULL);
     len = strlen(password);
     for (i = 0; i < len; i++) {
-	MD4_Update(&hctx, &password[i], 1);
-	MD4_Update(&hctx, &password[len], 1);
-    }	
-    MD4_Final(hmd, &hctx);
+	EVP_DigestUpdate(hctx, &password[i], 1);
+	EVP_DigestUpdate(hctx, &password[len], 1);
+    }
+    EVP_DigestFinal_ex(hctx, hmd, NULL);
+
 
     /* ChallengeResponse */
     ret = heim_ntlm_calculate_ntlm1(hmd, sizeof(hmd), md, &answer);
@@ -298,46 +308,50 @@ client_mschapv2(const void *server_nonce, size_t snoncelen,
     free(h);
 
     /* PasswordHash */
-    MD4_Init(&hctx);
-    MD4_Update(&hctx, hmd, sizeof(hmd));
-    MD4_Final(hmd, &hctx);
+    EVP_DigestInit_ex(hctx, EVP_md4(), NULL);
+    EVP_DigestUpdate(hctx, hmd, sizeof(hmd));
+    EVP_DigestFinal_ex(hctx, hmd, NULL);
+
 
     /* GenerateAuthenticatorResponse */
-    SHA1_Init(&ctx);
-    SHA1_Update(&ctx, hmd, sizeof(hmd));
-    SHA1_Update(&ctx, answer.data, answer.length);
-    SHA1_Update(&ctx, ms_chap_v2_magic1, sizeof(ms_chap_v2_magic1));
-    SHA1_Final(md, &ctx);
+    EVP_DigestInit_ex(ctx, EVP_sha1(), NULL);
+    EVP_DigestUpdate(ctx, hmd, sizeof(hmd));
+    EVP_DigestUpdate(ctx, answer.data, answer.length);
+    EVP_DigestUpdate(ctx, ms_chap_v2_magic1, sizeof(ms_chap_v2_magic1));
+    EVP_DigestFinal_ex(ctx, md, NULL);
 
     /* ChallengeHash */
-    SHA1_Init(&ctx);
-    SHA1_Update(&ctx, client_nonce, cnoncelen);
-    SHA1_Update(&ctx, server_nonce, snoncelen);
-    SHA1_Update(&ctx, username, strlen(username));
-    SHA1_Final(challange, &ctx);
+    EVP_DigestInit_ex(ctx, EVP_sha1(), NULL);
+    EVP_DigestUpdate(ctx, client_nonce, cnoncelen);
+    EVP_DigestUpdate(ctx, server_nonce, snoncelen);
+    EVP_DigestUpdate(ctx, username, strlen(username));
+    EVP_DigestFinal_ex(ctx, challenge, NULL);
 
-    SHA1_Init(&ctx);
-    SHA1_Update(&ctx, md, sizeof(md));
-    SHA1_Update(&ctx, challange, 8);
-    SHA1_Update(&ctx, ms_chap_v2_magic2, sizeof(ms_chap_v2_magic2));
-    SHA1_Final(md, &ctx);
+    EVP_DigestInit_ex(ctx, EVP_sha1(), NULL);
+    EVP_DigestUpdate(ctx, md, sizeof(md));
+    EVP_DigestUpdate(ctx, challenge, 8);
+    EVP_DigestUpdate(ctx, ms_chap_v2_magic2, sizeof(ms_chap_v2_magic2));
+    EVP_DigestFinal_ex(ctx, md, NULL);
 
     hex_encode(md, sizeof(md), &h);
     printf("AuthenticatorResponse=%s\n", h);
     free(h);
 
     /* get_master, rfc 3079 3.4 */
-    SHA1_Init(&ctx);
-    SHA1_Update(&ctx, hmd, sizeof(hmd));
-    SHA1_Update(&ctx, answer.data, answer.length);
-    SHA1_Update(&ctx, ms_rfc3079_magic1, sizeof(ms_rfc3079_magic1));
-    SHA1_Final(md, &ctx);
+    EVP_DigestInit_ex(ctx, EVP_sha1(), NULL);
+    EVP_DigestUpdate(ctx, hmd, sizeof(hmd));
+    EVP_DigestUpdate(ctx, answer.data, answer.length);
+    EVP_DigestUpdate(ctx, ms_rfc3079_magic1, sizeof(ms_rfc3079_magic1));
+    EVP_DigestFinal_ex(ctx, md, NULL);
 
     free(answer.data);
 
     hex_encode(md, 16, &h);
     printf("session-key=%s\n", h);
     free(h);
+
+    EVP_MD_CTX_destroy(hctx);
+    EVP_MD_CTX_destroy(ctx);
 }
 
 
@@ -370,7 +384,7 @@ digest_client_request(struct digest_client_request_options *opt,
 	client_nonce = malloc(cnoncelen);
 	if (client_nonce == NULL)
 	    errx(1, "client_nonce");
-	
+
 	cnoncelen = hex_decode(opt->client_nonce_string,
 			       client_nonce, cnoncelen);
 	if (cnoncelen <= 0)
@@ -419,9 +433,10 @@ ntlm_server_init(struct ntlm_server_init_options *opt,
     krb5_error_code ret;
     krb5_ntlm ntlm;
     struct ntlm_type2 type2;
-    krb5_data challange, opaque;
+    krb5_data challenge, opaque;
     struct ntlm_buf data;
     char *s;
+    static char zero2[] = "\x00\x00";
 
     memset(&type2, 0, sizeof(type2));
 
@@ -443,34 +458,34 @@ ntlm_server_init(struct ntlm_server_init_options *opt,
      *
      */
 
-    ret = krb5_ntlm_init_get_challange(context, ntlm, &challange);
+    ret = krb5_ntlm_init_get_challenge(context, ntlm, &challenge);
     if (ret)
-	krb5_err(context, 1, ret, "krb5_ntlm_init_get_challange");
+	krb5_err(context, 1, ret, "krb5_ntlm_init_get_challenge");
 
-    if (challange.length != sizeof(type2.challange))
-	krb5_errx(context, 1, "ntlm challange have wrong length");
-    memcpy(type2.challange, challange.data, sizeof(type2.challange));
-    krb5_data_free(&challange);
+    if (challenge.length != sizeof(type2.challenge))
+	krb5_errx(context, 1, "ntlm challenge have wrong length");
+    memcpy(type2.challenge, challenge.data, sizeof(type2.challenge));
+    krb5_data_free(&challenge);
 
     ret = krb5_ntlm_init_get_flags(context, ntlm, &type2.flags);
     if (ret)
 	krb5_err(context, 1, ret, "krb5_ntlm_init_get_flags");
 
     krb5_ntlm_init_get_targetname(context, ntlm, &type2.targetname);
-    type2.targetinfo.data = "\x00\x00";
+    type2.targetinfo.data = zero2;
     type2.targetinfo.length = 2;
-	
+
     ret = heim_ntlm_encode_type2(&type2, &data);
     if (ret)
 	krb5_errx(context, 1, "heim_ntlm_encode_type2");
 
     free(type2.targetname);
-	
+
     /*
      *
      */
 
-    base64_encode(data.data, data.length, &s);
+    rk_base64_encode(data.data, data.length, &s);
     free(data.data);
     printf("type2=%s\n", s);
     free(s);
@@ -483,7 +498,7 @@ ntlm_server_init(struct ntlm_server_init_options *opt,
     if (ret)
 	krb5_err(context, 1, ret, "krb5_ntlm_init_get_opaque");
 
-    base64_encode(opaque.data, opaque.length, &s);
+    rk_base64_encode(opaque.data, opaque.length, &s);
     krb5_data_free(&opaque);
     printf("opaque=%s\n", s);
     free(s);

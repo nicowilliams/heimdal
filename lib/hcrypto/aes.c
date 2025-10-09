@@ -31,17 +31,12 @@
  * SUCH DAMAGE.
  */
 
-#ifdef HAVE_CONFIG_H
-#include "config.h"
-
-RCSID("$Id$");
-#endif
+#include <config.h>
+#include <roken.h>
 
 #ifdef KRB5
 #include <krb5-types.h>
 #endif
-
-#include <string.h>
 
 #include "rijndael-alg-fst.h"
 #include "aes.h"
@@ -120,5 +115,28 @@ AES_cbc_encrypt(const unsigned char *in, unsigned char *out,
 		out[i] ^= iv[i];
 	    memcpy(iv, tmp, AES_BLOCK_SIZE);
 	}
+    }
+}
+
+void
+AES_cfb8_encrypt(const unsigned char *in, unsigned char *out,
+                 unsigned long size, const AES_KEY *key,
+                 unsigned char *iv, int forward_encrypt)
+{
+    int i;
+
+    for (i = 0; i < size; i++) {
+        unsigned char tmp[AES_BLOCK_SIZE + 1];
+
+        memcpy(tmp, iv, AES_BLOCK_SIZE);
+        AES_encrypt(iv, iv, key);
+        if (!forward_encrypt) {
+            tmp[AES_BLOCK_SIZE] = in[i];
+        }
+        out[i] = in[i] ^ iv[0];
+        if (forward_encrypt) {
+            tmp[AES_BLOCK_SIZE] = out[i];
+        }
+        memcpy(iv, &tmp[1], AES_BLOCK_SIZE);
     }
 }

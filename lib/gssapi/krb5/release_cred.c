@@ -33,7 +33,7 @@
 
 #include "gsskrb5_locl.h"
 
-OM_uint32 _gsskrb5_release_cred
+OM_uint32 GSSAPI_CALLCONV _gsskrb5_release_cred
            (OM_uint32 * minor_status,
             gss_cred_id_t * cred_handle
            )
@@ -54,6 +54,7 @@ OM_uint32 _gsskrb5_release_cred
 
     HEIMDAL_MUTEX_lock(&cred->cred_id_mutex);
 
+    free(cred->destination_realm);
     if (cred->principal != NULL)
         krb5_free_principal(context, cred->principal);
     if (cred->keytab != NULL)

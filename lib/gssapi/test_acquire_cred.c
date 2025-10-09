@@ -35,6 +35,7 @@
 #include <config.h>
 #endif
 
+#include <roken.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -43,12 +44,9 @@
 #include <gssapi_krb5.h>
 #include <gssapi_spnego.h>
 #include <err.h>
-#include <roken.h>
 #include <getarg.h>
 
 #include "test_common.h"
-
-RCSID("$Id$");
 
 static void
 print_time(OM_uint32 time_rec)
@@ -81,7 +79,7 @@ test_add(gss_cred_id_t cred_handle)
 				 NULL,
 				 &time_rec,
 				 NULL);
-			
+
     if (GSS_ERROR(major_status))
 	errx(1, "add_cred failed");
 
@@ -110,7 +108,7 @@ copy_cred(void)
 				    &time_rec);
     if (GSS_ERROR(major_status))
 	errx(1, "acquire_cred failed");
-	
+
     print_time(time_rec);
 
     test_add(cred_handle);
@@ -128,7 +126,8 @@ static gss_cred_id_t
 acquire_cred_service(const char *service,
 		     gss_OID nametype,
 		     gss_OID_set oidset,
-		     int flags)
+		     gss_cred_usage_t usage,
+		     gss_const_key_value_set_t cred_store)
 {
     OM_uint32 major_status, minor_status;
     gss_cred_id_t cred_handle;
@@ -139,7 +138,7 @@ acquire_cred_service(const char *service,
     if (service) {
 	name_buffer.value = rk_UNCONST(service);
 	name_buffer.length = strlen(service);
-	
+
 	major_status = gss_import_name(&minor_status,
 				       &name_buffer,
 				       nametype,
@@ -148,14 +147,15 @@ acquire_cred_service(const char *service,
 	    errx(1, "import_name failed");
     }
 
-    major_status = gss_acquire_cred(&minor_status,
-				    name,
-				    0,
-				    oidset,
-				    flags,
-				    &cred_handle,
-				    NULL,
-				    &time_rec);
+    major_status = gss_acquire_cred_from(&minor_status,
+					 name,
+					 0,
+					 oidset,
+					 usage,
+					 cred_store,
+					 &cred_handle,
+					 NULL,
+					 &time_rec);
     if (GSS_ERROR(major_status)) {
 	warnx("acquire_cred failed: %s",
 	     gssapi_err(major_status, minor_status, GSS_C_NO_OID));
@@ -182,16 +182,18 @@ static char *acquire_type;
 static char *target_name;
 static char *name_type;
 static char *ccache;
+static char *client_keytab;
 static int num_loops = 1;
 
 static struct getargs args[] = {
     {"acquire-name", 0,	arg_string,	&acquire_name, "name", NULL },
     {"acquire-type", 0,	arg_string,	&acquire_type, "type", NULL },
     {"enctype", 0,	arg_integer,	&enctype, "enctype-num", NULL },
-    {"loops", 0,	arg_integer,	&num_loops, "enctype-num", NULL },
-    {"kerberos", 0,	arg_flag,	&kerberos_flag, "enctype-num", NULL },
+    {"loops", 0,	arg_integer,	&num_loops, "num-loops", NULL },
+    {"kerberos", 0,	arg_flag,	&kerberos_flag, NULL, NULL },
     {"target-name", 0,	arg_string,	&target_name, "name", NULL },
     {"ccache", 0,	arg_string,	&ccache, "name", NULL },
+    {"client-keytab", 0,arg_string,	&client_keytab, "name", NULL },
     {"name-type", 0,	arg_string,	&name_type, "type", NULL },
     {"version",	0,	arg_flag,	&version_flag, "print version", NULL },
     {"help",	0,	arg_flag,	&help_flag,  NULL, NULL }
@@ -207,14 +209,19 @@ usage (int ret)
 int
 main(int argc, char **argv)
 {
-    gss_OID_set oidset = GSS_C_NULL_OID_SET; 
+    gss_OID_set oidset = GSS_C_NULL_OID_SET;
     gss_OID mechoid = GSS_C_NO_OID;
     OM_uint32 maj_stat, min_stat;
     gss_cred_id_t cred;
     gss_name_t target = GSS_C_NO_NAME;
     int i, optidx = 0;
-    OM_uint32 flag;
-    gss_OID type;
+    gss_cred_usage_t cred_usage = GSS_C_BOTH;
+    gss_OID type = GSS_C_NT_HOSTBASED_SERVICE;
+    gss_key_value_set_desc store, *storep = GSS_C_NO_CRED_STORE;
+    gss_key_value_element_desc elements[2];
+
+    store.count = 0;
+    store.elements = elements;
 
     setprogname(argv[0]);
     if(getarg(args, sizeof(args) / sizeof(args[0]), argc, argv, &optidx))
@@ -236,16 +243,15 @@ main(int argc, char **argv)
 
     if (acquire_type) {
 	if (strcasecmp(acquire_type, "both") == 0)
-	    flag = GSS_C_BOTH;
+	    cred_usage = GSS_C_BOTH;
 	else if (strcasecmp(acquire_type, "accept") == 0)
-	    flag = GSS_C_ACCEPT;
+	    cred_usage = GSS_C_ACCEPT;
 	else if (strcasecmp(acquire_type, "initiate") == 0)
-	    flag = GSS_C_INITIATE;
+	    cred_usage = GSS_C_INITIATE;
 	else
 	    errx(1, "unknown type %s", acquire_type);
-    } else
-	flag = GSS_C_ACCEPT;
-	
+    }
+
     if (name_type) {
 	if (strcasecmp("hostbased-service", name_type) == 0)
 	    type = GSS_C_NT_HOSTBASED_SERVICE;
@@ -253,25 +259,31 @@ main(int argc, char **argv)
 	    type = GSS_C_NT_USER_NAME;
 	else
 	    errx(1, "unknown name type %s", name_type);
-    } else
-	type = GSS_C_NT_HOSTBASED_SERVICE;
+    }
 
     if (ccache) {
-	maj_stat = gss_krb5_ccache_name(&min_stat, ccache, NULL);
-	if (GSS_ERROR(maj_stat))
-	    errx(1, "gss_krb5_ccache_name %s",
-		 gssapi_err(maj_stat, min_stat, GSS_C_NO_OID));
+	store.elements[store.count].key = "ccache";
+	store.elements[store.count].value = ccache;
+	store.count++;
     }
+    if (client_keytab) {
+	store.elements[store.count].key = "client_keytab";
+	store.elements[store.count].value = client_keytab;
+	store.count++;
+    }
+
+    if (store.count)
+	storep = &store;
 
     if (kerberos_flag) {
 	mechoid = GSS_KRB5_MECHANISM;
-	
-	maj_stat = gss_create_empty_oid_set(&min_stat, &oidset); 
+
+	maj_stat = gss_create_empty_oid_set(&min_stat, &oidset);
 	if (maj_stat != GSS_S_COMPLETE)
 	    errx(1, "gss_create_empty_oid_set: %s",
 		 gssapi_err(maj_stat, min_stat, GSS_C_NO_OID));
-	
-	maj_stat = gss_add_oid_set_member(&min_stat, GSS_KRB5_MECHANISM, &oidset); 
+
+	maj_stat = gss_add_oid_set_member(&min_stat, GSS_KRB5_MECHANISM, &oidset);
 	if (maj_stat != GSS_S_COMPLETE)
 	    errx(1, "gss_add_oid_set_member: %s",
 		 gssapi_err(maj_stat, min_stat, GSS_C_NO_OID));
@@ -280,10 +292,10 @@ main(int argc, char **argv)
     if (target_name) {
 	gss_buffer_desc name;
 
-	name.value = target_name; 
-	name.length = strlen(target_name); 
+	name.value = target_name;
+	name.length = strlen(target_name);
 	maj_stat = gss_import_name(&min_stat, &name,
-				   GSS_C_NT_HOSTBASED_SERVICE, &target); 
+				   GSS_C_NT_HOSTBASED_SERVICE, &target);
 	if (maj_stat != GSS_S_COMPLETE)
 	    errx(1, "gss_import_name: %s",
 		 gssapi_err(maj_stat, min_stat, GSS_C_NO_OID));
@@ -291,18 +303,18 @@ main(int argc, char **argv)
 
     for (i = 0; i < num_loops; i++) {
 
-	cred = acquire_cred_service(acquire_name, type, oidset, flag);
+	cred = acquire_cred_service(acquire_name, type, oidset, cred_usage, storep);
 
 	if (enctype) {
 	    int32_t enctypelist = enctype;
-	    
-	    maj_stat = gss_krb5_set_allowable_enctypes(&min_stat, cred, 
-						       1, &enctypelist); 
+
+	    maj_stat = gss_krb5_set_allowable_enctypes(&min_stat, cred,
+						       1, &enctypelist);
 	    if (maj_stat)
 		errx(1, "gss_krb5_set_allowable_enctypes: %s",
 		     gssapi_err(maj_stat, min_stat, GSS_C_NO_OID));
 	}
-	
+
 	if (target) {
 	    gss_ctx_id_t context = GSS_C_NO_CONTEXT;
 	    gss_buffer_desc out;
@@ -310,12 +322,12 @@ main(int argc, char **argv)
 	    out.length = 0;
 	    out.value = NULL;
 
-	    maj_stat = gss_init_sec_context(&min_stat, 
-					    cred, &context, 
-					    target, mechoid, 
+	    maj_stat = gss_init_sec_context(&min_stat,
+					    cred, &context,
+					    target, mechoid,
 					    GSS_C_MUTUAL_FLAG, 0, NULL,
-					    GSS_C_NO_BUFFER, NULL, 
-					    &out, NULL, NULL); 
+					    GSS_C_NO_BUFFER, NULL,
+					    &out, NULL, NULL);
 	    if (maj_stat != GSS_S_COMPLETE && maj_stat != GSS_S_CONTINUE_NEEDED)
 		errx(1, "init_sec_context failed: %s",
 		     gssapi_err(maj_stat, min_stat, GSS_C_NO_OID));
@@ -325,7 +337,8 @@ main(int argc, char **argv)
 	}
 	gss_release_cred(&min_stat, &cred);
     }
-
+    gss_release_oid_set(&min_stat, &oidset);
+    gss_release_name(&min_stat, &target);
 
     return 0;
 }

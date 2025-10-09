@@ -41,7 +41,7 @@
  * @ingroup krb5_crypto
  */
 
-void KRB5_LIB_FUNCTION
+KRB5_LIB_FUNCTION void KRB5_LIB_CALL
 krb5_keyblock_zero(krb5_keyblock *keyblock)
 {
     keyblock->keytype = 0;
@@ -57,15 +57,16 @@ krb5_keyblock_zero(krb5_keyblock *keyblock)
  * @ingroup krb5_crypto
  */
 
-void KRB5_LIB_FUNCTION
+KRB5_LIB_FUNCTION void KRB5_LIB_CALL
 krb5_free_keyblock_contents(krb5_context context,
 			    krb5_keyblock *keyblock)
 {
     if(keyblock) {
 	if (keyblock->keyvalue.data != NULL)
-	    memset(keyblock->keyvalue.data, 0, keyblock->keyvalue.length);
+	    memset_s(keyblock->keyvalue.data, keyblock->keyvalue.length,
+		     0, keyblock->keyvalue.length);
 	krb5_data_free (&keyblock->keyvalue);
-	keyblock->keytype = ENCTYPE_NULL;
+	keyblock->keytype = KRB5_ENCTYPE_NULL;
     }
 }
 
@@ -79,7 +80,7 @@ krb5_free_keyblock_contents(krb5_context context,
  * @ingroup krb5_crypto
  */
 
-void KRB5_LIB_FUNCTION
+KRB5_LIB_FUNCTION void KRB5_LIB_CALL
 krb5_free_keyblock(krb5_context context,
 		   krb5_keyblock *keyblock)
 {
@@ -97,12 +98,12 @@ krb5_free_keyblock(krb5_context context,
  * @param inblock the key to copy
  * @param to the output key.
  *
- * @param 0 on success or a Kerberos 5 error code
+ * @return 0 on success or a Kerberos 5 error code
  *
  * @ingroup krb5_crypto
  */
 
-krb5_error_code KRB5_LIB_FUNCTION
+KRB5_LIB_FUNCTION krb5_error_code KRB5_LIB_CALL
 krb5_copy_keyblock_contents (krb5_context context,
 			     const krb5_keyblock *inblock,
 			     krb5_keyblock *to)
@@ -118,27 +119,25 @@ krb5_copy_keyblock_contents (krb5_context context,
  * @param inblock the key to copy
  * @param to the output key.
  *
- * @param 0 on success or a Kerberos 5 error code
+ * @return 0 on success or a Kerberos 5 error code
  *
  * @ingroup krb5_crypto
  */
 
 
-krb5_error_code KRB5_LIB_FUNCTION
+KRB5_LIB_FUNCTION krb5_error_code KRB5_LIB_CALL
 krb5_copy_keyblock (krb5_context context,
 		    const krb5_keyblock *inblock,
 		    krb5_keyblock **to)
 {
     krb5_error_code ret;
     krb5_keyblock *k;
-    
+
     *to = NULL;
 
     k = calloc (1, sizeof(*k));
-    if (k == NULL) {
-	krb5_set_error_message(context, ENOMEM, "malloc: out of memory");
-	return ENOMEM;
-    }
+    if (k == NULL)
+	return krb5_enomem(context);
 
     ret = krb5_copy_keyblock_contents (context, inblock, k);
     if (ret) {
@@ -155,7 +154,7 @@ krb5_copy_keyblock (krb5_context context,
  * @ingroup krb5_crypto
  */
 
-krb5_enctype
+KRB5_LIB_FUNCTION krb5_enctype KRB5_LIB_CALL
 krb5_keyblock_get_enctype(const krb5_keyblock *block)
 {
     return block->keytype;
@@ -165,10 +164,12 @@ krb5_keyblock_get_enctype(const krb5_keyblock *block)
  * Fill in `key' with key data of type `enctype' from `data' of length
  * `size'. Key should be freed using krb5_free_keyblock_contents().
  *
+ * @return 0 on success or a Kerberos 5 error code
+ *
  * @ingroup krb5_crypto
  */
 
-krb5_error_code KRB5_LIB_FUNCTION
+KRB5_LIB_FUNCTION krb5_error_code KRB5_LIB_CALL
 krb5_keyblock_init(krb5_context context,
 		   krb5_enctype type,
 		   const void *data,

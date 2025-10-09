@@ -60,7 +60,30 @@
  * }
  */
 
-krb5_error_code KRB5_LIB_FUNCTION
+/**
+ * Perform the client side of the sendauth protocol.
+ *
+ * @param context        Kerberos 5 context.
+ * @param auth_context   Authentication context of the peer.
+ * @param p_fd           Socket associated to the connection.
+ * @param appl_version   Server-specific string.
+ * @param client         Client principal. If NULL, use the credentials in \a ccache.
+ * @param server         Server principal.
+ * @param ap_req_options Options for the AP_REQ message. See the AP_OPTS_* defines in krb5.h.
+ * @param in_data        FIXME
+ * @param in_creds       FIXME
+ * @param ccache         Credentials cache. If NULL, use the default credentials cache.
+ * @param ret_error      If not NULL, will be set to the error reported by server, if any.
+ *                       Must be deallocated with krb5_free_error_contents().
+ * @param rep_result     If not NULL, will be set to the EncApRepPart of the AP_REP message.
+ *                       Must be deallocated with krb5_free_ap_rep_enc_part().
+ * @param out_creds      FIXME If not NULL, will be set to FIXME. Must be deallocated with
+ *                       krb5_free_creds().
+ *
+ * @return 0 to indicate success. Otherwise a Kerberos error code is
+ *         returned, see krb5_get_error_message().
+ */
+KRB5_LIB_FUNCTION krb5_error_code KRB5_LIB_CALL
 krb5_sendauth(krb5_context context,
 	      krb5_auth_context *auth_context,
 	      krb5_pointer p_fd,
@@ -86,6 +109,7 @@ krb5_sendauth(krb5_context context,
     ssize_t sret;
     krb5_boolean my_ccache = FALSE;
 
+    memset(&this_cred, 0, sizeof(this_cred));
     len = strlen(version) + 1;
     net_len = htonl(len);
     if (krb5_net_write (context, p_fd, &net_len, 4) != 4
@@ -136,7 +160,6 @@ krb5_sendauth(krb5_context context,
 	    }
 	    client = this_client;
 	}
-	memset(&this_cred, 0, sizeof(this_cred));
 	this_cred.client = client;
 	this_cred.server = server;
 	this_cred.times.endtime = 0;
@@ -161,13 +184,6 @@ krb5_sendauth(krb5_context context,
 				in_data,
 				creds,
 				&ap_req);
-
-    if (out_creds)
-	*out_creds = creds;
-    else
-	krb5_free_creds(context, creds);
-    if(this_client)
-	krb5_free_principal(context, this_client);
 
     if (ret)
 	return ret;
@@ -211,7 +227,7 @@ krb5_sendauth(krb5_context context,
 
     if (ap_req_options & AP_OPTS_MUTUAL_REQUIRED) {
 	krb5_data ap_rep;
-	krb5_ap_rep_enc_part *ignore;
+	krb5_ap_rep_enc_part *ignore = NULL;
 
 	krb5_data_zero (&ap_rep);
 	ret = krb5_read_message (context,
@@ -228,5 +244,14 @@ krb5_sendauth(krb5_context context,
 	if (rep_result == NULL)
 	    krb5_free_ap_rep_enc_part (context, ignore);
     }
-    return 0;
+
+    if (out_creds)
+        ret = krb5_copy_creds(context, creds, out_creds);
+
+    this_cred.server = NULL;
+    if (creds == &this_cred)
+        krb5_free_cred_contents(context, creds);
+    else if (creds)
+        krb5_free_creds(context, creds);
+    return ret;
 }

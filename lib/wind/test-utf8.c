@@ -39,8 +39,6 @@
 #include <err.h>
 #include "windlocl.h"
 
-RCSID("$Id$");
-
 static const char *failing_testcases[] = {
     "\x80",
     "\xFF",
@@ -52,21 +50,32 @@ static const char *failing_testcases[] = {
     "\xF7",
     "\xC0\x01",
     "\xC0\x7F",
+    "\xC0\x80",
+    "\xC0\x81",
     "\xC0\xFF",
     "\xC0\x80\x80",
+    "\xC1\x80",
     "\xE0\x01",
     "\xE0\x7F",
     "\xE0\x80",
     "\xE0\xFF",
     "\xE0\x80\x20",
     "\xE0\x80\xFF",
+    "\xE0\x80\x80",
+    "\xE0\x80\x81",
     "\xE0\x80\x80\x80",
+    "\xE0\x81\x80",
     "\xF0\x01",
     "\xF0\x80",
     "\xF0\x80\x01",
     "\xF0\x80\x80",
     "\xF0\x80\x80\x01",
+    "\xF0\x80\x80\x80",
+    "\xF0\x80\x80\x81",
     "\xF0\x80\x80\xFF",
+    "\xF0\x80\x81\x80",
+    "\xF0\x81\x80\x80",
+    "\xF7\xBF\xBF\xBF",
     NULL
 };
 
@@ -80,25 +89,14 @@ struct testcase {
 };
 
 static const struct testcase testcases[] = {
-    {"", 0, {}},
-    {"\x01", 1, {1}},
-    {"\x7F", 1, {0x7F}},
-    {"\x01\x7F", 2, {0x01, 0x7F}},
-    {"\xC0\x80", 1, {0}},
-    {"\xC0\x81", 1, {1}},
-    {"\xC1\x80", 1, {0x40}},
-    {"\xDF\xBF", 1, {0x7FF}},
-    {"\xE0\x80\x80", 1, {0}},
-    {"\xE0\x80\x81", 1, {1}},
-    {"\xE0\x81\x80", 1, {0x40}},
-    {"\xE1\x80\x80", 1, {0x1000}},
-    {"\xEF\xBF\xBF", 1, {0xFFFF}},
-    {"\xF0\x80\x80\x80", 1, {0}},
-    {"\xF0\x80\x80\x81", 1, {1}},
-    {"\xF0\x80\x81\x80", 1, {0x40}},
-    {"\xF0\x81\x80\x80", 1, {0x1000}},
-    {"\xF1\x80\x80\x80", 1, {0x40000}},
-    {"\xF7\xBF\xBF\xBF", 1, {0X1FFFFF}, 1},
+    {"", 0, {0}, 0},
+    {"\x01", 1, {1}, 0},
+    {"\x7F", 1, {0x7F}, 0},
+    {"\x01\x7F", 2, {0x01, 0x7F}, 0},
+    {"\xDF\xBF", 1, {0x7FF}, 0},
+    {"\xE1\x80\x80", 1, {0x1000}, 0},
+    {"\xEF\xBF\xBF", 1, {0xFFFF}, 0},
+    {"\xF1\x80\x80\x80", 1, {0x40000}, 0},
 };
 
 int

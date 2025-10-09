@@ -42,8 +42,8 @@
 
 #include "roken.h"
 
-int ROKEN_LIB_FUNCTION
-closefrom(int fd)
+ROKEN_LIB_FUNCTION int ROKEN_LIB_CALL
+rk_closefrom(int fd)
 {
     int num = getdtablesize();
 

@@ -31,17 +31,10 @@
  * SUCH DAMAGE.
  */
 
-#ifdef HAVE_CONFIG_H
 #include <config.h>
-#endif
-
-RCSID("$Id$");
-
-#include <stdio.h>
-#include <stdlib.h>
-#include <dsa.h>
-
 #include <roken.h>
+
+#include <dsa.h>
 
 /*
  *
@@ -77,7 +70,7 @@ DSA_free(DSA *dsa)
     free_if(dsa->r);
 #undef free_if
 
-    memset(dsa, 0, sizeof(*dsa));
+    memset_s(dsa, sizeof(*dsa), 0, sizeof(*dsa));
     free(dsa);
 
 }
@@ -93,7 +86,16 @@ DSA_up_ref(DSA *dsa)
  */
 
 static const DSA_METHOD dsa_null_method = {
-    "hcrypto null DSA"
+    "hcrypto null DSA",
+    NULL,
+    NULL,
+    NULL,
+    NULL,
+    NULL,
+    NULL,
+    NULL,
+    0,
+    NULL
 };
 
 const DSA_METHOD *

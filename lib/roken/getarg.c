@@ -91,7 +91,7 @@ mandoc_template(struct getargs *args,
 		const char *extra_string,
 		char *(i18n)(const char *))
 {
-    int i;
+    size_t i;
     char timestr[64], cmd[64];
     char buf[128];
     const char *p;
@@ -114,8 +114,7 @@ mandoc_template(struct getargs *args,
     printf(".Os OPERATING_SYSTEM\n");
     printf(".Sh NAME\n");
     printf(".Nm %s\n", p);
-    printf(".Nd\n");
-    printf("in search of a description\n");
+    printf(".Nd in search of a description\n");
     printf(".Sh SYNOPSIS\n");
     printf(".Nm\n");
     for(i = 0; i < num_args; i++){
@@ -133,7 +132,7 @@ mandoc_template(struct getargs *args,
 	    }
 	    if(args[i].long_name) {
 		print_arg(buf, sizeof(buf), 1, 1, args + i, i18n);
-		printf("Fl -%s%s%s",
+		printf("Fl Fl %s%s%s",
 		       args[i].type == arg_negative_flag ? "no-" : "",
 		       args[i].long_name, buf);
 	    }
@@ -142,7 +141,7 @@ mandoc_template(struct getargs *args,
 	    print_arg(buf, sizeof(buf), 1, 0, args + i, i18n);
 	    printf(".Oo Fl %c%s \\*(Ba Xo\n", args[i].short_name, buf);
 	    print_arg(buf, sizeof(buf), 1, 1, args + i, i18n);
-	    printf(".Fl -%s%s\n.Xc\n.Oc\n", args[i].long_name, buf);
+	    printf(".Fl Fl %s%s\n.Xc\n.Oc\n", args[i].long_name, buf);
 	}
     /*
 	    if(args[i].type == arg_strings)
@@ -165,7 +164,7 @@ mandoc_template(struct getargs *args,
 	    printf("\n");
 	}
 	if(args[i].long_name){
-	    printf(".Fl -%s%s",
+	    printf(".Fl Fl %s%s",
 		   args[i].type == arg_negative_flag ? "no-" : "",
 		   args[i].long_name);
 	    print_arg(buf, sizeof(buf), 1, 1, args + i, i18n);
@@ -207,7 +206,7 @@ builtin_i18n(const char *str)
     return rk_UNCONST(str);
 }
 
-void ROKEN_LIB_FUNCTION
+ROKEN_LIB_FUNCTION void ROKEN_LIB_CALL
 arg_printusage (struct getargs *args,
 		size_t num_args,
 		const char *progname,
@@ -217,19 +216,17 @@ arg_printusage (struct getargs *args,
 			progname, extra_string, builtin_i18n);
 }
 
-void ROKEN_LIB_FUNCTION
+ROKEN_LIB_FUNCTION void ROKEN_LIB_CALL
 arg_printusage_i18n (struct getargs *args,
 		     size_t num_args,
 		     const char *usage,
 		     const char *progname,
 		     const char *extra_string,
-		     char *(i18n)(const char *))
+		     char *(*i18n)(const char *))
 {
-    int i;
-    size_t max_len = 0;
+    size_t i, max_len = 0;
     char buf[128];
     int col = 0, columns;
-    struct winsize ws;
 
     if (progname == NULL)
 	progname = getprogname();
@@ -241,9 +238,7 @@ arg_printusage_i18n (struct getargs *args,
 	mandoc_template(args, num_args, progname, extra_string, i18n);
 	return;
     }
-    if(get_window_size(2, &ws) == 0)
-	columns = ws.ws_col;
-    else
+    if(get_window_size(2, NULL, &columns) == -1)
 	columns = 80;
     col = 0;
     col += fprintf (stderr, "%s: %s", usage, progname);
@@ -353,7 +348,7 @@ static int
 arg_match_long(struct getargs *args, size_t num_args,
 	       char *argv, int argc, char **rargv, int *goptind)
 {
-    int i;
+    size_t i;
     char *goptarg = NULL;
     int negate = 0;
     int partial_match = 0;
@@ -436,11 +431,7 @@ arg_match_long(struct getargs *args, size_t num_args,
 	    *flag = !negate;
 	    return 0;
 	} else if (*goptarg && strcmp(goptarg + 1, "maybe") == 0) {
-#ifdef HAVE_RANDOM
-	    *flag = random() & 1;
-#else
-	    *flag = rand() & 1;
-#endif
+	    *flag = rk_random() & 1;
 	} else {
 	    *flag = negate;
 	    return 0;
@@ -474,17 +465,15 @@ arg_match_long(struct getargs *args, size_t num_args,
 
     default:
 	abort ();
+	UNREACHABLE(return 0);
     }
-
-    /* not reached */
-    return ARG_ERR_NO_MATCH;
 }
 
 static int
 arg_match_short (struct getargs *args, size_t num_args,
 		 char *argv, int argc, char **rargv, int *goptind)
 {
-    int j, k;
+    size_t j, k;
 
     for(j = 1; j > 0 && j < strlen(rargv[*goptind]); j++) {
 	for(k = 0; k < num_args; k++) {
@@ -507,9 +496,11 @@ arg_match_short (struct getargs *args, size_t num_args,
 		}
 		if(args[k].type == arg_collect) {
 		    struct getarg_collect_info *c = args[k].value;
+		    int a = (int)j;
 
-		    if((*c->func)(TRUE, argc, rargv, goptind, &j, c->data))
+		    if((*c->func)(TRUE, argc, rargv, goptind, &a, c->data))
 			return ARG_ERR_BAD_ARG;
+		    j = a;
 		    break;
 		}
 
@@ -550,20 +541,14 @@ arg_match_short (struct getargs *args, size_t num_args,
     return 0;
 }
 
-int ROKEN_LIB_FUNCTION
+ROKEN_LIB_FUNCTION int ROKEN_LIB_CALL
 getarg(struct getargs *args, size_t num_args,
        int argc, char **argv, int *goptind)
 {
     int i;
     int ret = 0;
 
-#if defined(HAVE_SRANDOMDEV)
-    srandomdev();
-#elif defined(HAVE_RANDOM)
-    srandom(time(NULL));
-#else
-    srand (time(NULL));
-#endif
+    rk_random_init();
     (*goptind)++;
     for(i = *goptind; i < argc; i++) {
 	if(argv[i][0] != '-')
@@ -586,7 +571,7 @@ getarg(struct getargs *args, size_t num_args,
     return ret;
 }
 
-void ROKEN_LIB_FUNCTION
+ROKEN_LIB_FUNCTION void ROKEN_LIB_CALL
 free_getarg_strings (getarg_strings *s)
 {
     free (s->strings);
@@ -610,7 +595,7 @@ struct getargs args[] = {
 int main(int argc, char **argv)
 {
     int goptind = 0;
-    while(getarg(args, 5, argc, argv, &goptind))
+    while (getarg(args, 5, argc, argv, &goptind))
 	printf("Bad arg: %s\n", argv[goptind]);
     printf("flag1 = %d\n", flag1);
     printf("flag2 = %d\n", flag2);

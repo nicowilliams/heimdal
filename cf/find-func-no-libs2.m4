@@ -21,7 +21,7 @@ if eval "test \"\$ac_cv_func_$1\" != yes" ; then
 		*) ac_lib="-l$ac_lib" ;;
 		esac
 		LIBS="$6 $ac_lib $5 $ac_save_LIBS"
-		AC_LINK_IFELSE([AC_LANG_PROGRAM([[$3]],[[$1($4)]])],[eval "if test -n \"$ac_lib\";then ac_cv_funclib_$1=$ac_lib; else ac_cv_funclib_$1=yes; fi";break])
+		AC_LINK_IFELSE([AC_LANG_PROGRAM([[char $1 (void);]],[[$1()]])],[eval "if test -n \"$ac_lib\";then ac_cv_funclib_$1=$ac_lib; else ac_cv_funclib_$1=yes; fi";break])
 	done
 	eval "ac_cv_funclib_$1=\${ac_cv_funclib_$1-no}"
 	LIBS="$ac_save_LIBS"
@@ -53,7 +53,6 @@ case "$ac_res" in
 	;;
 	*)
 	eval "ac_cv_func_$1=yes"
-	eval "ac_cv_lib_`echo "$ac_res" | sed 's/-l//'`=yes"
 	AC_DEFINE_UNQUOTED($ac_tr_func)
 	AC_DEFINE_UNQUOTED($ac_tr_lib)
 	AC_MSG_RESULT([yes, in $ac_res])

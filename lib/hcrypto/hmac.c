@@ -31,10 +31,9 @@
  * SUCH DAMAGE.
  */
 
-#include <sys/types.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
+#include <config.h>
+#include <roken.h>
+
 #include <hmac.h>
 
 void
@@ -47,17 +46,17 @@ void
 HMAC_CTX_cleanup(HMAC_CTX *ctx)
 {
     if (ctx->buf) {
-	memset(ctx->buf, 0, ctx->key_length);
+	memset_s(ctx->buf, ctx->key_length, 0, ctx->key_length);
 	free(ctx->buf);
 	ctx->buf = NULL;
     }
     if (ctx->opad) {
-	memset(ctx->ipad, 0, ctx->key_length);
+	memset_s(ctx->opad, EVP_MD_block_size(ctx->md), 0, EVP_MD_block_size(ctx->md));
 	free(ctx->opad);
 	ctx->opad = NULL;
     }
     if (ctx->ipad) {
-	memset(ctx->ipad, 0, ctx->key_length);
+	memset_s(ctx->ipad, EVP_MD_block_size(ctx->md), 0, EVP_MD_block_size(ctx->md));
 	free(ctx->ipad);
 	ctx->ipad = NULL;
     }
@@ -67,13 +66,26 @@ HMAC_CTX_cleanup(HMAC_CTX *ctx)
     }
 }
 
+HMAC_CTX *
+HMAC_CTX_new(void)
+{
+    return calloc(1, sizeof(HMAC_CTX));
+}
+
+void
+HMAC_CTX_free(HMAC_CTX *ctx)
+{
+    HMAC_CTX_cleanup(ctx);
+    free(ctx);
+}
+
 size_t
 HMAC_size(const HMAC_CTX *ctx)
 {
     return EVP_MD_size(ctx->md);
 }
 
-void
+int
 HMAC_Init_ex(HMAC_CTX *ctx,
 	     const void *key,
 	     size_t keylen,
@@ -81,50 +93,53 @@ HMAC_Init_ex(HMAC_CTX *ctx,
 	     ENGINE *engine)
 {
     unsigned char *p;
-    size_t i;
+    size_t i, blockSize;
+
+    blockSize = EVP_MD_block_size(md);
 
     if (ctx->md != md) {
+        if (ctx->md != NULL)
+            HMAC_CTX_cleanup(ctx);
+
 	ctx->md = md;
-	if (ctx->buf) {
-	    memset(ctx->buf, 0, ctx->key_length);
-	    free (ctx->buf);
-	}
 	ctx->key_length = EVP_MD_size(ctx->md);
+        ctx->opad = NULL;
+        ctx->ipad = NULL;
+        ctx->ctx = NULL;
 	ctx->buf = malloc(ctx->key_length);
+        if (ctx->buf)
+            ctx->opad = malloc(blockSize);
+        if (ctx->opad)
+            ctx->ipad = malloc(blockSize);
+        if (ctx->ipad)
+            ctx->ctx = EVP_MD_CTX_create();
     }
+    /* We do this check here to quiet scan-build */
+    if (!ctx->buf || !ctx->opad || !ctx->ipad || !ctx->ctx)
+	return 0;
 #if 0
     ctx->engine = engine;
 #endif
 
-    if (keylen > EVP_MD_block_size(ctx->md)) {
-	EVP_Digest(key, keylen, ctx->buf, NULL, ctx->md, engine);
+    if (keylen > blockSize) {
+	if (EVP_Digest(key, keylen, ctx->buf, NULL, ctx->md, engine) == 0)
+            return 0;
 	key = ctx->buf;
 	keylen = EVP_MD_size(ctx->md);
     }
 
-    if (ctx->opad) {
-	memset(ctx->opad, 0, ctx->key_length);
-	free(ctx->opad);
-    }
-    if (ctx->ipad) {
-	memset(ctx->ipad, 0, ctx->key_length);
-	free(ctx->ipad);
-    }
-
-    ctx->opad = malloc(EVP_MD_block_size(ctx->md));
-    ctx->ipad = malloc(EVP_MD_block_size(ctx->md));
-    memset(ctx->ipad, 0x36, EVP_MD_block_size(ctx->md));
-    memset(ctx->opad, 0x5c, EVP_MD_block_size(ctx->md));
+    memset(ctx->ipad, 0x36, blockSize);
+    memset(ctx->opad, 0x5c, blockSize);
 
     for (i = 0, p = ctx->ipad; i < keylen; i++)
 	p[i] ^= ((const unsigned char *)key)[i];
     for (i = 0, p = ctx->opad; i < keylen; i++)
 	p[i] ^= ((const unsigned char *)key)[i];
 
-    ctx->ctx = EVP_MD_CTX_create();
-
-    EVP_DigestInit_ex(ctx->ctx, ctx->md, ctx->engine);
+    if (EVP_DigestInit_ex(ctx->ctx, ctx->md, ctx->engine) == 0)
+        return 0;
     EVP_DigestUpdate(ctx->ctx, ctx->ipad, EVP_MD_block_size(ctx->md));
+    return 1;
 }
 
 void
@@ -153,7 +168,10 @@ HMAC(const EVP_MD *md,
     HMAC_CTX ctx;
 
     HMAC_CTX_init(&ctx);
-    HMAC_Init_ex(&ctx, key, key_size, md, NULL);
+    if (HMAC_Init_ex(&ctx, key, key_size, md, NULL) == 0) {
+        HMAC_CTX_cleanup(&ctx);
+        return NULL;
+    }
     HMAC_Update(&ctx, data, data_size);
     HMAC_Final(&ctx, hash, hash_len);
     HMAC_CTX_cleanup(&ctx);

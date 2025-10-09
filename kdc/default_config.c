@@ -1,8 +1,9 @@
 /*
  * Copyright (c) 1997-2007 Kungliga Tekniska Högskolan
  * (Royal Institute of Technology, Stockholm, Sweden).
- *
  * All rights reserved.
+ *
+ * Portions Copyright (c) 2009 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -36,12 +37,46 @@
 #include <getarg.h>
 #include <parse_bytes.h>
 
-RCSID("$Id$");
+static const char *sysplugin_dirs[] =  {
+#ifdef _WIN32
+    "$ORIGIN",
+#else
+    "$ORIGIN/../lib/plugin/kdc",
+#endif
+#ifdef __APPLE__
+    LIBDIR "/plugin/kdc",
+#endif
+    NULL
+};
 
-krb5_error_code
+static void
+load_kdc_plugins_once(void *ctx)
+{
+    krb5_context context = ctx;
+    const char * const *dirs = sysplugin_dirs;
+#ifndef _WIN32
+    char **cfdirs;
+
+    cfdirs = krb5_config_get_strings(context, NULL, "kdc", "plugin_dir", NULL);
+    if (cfdirs)
+        dirs = (const char * const *)cfdirs;
+#endif
+
+    _krb5_load_plugins(context, "kdc", (const char **)dirs);
+
+#ifndef _WIN32
+    krb5_config_free_strings(cfdirs);
+#endif
+}
+
+KDC_LIB_FUNCTION krb5_error_code KDC_LIB_CALL
 krb5_kdc_get_config(krb5_context context, krb5_kdc_configuration **config)
 {
+    static heim_base_once_t load_kdc_plugins = HEIM_BASE_ONCE_INIT;
     krb5_kdc_configuration *c;
+    krb5_error_code ret;
+
+    heim_base_once_f(&load_kdc_plugins, context, load_kdc_plugins_once);
 
     c = calloc(1, sizeof(*c));
     if (c == NULL) {
@@ -49,41 +84,48 @@ krb5_kdc_get_config(krb5_context context, krb5_kdc_configuration **config)
 	return ENOMEM;
     }
 
+    c->app = "kdc";
+    c->num_kdc_processes = -1;
     c->require_preauth = TRUE;
     c->kdc_warn_pwexpire = 0;
     c->encode_as_rep_as_tgs_rep = FALSE;
+    c->tgt_use_strongest_session_key = FALSE;
+    c->preauth_use_strongest_session_key = FALSE;
+    c->svc_use_strongest_session_key = FALSE;
+    c->use_strongest_server_key = TRUE;
     c->check_ticket_addresses = TRUE;
+    c->warn_ticket_addresses = FALSE;
     c->allow_null_ticket_addresses = TRUE;
     c->allow_anonymous = FALSE;
+    c->historical_anon_realm = FALSE;
+    c->strict_nametypes = FALSE;
     c->trpolicy = TRPOLICY_ALWAYS_CHECK;
-    c->enable_v4 = FALSE;
-    c->enable_kaserver = FALSE;
-    c->enable_524 = FALSE;
-    c->enable_v4_cross_realm = FALSE;
+    c->require_pac = FALSE;
+    c->disable_pac = FALSE;
+    c->enable_fast = TRUE;
+    c->enable_armored_pa_enc_timestamp = TRUE;
+    c->enable_unarmored_pa_enc_timestamp = TRUE;
     c->enable_pkinit = FALSE;
     c->pkinit_princ_in_cert = TRUE;
     c->pkinit_require_binding = TRUE;
+    c->synthetic_clients = FALSE;
+    c->pkinit_max_life_from_cert_extension = FALSE;
+    c->pkinit_max_life_bound = 0;
+    c->synthetic_clients_max_life = 300;
+    c->synthetic_clients_max_renew = 300;
+    c->pkinit_dh_min_bits = 1024;
     c->db = NULL;
     c->num_db = 0;
     c->logf = NULL;
+
+    c->num_kdc_processes =
+        krb5_config_get_int_default(context, NULL, c->num_kdc_processes,
+				    "kdc", "num-kdc-processes", NULL);
 
     c->require_preauth =
 	krb5_config_get_bool_default(context, NULL,
 				     c->require_preauth,
 				     "kdc", "require-preauth", NULL);
-    c->enable_v4 =
-	krb5_config_get_bool_default(context, NULL,
-				     c->enable_v4,
-				     "kdc", "enable-kerberos4", NULL);
-    c->enable_v4_cross_realm =
-	krb5_config_get_bool_default(context, NULL,
-				     c->enable_v4_cross_realm,
-				     "kdc",
-				     "enable-kerberos4-cross-realm", NULL);
-    c->enable_524 =
-	krb5_config_get_bool_default(context, NULL,
-				     c->enable_v4,
-				     "kdc", "enable-524", NULL);
 #ifdef DIGEST
     c->enable_digest =
 	krb5_config_get_bool_default(context, NULL,
@@ -105,9 +147,7 @@ krb5_kdc_get_config(krb5_context context, krb5_kdc_configuration **config)
 		    digests);
 	    c->enable_digest = 0;
 	} else if (c->digests_allowed == 0) {
-	    kdc_log(context, c, 0,
-		    "no digest enable, turning digest off",
-		    digests);
+	    kdc_log(context, c, 0, "no digest enable, turning digest off");
 	    c->enable_digest = 0;
 	}
     }
@@ -117,28 +157,40 @@ krb5_kdc_get_config(krb5_context context, krb5_kdc_configuration **config)
     c->enable_kx509 =
 	krb5_config_get_bool_default(context, NULL,
 				     FALSE,
-				     "kdc", "enable-kx509", NULL);
-
-    if (c->enable_kx509) {
-	c->kx509_template =
-	    krb5_config_get_string(context, NULL,
-				   "kdc", "kx509_template", NULL);
-	c->kx509_ca =
-	    krb5_config_get_string(context, NULL,
-				   "kdc", "kx509_ca", NULL);
-	if (c->kx509_ca == NULL || c->kx509_template == NULL) {
-	    kdc_log(context, c, 0,
-		    "missing kx509 configuration, turning off");
-	    c->enable_kx509 = FALSE;
-	}
-    }
+				     "kdc", "enable_kx509", NULL);
 #endif
+
+    c->tgt_use_strongest_session_key =
+	krb5_config_get_bool_default(context, NULL,
+				     c->tgt_use_strongest_session_key,
+				     "kdc",
+				     "tgt-use-strongest-session-key", NULL);
+    c->preauth_use_strongest_session_key =
+	krb5_config_get_bool_default(context, NULL,
+				     c->preauth_use_strongest_session_key,
+				     "kdc",
+				     "preauth-use-strongest-session-key", NULL);
+    c->svc_use_strongest_session_key =
+	krb5_config_get_bool_default(context, NULL,
+				     c->svc_use_strongest_session_key,
+				     "kdc",
+				     "svc-use-strongest-session-key", NULL);
+    c->use_strongest_server_key =
+	krb5_config_get_bool_default(context, NULL,
+				     c->use_strongest_server_key,
+				     "kdc",
+				     "use-strongest-server-key", NULL);
 
     c->check_ticket_addresses =
 	krb5_config_get_bool_default(context, NULL,
 				     c->check_ticket_addresses,
 				     "kdc",
 				     "check-ticket-addresses", NULL);
+    c->warn_ticket_addresses =
+	krb5_config_get_bool_default(context, NULL,
+				     c->warn_ticket_addresses,
+				     "kdc",
+				     "warn_ticket_addresses", NULL);
     c->allow_null_ticket_addresses =
 	krb5_config_get_bool_default(context, NULL,
 				     c->allow_null_ticket_addresses,
@@ -150,6 +202,18 @@ krb5_kdc_get_config(krb5_context context, krb5_kdc_configuration **config)
 				     c->allow_anonymous,
 				     "kdc",
 				     "allow-anonymous", NULL);
+
+    c->historical_anon_realm =
+	krb5_config_get_bool_default(context, NULL,
+				     c->historical_anon_realm,
+				     "kdc",
+				     "historical_anon_realm", NULL);
+
+    c->strict_nametypes =
+	krb5_config_get_bool_default(context, NULL,
+				     c->strict_nametypes,
+				     "kdc",
+				     "strict-nametypes", NULL);
 
     c->max_datagram_reply_length =
 	krb5_config_get_int_default(context,
@@ -181,28 +245,6 @@ krb5_kdc_get_config(krb5_context context, krb5_kdc_configuration **config)
 	}
     }
 
-    {
-	const char *p;
-	p = krb5_config_get_string (context, NULL,
-				    "kdc",
-				    "v4-realm",
-				    NULL);
-	if(p != NULL) {
-	    c->v4_realm = strdup(p);
-	    if (c->v4_realm == NULL)
-		krb5_errx(context, 1, "out of memory");
-	} else {
-	    c->v4_realm = NULL;
-	}
-    }
-
-    c->enable_kaserver =
-	krb5_config_get_bool_default(context,
-				     NULL,
-				     c->enable_kaserver,
-				     "kdc", "enable-kaserver", NULL);
-
-
     c->encode_as_rep_as_tgs_rep =
 	krb5_config_get_bool_default(context, NULL,
 				     c->encode_as_rep_as_tgs_rep,
@@ -214,8 +256,46 @@ krb5_kdc_get_config(krb5_context context, krb5_kdc_configuration **config)
 				      c->kdc_warn_pwexpire,
 				      "kdc", "kdc_warn_pwexpire", NULL);
 
+    c->require_pac =
+	krb5_config_get_bool_default(context,
+				     NULL,
+				     c->require_pac,
+				     "kdc",
+				     "require_pac",
+				     NULL);
 
-#ifdef PKINIT
+    c->disable_pac =
+	krb5_config_get_bool_default(context,
+				     NULL,
+				     c->disable_pac,
+				     "kdc",
+				     "disable_pac",
+				     NULL);
+
+    c->enable_fast =
+	krb5_config_get_bool_default(context,
+				     NULL,
+				     c->enable_fast,
+				     "kdc",
+				     "enable_fast",
+				     NULL);
+
+    c->enable_armored_pa_enc_timestamp =
+	krb5_config_get_bool_default(context,
+				     NULL,
+				     c->enable_armored_pa_enc_timestamp,
+				     "kdc",
+				     "enable_armored_pa_enc_timestamp",
+				     NULL);
+
+    c->enable_unarmored_pa_enc_timestamp =
+	krb5_config_get_bool_default(context,
+				     NULL,
+				     c->enable_unarmored_pa_enc_timestamp,
+				     "kdc",
+				     "enable_unarmored_pa_enc_timestamp",
+				     NULL);
+
     c->enable_pkinit =
 	krb5_config_get_bool_default(context,
 				     NULL,
@@ -223,75 +303,142 @@ krb5_kdc_get_config(krb5_context context, krb5_kdc_configuration **config)
 				     "kdc",
 				     "enable-pkinit",
 				     NULL);
-    if (c->enable_pkinit) {
-	const char *user_id, *anchors, *file;
-	char **pool_list, **revoke_list;
-
-	user_id =
-	    krb5_config_get_string(context, NULL,
-				   "kdc", "pkinit_identity", NULL);
-	if (user_id == NULL)
-	    krb5_errx(context, 1, "pkinit enabled but no identity");
-
-	anchors = krb5_config_get_string(context, NULL,
-					 "kdc", "pkinit_anchors", NULL);
-	if (anchors == NULL)
-	    krb5_errx(context, 1, "pkinit enabled but no X509 anchors");
-
-	pool_list =
-	    krb5_config_get_strings(context, NULL,
-				    "kdc", "pkinit_pool", NULL);
-
-	revoke_list =
-	    krb5_config_get_strings(context, NULL,
-				    "kdc", "pkinit_revoke", NULL);
-
-	file = krb5_config_get_string(context, NULL,
-				      "kdc", "pkinit_kdc_ocsp", NULL);
-	if (file) {
-	    c->pkinit_kdc_ocsp_file = strdup(file);
-	    if (c->pkinit_kdc_ocsp_file == NULL)
-		krb5_errx(context, 1, "out of memory");
-	}
-
-	file = krb5_config_get_string(context, NULL,
-				      "kdc", "pkinit_kdc_friendly_name", NULL);
-	if (file) {
-	    c->pkinit_kdc_friendly_name = strdup(file);
-	    if (c->pkinit_kdc_friendly_name == NULL)
-		krb5_errx(context, 1, "out of memory");
-	}
 
 
-	_kdc_pk_initialize(context, c, user_id, anchors,
-			   pool_list, revoke_list);
-
-	krb5_config_free_strings(pool_list);
-	krb5_config_free_strings(revoke_list);
-
-	c->pkinit_princ_in_cert =
-	    krb5_config_get_bool_default(context, NULL,
-					 c->pkinit_princ_in_cert,
-					 "kdc",
-					 "pkinit_principal_in_certificate",
-					 NULL);
-
-	c->pkinit_require_binding =
-	    krb5_config_get_bool_default(context, NULL,
-					 c->pkinit_require_binding,
-					 "kdc",
-					 "pkinit_win2k_require_binding",
-					 NULL);
-    }
-
+    c->pkinit_kdc_identity =
+	krb5_config_get_string(context, NULL,
+			       "kdc", "pkinit_identity", NULL);
+    c->pkinit_kdc_anchors =
+	krb5_config_get_string(context, NULL,
+			       "kdc", "pkinit_anchors", NULL);
+    c->pkinit_kdc_cert_pool =
+	krb5_config_get_strings(context, NULL,
+				"kdc", "pkinit_pool", NULL);
+    c->pkinit_kdc_revoke =
+	krb5_config_get_strings(context, NULL,
+				"kdc", "pkinit_revoke", NULL);
+    c->pkinit_kdc_ocsp_file =
+	krb5_config_get_string(context, NULL,
+			       "kdc", "pkinit_kdc_ocsp", NULL);
+    c->pkinit_kdc_friendly_name =
+	krb5_config_get_string(context, NULL,
+			       "kdc", "pkinit_kdc_friendly_name", NULL);
+    c->pkinit_princ_in_cert =
+	krb5_config_get_bool_default(context, NULL,
+				     c->pkinit_princ_in_cert,
+				     "kdc",
+				     "pkinit_principal_in_certificate",
+				     NULL);
+    c->pkinit_require_binding =
+	krb5_config_get_bool_default(context, NULL,
+				     c->pkinit_require_binding,
+				     "kdc",
+				     "pkinit_win2k_require_binding",
+				     NULL);
     c->pkinit_dh_min_bits =
 	krb5_config_get_int_default(context, NULL,
 				    0,
 				    "kdc", "pkinit_dh_min_bits", NULL);
 
-#endif
+    c->pkinit_max_life_from_cert_extension =
+        krb5_config_get_bool_default(context, NULL,
+                                     c->pkinit_max_life_from_cert_extension,
+                                     "kdc",
+                                     "pkinit_max_life_from_cert_extension",
+                                     NULL);
+
+    c->synthetic_clients =
+	krb5_config_get_bool_default(context, NULL,
+				     c->synthetic_clients,
+				     "kdc",
+				     "synthetic_clients",
+				     NULL);
+
+    c->pkinit_max_life_bound =
+         krb5_config_get_time_default(context, NULL, 0, "kdc",
+                                      "pkinit_max_life_bound",
+                                      NULL);
+
+    c->pkinit_max_life_from_cert =
+         krb5_config_get_time_default(context, NULL, 0, "kdc",
+                                      "pkinit_max_life_from_cert",
+                                      NULL);
+
+    c->synthetic_clients_max_life =
+         krb5_config_get_time_default(context, NULL, 300, "kdc",
+                                      "synthetic_clients_max_life",
+                                      NULL);
+
+    c->synthetic_clients_max_renew =
+         krb5_config_get_time_default(context, NULL, 300, "kdc",
+                                      "synthetic_clients_max_renew",
+                                      NULL);
+
+    c->enable_gss_preauth =
+	krb5_config_get_bool_default(context, NULL,
+				     c->enable_gss_preauth,
+				     "kdc",
+				     "enable_gss_preauth", NULL);
+
+    c->enable_gss_auth_data =
+	krb5_config_get_bool_default(context, NULL,
+				     c->enable_gss_auth_data,
+				     "kdc",
+				     "enable_gss_auth_data", NULL);
+
+    ret = _kdc_gss_get_mechanism_config(context, "kdc",
+					"gss_mechanisms_allowed",
+					&c->gss_mechanisms_allowed);
+    if (ret) {
+	free(c);
+	return ret;
+    }
+
+    ret = _kdc_gss_get_mechanism_config(context, "kdc",
+					"gss_cross_realm_mechanisms_allowed",
+					&c->gss_cross_realm_mechanisms_allowed);
+    if (ret) {
+	OM_uint32 minor;
+	gss_release_oid_set(&minor, &c->gss_mechanisms_allowed);
+	free(c);
+	return ret;
+    }
 
     *config = c;
 
     return 0;
+}
+
+KDC_LIB_FUNCTION krb5_error_code KDC_LIB_CALL
+krb5_kdc_pkinit_config(krb5_context context, krb5_kdc_configuration *config)
+{
+#ifdef PKINIT
+    if (config->enable_pkinit) {
+#ifdef __APPLE__
+	if (config->pkinit_kdc_identity == NULL) {
+	    if (config->pkinit_kdc_friendly_name == NULL)
+		config->pkinit_kdc_friendly_name =
+		    strdup("O=System Identity,CN=com.apple.kerberos.kdc");
+	    config->pkinit_kdc_identity = strdup("KEYCHAIN:");
+	}
+	if (config->pkinit_kdc_anchors == NULL)
+	    config->pkinit_kdc_anchors = strdup("KEYCHAIN:");
+#endif /* __APPLE__ */
+
+	if (config->pkinit_kdc_identity == NULL)
+	    krb5_errx(context, 1, "pkinit enabled but no identity");
+
+	if (config->pkinit_kdc_anchors == NULL)
+	    krb5_errx(context, 1, "pkinit enabled but no X509 anchors");
+
+	krb5_kdc_pk_initialize(context, config,
+			       config->pkinit_kdc_identity,
+			       config->pkinit_kdc_anchors,
+			       config->pkinit_kdc_cert_pool,
+			       config->pkinit_kdc_revoke);
+
+    }
+
+    return 0;
+#endif /* PKINIT */
 }

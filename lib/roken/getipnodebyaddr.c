@@ -40,8 +40,8 @@
  * to a malloced struct hostent or NULL.
  */
 
-struct hostent * ROKEN_LIB_FUNCTION
-getipnodebyaddr (const void *src, size_t len, int af, int *error_num)
+ROKEN_LIB_FUNCTION struct hostent * ROKEN_LIB_CALL
+rk_getipnodebyaddr(const void *src, size_t len, int af, int *error_num)
 {
     struct hostent *tmp;
 

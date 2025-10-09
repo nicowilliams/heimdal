@@ -33,6 +33,8 @@
 
 #include "gsskrb5_locl.h"
 
+#ifdef HEIM_WEAK_CRYPTO
+
 static OM_uint32
 mic_des
            (OM_uint32 * minor_status,
@@ -45,9 +47,10 @@ mic_des
            )
 {
   u_char *p;
-  MD5_CTX md5;
+  EVP_MD_CTX *md5;
   u_char hash[16];
   DES_key_schedule schedule;
+  EVP_CIPHER_CTX des_ctx;
   DES_cblock deskey;
   DES_cblock zero;
   int32_t seq_number;
@@ -79,10 +82,12 @@ mic_des
   p += 16;
 
   /* checksum */
-  MD5_Init (&md5);
-  MD5_Update (&md5, p - 24, 8);
-  MD5_Update (&md5, message_buffer->value, message_buffer->length);
-  MD5_Final (hash, &md5);
+  md5 = EVP_MD_CTX_create();
+  EVP_DigestInit_ex(md5, EVP_md5(), NULL);
+  EVP_DigestUpdate(md5, p - 24, 8);
+  EVP_DigestUpdate(md5, message_buffer->value, message_buffer->length);
+  EVP_DigestFinal_ex(md5, hash, NULL);
+  EVP_MD_CTX_destroy(md5);
 
   memset (&zero, 0, sizeof(zero));
   memcpy (&deskey, key->keyvalue.data, sizeof(deskey));
@@ -106,21 +111,23 @@ mic_des
 	  (ctx->more_flags & LOCAL) ? 0 : 0xFF,
 	  4);
 
-  DES_set_key_unchecked (&deskey, &schedule);
-  DES_cbc_encrypt ((void *)p, (void *)p, 8,
-		   &schedule, (DES_cblock *)(p + 8), DES_ENCRYPT);
+  EVP_CIPHER_CTX_init(&des_ctx);
+  EVP_CipherInit_ex(&des_ctx, EVP_des_cbc(), NULL, key->keyvalue.data, p + 8, 1);
+  EVP_Cipher(&des_ctx, p, p, 8);
+  EVP_CIPHER_CTX_cleanup(&des_ctx);
 
   krb5_auth_con_setlocalseqnumber (context,
 			       ctx->auth_context,
 			       ++seq_number);
   HEIMDAL_MUTEX_unlock(&ctx->ctx_id_mutex);
 
-  memset (deskey, 0, sizeof(deskey));
-  memset (&schedule, 0, sizeof(schedule));
+  memset_s(deskey, sizeof(deskey), 0, sizeof(deskey));
+  memset_s(&schedule, sizeof(schedule), 0, sizeof(schedule));
 
   *minor_status = 0;
   return GSS_S_COMPLETE;
 }
+#endif
 
 static OM_uint32
 mic_des3
@@ -266,9 +273,9 @@ mic_des3
   return GSS_S_COMPLETE;
 }
 
-OM_uint32 _gsskrb5_get_mic
+OM_uint32 GSSAPI_CALLCONV _gsskrb5_get_mic
            (OM_uint32 * minor_status,
-            const gss_ctx_id_t context_handle,
+            gss_const_ctx_id_t context_handle,
             gss_qop_t qop_req,
             const gss_buffer_t message_buffer,
             gss_buffer_t message_token
@@ -278,7 +285,6 @@ OM_uint32 _gsskrb5_get_mic
   const gsskrb5_ctx ctx = (const gsskrb5_ctx) context_handle;
   krb5_keyblock *key;
   OM_uint32 ret;
-  krb5_keytype keytype;
 
   GSSAPI_KRB5_INIT (&context);
 
@@ -293,19 +299,25 @@ OM_uint32 _gsskrb5_get_mic
       *minor_status = ret;
       return GSS_S_FAILURE;
   }
-  krb5_enctype_to_keytype (context, key->keytype, &keytype);
 
-  switch (keytype) {
-  case KEYTYPE_DES :
+  switch (key->keytype) {
+  case KRB5_ENCTYPE_DES_CBC_CRC :
+  case KRB5_ENCTYPE_DES_CBC_MD4 :
+  case KRB5_ENCTYPE_DES_CBC_MD5 :
+#ifdef HEIM_WEAK_CRYPTO
       ret = mic_des (minor_status, ctx, context, qop_req,
 		     message_buffer, message_token, key);
+#else
+      ret = GSS_S_FAILURE;
+#endif
       break;
-  case KEYTYPE_DES3 :
+  case KRB5_ENCTYPE_DES3_CBC_MD5 :
+  case KRB5_ENCTYPE_DES3_CBC_SHA1 :
       ret = mic_des3 (minor_status, ctx, context, qop_req,
 		      message_buffer, message_token, key);
       break;
-  case KEYTYPE_ARCFOUR:
-  case KEYTYPE_ARCFOUR_56:
+  case KRB5_ENCTYPE_ARCFOUR_HMAC_MD5:
+  case KRB5_ENCTYPE_ARCFOUR_HMAC_MD5_56:
       ret = _gssapi_get_mic_arcfour (minor_status, ctx, context, qop_req,
 				     message_buffer, message_token, key);
       break;

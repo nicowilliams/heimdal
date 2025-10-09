@@ -44,7 +44,8 @@ static struct units acl_units[] = {
     { "modify",		KADM5_PRIV_MODIFY },
     { "add",		KADM5_PRIV_ADD },
     { "get", 		KADM5_PRIV_GET },
-    { NULL }
+    { "get-keys",	KADM5_PRIV_GET_KEYS },
+    { NULL,		0 }
 };
 
 kadm5_ret_t
@@ -123,13 +124,29 @@ fetch_acl (kadm5_server_context *context,
 	if (princ != NULL) {
 	    krb5_principal pattern_princ;
 	    krb5_boolean match;
+            const char *c0 = krb5_principal_get_comp_string(context->context,
+                                                            princ, 0);
+            const char *pat_c0;
 
-	    ret = krb5_parse_name (context->context, p, &pattern_princ);
+	    ret = krb5_parse_name(context->context, p, &pattern_princ);
 	    if (ret)
 		break;
-	    match = krb5_principal_match (context->context,
-					  princ, pattern_princ);
-	    krb5_free_principal (context->context, pattern_princ);
+            pat_c0 = krb5_principal_get_comp_string(context->context,
+                                                    pattern_princ, 0);
+	    match = krb5_principal_match(context->context,
+					 princ, pattern_princ);
+
+            /*
+             * If `princ' is a WELLKNOWN name, then require the WELLKNOWN label
+             * be matched exactly.
+             *
+             * FIXME: We could do something similar for krbtgt and kadmin other
+             *        principal types.
+             */
+            if (match && c0 && strcmp(c0, "WELLKNOWN") == 0 &&
+                (!pat_c0 || strcmp(pat_c0, "WELLKNOWN") != 0))
+                match = FALSE;
+	    krb5_free_principal(context->context, pattern_princ);
 	    if (match) {
 		*ret_flags = flags;
 		break;
@@ -137,6 +154,21 @@ fetch_acl (kadm5_server_context *context,
 	}
     }
     fclose(f);
+    return ret;
+}
+
+krb5_boolean
+_kadm5_is_kadmin_service_p(kadm5_server_context *context)
+{
+    krb5_boolean ret;
+    krb5_principal princ;
+
+    if (krb5_parse_name(context->context, KADM5_ADMIN_SERVICE, &princ) != 0)
+	return FALSE;
+
+    ret = krb5_principal_compare(context->context, context->caller, princ);
+    krb5_free_principal(context->context, princ);
+
     return ret;
 }
 
@@ -148,15 +180,7 @@ fetch_acl (kadm5_server_context *context,
 kadm5_ret_t
 _kadm5_acl_init(kadm5_server_context *context)
 {
-    krb5_principal princ;
-    krb5_error_code ret;
-
-    ret = krb5_parse_name(context->context, KADM5_ADMIN_SERVICE, &princ);
-    if (ret)
-	return ret;
-    ret = krb5_principal_compare(context->context, context->caller, princ);
-    krb5_free_principal(context->context, princ);
-    if(ret != 0) {
+    if (_kadm5_is_kadmin_service_p(context)) {
 	context->acl_flags = KADM5_PRIV_ALL;
 	return 0;
     }
@@ -177,6 +201,8 @@ check_flags (unsigned op,
 
     if(res & KADM5_PRIV_GET)
 	return KADM5_AUTH_GET;
+    if(res & KADM5_PRIV_GET_KEYS)
+	return KADM5_AUTH_GET_KEYS;
     if(res & KADM5_PRIV_ADD)
 	return KADM5_AUTH_ADD;
     if(res & KADM5_PRIV_MODIFY)

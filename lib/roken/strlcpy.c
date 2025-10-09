@@ -36,7 +36,22 @@
 
 #ifndef HAVE_STRLCPY
 
-size_t ROKEN_LIB_FUNCTION
+#if defined(_MSC_VER) && _MSC_VER >= 1400
+
+ROKEN_LIB_FUNCTION size_t ROKEN_LIB_CALL
+strlcpy (char *dst, const char *src, size_t dst_cch)
+{
+    errno_t e;
+
+    if (dst_cch > 0)
+        e = strncpy_s(dst, dst_cch, src, _TRUNCATE);
+
+    return strlen (src);
+}
+
+#else
+
+ROKEN_LIB_FUNCTION size_t ROKEN_LIB_CALL
 strlcpy (char *dst, const char *src, size_t dst_sz)
 {
     size_t n;
@@ -52,5 +67,7 @@ strlcpy (char *dst, const char *src, size_t dst_sz)
 	*(dst - 1) = '\0';
     return n + strlen (src);
 }
+
+#endif
 
 #endif

@@ -34,10 +34,13 @@
 # $Id$
 #
 
+env_setup="@env_setup@"
 srcdir="@srcdir@"
 objdir="@objdir@"
 
-# If there is no useful db support compile in, disable test
+. ${env_setup}
+
+# If there is no useful db support compiled in, disable test
 ../db/have-db || exit 77
 
 R=TEST.H5L.SE
@@ -49,8 +52,8 @@ keytab="FILE:${keytabfile}"
 cache="FILE:krb5ccfile"
 cacheds="FILE:krb5ccfile-ds"
 
-kinit="${TESTS_ENVIRONMENT} ../../kuser/kinit -c $cache --no-afslog"
-kinitds="${TESTS_ENVIRONMENT} ../../kuser/kinit -c $cacheds --no-afslog"
+kinit="${TESTS_ENVIRONMENT} ../../kuser/kinit -c $cache ${afs_no_afslog}"
+kinitds="${TESTS_ENVIRONMENT} ../../kuser/kinit -c $cacheds ${afs_no_afslog}"
 kadmin="${TESTS_ENVIRONMENT} ../../kadmin/kadmin -l -r $R"
 kdc="${TESTS_ENVIRONMENT} ../../kdc/kdc --addresses=localhost -P $port"
 kdigest="${TESTS_ENVIRONMENT} ../../kuser/kdigest"
@@ -60,6 +63,7 @@ context="${TESTS_ENVIRONMENT} ../../lib/gssapi/test_context"
 KRB5_CONFIG="${objdir}/krb5.conf"
 export KRB5_CONFIG
 
+KRB5CCNAME=${cache}
 KRB5_KTNAME="${keytab}"
 export KRB5_KTNAME
 KRB5CCNAME="${cache}"
@@ -80,39 +84,32 @@ rm -f mkey.file*
 > messages.log
 
 echo Creating database
-${kadmin} \
-    init \
-    --realm-max-ticket-life=1day \
-    --realm-max-renewable-life=1month \
-    ${R} || exit 1
-
-${kadmin} add -p p1 --use-defaults host/host.test.h5l.se@${R} || exit 1
-${kadmin} ext -k ${keytab} host/host.test.h5l.se@${R} || exit 1
-
-${kadmin} add -p kaka --use-defaults digest/${R}@${R} || exit 1
-
-${kadmin} add -p ds --use-defaults digestserver@${R} || exit 1
-${kadmin} modify --attributes=+allow-digest digestserver@${R} || exit 1
-
-${kadmin} add -p u1 --use-defaults user1@${R} || exit 1
-
-echo "Doing database check"
-${kadmin} check ${R} || exit 1
+${kadmin} <<EOF || exit 1
+init --realm-max-ticket-life=1day --realm-max-renewable-life=1month ${R}
+add -p p1 --use-defaults host/host.test.h5l.se@${R}
+ext -k ${keytab} host/host.test.h5l.se@${R}
+add -p kaka --use-defaults digest/${R}@${R}
+add -p ds --use-defaults digestserver@${R}
+modify --attributes=+allow-digest digestserver@${R}
+add -p u1 --use-defaults user1@${R}
+check ${R}
+EOF
 
 echo u1 > ${objdir}/foopassword
 echo ds > ${objdir}/barpassword
 
 echo Starting kdc
-${kdc} &
-kdcpid=$!
+${kdc} --detach --testing || { echo "kdc failed to start"; cat messages.log; exit 1; }
+kdcpid=`getpid kdc`
 
-sh ${srcdir}/../kdc/wait-kdc.sh
-if [ "$?" != 0 ] ; then
-    kill ${kdcpid}
+cleanup() {
+    echo signal killing kdc
+    kill -9 ${kdcpid}
+    trap '' EXIT INT TERM
+    cat messages.log
     exit 1
-fi
-
-trap "kill ${kdcpid}; echo signal killing kdc; exit 1;" EXIT
+}
+trap cleanup EXIT INT TERM
 
 exitcode=0
 

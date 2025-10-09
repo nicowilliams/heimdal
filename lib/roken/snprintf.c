@@ -117,12 +117,16 @@ typedef unsigned long u_longest;
 typedef long longest;
 #endif
 
+#ifndef HAVE_UINTPTR_T
+typedef u_longest uintptr_t;
+#endif
 
 
-static int
+
+static size_t
 pad(struct snprintf_state *state, int width, char c)
 {
-    int len = 0;
+    size_t len = 0;
     while(width-- > 0){
 	(*state->append_char)(state,  c);
 	++len;
@@ -190,7 +194,7 @@ append_number(struct snprintf_state *state,
            no such wording for %x. This would mean that %#.o would
            output "0", but %#.x "". This does not make sense, and is
            also not what other printf implementations are doing. */
-	
+
 	if(prec <= nlen && nstr[nstart] != '0' && nstr[nstart] != '\0')
 	    prec = nlen + 1;
     }
@@ -208,13 +212,13 @@ append_number(struct snprintf_state *state,
 	    width -= prec;
 	else
 	    width -= nlen;
-	
+
 	if(use_alternative(flags, num, base))
 	    width -= 2;
-	
+
 	if(signchar != '\0')
 	    width--;
-	
+
 	/* pad to width */
 	len += pad(state, width, ' ');
     }
@@ -236,12 +240,12 @@ append_number(struct snprintf_state *state,
     } else
 	/* pad to prec with zeros */
 	len += pad(state, prec - nlen, '0');
-	
+
     while(nstr[nstart] != '\0') {
 	(*state->append_char)(state, nstr[nstart++]);
 	++len;
     }
-	
+
     if(flags & minus_flag)
 	len += pad(state, width - len, ' ');
 
@@ -252,14 +256,14 @@ append_number(struct snprintf_state *state,
  * return length
  */
 
-static int
+static size_t
 append_string (struct snprintf_state *state,
 	       const unsigned char *arg,
 	       int width,
 	       int prec,
 	       int flags)
 {
-    int len = 0;
+    size_t len = 0;
 
     if(arg == NULL)
 	arg = (const unsigned char*)"(null)";
@@ -272,7 +276,7 @@ append_string (struct snprintf_state *state,
 	len += pad(state, width, ' ');
 
     if (prec != -1) {
-	while (*arg && prec--) {
+	while (prec-- && *arg) {
 	    (*state->append_char) (state, *arg++);
 	    ++len;
 	}
@@ -305,7 +309,7 @@ append_char(struct snprintf_state *state,
 	(*state->append_char) (state, ' ');
 	++len;
     }
-    return 0;
+    return len;
 }
 
 /*
@@ -344,12 +348,12 @@ else \
  * zyxprintf - return length, as snprintf
  */
 
-static int
+static size_t
 xyzprintf (struct snprintf_state *state, const char *char_format, va_list ap)
 {
     const unsigned char *format = (const unsigned char *)char_format;
     unsigned char c;
-    int len = 0;
+    size_t len = 0;
 
     while((c = *format++)) {
 	if (c == '%') {
@@ -433,8 +437,7 @@ xyzprintf (struct snprintf_state *state, const char *char_format, va_list ap)
 
 	    switch (c) {
 	    case 'c' :
-		append_char(state, va_arg(ap, int), width, flags);
-		++len;
+		len += append_char(state, va_arg(ap, int), width, flags);
 		break;
 	    case 's' :
 		len += append_string(state,
@@ -445,13 +448,16 @@ xyzprintf (struct snprintf_state *state, const char *char_format, va_list ap)
 		break;
 	    case 'd' :
 	    case 'i' : {
-		longest arg;
-		u_longest num;
+		int64_t arg;
+		uint64_t num;
 		int minusp = 0;
 
 		PARSE_INT_FORMAT(arg, ap, signed);
 
-		if (arg < 0) {
+                if (arg == INT64_MIN) {
+		    minusp = 1;
+                    num = (uint64_t)INT64_MAX + 1;
+                } else if (arg < 0) {
 		    minusp = 1;
 		    num = -arg;
 		} else
@@ -498,7 +504,7 @@ xyzprintf (struct snprintf_state *state, const char *char_format, va_list ap)
 		break;
 	    }
 	    case 'p' : {
-		unsigned long arg = (unsigned long)va_arg(ap, void*);
+		uintptr_t arg = (uintptr_t)va_arg(ap, void*);
 
 		len += append_number (state, arg, 0x10, "0123456789ABCDEF",
 				      width, prec, flags, 0);
@@ -511,7 +517,7 @@ xyzprintf (struct snprintf_state *state, const char *char_format, va_list ap)
 	    }
 	    case '\0' :
 		--format;
-		/* FALLTHROUGH */
+                HEIM_FALLTHROUGH;
 	    case '%' :
 		(*state->append_char)(state, c);
 		++len;
@@ -531,7 +537,7 @@ xyzprintf (struct snprintf_state *state, const char *char_format, va_list ap)
 }
 
 #if !defined(HAVE_SNPRINTF) || defined(TEST_SNPRINTF)
-int ROKEN_LIB_FUNCTION
+ROKEN_LIB_FUNCTION int ROKEN_LIB_CALL
 rk_snprintf (char *str, size_t sz, const char *format, ...)
 {
     va_list args;
@@ -553,7 +559,7 @@ rk_snprintf (char *str, size_t sz, const char *format, ...)
 	va_start(args, format);
 	ret2 = vsprintf (tmp, format, args);
 	va_end(args);
-	if (ret != ret2 || strcmp(str, tmp))
+	if (ret != ret2 || strcmp(str, tmp) != 0)
 	    abort ();
 	free (tmp);
     }
@@ -564,7 +570,7 @@ rk_snprintf (char *str, size_t sz, const char *format, ...)
 #endif
 
 #if !defined(HAVE_ASPRINTF) || defined(TEST_SNPRINTF)
-int ROKEN_LIB_FUNCTION
+ROKEN_LIB_FUNCTION int ROKEN_LIB_CALL
 rk_asprintf (char **ret, const char *format, ...)
 {
     va_list args;
@@ -585,7 +591,7 @@ rk_asprintf (char **ret, const char *format, ...)
 	va_start(args, format);
 	ret2 = vsprintf (tmp, format, args);
 	va_end(args);
-	if (val != ret2 || strcmp(*ret, tmp))
+	if (val != ret2 || strcmp(*ret, tmp) != 0)
 	    abort ();
 	free (tmp);
     }
@@ -596,7 +602,7 @@ rk_asprintf (char **ret, const char *format, ...)
 #endif
 
 #if !defined(HAVE_ASNPRINTF) || defined(TEST_SNPRINTF)
-int ROKEN_LIB_FUNCTION
+ROKEN_LIB_FUNCTION int ROKEN_LIB_CALL
 rk_asnprintf (char **ret, size_t max_sz, const char *format, ...)
 {
     va_list args;
@@ -614,7 +620,7 @@ rk_asnprintf (char **ret, size_t max_sz, const char *format, ...)
 	    abort ();
 
 	ret2 = vsprintf (tmp, format, args);
-	if (val != ret2 || strcmp(*ret, tmp))
+	if (val != ret2 || strcmp(*ret, tmp) != 0)
 	    abort ();
 	free (tmp);
     }
@@ -626,7 +632,7 @@ rk_asnprintf (char **ret, size_t max_sz, const char *format, ...)
 #endif
 
 #if !defined(HAVE_VASPRINTF) || defined(TEST_SNPRINTF)
-int ROKEN_LIB_FUNCTION
+ROKEN_LIB_FUNCTION int ROKEN_LIB_CALL
 rk_vasprintf (char **ret, const char *format, va_list args)
 {
     return vasnprintf (ret, 0, format, args);
@@ -635,10 +641,10 @@ rk_vasprintf (char **ret, const char *format, va_list args)
 
 
 #if !defined(HAVE_VASNPRINTF) || defined(TEST_SNPRINTF)
-int ROKEN_LIB_FUNCTION
+ROKEN_LIB_FUNCTION int ROKEN_LIB_CALL
 rk_vasnprintf (char **ret, size_t max_sz, const char *format, va_list args)
 {
-    int st;
+    size_t st;
     struct snprintf_state state;
 
     state.max_sz = max_sz;
@@ -674,7 +680,7 @@ rk_vasnprintf (char **ret, size_t max_sz, const char *format, va_list args)
 #endif
 
 #if !defined(HAVE_VSNPRINTF) || defined(TEST_SNPRINTF)
-int ROKEN_LIB_FUNCTION
+ROKEN_LIB_FUNCTION int ROKEN_LIB_CALL
 rk_vsnprintf (char *str, size_t sz, const char *format, va_list args)
 {
     struct snprintf_state state;
@@ -692,5 +698,32 @@ rk_vsnprintf (char *str, size_t sz, const char *format, va_list args)
     if (state.s != NULL && sz != 0)
 	*state.s = '\0';
     return ret;
+}
+#endif
+
+#if !defined(HAVE_EVASPRINTF) || defined(TEST_SNPRINTF)
+ROKEN_LIB_FUNCTION char * ROKEN_LIB_CALL
+rk_evasprintf(const char *format, va_list args)
+{
+    char *s = NULL;
+
+    if (vasprintf(&s, format, args) == -1 || s == NULL)
+        errx(1, "Out of memory");
+    return s;
+}
+#endif
+
+#if !defined(HAVE_EASPRINTF) || defined(TEST_SNPRINTF)
+ROKEN_LIB_FUNCTION char * ROKEN_LIB_CALL
+rk_easprintf(const char *format, ...)
+{
+    va_list args;
+    char *s = NULL;
+
+    va_start(args, format);
+    if (vasprintf(&s, format, args) == -1 || s == NULL)
+        errx(1, "Out of memory");
+    va_end(args);
+    return s;
 }
 #endif

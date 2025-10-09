@@ -32,20 +32,6 @@
 
 #include "gsskrb5_locl.h"
 
-/* 1.2.752.43.13.17 */
-static gss_OID_desc gss_krb5_cred_no_ci_flags_x_oid_desc =
-{6, rk_UNCONST("\x2a\x85\x70\x2b\x0d\x11")};
-
-gss_OID GSS_KRB5_CRED_NO_CI_FLAGS_X = &gss_krb5_cred_no_ci_flags_x_oid_desc;
-
-/* 1.2.752.43.13.18 */
-static gss_OID_desc gss_krb5_import_cred_x_oid_desc =
-{6, rk_UNCONST("\x2a\x85\x70\x2b\x0d\x12")};
-
-gss_OID GSS_KRB5_IMPORT_CRED_X = &gss_krb5_import_cred_x_oid_desc;
-
-
-
 static OM_uint32
 import_cred(OM_uint32 *minor_status,
 	    krb5_context context,
@@ -119,7 +105,7 @@ import_cred(OM_uint32 *minor_status,
     free(str);
     str = NULL;
 
-    major_stat = _gsskrb5_krb5_import_cred(minor_status, id, keytab_principal,
+    major_stat = _gsskrb5_krb5_import_cred(minor_status, &id, keytab_principal,
 					   keytab, cred_handle);
 out:
     if (id)
@@ -163,8 +149,9 @@ allowed_enctypes(OM_uint32 *minor_status,
 	goto out;
     }
 
+    /* serialized as int32_t[], but stored as krb5_enctype[] */
     len = value->length / 4;
-    enctypes = malloc((len + 1) * 4);
+    enctypes = malloc((len + 1) * sizeof(krb5_enctype));
     if (enctypes == NULL) {
 	*minor_status = ENOMEM;
 	major_stat = GSS_S_FAILURE;
@@ -179,9 +166,9 @@ allowed_enctypes(OM_uint32 *minor_status,
     }
 
     for (i = 0; i < len; i++) {
-	uint32_t e;
+	int32_t e;
 
-	ret = krb5_ret_uint32(sp, &e);
+	ret = krb5_ret_int32(sp, &e);
 	if (ret) {
 	    *minor_status = ret;
 	    major_stat =  GSS_S_FAILURE;
@@ -189,7 +176,7 @@ allowed_enctypes(OM_uint32 *minor_status,
 	}
 	enctypes[i] = e;
     }
-    enctypes[i] = 0;
+    enctypes[i] = KRB5_ENCTYPE_NULL;
 
     if (cred->enctypes)
 	free(cred->enctypes);
@@ -223,14 +210,14 @@ no_ci_flags(OM_uint32 *minor_status,
 
     cred = (gsskrb5_cred)*cred_handle;
     cred->cred_flags |= GSS_CF_NO_CI_FLAGS;
-	
+
     *minor_status = 0;
     return GSS_S_COMPLETE;
 
 }
 
 
-OM_uint32
+OM_uint32 GSSAPI_CALLCONV
 _gsskrb5_set_cred_option
            (OM_uint32 *minor_status,
             gss_cred_id_t *cred_handle,
@@ -255,7 +242,7 @@ _gsskrb5_set_cred_option
     if (gss_oid_equal(desired_object, GSS_KRB5_CRED_NO_CI_FLAGS_X)) {
 	return no_ci_flags(minor_status, context, cred_handle, value);
     }
-	
+
 
     *minor_status = EINVAL;
     return GSS_S_FAILURE;

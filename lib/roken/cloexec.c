@@ -33,14 +33,12 @@
 
 #include <config.h>
 
-#include <unistd.h>
-#include <fcntl.h>
-
 #include "roken.h"
 
 void ROKEN_LIB_FUNCTION
 rk_cloexec(int fd)
 {
+#ifdef HAVE_FCNTL
     int ret;
 
     ret = fcntl(fd, F_GETFD);
@@ -48,10 +46,30 @@ rk_cloexec(int fd)
 	return;
     if (fcntl(fd, F_SETFD, ret | FD_CLOEXEC) == -1)
         return;
+#endif
 }
 
 void ROKEN_LIB_FUNCTION
 rk_cloexec_file(FILE *f)
 {
+#ifdef HAVE_FCNTL
     rk_cloexec(fileno(f));
+#endif
 }
+
+void ROKEN_LIB_FUNCTION
+rk_cloexec_dir(DIR * d)
+{
+#ifndef _WIN32
+    rk_cloexec(dirfd(d));
+#endif
+}
+
+void ROKEN_LIB_FUNCTION
+rk_cloexec_socket(rk_socket_t s)
+{
+#ifndef _WIN32
+    rk_cloexec((int)s);
+#endif
+}
+

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2004 Kungliga Tekniska Högskolan
+ * Copyright (c) 2004-2022 Kungliga Tekniska Högskolan
  * (Royal Institute of Technology, Stockholm, Sweden). 
  * All rights reserved. 
  *
@@ -54,7 +54,7 @@ command = {
 		short = "e"
 		type = "string"
 		argument = "enctype"
-		help = "encryption type"
+		help = "encryption type(s)"
 	}
 	option = {
 		long = "password"
@@ -76,6 +76,21 @@ command = {
 		help = "generate random key"
 	}
 	option = {
+		long = "keepold"
+		type = "flag"
+		help = "keep old keys/password needed to decrypt extant tickets (default)"
+	}
+	option = {
+		long = "keepallold"
+		type = "flag"
+		help = "keep all old keys/password"
+	}
+	option = {
+		long = "pruneall"
+		type = "flag"
+		help = "delete all old keys"
+	}
+	option = {
 		long = "hex"
 		short = "H"
 		type = "flag"
@@ -93,6 +108,28 @@ command = {
 		type = "string"
 		argument = "realm"
 		help = "realm to use"
+	}
+	option = {
+		long = "enctype"
+		short = "e"
+		type = "string"
+		argument = "enctype"
+		help = "encryption type(s)"
+	}
+	option = {
+		long = "keepold"
+		type = "flag"
+		help = "keep old keys/password needed to decrypt extant tickets (default)"
+	}
+	option = {
+		long = "keepallold"
+		type = "flag"
+		help = "keep all old keys/password"
+	}
+	option = {
+		long = "pruneall"
+		type = "flag"
+		help = "delete all old keys"
 	}
 	option = {
 		long = "admin-server"
@@ -114,11 +151,17 @@ command = {
 }
 command = {
 	name = "copy"
+	name = "merge"
 	function = "kt_copy"
+	option = {
+		long = "copy-duplicates"
+		type = "flag"
+		help = "copy entries for the same principal and kvno, but different keys"
+	}
 	argument = "source destination"
 	min_args = "2"
 	max_args = "2"
-	help = "Copies one keytab to another."
+	help = "Merges one keytab into another."
 }
 command = {
 	name = "get"
@@ -130,11 +173,36 @@ command = {
 		argument = "principal"
 	}
 	option = {
+		long = "create"
+		type = "-flag"
+		help = "do not create the principal"
+	}
+	option = {
+		long = "change-keys"
+		type = "-flag"
+		help = "do not change the principal's keys"
+	}
+	option = {
 		long = "enctypes"
 		short = "e"
 		type = "strings"
 		help = "encryption types to use"
 		argument = "enctype"
+	}
+	option = {
+		long = "keepold"
+		type = "flag"
+		help = "keep old keys/password needed to decrypt extant tickets (default)"
+	}
+	option = {
+		long = "keepallold"
+		type = "flag"
+		help = "keep all old keys/password"
+	}
+	option = {
+		long = "pruneall"
+		type = "flag"
+		help = "delete all old keys"
 	}
 	option = {
 		long = "realm"
@@ -163,6 +231,14 @@ command = {
 	help = "Change keys for specified principals, and add them to the keytab."
 }
 command = {
+	name = "import"
+	function = "kt_import"
+	help = "Imports a keytab from JSON output of ktutil list --json --keys."
+        min_args = "0"
+        max_args = "1"
+	argument = "JSON-FILE"
+}
+command = {
 	name = "list"
 	option = {
 		long = "keys"
@@ -173,6 +249,11 @@ command = {
 		long = "timestamp"
 		type = "flag"
 		help = "show timestamps"
+	}
+	option = {
+		long = "json"
+		type = "flag"
+		help = "output JSON representation"
 	}
 	max_args = "0"
 	function = "kt_list"
@@ -206,7 +287,7 @@ command = {
 		short = "V"
 		type = "integer"
 		help = "key version to remove"
-		argument = "enctype"
+		argument = "kvno"
 		default = "0"
 	}
 	option = {

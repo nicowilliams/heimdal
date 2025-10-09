@@ -33,7 +33,7 @@
 
 #include "hx_locl.h"
 
-struct hx_expr *
+HX509_LIB_FUNCTION struct hx_expr * HX509_LIB_CALL
 _hx509_make_expr(enum hx_expr_op op, void *arg1, void *arg2)
 {
     struct hx_expr *expr;
@@ -101,7 +101,7 @@ eval_comp(hx509_context context, hx509_env env, struct hx_expr *expr)
 	if (expr->op == comp_TAILEQ) {
 	    size_t len1 = strlen(s1);
 	    size_t len2 = strlen(s2);
-	
+
 	    if (len1 < len2)
 		return 0;
 	    ret = strcmp(s1 + (len1 - len2), s2) == 0;
@@ -133,7 +133,7 @@ eval_comp(hx509_context context, hx509_env env, struct hx_expr *expr)
 	    subenv = find_variable(context, env, subexpr);
 	    if (subenv == NULL)
 		return FALSE;
-	
+
 	    while (subenv) {
 		if (subenv->type != env_string)
 		    continue;
@@ -155,7 +155,7 @@ eval_comp(hx509_context context, hx509_env env, struct hx_expr *expr)
     return FALSE;
 }
 
-int
+HX509_LIB_FUNCTION int HX509_LIB_CALL
 _hx509_expr_eval(hx509_context context, hx509_env env, struct hx_expr *expr)
 {
     switch (expr->op) {
@@ -175,10 +175,11 @@ _hx509_expr_eval(hx509_context context, hx509_env env, struct hx_expr *expr)
 	return eval_comp(context, env, expr->arg1);
     default:
 	_hx509_abort("hx509 eval expr with unknown op: %d", (int)expr->op);
+	UNREACHABLE(return 0);
     }
 }
 
-void
+HX509_LIB_FUNCTION void HX509_LIB_CALL
 _hx509_expr_free(struct hx_expr *expr)
 {
     switch (expr->op) {
@@ -203,7 +204,8 @@ _hx509_expr_free(struct hx_expr *expr)
     free(expr);
 }
 
-struct hx_expr *
+/* XXX Horrible, no good cause not thread-safe */
+HX509_LIB_FUNCTION struct hx_expr * HX509_LIB_CALL
 _hx509_expr_parse(const char *buf)
 {
     _hx509_expr_input.buf = buf;
@@ -221,8 +223,14 @@ _hx509_expr_parse(const char *buf)
     return _hx509_expr_input.expr;
 }
 
+const char *
+_hx509_expr_parse_error(void)
+{
+    return _hx509_expr_input.error;
+}
+
 void
-_hx509_sel_yyerror (char *s)
+_hx509_sel_yyerror (const char *s)
 {
      if (_hx509_expr_input.error)
          free(_hx509_expr_input.error);

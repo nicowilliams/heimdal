@@ -33,17 +33,15 @@
 
 #include "kdc_locl.h"
 
-RCSID("$Id$");
-
 static int version_flag;
 static int help_flag;
 
 struct getargs args[] = {
-    { "version",   0,	arg_flag, &version_flag },
-    { "help",     'h',	arg_flag, &help_flag }
+    { "version",   0,	arg_flag, &version_flag, NULL, NULL },
+    { "help",     'h',	arg_flag, &help_flag,    NULL, NULL }
 };
 
-const static int num_args = sizeof(args) / sizeof(args[0]);
+static const int num_args = sizeof(args) / sizeof(args[0]);
 
 static void
 usage(int ret)
@@ -82,11 +80,28 @@ main(int argc, char **argv)
     if (ret)
 	krb5_err(context, 1, ret, "krb5_kdc_default_config");
 
-    kdc_openlog(context, config);
+    kdc_openlog(context, "kdc-replay", config);
 
     ret = krb5_kdc_set_dbinfo(context, config);
     if (ret)
 	krb5_err(context, 1, ret, "krb5_kdc_set_dbinfo");
+
+#ifdef PKINIT
+    if (config->enable_pkinit) {
+	if (config->pkinit_kdc_identity == NULL)
+	    krb5_errx(context, 1, "pkinit enabled but no identity");
+
+	if (config->pkinit_kdc_anchors == NULL)
+	    krb5_errx(context, 1, "pkinit enabled but no X509 anchors");
+
+	krb5_kdc_pk_initialize(context, config,
+			       config->pkinit_kdc_identity,
+			       config->pkinit_kdc_anchors,
+			       config->pkinit_kdc_cert_pool,
+			       config->pkinit_kdc_revoke);
+
+    }
+#endif /* PKINIT */
 
     if (argc != 2)
 	errx(1, "argc != 2");
@@ -169,6 +184,8 @@ main(int argc, char **argv)
 	    unsigned int tag2;
 	    ret = der_get_tag (r.data, r.length,
 			       &cl, &ty, &tag2, NULL);
+            if (ret)
+                krb5_err(context, 1, ret, "Could not decode replay data");
 	    if (MAKE_TAG(cl, ty, 0) != clty)
 		krb5_errx(context, 1, "class|type mismatch: %d != %d",
 			  (int)MAKE_TAG(cl, ty, 0), (int)clty);

@@ -1,4 +1,5 @@
 \input texinfo @c -*- texinfo -*-
+
 @c %**start of header
 @c $Id$
 @setfilename heimdal.info
@@ -7,36 +8,33 @@
 @afourpaper
 @end iftex
 @c some sensible characters, please?
-@tex
-\input latin1.tex
-@end tex
+@documentencoding UTF-8
 @setchapternewpage on
 @syncodeindex pg cp
 @c %**end of header
 
 @include vars.texi
 
-@set UPDATED $Date$
 @set VERSION @value{PACKAGE_VERSION}
 @set EDITION 1.0
 
 @ifinfo
 @dircategory Security
 @direntry
-* Heimdal: (heimdal).           The Kerberos 5 distribution from KTH
+* Heimdal: (heimdal).           The Kerberos 5 and PKIX distribution from KTH
 @end direntry
 @end ifinfo
 
 @c title page
 @titlepage
 @title Heimdal
-@subtitle Kerberos 5 from KTH
+@subtitle Kerberos 5 and PKIX from KTH
 @subtitle Edition @value{EDITION}, for version @value{VERSION}
 @subtitle 2008
 @author Johan Danielsson
 @author Love Hörnquist Åstrand
 @author Assar Westerlund
-@author last updated @value{UPDATED}
+@author et al
 
 @end titlepage
 
@@ -61,18 +59,20 @@
 @top Heimdal
 @end ifnottex
 
-This manual is last updated @value{UPDATED} for version
-@value{VERSION} of Heimdal.
+This manual for version @value{VERSION} of Heimdal.
 
 @menu
 * Introduction::                
 * What is Kerberos?::           
+* What is PKIX?::           
+* What is a Certification Authority (CA)?::           
+* What is kx509?::           
+* What is bx509?::           
 * Building and Installing::     
 * Setting up a realm::          
 * Applications::                
 * Things in search for a better place::  
-* Kerberos 4 issues::           
-* Windows 2000 compatability::  
+* Windows compatibility::  
 * Programming with Kerberos::   
 * Migration::                   
 * Acknowledgments::             
@@ -87,45 +87,34 @@ Setting up a realm
 * Creating the database::       
 * Modifying the database::      
 * keytabs::                     
-* Serving Kerberos 4/524/kaserver::  
 * Remote administration::       
 * Password changing::           
 * Testing clients and servers::  
 * Slave Servers::               
 * Incremental propagation::     
 * Encryption types and salting::                     
+* Credential cache server - KCM::
 * Cross realm::                 
 * Transit policy::              
 * Setting up DNS::              
 * Using LDAP to store the database::  
 * Providing Kerberos credentials to servers and programs::  
 * Setting up PK-INIT::
+* Debugging Kerberos problems::
 
 Applications
 
-* Authentication modules::      
 * AFS::                         
 
-Authentication modules
+Windows compatibility
 
-* Digital SIA::                 
-* IRIX::                        
-
-Kerberos 4 issues
-
-* Principal conversion issues::  
-* Converting a version 4 database::  
-* kaserver::                    
-
-Windows 2000 compatability
-
-* Configuring Windows 2000 to use a Heimdal KDC::  
-* Inter-Realm keys (trust) between Windows 2000 and a Heimdal KDC::  
+* Configuring Windows to use a Heimdal KDC::  
+* Inter-Realm keys (trust) between Windows and a Heimdal KDC::  
 * Create account mappings::     
 * Encryption types::            
 * Authorisation data::          
 * Quirks of Windows 2000 KDC::  
-* Useful links when reading about the Windows 2000::  
+* Useful links when reading about the Windows::  
 
 Programming with Kerberos
 
@@ -138,14 +127,14 @@ Programming with Kerberos
 @include setup.texi
 @include apps.texi
 @include misc.texi
-@include kerberos4.texi
 @include win2k.texi
 @include programming.texi
 @include migration.texi
 @include ack.texi
+@node  Copyrights and Licenses, , Acknowledgments, Top
+ @comment  node-name,  next,  previous,  up
 @include copyright.texi
 
 @c @shortcontents
-@contents
 
 @bye

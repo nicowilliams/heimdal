@@ -81,10 +81,8 @@ acl_parse_format(krb5_context context,
     for(p = format; *p != '\0'; p++) {
 	tmp = malloc(sizeof(*tmp));
 	if(tmp == NULL) {
-	    krb5_set_error_message(context, ENOMEM,
-				   N_("malloc: out of memory", ""));
 	    acl_free_list(acl, 0);
-	    return ENOMEM;
+	    return krb5_enomem(context);
 	}
 	if(*p == 's') {
 	    tmp->type = acl_string;
@@ -121,7 +119,7 @@ acl_match_field(krb5_context context,
 		struct acl_field *field)
 {
     if(field->type == acl_string) {
-	return !strcmp(field->u.cstr, string);
+	return strcmp(field->u.cstr, string) == 0;
     } else if(field->type == acl_fnmatch) {
 	return !fnmatch(field->u.cstr, string, 0);
     } else if(field->type == acl_retval) {
@@ -198,7 +196,7 @@ acl_match_acl(krb5_context context,
  * @ingroup krb5_support
  */
 
-krb5_error_code KRB5_LIB_FUNCTION
+KRB5_LIB_FUNCTION krb5_error_code KRB5_LIB_CALL
 krb5_acl_match_string(krb5_context context,
 		      const char *string,
 		      const char *format,
@@ -224,7 +222,7 @@ krb5_acl_match_string(krb5_context context,
 	return EACCES;
     }
 }
-	
+
 /**
  * krb5_acl_match_file matches ACL format against each line in a file
  * using krb5_acl_match_string(). Lines starting with # are treated
@@ -241,14 +239,14 @@ krb5_acl_match_string(krb5_context context,
  * @ingroup krb5_support
  */
 
-krb5_error_code KRB5_LIB_FUNCTION
+KRB5_LIB_FUNCTION krb5_error_code KRB5_LIB_CALL
 krb5_acl_match_file(krb5_context context,
 		    const char *file,
 		    const char *format,
 		    ...)
 {
     krb5_error_code ret;
-    struct acl_field *acl;
+    struct acl_field *acl = NULL;
     char buf[256];
     va_list ap;
     FILE *f;
@@ -257,10 +255,10 @@ krb5_acl_match_file(krb5_context context,
     f = fopen(file, "r");
     if(f == NULL) {
 	int save_errno = errno;
-
+	rk_strerror_r(save_errno, buf, sizeof(buf));
 	krb5_set_error_message(context, save_errno,
-			       N_("open(%s): %s", "file, errno"), file,
-			       strerror(save_errno));
+			       N_("open(%s): %s", "file, errno"),
+			       file, buf);
 	return save_errno;
     }
     rk_cloexec_file(f);

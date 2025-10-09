@@ -38,9 +38,12 @@ RCSID("$Id$");
 
 #include "otp_locl.h"
 
-#if !defined(HAVE_NDBM) && !defined(HAVE_DB_NDBM)
-#include "ndbm_wrap.h"
+#if defined(HAVE_DB_NDBM)
+# include <ndbm.h>
+#elif !defined(HAVE_NDBM)
+# include "ndbm_wrap.h"
 #endif
+
 
 #define RETRIES 5
 
@@ -226,7 +229,7 @@ otp_put (void *v, OtpContext *ctx)
       return -1;
   strlcpy (p, ctx->seed, rem);
   p += len;
-  rem -= len;
+  /* rem -= len; */
   dat.dptr  = buf;
   dat.dsize = p - buf;
   return dbm_store (dbm, key, dat, DBM_REPLACE);

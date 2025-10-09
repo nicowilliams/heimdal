@@ -33,6 +33,7 @@
 
 #include "krb5_locl.h"
 #include "store-int.h"
+#include <assert.h>
 
 typedef struct emem_storage{
     unsigned char *base;
@@ -45,7 +46,10 @@ static ssize_t
 emem_fetch(krb5_storage *sp, void *data, size_t size)
 {
     emem_storage *s = (emem_storage*)sp->data;
-    if(s->base + s->len - s->ptr < size)
+
+    assert(data != NULL && s->ptr != NULL);
+
+    if((size_t)(s->base + s->len - s->ptr) < size)
 	size = s->base + s->len - s->ptr;
     memmove(data, s->ptr, size);
     sp->seek(sp, size, SEEK_CUR);
@@ -55,8 +59,18 @@ emem_fetch(krb5_storage *sp, void *data, size_t size)
 static ssize_t
 emem_store(krb5_storage *sp, const void *data, size_t size)
 {
-    emem_storage *s = (emem_storage*)sp->data;
-    if(size > s->base + s->size - s->ptr){
+    emem_storage *s;
+
+    if (size == 0) {
+	sp->seek(sp, 0, SEEK_CUR);
+	return 0;
+    }
+
+    s = (emem_storage*)sp->data;
+
+    assert(data != NULL);
+
+    if(size > (size_t)(s->base + s->size - s->ptr)){
 	void *base;
 	size_t sz, off;
 	off = s->ptr - s->base;
@@ -70,7 +84,8 @@ emem_store(krb5_storage *sp, const void *data, size_t size)
 	s->base = base;
 	s->ptr = (unsigned char*)base + off;
     }
-    memmove(s->ptr, data, size);
+    if (size)
+        memmove(s->ptr, data, size);
     sp->seek(sp, size, SEEK_CUR);
     return size;
 }
@@ -81,12 +96,12 @@ emem_seek(krb5_storage *sp, off_t offset, int whence)
     emem_storage *s = (emem_storage*)sp->data;
     switch(whence){
     case SEEK_SET:
-	if(offset > s->size)
+	if((size_t)offset > s->size)
 	    offset = s->size;
 	if(offset < 0)
 	    offset = 0;
 	s->ptr = s->base + offset;
-	if(offset > s->len)
+	if((size_t)offset > s->len)
 	    s->len = offset;
 	break;
     case SEEK_CUR:
@@ -111,18 +126,25 @@ emem_trunc(krb5_storage *sp, off_t offset)
      * shrunk more then half of the current size, adjust buffer.
      */
     if (offset == 0) {
-	free(s->base);
-	s->size = 0;
-	s->base = NULL;
-	s->ptr = NULL;
-    } else if (offset > s->size || (s->size / 2) > offset) {
+        if (s->size > 1024) {
+            void *base;
+
+            base = realloc(s->base, 1024);
+            if (base) {
+                s->base = base;
+                s->size = 1024;
+            }
+        }
+        s->len = 0;
+        s->ptr = s->base;
+    } else if ((size_t)offset > s->size || (s->size / 2) > (size_t)offset) {
 	void *base;
 	size_t off;
 	off = s->ptr - s->base;
 	base = realloc(s->base, offset);
 	if(base == NULL)
 	    return ENOMEM;
-	if (offset > s->size)
+	if ((size_t)offset > s->size)
 	    memset((char *)base + s->size, 0, offset - s->size);
 	s->size = offset;
 	s->base = base;
@@ -139,7 +161,10 @@ static void
 emem_free(krb5_storage *sp)
 {
     emem_storage *s = sp->data;
-    memset(s->base, 0, s->len);
+
+    assert(s->base != NULL);
+
+    memset_s(s->base, s->len, 0, s->len);
     free(s->base);
 }
 
@@ -156,9 +181,10 @@ emem_free(krb5_storage *sp)
  * @sa krb5_storage_from_readonly_mem()
  * @sa krb5_storage_from_fd()
  * @sa krb5_storage_from_data()
+ * @sa krb5_storage_from_socket()
  */
 
-krb5_storage * KRB5_LIB_FUNCTION
+KRB5_LIB_FUNCTION krb5_storage * KRB5_LIB_CALL
 krb5_storage_emem(void)
 {
     krb5_storage *sp;
@@ -177,7 +203,7 @@ krb5_storage_emem(void)
     sp->flags = 0;
     sp->eof_code = HEIM_ERR_EOF;
     s->size = 1024;
-    s->base = malloc(s->size);
+    s->base = calloc(1, s->size);
     if (s->base == NULL) {
 	free(sp);
 	free(s);
@@ -189,6 +215,8 @@ krb5_storage_emem(void)
     sp->store = emem_store;
     sp->seek = emem_seek;
     sp->trunc = emem_trunc;
+    sp->fsync = NULL;
     sp->free = emem_free;
+    sp->max_alloc = UINT32_MAX/64;
     return sp;
 }

@@ -47,7 +47,7 @@
  * @ingroup krb5
  */
 
-krb5_error_code KRB5_LIB_FUNCTION
+KRB5_LIB_FUNCTION krb5_error_code KRB5_LIB_CALL
 krb5_set_real_time (krb5_context context,
 		    krb5_timestamp sec,
 		    int32_t usec)
@@ -79,7 +79,7 @@ krb5_set_real_time (krb5_context context,
  * return ``corrected'' time in `timeret'.
  */
 
-krb5_error_code KRB5_LIB_FUNCTION
+KRB5_LIB_FUNCTION krb5_error_code KRB5_LIB_CALL
 krb5_timeofday (krb5_context context,
 		krb5_timestamp *timeret)
 {
@@ -91,7 +91,7 @@ krb5_timeofday (krb5_context context,
  * like gettimeofday but with time correction to the KDC
  */
 
-krb5_error_code KRB5_LIB_FUNCTION
+KRB5_LIB_FUNCTION krb5_error_code KRB5_LIB_CALL
 krb5_us_timeofday (krb5_context context,
 		   krb5_timestamp *sec,
 		   int32_t *usec)
@@ -105,7 +105,7 @@ krb5_us_timeofday (krb5_context context,
     return 0;
 }
 
-krb5_error_code KRB5_LIB_FUNCTION
+KRB5_LIB_FUNCTION krb5_error_code KRB5_LIB_CALL
 krb5_format_time(krb5_context context, time_t t,
 		 char *s, size_t len, krb5_boolean include_time)
 {
@@ -120,10 +120,19 @@ krb5_format_time(krb5_context context, time_t t,
     return 0;
 }
 
-krb5_error_code KRB5_LIB_FUNCTION
+KRB5_LIB_FUNCTION krb5_error_code KRB5_LIB_CALL
 krb5_string_to_deltat(const char *string, krb5_deltat *deltat)
 {
     if((*deltat = parse_time(string, "s")) == -1)
 	return KRB5_DELTAT_BADFORMAT;
     return 0;
+}
+
+krb5_deltat
+krb5_time_abs(krb5_deltat t1, krb5_deltat t2)
+{
+    krb5_deltat t = t1 - t2;
+    if (t < 0)
+	return -t;
+    return t;
 }

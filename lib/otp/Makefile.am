@@ -2,7 +2,10 @@
 
 include $(top_srcdir)/Makefile.am.common
 
-AM_CPPFLAGS += $(INCLUDE_hcrypto) $(ROKEN_RENAME)
+AM_CPPFLAGS += $(ROKEN_RENAME)
+if HAVE_DBHEADER
+AM_CPPFLAGS += -I$(DBHEADER)
+endif
 
 noinst_PROGRAMS = otptest
 
@@ -14,12 +17,19 @@ include_HEADERS = otp.h
 
 lib_LTLIBRARIES = libotp.la
 libotp_la_LDFLAGS = -version-info 1:5:1
-libotp_la_LIBADD  = $(LIB_hcrypto) $(LIB_roken) $(LIB_NDBM)
+libotp_la_LIBADD  = $(LIB_hcrypto) $(LIB_roken)
 
 if HAVE_DB3
 ndbm_wrap = ndbm_wrap.c ndbm_wrap.h
+libotp_la_LIBADD += $(DB3LIB)
+else
+if HAVE_DB1
+ndbm_wrap = ndbm_wrap.c ndbm_wrap.h
+libotp_la_LIBADD += $(DB1LIB)
 else
 ndbm_wrap =
+libotp_la_LIBADD += $(NDBMLIB)
+endif
 endif
 
 dist_libotp_la_SOURCES = \
@@ -36,8 +46,14 @@ dist_libotp_la_SOURCES = \
 
 nodist_libotp_la_SOURCES = $(ndbm_wrap) $(ROKEN_SRCS)
 
+libotp_la_DEPENDENCIES = version-script.map
+
 if do_roken_rename
 ROKEN_SRCS = snprintf.c strcasecmp.c strncasecmp.c strlwr.c strlcpy.c strlcat.c
+endif
+
+if versionscript
+libotp_la_LDFLAGS += $(LDFLAGS_VERSION_SCRIPT)$(srcdir)/version-script.map
 endif
 
 $(libotp_la_OBJECTS): $(ndbm_wrap)
@@ -70,3 +86,5 @@ CLEANFILES = \
 	strlcpy.c \
 	strlwr.c \
 	strncasecmp.c
+
+EXTRA_DIST = NTMakefile version-script.map

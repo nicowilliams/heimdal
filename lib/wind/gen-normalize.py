@@ -1,5 +1,5 @@
 #!/usr/local/bin/python
-# -*- coding: iso-8859-1 -*-
+# -*- coding: utf-8 -*-
 
 # $Id$
 
@@ -43,15 +43,15 @@ import UnicodeData
 import util
 
 if len(sys.argv) != 4:
-    print "usage: %s UnicodeData.txt"
-    " CompositionExclusions-3.2.0.txt out-dir" % sys.argv[0]
+    print("usage: %s UnicodeData.txt"
+    " CompositionExclusions-3.2.0.txt out-dir" % sys.argv[0])
     sys.exit(1)
 
 ud = UnicodeData.read(sys.argv[1])
 
 def sortedKeys(d):
     """Return a sorted list of the keys of a dict"""
-    keys = d.keys()
+    keys = list(d.keys())
     keys.sort()
     return keys
 
@@ -98,6 +98,7 @@ extern const unsigned short _wind_canon_next_table[];
 normalize_c.file.write(
 '''
 #include "normalize_table.h"
+#include <stdlib.h>
 
 const struct translation _wind_normalize_table[] = {
 ''')
@@ -135,7 +136,7 @@ exclusions = UnicodeData.read(sys.argv[2])
 inv = dict([(''.join(["%05x" % int(x, 0x10) for x in v[4].split(' ')]),
              [k, v[0]])
             for k,v in ud.items()
-            if v[4] and not re.search('<[a-zA-Z]+> *', v[4]) and not exclusions.has_key(k)])
+            if v[4] and not re.search('<[a-zA-Z]+> *', v[4]) and not k in exclusions])
 
 table = 0
 

@@ -31,13 +31,8 @@
  * SUCH DAMAGE.
  */
 
-#ifdef HAVE_CONFIG_H
 #include <config.h>
-RCSID("$Id$");
-#endif
-
-#include <stdio.h>
-#include <string.h>
+#include <roken.h>
 #include <rc4.h>
 
 static unsigned char plain1[8] =

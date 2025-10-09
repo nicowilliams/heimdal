@@ -55,6 +55,11 @@ command = {
 		help = "just convert keyfile to new format"
 	}
 	option = {
+		long = "random-password"
+		type = "flag"
+		help = "use a random password (and print the password to stdout)"
+	}
+	option = {
 		long = "master-key-fd"
 		type = "integer"
 		argument = "fd"
@@ -70,6 +75,12 @@ command = {
 		short = "d"
 		type = "flag"
 		help = "decrypt keys"
+	}
+	option = {
+		long = "format"
+		short = "f"
+		type = "string"
+		help = "dump format, mit or heimdal (default: heimdal)"
 	}
 	argument = "[dump-file]"
 	min_args = "0"
@@ -88,6 +99,11 @@ command = {
 		long = "realm-max-renewable-life"
 		type = "string"
 		help = "realm max renewable lifetime"
+	}
+	option = {
+		long = "bare"
+		type = "flag"
+		help = "only create krbtgt for realm"
 	}
 	argument = "realm..."
 	min_args = "1"
@@ -122,6 +138,12 @@ command = {
 		long = "random-password"
 		type = "flag"
 		help = "set random password"
+	}
+	option = {
+		long = "enctypes"
+		short = "e"
+		type = "string"
+		help = "encryption type(s)"
 	}
 	option = {
 		long = "password"
@@ -165,13 +187,155 @@ command = {
 		help = "password expiration time"
 	}
 	option = {
+		long = "hist-kvno-diff-clnt"
+		type = "integer"
+		argument = "kvno diff"
+		help = "historic keys allowed for client"
+		default = "-1"
+	}
+	option = {
+		long = "hist-kvno-diff-svc"
+		type = "integer"
+		argument = "kvno diff"
+		help = "historic keys allowed for service"
+		default = "-1"
+	}
+	option = {
 		long = "use-defaults"
 		type = "flag"
 		help = "use default values"
 	}
+	option = {
+		long = "policy"
+		type = "string"
+		argument = "policy"
+		help = "policy name"
+	}
 	argument = "principal..."
 	min_args = "1"
 	help = "Adds a principal to the database."
+}
+command = {
+	name = "add_namespace"
+	name = "add_ns"
+	function = "add_new_namespace"
+	option = {
+		long = "enctypes"
+		short = "e"
+		type = "string"
+		help = "encryption type(s)"
+	}
+	option = {
+		long = "max-ticket-life"
+		type = "string"
+		argument ="lifetime"
+		help = "max ticket lifetime"
+	}
+	option = {
+		long = "max-renewable-life"
+		type = "string"
+		argument = "lifetime"
+		help = "max renewable life"
+	}
+	option = {
+		long = "key-rotation-epoch"
+		type = "string"
+		argument = "time"
+		help = "absolute start time (or +timespec for relative to now with default unit of month)"
+	}
+	option = {
+		long = "key-rotation-period"
+		type = "string"
+		argument = "time"
+		help = "automatic key rotation period"
+	}
+	option = {
+		long = "attributes"
+		type = "string"
+		argument = "attributes"
+		help = "principal attributes"
+	}
+	argument = "principal..."
+	min_args = "1"
+	help = "Adds a namespace of virtual principals with derived keys to the database."
+}
+command = {
+	name = "modify_namespace"
+	name = "mod_ns"
+	function = "modify_namespace"
+	option = {
+		long = "enctypes"
+		short = "e"
+		type = "strings"
+		help = "encryption type(s)"
+	}
+	option = {
+		long = "max-ticket-life"
+		type = "string"
+		argument ="lifetime"
+		help = "max ticket lifetime"
+	}
+	option = {
+		long = "max-renewable-life"
+		type = "string"
+		argument = "lifetime"
+		help = "max renewable life"
+	}
+	option = {
+		long = "attributes"
+		type = "string"
+		argument = "attributes"
+		help = "principal attributes"
+	}
+	option = {
+		long = "krb5-config-file"
+		short = "C"
+		type = "string"
+		help = "filename to save the principal's krb5.confg in"
+	}
+	argument = "principal..."
+	min_args = "1"
+	help = "Modifies a namespace of virtual principals with derived keys to the database."
+}
+command = {
+	name = "modify_namespace_key_rotation"
+	name = "mod_ns_kr"
+	function = "modify_ns_kr"
+	option = {
+		long = "force"
+		short = "f"
+		type = "flag"
+		help = "change schedule even if it would revoke some extant tickets"
+	}
+	option = {
+		long = "keep-base-key"
+		short = "k"
+		type = "flag"
+		help = "keep current base key for new key rotation schedule"
+	}
+	option = {
+		long = "revoke-old"
+		short = "r"
+		type = "string"
+		argument = "time"
+		help = "delete base keys older than this to revoke old tickets"
+	}
+	option = {
+		long = "new-key-rotation-epoch"
+		type = "string"
+		argument = "time"
+		help = "new start time relative to now"
+	}
+	option = {
+		long = "new-key-rotation-period"
+		type = "string"
+		argument = "time"
+		help = "new automatic key rotation period"
+	}
+	argument = "principal..."
+	min_args = "1"
+	max_args = "1"
+	help = "Adds or changes new key rotation schedule for the given namespace."
 }
 command = {
 	name = "passwd"
@@ -190,15 +354,36 @@ command = {
 		help = "set random password"
 	}
 	option = {
+		long = "enctypes"
+		short = "e"
+		type = "string"
+		help = "encryption type(s)"
+	}
+	option = {
 		long = "password"
 		short = "p"
 		type = "string"
-		help = "princial's password"
+		help = "principal's password"
 	}
 	option = {
 		long = "key"
 		type = "string"
 		help = "DES key in hex"
+	}
+	option = {
+		long = "keepold"
+		type = "flag"
+		help = "keep old keys/password needed to decrypt extant tickets (default)"
+	}
+	option = {
+		long = "keepallold"
+		type = "flag"
+		help = "keep all old keys/password"
+	}
+	option = {
+		long = "pruneall"
+		type = "flag"
+		help = "delete all old keys"
 	}
 	argument = "principal..."
 	min_args = "1"
@@ -212,6 +397,14 @@ command = {
 	argument = "principal..."
 	min_args = "1"
 	help = "Deletes all principals matching the expressions."
+}
+command = {
+	name = "delete_namespace"
+	name = "del_ns"
+	function = "del_namespace"
+	argument = "principal..."
+	min_args = "1"
+	help = "Deletes the given virtual principal namespaces"
 }
 command = {
 	name = "del_enctype"
@@ -238,6 +431,34 @@ command = {
 		short = "k"
 		type = "string"
 		help = "keytab to use"
+		argument = "keytab"
+	}
+	option = {
+		long = "random-key"
+		short = "r"
+		type = "flag"
+		help = "set random key"
+	}
+	option = {
+		long = "enctypes"
+		short = "e"
+		type = "string"
+		help = "encryption type(s)"
+	}
+	option = {
+		long = "keepold"
+		type = "flag"
+		help = "keep old keys/password needed to decrypt extant tickets (default)"
+	}
+	option = {
+		long = "keepallold"
+		type = "flag"
+		help = "keep all old keys/password"
+	}
+	option = {
+		long = "pruneall"
+		type = "flag"
+		help = "delete all old keys"
 	}
 	argument = "principal..."
 	min_args = "1"
@@ -247,7 +468,7 @@ command = {
 	name = "get"
 	name = "get_entry"
 	function = "get_entry"
-	/* XXX sync options with "list" */
+        /* Options added to list should be added here; not the reverse */
 	option = {
 		long = "long"
 		short = "l"
@@ -273,6 +494,18 @@ command = {
 		type = "string"
 		help = "columns to print for short output"
 	}
+	option = {
+		long = "krb5-config-file"
+		short = "C"
+		type = "string"
+		help = "filename to save the principal's krb5.conf in"
+	}
+	option = {
+		long = "upto"
+		type = "integer"
+                default = "-1"
+		help = "maximum number of principals to get/list"
+	}
 	argument = "principal..."
 	min_args = "1"
 	help = "Shows information about principals matching the expressions."
@@ -287,6 +520,7 @@ command = {
 }
 command = {
 	name = "modify"
+	name = "mod"
 	function = "mod_entry"
 	option = {
 		long = "max-ticket-life"
@@ -343,10 +577,70 @@ command = {
 		argument = "subject dn"
 		help = "aliases"
 	}
+	option = {
+		long = "policy"
+		type = "string"
+		argument = "policy"
+		help = "policy name"
+	}
+	option = {
+		long = "service-enctypes"
+                short = "e"
+		type = "strings"
+		argument = "enctype"
+		help = "set enctypes supported by service"
+	}
+	option = {
+		long = "hist-kvno-diff-clnt"
+		type = "integer"
+		argument = "kvno diff"
+		help = "historic keys allowed for client"
+		default = "-1"
+	}
+	option = {
+		long = "hist-kvno-diff-svc"
+		type = "integer"
+		argument = "kvno diff"
+		help = "historic keys allowed for service"
+		default = "-1"
+	}
+	option = {
+		long = "krb5-config-file"
+		short = "C"
+		type = "string"
+		help = "krb5.conf to save in principal record"
+	}
 	argument = "principal"
 	min_args = "1"
 	max_args = "1"
 	help = "Modifies some attributes of the specified principal."
+}
+command = {
+	name = "add_alias"
+        function = "add_alias"
+	argument = "principal"
+	min_args = "2"
+	help = "Add one or more aliases to the given principal."
+}
+command = {
+	name = "del_alias"
+        function = "del_alias"
+	argument = "principal"
+	min_args = "1"
+	help = "Delete one or more aliases without deleting their canonical principals."
+}
+command = {
+	name = "prune"
+	argument = "principal"
+	option = {
+		long = "kvno"
+		type = "integer"
+		help = "key version number"
+		default = "0"
+	}
+	min_args = "1"
+	max_args = "1"
+	help = "Delete keys from history by max-ticket-life or kvno."
 }
 command = {
 	name = "privileges"
@@ -383,6 +677,17 @@ command = {
 		type = "string"
 		help = "columns to print for short output"
 	}
+	option = {
+		long = "krb5-config-file"
+		type = "string"
+                help = "only use this option with the get command"
+	}
+	option = {
+		long = "upto"
+		type = "integer"
+                default = "-1"
+		help = "maximum number of principals to get/list"
+	}
 	argument = "principal..."
 	min_args = "1"
 	help = "Lists principals in a terse format. Equivalent to \"get -t\"." 
@@ -403,6 +708,22 @@ command = {
 	min_args = "0"
 	max_args = "1"
 	help = "Check the realm (if not given, the default realm) for configuration errors."
+}
+command = {
+	name = "lock"
+	function = "lock"
+	argument = ""
+	min_args = "0"
+	max_args = "0"
+	help = "Lock the database for writing (use with care)."
+}
+command = {
+	name = "unlock"
+	function = "unlock"
+	argument = ""
+	min_args = "0"
+	max_args = "0"
+	help = "Unlock the database."
 }
 command = {
 	name = "help"

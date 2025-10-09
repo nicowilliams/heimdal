@@ -33,8 +33,6 @@
 
 #include "kuser_locl.h"
 
-RCSID("$Id$");
-
 static unsigned
 read_words (const char *filename, char ***ret_w)
 {
@@ -51,7 +49,7 @@ read_words (const char *filename, char ***ret_w)
 	buf[strcspn(buf, "\r\n")] = '\0';
 	if (n >= alloc) {
 	    alloc += 16;
-	    w = erealloc (w, alloc * sizeof(char **));
+	    w = erealloc (w, alloc * sizeof(*w));
 	}
 	w[n++] = estrdup (buf);
     }
@@ -94,14 +92,15 @@ generate_requests (const char *filename, unsigned nreq)
 	    krb5_free_cred_contents (context, &cred);
 	krb5_free_principal(context, client);
     }
+    free(words);
 }
 
 static int version_flag	= 0;
 static int help_flag	= 0;
 
 static struct getargs args[] = {
-    { "version", 	0,   arg_flag, &version_flag },
-    { "help",		0,   arg_flag, &help_flag }
+    { "version", 	0,   arg_flag, &version_flag, NULL, NULL },
+    { "help",		0,   arg_flag, &help_flag,    NULL, NULL }
 };
 
 static void

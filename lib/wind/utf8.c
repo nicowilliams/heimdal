@@ -34,31 +34,36 @@
 #include <config.h>
 #include "windlocl.h"
 
-RCSID("$Id$");
-
 static int
 utf8toutf32(const unsigned char **pp, uint32_t *out)
 {
     const unsigned char *p = *pp;
-    unsigned c = *p;
+    uint32_t c = *p;
+    uint32_t out_val;
 
     if (c & 0x80) {
 	if ((c & 0xE0) == 0xC0) {
-	    const unsigned c2 = *++p;
+	    const uint32_t c2 = *++p;
 	    if ((c2 & 0xC0) == 0x80) {
-		*out =  ((c  & 0x1F) << 6)
+		out_val =  ((c  & 0x1F) << 6)
 		    | (c2 & 0x3F);
+		if (out_val < 0x80) {
+		    return WIND_ERR_INVALID_UTF8;
+		}
 	    } else {
 		return WIND_ERR_INVALID_UTF8;
 	    }
 	} else if ((c & 0xF0) == 0xE0) {
-	    const unsigned c2 = *++p;
+	    const uint32_t c2 = *++p;
 	    if ((c2 & 0xC0) == 0x80) {
-		const unsigned c3 = *++p;
+		const uint32_t c3 = *++p;
 		if ((c3 & 0xC0) == 0x80) {
-		    *out =   ((c  & 0x0F) << 12)
+		    out_val =   ((c  & 0x0F) << 12)
 			| ((c2 & 0x3F) << 6)
 			|  (c3 & 0x3F);
+		    if (out_val < 0x800) {
+			return WIND_ERR_INVALID_UTF8;
+		    }
 		} else {
 		    return WIND_ERR_INVALID_UTF8;
 		}
@@ -66,16 +71,19 @@ utf8toutf32(const unsigned char **pp, uint32_t *out)
 		return WIND_ERR_INVALID_UTF8;
 	    }
 	} else if ((c & 0xF8) == 0xF0) {
-	    const unsigned c2 = *++p;
+	    const uint32_t c2 = *++p;
 	    if ((c2 & 0xC0) == 0x80) {
-		const unsigned c3 = *++p;
+		const uint32_t c3 = *++p;
 		if ((c3 & 0xC0) == 0x80) {
-		    const unsigned c4 = *++p;
+		    const uint32_t c4 = *++p;
 		    if ((c4 & 0xC0) == 0x80) {
-			*out =   ((c  & 0x07) << 18)
+			out_val =   ((c  & 0x07) << 18)
 			    | ((c2 & 0x3F) << 12)
 			    | ((c3 & 0x3F) <<  6)
 			    |  (c4 & 0x3F);
+			if (out_val < 0x10000) {
+			    return WIND_ERR_INVALID_UTF8;
+			}
 		    } else {
 			return WIND_ERR_INVALID_UTF8;
 		    }
@@ -89,9 +97,16 @@ utf8toutf32(const unsigned char **pp, uint32_t *out)
 	    return WIND_ERR_INVALID_UTF8;
 	}
     } else {
-	*out = c;
+	out_val = c;
     }
 
+    /* Allow unpaired surrogates (in the range 0xd800–0xdfff). */
+
+    if (out_val > 0x10ffff) {
+	return WIND_ERR_INVALID_UTF8;
+    }
+
+    *out = out_val;
     *pp = p;
 
     return 0;
@@ -101,7 +116,7 @@ utf8toutf32(const unsigned char **pp, uint32_t *out)
  * Convert an UTF-8 string to an UCS4 string.
  *
  * @param in an UTF-8 string to convert.
- * @param out the resulting UCS4 strint, must be at least
+ * @param out the resulting UCS4 string, must be at least
  * wind_utf8ucs4_length() long.  If out is NULL, the function will
  * calculate the needed space for the out variable (just like
  * wind_utf8ucs4_length()).
@@ -164,7 +179,7 @@ static const char first_char[4] =
  * @param in an UCS4 string to convert.
  * @param in_len the length input array.
 
- * @param out the resulting UTF-8 strint, must be at least
+ * @param out the resulting UTF-8 string, must be at least
  * wind_ucs4utf8_length() + 1 long (the extra char for the NUL).  If
  * out is NULL, the function will calculate the needed space for the
  * out variable (just like wind_ucs4utf8_length()).
@@ -185,7 +200,7 @@ wind_ucs4utf8(const uint32_t *in, size_t in_len, char *out, size_t *out_len)
 
     for (o = 0, i = 0; i < in_len; i++) {
 	ch = in[i];
-	
+
 	if (ch < 0x80) {
 	    len = 1;
 	} else if (ch < 0x800) {
@@ -196,7 +211,7 @@ wind_ucs4utf8(const uint32_t *in, size_t in_len, char *out, size_t *out_len)
 	    len = 4;
 	} else
 	    return WIND_ERR_INVALID_UTF32;
-	
+
 	o += len;
 
 	if (out) {
@@ -206,18 +221,24 @@ wind_ucs4utf8(const uint32_t *in, size_t in_len, char *out, size_t *out_len)
 	    switch(len) {
 	    case 4:
 		out[3] = (ch | 0x80) & 0xbf;
-		ch = ch << 6;
+		ch = ch >> 6;
+                HEIM_FALLTHROUGH;
 	    case 3:
 		out[2] = (ch | 0x80) & 0xbf;
-		ch = ch << 6;
+		ch = ch >> 6;
+                HEIM_FALLTHROUGH;
 	    case 2:
 		out[1] = (ch | 0x80) & 0xbf;
-		ch = ch << 6;
+		ch = ch >> 6;
+                HEIM_FALLTHROUGH;
 	    case 1:
 		out[0] = ch | first_char[len - 1];
+                HEIM_FALLTHROUGH;
+            default:
+                break;
 	    }
+	    out += len;
 	}
-	out += len;
     }
     if (out) {
 	if (o + 1 >= *out_len)
@@ -343,13 +364,13 @@ wind_ucs2write(const uint16_t *in, size_t in_len, unsigned int *flags,
      * first to the output data */
     if ((*flags) & WIND_RW_BOM) {
 	uint16_t bom = 0xfffe;
-	
+
 	if (len < 2)
 	    return WIND_ERR_OVERRUN;
 
 	if ((*flags) & WIND_RW_LE) {
-	    p[0] = (bom >> 8) & 0xff;
-	    p[1] = (bom     ) & 0xff;
+	    p[0] = (bom     ) & 0xff;
+	    p[1] = (bom >> 8) & 0xff;
 	} else {
 	    p[1] = (bom     ) & 0xff;
 	    p[0] = (bom >> 8) & 0xff;
@@ -362,8 +383,8 @@ wind_ucs2write(const uint16_t *in, size_t in_len, unsigned int *flags,
 	if (len < 2)
 	    return WIND_ERR_OVERRUN;
 	if ((*flags) & WIND_RW_LE) {
-	    p[0] = (in[0] >> 8) & 0xff;
-	    p[1] = (in[0]     ) & 0xff;
+	    p[0] = (in[0]     ) & 0xff;
+	    p[1] = (in[0] >> 8) & 0xff;
 	} else {
 	    p[1] = (in[0]     ) & 0xff;
 	    p[0] = (in[0] >> 8) & 0xff;
@@ -382,7 +403,7 @@ wind_ucs2write(const uint16_t *in, size_t in_len, unsigned int *flags,
  * Convert an UTF-8 string to an UCS2 string.
  *
  * @param in an UTF-8 string to convert.
- * @param out the resulting UCS2 strint, must be at least
+ * @param out the resulting UCS2 string, must be at least
  * wind_utf8ucs2_length() long.  If out is NULL, the function will
  * calculate the needed space for the out variable (just like
  * wind_utf8ucs2_length()).
@@ -408,15 +429,30 @@ wind_utf8ucs2(const char *in, uint16_t *out, size_t *out_len)
 	if (ret)
 	    return ret;
 
-	if (u & 0xffff0000)
-	    return WIND_ERR_NOT_UTF16;
+	if (u >= 0x10000) {
+	    if (out) {
+		uint16_t high_ten_bits;
+		uint16_t low_ten_bits;
 
-	if (out) {
-	    if (o >= *out_len)
-		return WIND_ERR_OVERRUN;
-	    out[o] = u;
+		if (o + 2 > *out_len)
+		    return WIND_ERR_OVERRUN;
+
+		u -= 0x10000;
+		high_ten_bits = (u >> 10) & 0x3ff;
+		low_ten_bits = u & 0x3ff;
+
+		out[o] = 0xd800 | high_ten_bits;
+		out[o+1] = 0xdc00 | low_ten_bits;
+	    }
+	    o += 2;
+	} else {
+	    if (out) {
+		if (o >= *out_len)
+		    return WIND_ERR_OVERRUN;
+		out[o] = u;
+	    }
+	    o++;
 	}
-	o++;
     }
     *out_len = o;
     return 0;
@@ -427,7 +463,7 @@ wind_utf8ucs2(const char *in, uint16_t *out, size_t *out_len)
  * string.
  *
  * @param in an UTF-8 string to convert.
- * @param out_len the length of the resulting UCS4 string.
+ * @param out_len the length of the resulting UCS2 string.
  *
  * @return returns 0 on success, an wind error code otherwise
  * @ingroup wind
@@ -444,7 +480,7 @@ wind_utf8ucs2_length(const char *in, size_t *out_len)
  *
  * @param in an UCS2 string to convert.
  * @param in_len the length of the in UCS2 string.
- * @param out the resulting UTF-8 strint, must be at least
+ * @param out the resulting UTF-8 string, must be at least
  * wind_ucs2utf8_length() long.  If out is NULL, the function will
  * calculate the needed space for the out variable (just like
  * wind_ucs2utf8_length()).
@@ -459,19 +495,47 @@ wind_utf8ucs2_length(const char *in, size_t *out_len)
 int
 wind_ucs2utf8(const uint16_t *in, size_t in_len, char *out, size_t *out_len)
 {
-    uint16_t ch;
+    uint32_t ch;
     size_t i, len, o;
 
     for (o = 0, i = 0; i < in_len; i++) {
 	ch = in[i];
-	
+
 	if (ch < 0x80) {
 	    len = 1;
 	} else if (ch < 0x800) {
 	    len = 2;
-	} else
+	} else if (ch < 0xd800 || ch >= 0xe000) {
 	    len = 3;
-	
+	} else if (ch < 0xdc00) {
+	    /* A high surrogate. */
+	    if (i < in_len - 1) {
+		uint16_t ch2 = in[i + 1];
+
+		if (ch2 >= 0xdc00 && ch2 < 0xe000) {
+		    uint16_t high_ten_bits;
+		    uint16_t low_ten_bits;
+
+		    /* A surrogate pair. */
+		    high_ten_bits = ch & 0x3ff;
+		    low_ten_bits = ch2 & 0x3ff;
+
+		    ch = 0x10000 + ((uint32_t)high_ten_bits << 10 | low_ten_bits);
+		    len = 4;
+		    ++i;
+		} else {
+		    /* An unpaired high surrogate. */
+		    len = 3;
+		}
+	    } else {
+		/* An unpaired high surrogate. */
+		len = 3;
+	    }
+	} else {
+	    /* An unpaired low surrogate. */
+	    len = 3;
+	}
+
 	o += len;
 
 	if (out) {
@@ -479,14 +543,23 @@ wind_ucs2utf8(const uint16_t *in, size_t in_len, char *out, size_t *out_len)
 		return WIND_ERR_OVERRUN;
 
 	    switch(len) {
+	    case 4:
+		out[3] = (ch | 0x80) & 0xbf;
+		ch = ch >> 6;
+		HEIM_FALLTHROUGH;
 	    case 3:
 		out[2] = (ch | 0x80) & 0xbf;
-		ch = ch << 6;
+		ch = ch >> 6;
+                HEIM_FALLTHROUGH;
 	    case 2:
 		out[1] = (ch | 0x80) & 0xbf;
-		ch = ch << 6;
+		ch = ch >> 6;
+                HEIM_FALLTHROUGH;
 	    case 1:
 		out[0] = ch | first_char[len - 1];
+                HEIM_FALLTHROUGH;
+            default:
+                break;
 	    }
 	    out += len;
 	}

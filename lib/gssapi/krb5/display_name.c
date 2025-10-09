@@ -33,9 +33,9 @@
 
 #include "gsskrb5_locl.h"
 
-OM_uint32 _gsskrb5_display_name
+OM_uint32 GSSAPI_CALLCONV _gsskrb5_display_name
            (OM_uint32 * minor_status,
-            const gss_name_t input_name,
+            gss_const_name_t input_name,
             gss_buffer_t output_name_buffer,
             gss_OID * output_name_type
            )
@@ -65,8 +65,12 @@ OM_uint32 _gsskrb5_display_name
     memcpy (output_name_buffer->value, buf, len);
     ((char *)output_name_buffer->value)[len] = '\0';
     free (buf);
-    if (output_name_type)
-	*output_name_type = GSS_KRB5_NT_PRINCIPAL_NAME;
+    if (output_name_type) {
+	if (krb5_principal_is_anonymous(context, name, 0))
+	    *output_name_type = GSS_C_NT_ANONYMOUS;
+	else
+	    *output_name_type = GSS_KRB5_NT_PRINCIPAL_NAME;
+    }
     *minor_status = 0;
     return GSS_S_COMPLETE;
 }

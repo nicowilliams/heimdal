@@ -35,7 +35,8 @@
 #include "compile_et.h"
 #include "lex.h"
 
-void yyerror (char *s);
+void yyerror (const char *s);
+#define yyerror yyerror
 static long name2number(const char *str);
 
 extern char *yytext;
@@ -45,6 +46,9 @@ extern char *yytext;
 #if !defined(alloca) && !defined(HAVE_ALLOCA)
 #define alloca(x) malloc(x)
 #endif
+
+#define YYMALLOC malloc
+#define YYFREE free
 
 %}
 
@@ -114,7 +118,7 @@ statement	: INDEX NUMBER
 		| EC STRING ',' STRING
 		{
 		    struct error_code *ec = malloc(sizeof(*ec));
-		
+
 		    if (ec == NULL)
 			errx(1, "malloc");
 
@@ -165,7 +169,7 @@ name2number(const char *str)
 }
 
 void
-yyerror (char *s)
+yyerror (const char *s)
 {
-     error_message ("%s\n", s);
+     _lex_error_message ("%s\n", s);
 }

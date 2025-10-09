@@ -33,7 +33,7 @@
 
 #include "hx_locl.h"
 
-int
+HX509_LIB_FUNCTION int HX509_LIB_CALL
 _hx509_map_file_os(const char *fn, heim_octet_string *os)
 {
     size_t length;
@@ -48,13 +48,13 @@ _hx509_map_file_os(const char *fn, heim_octet_string *os)
     return ret;
 }
 
-void
+HX509_LIB_FUNCTION void HX509_LIB_CALL
 _hx509_unmap_file_os(heim_octet_string *os)
 {
     rk_xfree(os->data);
 }
 
-int
+HX509_LIB_FUNCTION int HX509_LIB_CALL
 _hx509_write_file(const char *fn, const void *data, size_t length)
 {
     rk_dumpdata(fn, data, length);
@@ -66,12 +66,12 @@ _hx509_write_file(const char *fn, const void *data, size_t length)
  */
 
 static void
-header(FILE *f, const char *type, const char *str)
+print_pem_stamp(FILE *f, const char *type, const char *str)
 {
     fprintf(f, "-----%s %s-----\n", type, str);
 }
 
-int
+HX509_LIB_FUNCTION int HX509_LIB_CALL
 hx509_pem_write(hx509_context context, const char *type,
 		hx509_pem_header *headers, FILE *f,
 		const void *data, size_t size)
@@ -82,7 +82,7 @@ hx509_pem_write(hx509_context context, const char *type,
 
 #define ENCODE_LINE_LENGTH	54
 
-    header(f, "BEGIN", type);
+    print_pem_stamp(f, "BEGIN", type);
 
     while (headers) {
 	fprintf(f, "%s: %s\n%s",
@@ -93,12 +93,12 @@ hx509_pem_write(hx509_context context, const char *type,
 
     while (size > 0) {
 	ssize_t l;
-	
+
 	length = size;
 	if (length > ENCODE_LINE_LENGTH)
 	    length = ENCODE_LINE_LENGTH;
-	
-	l = base64_encode(p, length, &line);
+
+	l = rk_base64_encode(p, length, &line);
 	if (l < 0) {
 	    hx509_set_error_string(context, 0, ENOMEM,
 				   "malloc - out of memory");
@@ -110,7 +110,7 @@ hx509_pem_write(hx509_context context, const char *type,
 	free(line);
     }
 
-    header(f, "END", type);
+    print_pem_stamp(f, "END", type);
 
     return 0;
 }
@@ -119,7 +119,7 @@ hx509_pem_write(hx509_context context, const char *type,
  *
  */
 
-int
+HX509_LIB_FUNCTION int HX509_LIB_CALL
 hx509_pem_add_header(hx509_pem_header **headers,
 		     const char *header, const char *value)
 {
@@ -146,7 +146,7 @@ hx509_pem_add_header(hx509_pem_header **headers,
     return 0;
 }
 
-void
+HX509_LIB_FUNCTION void HX509_LIB_CALL
 hx509_pem_free_header(hx509_pem_header *headers)
 {
     hx509_pem_header *h;
@@ -163,7 +163,7 @@ hx509_pem_free_header(hx509_pem_header *headers)
  *
  */
 
-const char *
+HX509_LIB_FUNCTION const char * HX509_LIB_CALL
 hx509_pem_find_header(const hx509_pem_header *h, const char *header)
 {
     while(h) {
@@ -179,7 +179,7 @@ hx509_pem_find_header(const hx509_pem_header *h, const char *header)
  *
  */
 
-int
+HX509_LIB_FUNCTION int HX509_LIB_CALL
 hx509_pem_read(hx509_context context,
 	       FILE *f,
 	       hx509_pem_read_func func,
@@ -211,7 +211,7 @@ hx509_pem_read(hx509_context context,
 	    if (i > 0)
 		i--;
 	}
-	
+
 	switch (where) {
 	case BEFORE:
 	    if (strncmp("-----BEGIN ", buf, 11) == 0) {
@@ -230,7 +230,7 @@ hx509_pem_read(hx509_context context,
 		where = INDATA;
 		goto indata;
 	    }
-	    /* FALLTHOUGH */
+            HEIM_FALLTHROUGH;
 	case INHEADER:
 	    if (buf[0] == '\0') {
 		where = INDATA;
@@ -239,7 +239,7 @@ hx509_pem_read(hx509_context context,
 	    p = strchr(buf, ':');
 	    if (p) {
 		*p++ = '\0';
-		while (isspace((int)*p))
+		while (isspace((unsigned char)*p))
 		    p++;
 		ret = hx509_pem_add_header(&headers, buf, p);
 		if (ret)
@@ -255,12 +255,12 @@ hx509_pem_read(hx509_context context,
 	    }
 
 	    p = emalloc(i);
-	    i = base64_decode(buf, p);
+	    i = rk_base64_decode(buf, p);
 	    if (i < 0) {
 		free(p);
 		goto out;
 	    }
-	
+
 	    data = erealloc(data, len + i);
 	    memcpy(((char *)data) + len, p, i);
 	    free(p);
@@ -298,5 +298,90 @@ hx509_pem_read(hx509_context context,
     if (headers)
 	hx509_pem_free_header(headers);
 
+    return ret;
+}
+
+/*
+ * On modern systems there's no such thing as scrubbing a file.  Not this way
+ * anyways.  However, for now we'll cargo-cult this along just as in lib/krb5.
+ */
+static int
+scrub_file(int fd, ssize_t sz)
+{
+    char buf[128];
+
+    memset(buf, 0, sizeof(buf));
+    while (sz > 0) {
+        ssize_t tmp;
+        size_t wr = sizeof(buf) > sz ? (size_t)sz : sizeof(buf);
+
+        tmp = write(fd, buf, wr);
+        if (tmp == -1)
+            return errno;
+        sz -= tmp;
+    }
+#ifdef _MSC_VER
+    return _commit(fd);
+#else
+    return fsync(fd);
+#endif
+}
+
+int
+_hx509_erase_file(hx509_context context, const char *fn)
+{
+    struct stat sb1, sb2;
+    int ret;
+    int fd;
+
+    if (fn == NULL)
+        return 0;
+
+    /* This is based on _krb5_erase_file(), minus file locking */
+    ret = lstat(fn, &sb1);
+    if (ret == -1 && errno == ENOENT)
+        return 0;
+    if (ret == -1) {
+        hx509_set_error_string(context, 0, errno, "hx509_certs_destroy: "
+                               "stat of \"%s\": %s", fn, strerror(errno));
+        return errno;
+    }
+
+    fd = open(fn, O_RDWR | O_BINARY | O_CLOEXEC | O_NOFOLLOW);
+    if (fd < 0)
+	return errno == ENOENT ? 0 : errno;
+    rk_cloexec(fd);
+
+    if (unlink(fn) < 0) {
+	ret = errno;
+        (void) close(fd);
+        hx509_set_error_string(context, 0, ret, "hx509_certs_destroy: "
+                               "unlinking \"%s\": %s", fn, strerror(ret));
+        return ret;
+    }
+
+    /* check TOCTOU, symlinks */
+    ret = fstat(fd, &sb2);
+    if (ret < 0) {
+	ret = errno;
+        hx509_set_error_string(context, 0, ret, "hx509_certs_destroy: "
+                               "fstat of %d, \"%s\": %s", fd, fn,
+                               strerror(ret));
+	(void) close(fd);
+	return ret;
+    }
+    if (sb1.st_dev != sb2.st_dev || sb1.st_ino != sb2.st_ino) {
+	(void) close(fd);
+	return EPERM;
+    }
+
+    /* there are still hard links to this file */
+    if (sb2.st_nlink != 0) {
+        close(fd);
+        return 0;
+    }
+
+    ret = scrub_file(fd, sb2.st_size);
+    (void) close(fd);
     return ret;
 }

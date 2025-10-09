@@ -78,7 +78,7 @@ mem_free(hx509_certs certs, void *data)
 	hx509_cert_free(mem->certs.val[i]);
     free(mem->certs.val);
     for (i = 0; mem->keys && mem->keys[i]; i++)
-	_hx509_private_key_free(&mem->keys[i]);
+	hx509_private_key_free(&mem->keys[i]);
     free(mem->keys);
     free(mem->name);
     free(mem);
@@ -167,11 +167,11 @@ mem_getkeys(hx509_context context,
 	(*keys)[i] = _hx509_private_key_ref(mem->keys[i]);
 	if ((*keys)[i] == NULL) {
 	    while (--i >= 0)
-		_hx509_private_key_free(&(*keys)[i]);
+		hx509_private_key_free(&(*keys)[i]);
 	    hx509_set_error_string(context, 0, ENOMEM, "out of memory");
 	    return ENOMEM;
 	}
-    }	
+    }
     (*keys)[i] = NULL;
     return 0;
 }
@@ -213,10 +213,11 @@ static struct hx509_keyset_ops keyset_mem = {
     mem_iter_end,
     NULL,
     mem_getkeys,
-    mem_addkey
+    mem_addkey,
+    NULL
 };
 
-void
+HX509_LIB_FUNCTION void HX509_LIB_CALL
 _hx509_ks_mem_register(hx509_context context)
 {
     _hx509_ks_register(context, &keyset_mem);

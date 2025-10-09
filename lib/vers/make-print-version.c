@@ -33,17 +33,13 @@
 
 #ifdef HAVE_CONFIG_H
 #include <config.h>
-RCSID("$Id$");
 #endif
 
 #include <stdio.h>
 #include <string.h>
 
 #ifdef KRB5
-extern const char *heimdal_version;
-#endif
-#ifdef KRB4
-extern const char *krb4_version;
+extern const char *const heimdal_version;
 #endif
 #include <version.h>
 
@@ -63,12 +59,6 @@ main(int argc, char **argv)
     fprintf(f, "#define VERSIONLIST \"");
 #ifdef KRB5
     fprintf(f, "%s", heimdal_version);
-#endif
-#ifdef KRB4
-#ifdef KRB5
-    fprintf(f, ", ");
-#endif
-    fprintf(f, "%s", krb4_version);
 #endif
     fprintf(f, "\"\n");
     fclose(f);

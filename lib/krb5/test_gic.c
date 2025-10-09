@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2009 Kungliga Tekniska Högskolan
+ * Copyright (c) 2009 Kungliga Tekniska HÃ¶gskolan
  * (Royal Institute of Technology, Stockholm, Sweden).
  * All rights reserved.
  *
@@ -58,7 +58,7 @@ test_get_init_creds(krb5_context context,
     if (ret)
 	krb5_err(context, 1, ret, "krb5_get_init_creds_opt_alloc");
 
-    
+
     ret = krb5_get_init_creds_opt_set_process_last_req(context,
 						       opt,
 						       lr_proc,

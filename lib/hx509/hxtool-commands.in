@@ -33,7 +33,15 @@
 /* $Id$ */
 
 command = {
+	name = "list-oids"
+	help = "List known OIDs"
+	function = "hxtool_list_oids"
+	min_args="0"
+	max_args="0"
+}
+command = {
 	name = "cms-create-sd"
+	name = "cms-sign"
 	option = {
 		long = "certificate"
 		short = "c"
@@ -103,7 +111,17 @@ command = {
 		type = "flag"
 		help = "use subject name for CMS Identifier"
 	}
-	min_args="2"
+	option = {
+		long = "embedded-certs"
+		type = "-flag"
+		help = "don't embed certificates"
+	}
+	option = {
+		long = "embed-leaf-only"
+		type = "flag"
+		help = "only embed leaf certificate"
+	}
+	min_args="1"
 	max_args="2"
 	argument="in-file out-file"
 	help = "Wrap a file within a SignedData object"
@@ -112,6 +130,7 @@ command = {
 	name = "cms-verify-sd"
 	option = {
 		long = "anchors"
+		short = "D"
 		type = "strings"
 		argument = "certificate-store"
 		help = "trust anchors"
@@ -150,13 +169,23 @@ command = {
 		help = "allow no signer"
 	}
 	option = {
+		long = "allow-wrong-oid"
+		type = "flag"
+		help = "allow wrong oid flag"
+	}
+	option = {
 		long = "signed-content"
 		type = "string"
 		help = "file containing content"
 	}
-	min_args="2"
+	option = {
+		long = "oid-sym"
+		type = "flag"
+		help = "show symbolic name for OID"
+	}
+	min_args="1"
 	max_args="2"
-	argument="in-file out-file"
+	argument="in-file [out-file]"
 	help = "Verify a file within a SignedData object"
 }
 command = {
@@ -288,6 +317,11 @@ command = {
 		help = "print the content of the certificates"
 	}
 	option = {
+		long = "raw-json"
+		type = "flag"
+		help = "print the DER content of the certificates as JSON"
+	}
+	option = {
 		long = "never-fail"
 		type = "flag"
 		help = "never fail with an error code"
@@ -328,6 +362,21 @@ command = {
 		type = "string"
 		argument = "password"
 		help = "password, prompter, or environment"
+	}
+	option = {
+		long = "append"
+		type = "flag"
+		help = "append source to destination"
+	}
+	option = {
+		long = "root-certs"
+		type = "-flag"
+		help = "do not copy root certificates"
+	}
+	option = {
+		long = "private-keys"
+		type = "-flag"
+		help = "do not copy private keys"
 	}
 	min_args="2"
 	argument="in-certificates-1 ... out-certificate"
@@ -392,11 +441,66 @@ command = {
 	help = "Print the OCSP responses"
 }
 command = {
+	name = "revoke-print"
+	option = {
+		long = "verbose"
+		type = "flag"
+		help = "verbose"
+	}
+	min_args="1"
+	argument="ocsp/crl files"
+	help = "Print the OCSP/CRL files"
+}
+command = {
+	name = "generate-key"
+	option = {
+		long = "type"
+		type = "string"
+		help = "keytype"
+	}
+	option = {
+	        long = "key-bits"
+		type = "integer"
+		help = "number of bits in the generated key";
+	}
+	option = {
+		long = "verbose"
+		type = "flag"
+		help = "verbose status"
+	}
+	min_args="1"
+	max_args="1"
+	argument="output-file"
+	help = "Generate a private key"
+}
+command = {
 	name = "request-create"
+	option = {
+		long = "ca"
+		type = "flag"
+		help = "Request CA certificate"
+	}
+	option = {
+		long = "ca-path-length"
+		type = "integer"
+		help = "Path length constraint for CA certificate"
+		default = "-1"
+	}
+	option = {
+		long = "ee"
+		type = "flag"
+		help = "Include BasicConstraints w/ cA set to false"
+	}
 	option = {
 		long = "subject"
 		type = "string"
 		help = "Subject DN"
+	}
+	option = {
+		long = "eku"
+		type = "strings"
+		argument = "oid-string"
+		help = "Add Extended Key Usage OID"
 	}
 	option = {
 		long = "email"
@@ -404,9 +508,34 @@ command = {
 		help = "Email address in SubjectAltName"
 	}
 	option = {
+		long = "jid"
+		type = "strings"
+		help = "XMPP (Jabber) address in SubjectAltName"
+	}
+	option = {
 		long = "dnsname"
 		type = "strings"
 		help = "Hostname or domainname in SubjectAltName"
+	}
+	option = {
+		long = "kerberos"
+		type = "strings"
+		help = "Kerberos principal name as SubjectAltName"
+	}
+	option = {
+		long = "ms-kerberos"
+		type = "strings"
+		help = "Kerberos principal name as SubjectAltName (Microsoft variant)"
+	}
+	option = {
+		long = "registered"
+		type = "strings"
+		help = "Registered object ID as SubjectAltName"
+	}
+	option = {
+		long = "dn"
+		type = "strings"
+		help = "Directory name as SubjectAltName"
 	}
 	option = {
 		long = "type"
@@ -519,6 +648,11 @@ command = {
 		type = "string"
 		help = "type of CMS algorithm"
 	}
+	option = {
+		long = "oid-syms"
+		type = "flag"
+		help = "show symbolic names for OIDs"
+	}
 	name = "crypto-available"
 	min_args="0"
 	help = "Print available CMS crypto types"
@@ -538,6 +672,11 @@ command = {
 		long = "peer-cmstype"
 		type = "strings"
 		help = "peer limiting cmstypes"
+	}
+	option = {
+		long = "oid-sym"
+		type = "flag"
+		help = "show symbolic name for OID"
 	}
 	name = "crypto-select"
 	min_args="0"
@@ -607,6 +746,11 @@ command = {
 		help = "Lifetime of certificate"
 	}
 	option = {
+		long = "signature-algorithm"
+		type = "string"
+		help = "Signature algorithm to use"
+	}
+	option = {
 		long = "serial-number"
 		type = "string"
 		help = "serial-number of certificate"
@@ -618,9 +762,25 @@ command = {
 		help = "Maximum path length (CA and proxy certificates), -1 no limit"
 	}
 	option = {
+		long = "eku"
+		type = "strings"
+		argument = "oid-string"
+		help = "Add Extended Key Usage OID"
+	}
+	option = {
+		long = "ku"
+		type = "strings"
+		help = "Key Usage (digitalSignature, keyEncipherment, dataEncipherment, keyAgreement, keyCertSign, cRLSign, encipherOnly, decipherOnly)"
+	}
+	option = {
 		long = "hostname"
 		type = "strings"
 		help = "DNS names this certificate is allowed to serve"
+	}
+	option = {
+		long = "dnssrv"
+		type = "strings"
+		help = "DNS SRV names this certificate is allowed to serve"
 	}
 	option = {
 		long = "email"
@@ -629,7 +789,7 @@ command = {
 	}
 	option = {
 		long = "pk-init-principal"
-		type = "string"
+		type = "strings"
 		help = "PK-INIT principal (for SAN)"
 	}
 	option = {
@@ -641,6 +801,31 @@ command = {
 		long = "jid"
 		type = "string"
 		help = "XMPP jabber id (for SAN)"
+	}
+	option = {
+		long = "permanent-id"
+		type = "string"
+		help = "PermanentIdentifier ([oid]:[serial])"
+	}
+	option = {
+		long = "hardware-module-name"
+		type = "string"
+		help = "HardwareModuleName (oid:serial)"
+	}
+	option = {
+		long = "policy"
+		type = "strings"
+		help = "Certificate Policy OID and optional URI and/or notice (OID:URI<space>notice_text)"
+	}
+	option = {
+		long = "policy-mapping"
+		type = "strings"
+		help = "Certificate Policy mapping (OID:OID)"
+	}
+	option = {
+		long = "pkinit-max-life"
+		type = "string"
+		help = "maximum Kerberos ticket lifetime extension for PKINIT"
 	}
 	option = {
 		long = "req"
@@ -738,6 +923,160 @@ command = {
 	min_args="0"
 	argument="certificates..."
 	help = "Create a CRL"
+}
+command = {
+        option = {
+	        long = "verbose"
+                short = "v"
+		type = "flag"
+                help = "verbose"
+        }
+        option = {
+	        long = "end-entity"
+		type = "flag"
+                help = "check the first EE certificate in the store"
+        }
+        option = {
+	        long = "ca"
+		type = "flag"
+                help = "check the first CA certificate in the store"
+        }
+        option = {
+	        long = "cert-num"
+		type = "integer"
+                default = "-1"
+                help = "check the nth certificate in the store"
+        }
+        option = {
+		long = "expr"
+		type = "string"
+		argument = "expression"
+		help = "test the first certificate matching expression"
+        }
+        option = {
+                long = "has-email-san"
+		short = "M"
+                type = "strings"
+                argument = "email-address"
+                help = "check that cert has email SAN"
+        }
+        option = {
+                long = "has-xmpp-san"
+                type = "strings"
+		short = "X"
+                argument = "jabber address"
+                help = "check that cert has XMPP SAN"
+        }
+        option = {
+                long = "has-ms-upn-san"
+		short = "U"
+                type = "strings"
+                argument = "UPN"
+                help = "check that cert has UPN SAN"
+        }
+        option = {
+                long = "has-dnsname-san"
+		short = "D"
+                type = "strings"
+                argument = "domainname"
+                help = "check that cert has domainname SAN"
+        }
+        option = {
+                long = "has-pkinit-san"
+		short = "P"
+                type = "strings"
+                argument = "Kerberos principal name"
+                help = "check that cert has PKINIT SAN"
+        }
+        option = {
+                long = "has-registeredID-san"
+		short = "R"
+                type = "strings"
+                argument = "OID"
+                help = "check that cert has registeredID SAN"
+        }
+        option = {
+                long = "has-eku"
+		short = "E"
+                type = "strings"
+                argument = "OID"
+                help = "check that cert has EKU"
+        }
+        option = {
+                long = "has-ku"
+                short = "K"
+                type = "strings"
+                argument = "key usage element"
+                help = "check that cert has key usage"
+        }
+        option = {
+                long = "exact"
+                type = "flag"
+                help = "check that cert has only given SANs/EKUs/KUs"
+        }
+        option = {
+                long = "valid-now"
+                short = "n"
+                type = "flag"
+                help = "check that current time is in certicate's validity period"
+        }
+        option = {
+                long = "valid-at"
+                type = "string"
+                argument = "datetime"
+                help = "check that the certificate is valid at given time"
+        }
+        option = {
+                long = "not-after-eq"
+                type = "string"
+                argument = "datetime"
+                help = "check that the certificate's notAfter is as given"
+        }
+        option = {
+                long = "not-after-lt"
+                type = "string"
+                argument = "datetime"
+                help = "check that the certificate's notAfter is before the given time"
+        }
+        option = {
+                long = "not-after-gt"
+                type = "string"
+                argument = "datetime"
+                help = "check that the certificate's notAfter is after the given time"
+        }
+        option = {
+                long = "not-before-eq"
+                type = "string"
+                argument = "datetime"
+                help = "check that the certificate's notBefore is as given"
+        }
+        option = {
+                long = "not-before-lt"
+                type = "string"
+                argument = "datetime"
+                help = "check that the certificate's notBefore is before the given time"
+        }
+        option = {
+                long = "not-before-gt"
+                type = "string"
+                argument = "datetime"
+                help = "check that the certificate's notBefore is after the given time"
+        }
+        option = {
+                long = "has-private-key"
+                type = "flag"
+                help = "check that the certificate has a private key"
+        }
+        option = {
+                long = "lacks-private-key"
+                type = "flag"
+                help = "check that the certificate does not have a private key"
+        }
+        name = "acert"
+        min_args = "1"
+        max_args = "1"
+        argument = "certificate-store"
+        help = "Assert certificate content"
 }
 command = {
 	name = "help"

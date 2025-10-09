@@ -2,9 +2,18 @@
 
 #include <stddef.h>
 #include <time.h>
+#include <krb5-types.h>
 
 #ifndef __asn1_common_definitions__
 #define __asn1_common_definitions__
+
+#ifndef __HEIM_BASE_DATA__
+#define __HEIM_BASE_DATA__ 1
+struct heim_base_data {
+	size_t length;
+	void *data;
+};
+#endif
 
 typedef struct heim_integer {
     size_t length;
@@ -12,15 +21,12 @@ typedef struct heim_integer {
     int negative;
 } heim_integer;
 
-typedef struct heim_octet_string {
-    size_t length;
-    void *data;
-} heim_octet_string;
+typedef struct heim_base_data heim_octet_string;
 
 typedef char *heim_general_string;
 typedef char *heim_utf8_string;
-typedef char *heim_printable_string;
-typedef char *heim_ia5_string;
+typedef struct heim_base_data heim_printable_string;
+typedef struct heim_base_data heim_ia5_string;
 
 typedef struct heim_bmp_string {
     size_t length;
@@ -44,8 +50,14 @@ typedef struct heim_bit_string {
     void *data;
 } heim_bit_string;
 
-typedef struct heim_octet_string heim_any;
-typedef struct heim_octet_string heim_any_set;
+typedef struct heim_base_data heim_any;
+typedef struct heim_base_data heim_any_set;
+typedef struct heim_base_data HEIM_ANY;
+typedef struct heim_base_data HEIM_ANY_SET;
+
+enum asn1_print_flags {
+    ASN1_PRINT_INDENT = 1,
+};
 
 #define ASN1_MALLOC_ENCODE(T, B, BL, S, L, R)                  \
   do {                                                         \
@@ -62,5 +74,17 @@ typedef struct heim_octet_string heim_any_set;
       }                                                        \
     }                                                          \
   } while (0)
+
+#ifdef _WIN32
+#ifndef ASN1_LIB
+#define ASN1EXP  __declspec(dllimport)
+#else
+#define ASN1EXP
+#endif
+#define ASN1CALL __stdcall
+#else
+#define ASN1EXP
+#define ASN1CALL
+#endif
 
 #endif

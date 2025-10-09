@@ -31,16 +31,8 @@
  * SUCH DAMAGE.
  */
 
-#ifdef HAVE_CONFIG_H
 #include <config.h>
-#endif
-
-RCSID("$Id$");
-
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <limits.h>
+#include <roken.h>
 
 #include <krb5-types.h>
 #include <rfc2459_asn1.h> /* XXX */
@@ -150,7 +142,8 @@ BN_bin2bn(const void *s, int len, BIGNUM *bn)
 	return NULL;
     }
     hi->length = len;
-    memcpy(hi->data, s, len);
+    if (len)
+        memcpy(hi->data, s, len);
     return (BIGNUM *)hi;
 }
 
@@ -242,10 +235,10 @@ static const unsigned char is_set[8] = { 1, 2, 4, 8, 16, 32, 64, 128 };
 int
 BN_is_bit_set(const BIGNUM *bn, int bit)
 {
-    heim_integer *hi = (heim_integer *)bn;
+    const heim_integer *hi = (const heim_integer *)bn;
     unsigned char *p = hi->data;
 
-    if ((bit / 8) > hi->length || hi->length == 0)
+    if ((bit / 8) >= hi->length || hi->length == 0)
 	return 0;
 
     return p[hi->length - 1 - (bit / 8)] & is_set[bit % 8];
@@ -258,7 +251,7 @@ BN_set_bit(BIGNUM *bn, int bit)
     unsigned char *p;
 
     if ((bit / 8) > hi->length || hi->length == 0) {
-	size_t len = (bit + 7) / 8;
+	size_t len = bit == 0 ? 1 : (bit + 7) / 8;
 	void *d = realloc(hi->data, len);
 	if (d == NULL)
 	    return 0;
@@ -294,6 +287,9 @@ BN_set_word(BIGNUM *bn, unsigned long num)
     unsigned long num2;
     int i, len;
 
+    if (bn == NULL)
+	return 0;
+
     for (num2 = num, i = 0; num2 > 0; i++)
 	num2 = num2 >> 8;
 
@@ -310,7 +306,7 @@ BN_set_word(BIGNUM *bn, unsigned long num)
 unsigned long
 BN_get_word(const BIGNUM *bn)
 {
-    heim_integer *hi = (heim_integer *)bn;
+    const heim_integer *hi = (const heim_integer *)bn;
     unsigned long num = 0;
     int i;
 

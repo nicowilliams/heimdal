@@ -31,19 +31,8 @@
  * SUCH DAMAGE.
  */
 
-#ifdef HAVE_CONFIG_H
 #include <config.h>
-#endif
-
-#ifdef RCSID
-RCSID("$Id$");
-#endif
-
-#include <sys/types.h>
-#include <limits.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
+#include <roken.h>
 
 #include <hmac.h>
 #include <evp.h>
@@ -62,7 +51,11 @@ main(int argc, char **argv)
 	              "\x6f\xd1\x52\x4d\x54\x58\x73\x0f\xf3\x24";
 
     HMAC_CTX_init(&c);
-    HMAC_Init_ex(&c, hmackey, hmackey_size, EVP_sha1(), NULL);
+    if (HMAC_Init_ex(&c, hmackey, hmackey_size, EVP_sha1(), NULL) == 0) {
+        HMAC_CTX_cleanup(&c);
+        printf("out of memory\n");
+        return 1;
+    }
     HMAC_Update(&c, buf, sizeof(buf));
     HMAC_Final(&c, hmac, &hmaclen);
     HMAC_CTX_cleanup(&c);
@@ -72,10 +65,10 @@ main(int argc, char **argv)
 	return 1;
     }
 
-    if (memcmp(hmac, answer, hmaclen) != 0) {
+    if (ct_memcmp(hmac, answer, hmaclen) != 0) {
 	printf("wrong answer\n");
 	return 1;
     }
-	
+
     return 0;
 }

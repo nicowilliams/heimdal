@@ -31,12 +31,15 @@
  * SUCH DAMAGE.
  */
 
+/*
+ * A sample server that uses the GSSAPI.
+ */
+
 #include "test_locl.h"
 #include <gssapi/gssapi.h>
 #include <gssapi/gssapi_krb5.h>
 #include <gssapi/gssapi_spnego.h>
 #include "gss_common.h"
-RCSID("$Id$");
 
 static int
 process_it(int sock,
@@ -90,6 +93,24 @@ process_it(int sock,
     gss_release_buffer (&min_stat, input_token);
     gss_release_buffer (&min_stat, output_token);
 
+    /* create mic */
+
+    input_token->length = 6;
+    input_token->value  = strdup("hejsan");
+
+    maj_stat = gss_get_mic(&min_stat,
+			   context_hdl,
+			   GSS_C_QOP_DEFAULT,
+			   input_token,
+			   output_token);
+    if (GSS_ERROR(maj_stat))
+	gss_err (1, min_stat, "gss_get_mic");
+
+    write_token (sock, input_token);
+    write_token (sock, output_token);
+
+    gss_release_buffer (&min_stat, output_token);
+
     /* gss_unwrap */
 
     read_token (sock, input_token);
@@ -128,6 +149,27 @@ process_it(int sock,
     gss_release_buffer (&min_stat, input_token);
     gss_release_buffer (&min_stat, output_token);
 
+    input_token->value = "hejhej";
+    input_token->length = 6;
+
+    maj_stat = gss_wrap (&min_stat,
+			 context_hdl,
+			 1,
+			 GSS_C_QOP_DEFAULT,
+			 input_token,
+			 NULL,
+			 output_token);
+    if (GSS_ERROR(maj_stat))
+	gss_err(1, min_stat, "gss_wrap");
+
+    write_token (sock, output_token);
+    gss_release_buffer (&min_stat, output_token);
+
+    read_token (sock, input_token);
+
+    if (input_token->length != 6 && memcmp(input_token->value, "hejhej", 6) != 0)
+	errx(1, "invalid reply");
+
     return 0;
 }
 
@@ -144,11 +186,14 @@ proto (int sock, const char *service)
     gss_name_t client_name;
     struct gss_channel_bindings_struct input_chan_bindings;
     gss_cred_id_t delegated_cred_handle = NULL;
-    krb5_ccache ccache;
+    krb5_ccache ccache = NULL;
     u_char init_buf[4];
     u_char acct_buf[4];
     gss_OID mech_oid;
     char *mech, *p;
+
+    memset(&remote, 0, sizeof(remote));
+    local = remote;
 
     addrlen = sizeof(local);
     if (getsockname (sock, (struct sockaddr *)&local, &addrlen) < 0
@@ -230,15 +275,21 @@ proto (int sock, const char *service)
     printf("Using mech: %s\n", mech);
 
     if (delegated_cred_handle != GSS_C_NO_CREDENTIAL) {
-       krb5_context context;
+       krb5_context context = NULL;
 
        printf("Delegated cred found\n");
 
-       maj_stat = krb5_init_context(&context);
-       maj_stat = krb5_cc_resolve(context, "FILE:/tmp/krb5cc_test", &ccache);
-       maj_stat = gss_krb5_copy_ccache(&min_stat,
-				       delegated_cred_handle,
-				       ccache);
+       min_stat = krb5_init_context(&context);
+       if (min_stat)
+	    gss_err(1, min_stat, "krb5_init_context");
+       if (min_stat == 0)
+           min_stat = krb5_cc_resolve(context, "FILE:/tmp/krb5cc_test", &ccache);
+       if (min_stat == 0)
+           maj_stat = gss_krb5_copy_ccache(&min_stat,
+                                           delegated_cred_handle,
+                                           ccache);
+       else
+           maj_stat = GSS_S_FAILURE;
        if (maj_stat == 0) {
 	   krb5_principal p;
 	   maj_stat = krb5_cc_get_principal(context, ccache, &p);
@@ -253,6 +304,7 @@ proto (int sock, const char *service)
 	   }
        }
        krb5_cc_close(context, ccache);
+       krb5_free_context(context);
        gss_release_cred(&min_stat, &delegated_cred_handle);
     }
 
@@ -294,12 +346,15 @@ proto (int sock, const char *service)
     }
 }
 
-static int
-doit (int port, const char *service)
+static void
+loop (int port, const char *service)
 {
     int sock, sock2;
     struct sockaddr_in my_addr;
     int one = 1;
+
+    if (keytab_str)
+	gsskrb5_register_acceptor_identity(keytab_str);
 
     sock = socket (AF_INET, SOCK_STREAM, 0);
     if (sock < 0)
@@ -317,20 +372,33 @@ doit (int port, const char *service)
     if (bind (sock, (struct sockaddr *)&my_addr, sizeof(my_addr)) < 0)
 	err (1, "bind");
 
-    if (listen (sock, 1) < 0)
-	err (1, "listen");
+    while (1) {
+        if (listen (sock, 1) < 0)
+	    err (1, "listen");
 
-    sock2 = accept (sock, NULL, NULL);
-    if (sock2 < 0)
-	err (1, "accept");
+        sock2 = accept (sock, NULL, NULL);
+        if (sock2 < 0)
+	    err (1, "accept");
 
-    return proto (sock2, service);
+        proto (sock2, service);
+    }
 }
 
+/*
+ * Iterative server; process one connection at a time.
+ */
 int
 main(int argc, char **argv)
 {
     krb5_context context = NULL; /* XXX */
+    krb5_error_code ret;
     int port = server_setup(&context, argc, argv);
-    return doit (port, service);
+
+    ret = krb5_kt_have_content(context, keytab);
+    if (ret)
+        krb5_err (context, 1, ret, "krb5_kt_have_content");
+
+    loop (port, service);
+    return 0;
 }
+

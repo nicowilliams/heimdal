@@ -31,21 +31,17 @@
  * SUCH DAMAGE.
  */
 
-#ifdef HAVE_CONFIG_H
-#include "config.h"
-
-RCSID("$Id$");
-#endif
+#include <config.h>
+#include <roken.h>
 
 #define HC_DEPRECATED
 
 #ifdef KRB5
 #include <krb5-types.h>
 #endif
+
 #include <des.h>
 #include <rand.h>
-
-#include <stdlib.h>
 
 #undef __attribute__
 #define __attribute__(X)

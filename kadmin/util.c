@@ -34,8 +34,6 @@
 #include "kadmin_locl.h"
 #include <parse_units.h>
 
-RCSID("$Id$");
-
 /*
  * util.c - functions for parsing, unparsing, and editing different
  * types of data used in kadmin.
@@ -49,6 +47,12 @@ get_response(const char *prompt, const char *def, char *buf, size_t len);
  */
 
 struct units kdb_attrs[] = {
+    { "auth-data-reqd",	        KRB5_KDB_AUTH_DATA_REQUIRED },
+    { "no-auth-data-reqd",	KRB5_KDB_NO_AUTH_DATA_REQUIRED },
+    { "disallow-client",	KRB5_KDB_DISALLOW_CLIENT },
+    { "virtual",		KRB5_KDB_VIRTUAL },
+    { "virtual-keys",		KRB5_KDB_VIRTUAL_KEYS },
+    { "materialize",		KRB5_KDB_MATERIALIZE },
     { "allow-digest",		KRB5_KDB_ALLOW_DIGEST },
     { "allow-kerberos4",	KRB5_KDB_ALLOW_KERBEROS4 },
     { "trusted-for-delegation",	KRB5_KDB_TRUSTED_FOR_DELEGATION },
@@ -67,7 +71,7 @@ struct units kdb_attrs[] = {
     { "disallow-tgt-based",	KRB5_KDB_DISALLOW_TGT_BASED },
     { "disallow-forwardable",	KRB5_KDB_DISALLOW_FORWARDABLE },
     { "disallow-postdated",	KRB5_KDB_DISALLOW_POSTDATED },
-    { NULL }
+    { NULL, 0 }
 };
 
 /*
@@ -148,6 +152,61 @@ edit_attributes (const char *prompt, krb5_flags *attr, int *mask, int bit)
 }
 
 /*
+ * try to parse the string `resp' into policy in `attr', also
+ * setting the `bit' in `mask' if attributes are given and valid.
+ */
+
+#define VALID_POLICY_NAME_CHARS \
+	"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_"
+
+int
+parse_policy (const char *resp, char **policy, int *mask, int bit)
+{
+    if (strspn(resp, VALID_POLICY_NAME_CHARS) == strlen(resp) &&
+	*resp != '\0') {
+	
+	*policy = strdup(resp);
+	if (*policy == NULL) {
+	    fprintf (stderr, "Out of memory");
+	    return -1;
+	}
+	if (mask)
+	    *mask |= bit;
+	return 0;
+    } else if(*resp == '?') {
+	print_flags_table (kdb_attrs, stderr);
+    } else {
+	fprintf (stderr, "Unable to parse \"%s\"\n", resp);
+    }
+    return -1;
+}
+
+/*
+ * allow the user to edit the attributes in `attr', prompting with `prompt'
+ */
+
+int
+edit_policy (const char *prompt, char **policy, int *mask, int bit)
+{
+    char buf[1024], resp[1024];
+
+    if (mask && (*mask & bit))
+	return 0;
+
+    buf[0] = '\0';
+    strlcpy(buf, "default", sizeof (buf));
+    for (;;) {
+	if(get_response("Policy", buf, resp, sizeof(resp)) != 0)
+	    return 1;
+	if (resp[0] == '\0')
+	    break;
+	if (parse_policy (resp, policy, mask, bit) == 0)
+	    break;
+    }
+    return 0;
+}
+
+/*
  * time_t
  * the special value 0 means ``never''
  */
@@ -190,9 +249,17 @@ str2time_t (const char *str, time_t *t)
     if (str[0] == '+') {
 	str++;
 	*t = parse_time(str, "month");
-	if (t < 0)
+	if (*t < 0)
 	    return -1;
 	*t += time(NULL);
+	return 0;
+    }
+    if (str[0] == '-') {
+	str++;
+	*t = parse_time(str, "month");
+	if (*t < 0)
+	    return -1;
+	*t = time(NULL) - *t;
 	return 0;
     }
 
@@ -287,7 +354,14 @@ edit_timet (const char *prompt, krb5_timestamp *value, int *mask, int bit)
 void
 deltat2str(unsigned t, char *str, size_t len)
 {
-    if(t == 0 || t == INT_MAX)
+    /*
+     * A time delta in kadmin context is a positive number, and there's no
+     * point to it being possibly as large as 2^64 -1, so we use unsigned
+     * instead of a more generally appropriate type for time deltas (which
+     * conceptually can be negative, which in kadmin context there's no need
+     * for).
+     */
+    if (t == 0 || t > INT_MAX)
 	snprintf(str, len, "unlimited");
     else
 	unparse_time(t, str, len);
@@ -304,6 +378,15 @@ str2deltat(const char *str, krb5_deltat *delta)
     int res;
 
     if(strcasecmp(str, "unlimited") == 0) {
+        /*
+         * Using zero to mean "unlimited" is unfortunate.  We should use
+         * `UINT_MAX'.  However, we've had this assumption that zero means
+         * unlimited, so there are HDB entries with present-but-zero max-life
+         * and max-renew-life.
+         *
+         * We could switch to using `UINT_MAX' or `UINT64_MAX' for "unlimited",
+         * but we'd have to continue to treat `0' as special for some time.
+         */
 	*delta = 0;
 	return 0;
     }
@@ -393,6 +476,14 @@ set_defaults(kadm5_principal_ent_t ent, int *mask,
 	&& (default_mask & KADM5_ATTRIBUTES)
 	&& !(*mask & KADM5_ATTRIBUTES))
 	ent->attributes = default_ent->attributes & ~KRB5_KDB_DISALLOW_ALL_TIX;
+
+    if (default_ent
+	&& (default_mask & KADM5_POLICY)
+	&& !(*mask & KADM5_POLICY)) {
+	ent->policy = strdup(default_ent->policy);
+	if (ent->policy == NULL)
+	    abort();
+    }
 }
 
 int
@@ -422,6 +513,10 @@ edit_entry(kadm5_principal_ent_t ent, int *mask,
 			KADM5_ATTRIBUTES) != 0)
 	return 1;
 
+    if(edit_policy ("Policy", &ent->policy, mask,
+			KADM5_POLICY) != 0)
+	return 1;
+
     return 0;
 }
 
@@ -432,26 +527,27 @@ edit_entry(kadm5_principal_ent_t ent, int *mask,
  */
 
 int
-set_entry(krb5_context context,
+set_entry(krb5_context contextp,
 	  kadm5_principal_ent_t ent,
 	  int *mask,
 	  const char *max_ticket_life,
 	  const char *max_renewable_life,
 	  const char *expiration,
 	  const char *pw_expiration,
-	  const char *attributes)
+	  const char *attributes,
+	  const char *policy)
 {
     if (max_ticket_life != NULL) {
 	if (parse_deltat (max_ticket_life, &ent->max_life,
 			  mask, KADM5_MAX_LIFE)) {
-	    krb5_warnx (context, "unable to parse `%s'", max_ticket_life);
+	    krb5_warnx (contextp, "unable to parse `%s'", max_ticket_life);
 	    return 1;
 	}
     }
     if (max_renewable_life != NULL) {
 	if (parse_deltat (max_renewable_life, &ent->max_renewable_life,
 			  mask, KADM5_MAX_RLIFE)) {
-	    krb5_warnx (context, "unable to parse `%s'", max_renewable_life);
+	    krb5_warnx (contextp, "unable to parse `%s'", max_renewable_life);
 	    return 1;
 	}
     }
@@ -459,21 +555,28 @@ set_entry(krb5_context context,
     if (expiration) {
 	if (parse_timet (expiration, &ent->princ_expire_time,
 			mask, KADM5_PRINC_EXPIRE_TIME)) {
-	    krb5_warnx (context, "unable to parse `%s'", expiration);
+	    krb5_warnx (contextp, "unable to parse `%s'", expiration);
 	    return 1;
 	}
     }
     if (pw_expiration) {
 	if (parse_timet (pw_expiration, &ent->pw_expiration,
 			 mask, KADM5_PW_EXPIRATION)) {
-	    krb5_warnx (context, "unable to parse `%s'", pw_expiration);
+	    krb5_warnx (contextp, "unable to parse `%s'", pw_expiration);
 	    return 1;
 	}
     }
     if (attributes != NULL) {
 	if (parse_attributes (attributes, &ent->attributes,
 			      mask, KADM5_ATTRIBUTES)) {
-	    krb5_warnx (context, "unable to parse `%s'", attributes);
+	    krb5_warnx (contextp, "unable to parse `%s'", attributes);
+	    return 1;
+	}
+    }
+    if (policy != NULL) {
+	if (parse_policy (policy, &ent->policy,
+			      mask, KADM5_POLICY)) {
+	    krb5_warnx (contextp, "unable to parse `%s'", attributes);
 	    return 1;
 	}
     }
@@ -503,6 +606,32 @@ is_expression(const char *string)
     return 0;
 }
 
+struct foreach_principal_data {
+    const char *funcname;
+    int (*func)(krb5_principal, void *);
+    void *data;
+};
+
+static int
+foreach_principal_cb(void *data, const char *p)
+{
+    struct foreach_principal_data *d = data;
+    krb5_principal princ;
+    krb5_error_code ret;
+
+    ret = krb5_parse_name(context, p, &princ);
+    if (ret)
+        return ret;
+
+    ret = d->func(princ, d->data);
+    krb5_free_principal(context, princ);
+    if (ret) {
+        krb5_warn(context, ret, "%s %s", d->funcname, p);
+        krb5_clear_error_message(context);
+    }
+    return ret;
+}
+
 /*
  * Loop over all principals matching exp.  If any of calls to `func'
  * failes, the first error is returned when all principals are
@@ -514,52 +643,66 @@ foreach_principal(const char *exp_str,
 		  const char *funcname,
 		  void *data)
 {
-    char **princs;
-    int num_princs;
-    int i;
-    krb5_error_code saved_ret = 0, ret = 0;
-    krb5_principal princ_ent;
+    struct foreach_principal_data d;
+    krb5_error_code ret;
+    krb5_principal p;
     int is_expr;
+    int go_slow =
+        secure_getenv("KADMIN_USE_GET_PRINCIPALS") != NULL &&
+        *secure_getenv("KADMIN_USE_GET_PRINCIPALS") != '\0';
 
     /* if this isn't an expression, there is no point in wading
        through the whole database looking for matches */
     is_expr = is_expression(exp_str);
-    if(is_expr)
-	ret = kadm5_get_principals(kadm_handle, exp_str, &princs, &num_princs);
-    if(!is_expr || ret == KADM5_AUTH_LIST) {
-	/* we might be able to perform the requested opreration even
-           if we're not allowed to list principals */
-	num_princs = 1;
-	princs = malloc(sizeof(*princs));
-	if(princs == NULL)
-	    return ENOMEM;
-	princs[0] = strdup(exp_str);
-	if(princs[0] == NULL){
-	    free(princs);
-	    return ENOMEM;
-	}
-    } else if(ret) {
-	krb5_warn(context, ret, "kadm5_get_principals");
-	return ret;
+
+    d.funcname = funcname;
+    d.func = func;
+    d.data = data;
+
+    if (is_expr && !go_slow) {
+	ret = kadm5_iter_principals(kadm_handle, exp_str,
+                                    foreach_principal_cb, &d);
+        if (ret == 0)
+            return 0;
+        if (ret != KADM5_AUTH_LIST) {
+            krb5_warn(context, ret, "kadm5_iter_principals");
+            return ret;
+        }
+    } else if (is_expr) {
+        char **princs = NULL;
+        int count = 0;
+
+        /*
+         * This is just for testing, and maybe in case there are HDB backends
+         * that are not re-entrant (LDAP?).
+         */
+        ret = kadm5_get_principals(kadm_handle, exp_str, &princs, &count);
+        if (ret == 0 && count > 0) {
+            int i;
+
+            for (i = 0; ret == 0 && i < count; i++)
+                ret = foreach_principal_cb(&d, princs[i]);
+            kadm5_free_name_list(kadm_handle, princs, &count);
+            return ret;
+        }
+        if (ret != KADM5_AUTH_LIST) {
+            krb5_warn(context, ret, "kadm5_iter_principals");
+            return ret;
+        }
     }
-    for(i = 0; i < num_princs; i++) {
-	ret = krb5_parse_name(context, princs[i], &princ_ent);
-	if(ret){
-	    krb5_warn(context, ret, "krb5_parse_name(%s)", princs[i]);
-	    continue;
-	}
-	ret = (*func)(princ_ent, data);
-	if(ret) {
-	    krb5_clear_error_message(context);
-	    krb5_warn(context, ret, "%s %s", funcname, princs[i]);
-	    if (saved_ret == 0)
-		saved_ret = ret;
-	}
-	krb5_free_principal(context, princ_ent);
+    /* we might be able to perform the requested opreration even
+       if we're not allowed to list principals */
+    ret = krb5_parse_name(context, exp_str, &p);
+    if (ret) {
+        krb5_warn(context, ret, "krb5_parse_name(%s)", exp_str);
+        return ret;
     }
-    if (ret == 0 && saved_ret != 0)
-	ret = saved_ret;
-    kadm5_free_name_list(kadm_handle, princs, &num_princs);
+    ret = (*func)(p, data);
+    if (ret) {
+        krb5_warn(context, ret, "%s %s", funcname, exp_str);
+        krb5_clear_error_message(context);
+    }
+    krb5_free_principal(context, p);
     return ret;
 }
 

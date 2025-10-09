@@ -86,6 +86,8 @@ nt_read_token (int sock, gss_buffer_t buf)
 	| (net_len[2] << 16)
 	| (net_len[3] << 24);
 
+    if (len > INT_MAX/16)
+	errx(1, "len too large");
     buf->length = len;
     buf->value  = malloc(len);
     if (read (sock, buf->value, len) != len)
@@ -107,7 +109,7 @@ gss_print_errors (int min_stat)
 				  GSS_C_NO_OID,
 				  &msg_ctx,
 				  &status_string);
-	fprintf (stderr, "%.*s\n", 
+	fprintf (stderr, "%.*s\n",
 		(int)status_string.length,
 		(char *)status_string.value);
 	gss_release_buffer (&new_stat, &status_string);

@@ -161,13 +161,24 @@ follows:
 .Bl -tag -width "xxx" -offset indent
 .It Li STDERR
 This logs to the program's stderr.
+.It Li EFILE: Ns Pa /file
+Log to the specified file if it exists, otherwise do nothing.
+All writes will be appended to the end of the file and the file
+will be re-opened for each new write.
+Non-existence of the file is cached for 1 second which reduces
+the potential performance impact significantly.
+This is useful for defining a trace file which can be enabled
+without restarting a server.
 .It Li FILE: Ns Pa /file
+Log to the specified file.
+All writes will be appended to the end of the file and the file
+will be re-opened for each new write.
 .It Li FILE= Ns Pa /file
-Log to the specified file. The form using a colon appends to the file, the
-form with an equal truncates the file. The truncating form keeps the file
-open, while the appending form closes it after each log message (which
-makes it possible to rotate logs). The truncating form is mainly for
-compatibility with the MIT libkrb5.
+On the first write, this form will
+.Xr truncate 2
+the file and then append all subsequent messages whilst keeping the
+file descriptor open.
+This form is mainly for compatibility with MIT libkrb5.
 .It Li DEVICE= Ns Pa /device
 This logs to the specified device, at present this is the same as
 .Li FILE:/device .
@@ -203,9 +214,44 @@ parameter to
 .Fn krb5_log
 is within this range (inclusive) the message gets logged to this
 destination, otherwise not. Either of the min and max valued may be
-omitted, in this case min is assumed to be zero, and max is assumed to be
-infinity.  If you don't include a dash, both min and max gets set to the
-specified value. If no range is specified, all messages gets logged.
+omitted, in this case min is assumed to be 0, and max is assumed to
+be 3.
+If you don't include a dash, both min and max get set to the
+specified value.
+.Pp
+The paths specified are subject to token expansion.
+For the purposes of logging, the most interesting token
+expansion is
+.ar %{strftime:<string>}
+which calls
+.Xr strftime 3
+on
+.Ar <string>
+with the localised current time of day.
+.Ss Levels
+Each log message has a level as follows:
+.Bl -tag -width "xxx" -offset indent
+.It 0
+Critical conditions.
+This is a condition that should be corrected immediately, such as a
+corrupted Kerberos database.
+.It 1
+Errors.
+These are errors that occur in the normal processing of requests.
+.It 2
+Warning messages.
+On the KDC, this includes malformed requests and requests that
+are out of policy.
+.It 3
+Informational messages.
+.It 4-6
+Debugging messages with increasing obscurity as the level rises.
+.It 7
+Tracing messages.
+These messages may be high volume and are likely to impact
+performance significantly.
+Notably, tracing messages may be emitted whilst locks are held.
+.El
 .Sh EXAMPLES
 .Bd -literal -offset indent
 [logging]
@@ -222,7 +268,24 @@ other messages will be logged to syslog with priority
 .Li LOG_INFO ,
 and facility
 .Li LOG_USER .
-All other programs will log all messages to their stderr.
+.Bd -literal -offset indent
+[logging]
+	kdc = FILE:/var/log/kdc-%{strftime:%Y%m%d%H}
+	kdc = 4-/EFILE:/tmp/kdc-trace
+.Ed
+.Pp
+This will log all messages from the
+.Nm kdc
+program with level 0 to 3 (inclusively) to a file whose
+name is generated using
+.Xr strftime 3 .
+As the file is
+.Xr open 2 ed
+each time a log message is written, this can be used to write
+automatically rotating log files.
+All of the KDC debugging messages will be written into
+.Pa /tmp/kdc-trace
+but only if it exists.
 .Sh SEE ALSO
 .Xr syslog 3 ,
 .Xr krb5.conf 5

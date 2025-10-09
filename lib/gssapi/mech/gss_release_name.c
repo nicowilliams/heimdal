@@ -27,9 +27,23 @@
  */
 
 #include "mech_locl.h"
-RCSID("$Id$");
 
-OM_uint32 GSSAPI_LIB_FUNCTION
+/**
+ * Free a name
+ *
+ * import_name can point to NULL or be NULL, or a pointer to a
+ * gss_name_t structure. If it was a pointer to gss_name_t, the
+ * pointer will be set to NULL on success and failure.
+ *
+ * @param minor_status minor status code
+ * @param input_name name to free
+ *
+ * @returns a gss_error code, see gss_display_status() about printing
+ *        the error code.
+ *
+ * @ingroup gssapi
+ */
+GSSAPI_LIB_FUNCTION OM_uint32 GSSAPI_LIB_CALL
 gss_release_name(OM_uint32 *minor_status,
     gss_name_t *input_name)
 {
@@ -41,19 +55,8 @@ gss_release_name(OM_uint32 *minor_status,
 	    return GSS_S_COMPLETE;
 
 	name = (struct _gss_name *) *input_name;
+	_gss_mg_release_name(name);
 
-	if (name->gn_type.elements)
-		free(name->gn_type.elements);
-	while (SLIST_FIRST(&name->gn_mn)) {
-		struct _gss_mechanism_name *mn;
-		mn = SLIST_FIRST(&name->gn_mn);
-		SLIST_REMOVE_HEAD(&name->gn_mn, gmn_link);
-		mn->gmn_mech->gm_release_name(minor_status,
-					      &mn->gmn_name);
-		free(mn);
-	}
-	gss_release_buffer(minor_status, &name->gn_value);
-	free(name);
 	*input_name = GSS_C_NO_NAME;
 
 	return (GSS_S_COMPLETE);

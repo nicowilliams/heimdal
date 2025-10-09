@@ -30,35 +30,34 @@
 # LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY 
 # OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF 
 # SUCH DAMAGE. 
-#
-# $Id$
-#
 
-srcdir="@srcdir@"
+top_builddir="@top_builddir@"
+env_setup="@env_setup@"
 objdir="@objdir@"
-EGREP="@EGREP@"
 
 testfailed="echo test failed; cat messages.log; exit 1"
 
-# If there is no useful db support compile in, disable test
-../db/have-db || exit 77
+. ${env_setup}
+
+# If there is no useful db support compiled in, disable test
+${have_db} || exit 77
 
 R=TEST.H5L.SE
 R2=TEST2.H5L.SE
 
 port=@port@
 
-kadmin="${TESTS_ENVIRONMENT} ../../kadmin/kadmin -l -r $R"
-kdc="${TESTS_ENVIRONMENT} ../../kdc/kdc --addresses=localhost -P $port"
+kadmin="${kadmin} -l -r $R"
+kdc="${kdc} --addresses=localhost -P $port"
 
-server=afs/test.h5l.se
-server2=host/server.test.h5l.se
+afsserver=afs/test.h5l.se
+hostserver=host/server.test.h5l.se
 cache="FILE:${objdir}/cache.krb5"
 
-kinit="${TESTS_ENVIRONMENT} ../../kuser/kinit -c $cache --no-afslog"
-klist="${TESTS_ENVIRONMENT} ../../kuser/klist -c $cache"
-kgetcred="${TESTS_ENVIRONMENT} ../../kuser/kgetcred -c $cache"
-kdestroy="${TESTS_ENVIRONMENT} ../../kuser/kdestroy -c $cache --no-unlog"
+kinit="${kinit} -c $cache ${afs_no_afslog}"
+klist="${klist} -c $cache"
+kgetcred="${kgetcred} -c $cache"
+kdestroy="${kdestroy} -c $cache ${afs_no_unlog}"
 
 KRB5_CONFIG="${objdir}/krb5.conf"
 export KRB5_CONFIG
@@ -71,42 +70,32 @@ rm -f mkey.file*
 > messages.log
 
 echo Creating database
-${kadmin} \
-    init \
-    --realm-max-ticket-life=1day \
-    --realm-max-renewable-life=1month \
-    ${R} || exit 1
-
-${kadmin} \
-    init \
-    --realm-max-ticket-life=1day \
-    --realm-max-renewable-life=1month \
-    ${R2} || exit 1
-
-${kadmin} cpw -r krbtgt/${R}@${R} || exit 1
-
-${kadmin} add -p foo --use-defaults foo@${R} || exit 1
-${kadmin} add -p kaka --use-defaults ${server}@${R} || exit 1
-${kadmin} add -p kaka --use-defaults ${server2}@${R} || exit 1
-${kadmin} add_enctype -r ${server}@${R} des-cbc-crc || exit 1
-${kadmin} add_enctype -r ${server2}@${R} des-cbc-crc || exit 1
-
-echo "Doing database check"
-${kadmin} check ${R} || exit 1
+${kadmin} <<EOF || exit 1
+init --realm-max-ticket-life=1day --realm-max-renewable-life=1month ${R}
+init --realm-max-ticket-life=1day --realm-max-renewable-life=1month ${R2}
+cpw -r krbtgt/${R}@${R}
+add -p foo --use-defaults foo@${R}
+add -p kaka --use-defaults ${afsserver}@${R}
+add -p kaka --use-defaults ${hostserver}@${R}
+add_enctype -r ${afsserver}@${R} des-cbc-crc
+add_enctype -r ${hostserver}@${R} des-cbc-crc
+check ${R}
+EOF
 
 echo foo > ${objdir}/foopassword
 
-echo Starting kdc
-${kdc} &
-kdcpid=$!
+echo Starting kdc; > messages.log
+${kdc} --detach --testing || { echo "kdc failed to start"; cat messages.log; exit 1; }
+kdcpid=`getpid kdc`
 
-sh ${srcdir}/wait-kdc.sh
-if [ "$?" != 0 ] ; then
+cleanup() {
+    echo signal killing kdc
     kill -9 ${kdcpid}
+    trap '' EXIT INT TERM
+    cat messages.log
     exit 1
-fi
-
-trap "kill -9 ${kdcpid}; echo signal killing kdc; exit 1;" EXIT
+}
+trap cleanup EXIT INT TERM
 
 ec=0
 
@@ -114,30 +103,48 @@ echo "Getting client initial tickets"; > messages.log
 ${kinit} --password-file=${objdir}/foopassword foo@$R || \
 	{ ec=1 ; eval "${testfailed}"; }
 echo "Getting non des tickets (afs)"; > messages.log
-${kgetcred} ${server}@${R} || { ec=1 ; eval "${testfailed}"; }
+${kgetcred} ${afsserver}@${R} || { ec=1 ; eval "${testfailed}"; }
 ${klist} -v | grep des-cbc-crc > /dev/null && { ec=1 ; eval "${testfailed}"; }
 echo "Getting non des tickets (host/)"; > messages.log
-${kgetcred} ${server2}@${R} || { ec=1 ; eval "${testfailed}"; }
+${kgetcred} ${hostserver}@${R} || { ec=1 ; eval "${testfailed}"; }
 ${klist} -v | grep des-cbc-crc > /dev/null && { ec=1 ; eval "${testfailed}"; }
 ${kdestroy}
-
 
 
 echo "Getting client initial tickets"; > messages.log
 ${kinit} --password-file=${objdir}/foopassword foo@$R || \
 	{ ec=1 ; eval "${testfailed}"; }
-echo "Getting non des tickets (host/)"; > messages.log
-${kgetcred} -e des-cbc-crc ${server2}@${R} 2>/dev/null && \
+echo "Getting des tickets (fail test)"; > messages.log
+${kgetcred} -e des-cbc-crc ${hostserver}@${R} 2>/dev/null && \
+    { ec=1 ; eval "${testfailed}"; }
+echo "Getting non des tickets"; > messages.log
+${kgetcred} ${afsserver}@${R} || { ec=1 ; eval "${testfailed}"; }
+${klist} -v | grep des-cbc-crc > /dev/null && { ec=1 ; eval "${testfailed}"; }
+
+
+KRB5_CONFIG="${objdir}/krb5-weak.conf"
+
+echo "Getting client initial tickets"; > messages.log
+${kinit} --password-file=${objdir}/foopassword foo@$R || \
+	{ ec=1 ; eval "${testfailed}"; }
+
+echo "Getting non des tickets (host/), failure test"; > messages.log
+${kgetcred} -e des-cbc-crc ${hostserver}@${R} 2>/dev/null && \
     { ec=1 ; eval "${testfailed}"; }
 ${klist} -v | grep des-cbc-crc > /dev/null && { ec=1 ; eval "${testfailed}"; }
-echo "Getting des tickets"; > messages.log
-${kgetcred} -e des-cbc-crc ${server}@${R} || { ec=1 ; eval "${testfailed}"; }
+
+echo "Getting des tickets (afs)"; > messages.log
+${kgetcred} -e des-cbc-crc ${afsserver}@${R} || { ec=1 ; eval "${testfailed}"; }
 ${klist} -v | grep des-cbc-crc > /dev/null || { ec=1 ; eval "${testfailed}"; }
 
 ${kdestroy}
 
+
+
+${kdestroy}
+
 echo "killing kdc (${kdcpid})"
-sh ${srcdir}/leaks-kill.sh kdc $kdcpid || exit 1
+sh ${leaks_kill} kdc $kdcpid || exit 1
 
 trap "" EXIT
 

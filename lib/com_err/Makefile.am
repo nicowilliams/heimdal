@@ -2,7 +2,8 @@
 
 include $(top_srcdir)/Makefile.am.common
 
-YFLAGS = -d
+AM_YFLAGS = -d -o parse.c
+AM_LFLAGS = @FLEXNOUNPUTARGS@
 
 lib_LTLIBRARIES = libcom_err.la
 libcom_err_la_LDFLAGS = -version-info 2:3:1
@@ -13,7 +14,7 @@ endif
 
 libcom_err_la_LIBADD = $(LIB_libintl)
 
-bin_PROGRAMS = compile_et
+noinst_PROGRAMS = compile_et
 
 include_HEADERS = com_err.h com_right.h
 
@@ -25,6 +26,8 @@ dist_libcom_err_la_SOURCES = error.c com_err.c roken_rename.h
 if do_roken_rename
 nodist_libcom_err_la_SOURCES = snprintf.c strlcpy.c
 endif
+
+libcom_err_la_DEPENDENCIES = version-script.map
 
 $(compile_et_OBJECTS): parse.h parse.c ## XXX broken automake 1.4s
 
@@ -38,4 +41,10 @@ snprintf.c:
 strlcpy.c:
 	$(LN_S) $(srcdir)/../roken/strlcpy.c .
 
-EXTRA_DIST = version-script.map
+EXTRA_DIST = \
+	NTMakefile \
+	com_err.3 \
+	compile_et-version.rc \
+	libcom_err-version.rc \
+	libcom_err-exports.def \
+	version-script.map

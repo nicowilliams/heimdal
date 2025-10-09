@@ -79,16 +79,16 @@ __warn_references(unvis,
 
 #define	isoctal(c)	(((u_char)(c)) >= '0' && ((u_char)(c)) <= '7')
 
-int ROKEN_LIB_FUNCTION
+ROKEN_LIB_FUNCTION int ROKEN_LIB_CALL
 	rk_strunvis (char *, const char *);
-int ROKEN_LIB_FUNCTION
+ROKEN_LIB_FUNCTION int ROKEN_LIB_CALL
 	rk_unvis (char *, int, int *, int);
 
 /*
  * unvis - decode characters previously encoded by vis
  */
 
-int ROKEN_LIB_FUNCTION
+ROKEN_LIB_FUNCTION int ROKEN_LIB_CALL
 rk_unvis(char *cp, int c, int *astate, int flag)
 {
 
@@ -126,7 +126,7 @@ rk_unvis(char *cp, int c, int *astate, int flag)
 			*astate = S_OCTAL2;
 			return (0);
 		case 'M':
-			*cp = (char)0200;
+			*cp = (u_char)0200;
 			*astate = S_META;
 			return (0);
 		case '^':
@@ -183,7 +183,7 @@ rk_unvis(char *cp, int c, int *astate, int flag)
 		}
 		*astate = S_GROUND;
 		return (UNVIS_SYNBAD);
-		
+
 	case S_META:
 		if (c == '-')
 			*astate = S_META1;
@@ -194,12 +194,12 @@ rk_unvis(char *cp, int c, int *astate, int flag)
 			return (UNVIS_SYNBAD);
 		}
 		return (0);
-		
+
 	case S_META1:
 		*astate = S_GROUND;
 		*cp |= c;
 		return (UNVIS_VALID);
-		
+
 	case S_CTRL:
 		if (c == '?')
 			*cp |= 0177;
@@ -214,7 +214,7 @@ rk_unvis(char *cp, int c, int *astate, int flag)
 			 * yes - and maybe a third
 			 */
 			*cp = (*cp << 3) + (c - '0');
-			*astate = S_OCTAL3;	
+			*astate = S_OCTAL3;
 			return (0);
 		}
 		/*
@@ -233,8 +233,8 @@ rk_unvis(char *cp, int c, int *astate, int flag)
 		 * we were done, push back passed char
 		 */
 		return (UNVIS_VALIDPUSH);
-			
-	default:	
+
+	default:
 		/*
 		 * decoder in unknown state - (probably uninitialized)
 		 */
@@ -250,7 +250,7 @@ rk_unvis(char *cp, int c, int *astate, int flag)
  *	Dst is null terminated.
  */
 
-int ROKEN_LIB_FUNCTION
+ROKEN_LIB_FUNCTION int ROKEN_LIB_CALL
 rk_strunvis(char *dst, const char *src)
 {
 	char c;

@@ -3,6 +3,8 @@
  * (Royal Institute of Technology, Stockholm, Sweden).
  * All rights reserved.
  *
+ * Portions Copyright (c) 2009 Apple Inc. All rights reserved.
+ *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
  * are met:
@@ -38,7 +40,7 @@
  *
  * Type of certificates store:
  * - MEMORY
- *   In memory based format. Doesnt support storing.
+ *   In memory based format. Doesn't support storing.
  * - FILE
  *   FILE supports raw DER certicates and PEM certicates. When PEM is
  *   used the file can contain may certificates and match private
@@ -61,9 +63,10 @@ struct hx509_certs_data {
     unsigned int ref;
     struct hx509_keyset_ops *ops;
     void *ops_data;
+    int flags;
 };
 
-static struct hx509_keyset_ops *
+struct hx509_keyset_ops *
 _hx509_ks_type(hx509_context context, const char *type)
 {
     int i;
@@ -75,7 +78,7 @@ _hx509_ks_type(hx509_context context, const char *type)
     return NULL;
 }
 
-void
+HX509_LIB_FUNCTION void HX509_LIB_CALL
 _hx509_ks_register(hx509_context context, struct hx509_keyset_ops *ops)
 {
     struct hx509_keyset_ops **val;
@@ -101,14 +104,17 @@ _hx509_ks_register(hx509_context context, struct hx509_keyset_ops *ops)
  * @param flags list of flags:
  * - HX509_CERTS_CREATE create a new keystore of the specific TYPE.
  * - HX509_CERTS_UNPROTECT_ALL fails if any private key failed to be extracted.
+ * - HX509_CERTS_NO_PRIVATE_KEYS does not load or permit adding private keys
  * @param lock a lock that unlocks the certificates store, use NULL to
  * select no password/certifictes/prompt lock (see @ref page_lock).
  * @param certs return pointer, free with hx509_certs_free().
  *
+ * @return Returns an hx509 error code.
+ *
  * @ingroup hx509_keyset
  */
 
-int
+HX509_LIB_FUNCTION int HX509_LIB_CALL
 hx509_certs_init(hx509_context context,
 		 const char *name, int flags,
 		 hx509_lock lock, hx509_certs *certs)
@@ -120,6 +126,9 @@ hx509_certs_init(hx509_context context,
     int ret;
 
     *certs = NULL;
+
+    if (name == NULL)
+        name = "";
 
     residue = strchr(name, ':');
     if (residue) {
@@ -151,6 +160,7 @@ hx509_certs_init(hx509_context context,
 	hx509_clear_error_string(context);
 	return ENOMEM;
     }
+    c->flags = flags;
     c->ops = ops;
     c->ref = 1;
 
@@ -165,11 +175,41 @@ hx509_certs_init(hx509_context context,
 }
 
 /**
+ * Destroys and frees a hx509 certificate store.
+ *
+ * @param context A hx509 context
+ * @param certs A store to destroy
+ *
+ * @return Returns an hx509 error code.
+ *
+ * @ingroup hx509_keyset
+ */
+
+HX509_LIB_FUNCTION int HX509_LIB_CALL
+hx509_certs_destroy(hx509_context context,
+                    hx509_certs *certs)
+{
+    int ret = 0;
+
+    if (*certs) {
+        if ((*certs)->ops->destroy)
+            ret = ((*certs)->ops->destroy)(context, *certs, (*certs)->ops_data);
+        else
+            ret = ENOTSUP;
+    }
+    hx509_certs_free(certs);
+    return ret;
+}
+
+/**
  * Write the certificate store to stable storage.
+ *
+ * Use the HX509_CERTS_STORE_NO_PRIVATE_KEYS flag to ensure that no private
+ * keys are stored, even if added.
  *
  * @param context A hx509 context.
  * @param certs a certificate store to store.
- * @param flags currently unused, use 0.
+ * @param flags currently one flag is defined: HX509_CERTS_STORE_NO_PRIVATE_KEYS
  * @param lock a lock that unlocks the certificates store, use NULL to
  * select no password/certifictes/prompt lock (see @ref page_lock).
  *
@@ -179,7 +219,7 @@ hx509_certs_init(hx509_context context,
  * @ingroup hx509_keyset
  */
 
-int
+HX509_LIB_FUNCTION int HX509_LIB_CALL
 hx509_certs_store(hx509_context context,
 		  hx509_certs certs,
 		  int flags,
@@ -197,8 +237,8 @@ hx509_certs_store(hx509_context context,
 }
 
 
-hx509_certs
-_hx509_certs_ref(hx509_certs certs)
+HX509_LIB_FUNCTION hx509_certs HX509_LIB_CALL
+hx509_certs_ref(hx509_certs certs)
 {
     if (certs == NULL)
 	return NULL;
@@ -218,7 +258,7 @@ _hx509_certs_ref(hx509_certs certs)
  * @ingroup hx509_keyset
  */
 
-void
+HX509_LIB_FUNCTION void HX509_LIB_CALL
 hx509_certs_free(hx509_certs *certs)
 {
     if (*certs) {
@@ -248,7 +288,7 @@ hx509_certs_free(hx509_certs *certs)
  * @ingroup hx509_keyset
  */
 
-int
+HX509_LIB_FUNCTION int HX509_LIB_CALL
 hx509_certs_start_seq(hx509_context context,
 		      hx509_certs certs,
 		      hx509_cursor *cursor)
@@ -284,7 +324,7 @@ hx509_certs_start_seq(hx509_context context,
  * @ingroup hx509_keyset
  */
 
-int
+HX509_LIB_FUNCTION int HX509_LIB_CALL
 hx509_certs_next_cert(hx509_context context,
 		      hx509_certs certs,
 		      hx509_cursor cursor,
@@ -306,7 +346,7 @@ hx509_certs_next_cert(hx509_context context,
  * @ingroup hx509_keyset
  */
 
-int
+HX509_LIB_FUNCTION int HX509_LIB_CALL
 hx509_certs_end_seq(hx509_context context,
 		    hx509_certs certs,
 		    hx509_cursor cursor)
@@ -316,14 +356,14 @@ hx509_certs_end_seq(hx509_context context,
 }
 
 /**
- * Iterate over all certificates in a keystore and call an function
- * for each fo them.
+ * Iterate over all certificates in a keystore and call a function
+ * for each of them.
  *
  * @param context a hx509 context.
  * @param certs certificate store to iterate over.
  * @param func function to call for each certificate. The function
  * should return non-zero to abort the iteration, that value is passed
- * back to te caller of hx509_certs_iter().
+ * back to the caller of hx509_certs_iter_f().
  * @param ctx context variable that will passed to the function.
  *
  * @return Returns an hx509 error code.
@@ -331,11 +371,11 @@ hx509_certs_end_seq(hx509_context context,
  * @ingroup hx509_keyset
  */
 
-int
-hx509_certs_iter(hx509_context context,
-		 hx509_certs certs,
-		 int (*func)(hx509_context, void *, hx509_cert),
-		 void *ctx)
+HX509_LIB_FUNCTION int HX509_LIB_CALL
+hx509_certs_iter_f(hx509_context context,
+		   hx509_certs certs,
+		   int (HX509_LIB_CALL *func)(hx509_context, void *, hx509_cert),
+		   void *ctx)
 {
     hx509_cursor cursor;
     hx509_cert c;
@@ -364,13 +404,46 @@ hx509_certs_iter(hx509_context context,
     return ret;
 }
 
+#ifdef __BLOCKS__
+
+static int
+certs_iter(hx509_context context, void *ctx, hx509_cert cert)
+{
+    int (^func)(hx509_cert) = ctx;
+    return func(cert);
+}
 
 /**
- * Function to use to hx509_certs_iter() as a function argument, the
- * ctx variable to hx509_certs_iter() should be a FILE file descriptor.
+ * Iterate over all certificates in a keystore and call a block
+ * for each of them.
  *
  * @param context a hx509 context.
- * @param ctx used by hx509_certs_iter().
+ * @param certs certificate store to iterate over.
+ * @param func block to call for each certificate. The function
+ * should return non-zero to abort the iteration, that value is passed
+ * back to the caller of hx509_certs_iter().
+ *
+ * @return Returns an hx509 error code.
+ *
+ * @ingroup hx509_keyset
+ */
+
+HX509_LIB_FUNCTION int HX509_LIB_CALL
+hx509_certs_iter(hx509_context context,
+		 hx509_certs certs,
+		 int (^func)(hx509_cert))
+{
+    return hx509_certs_iter_f(context, certs, certs_iter, func);
+}
+#endif
+
+
+/**
+ * Function to use to hx509_certs_iter_f() as a function argument, the
+ * ctx variable to hx509_certs_iter_f() should be a FILE file descriptor.
+ *
+ * @param context a hx509 context.
+ * @param ctx used by hx509_certs_iter_f().
  * @param c a certificate
  *
  * @return Returns an hx509 error code.
@@ -378,7 +451,7 @@ hx509_certs_iter(hx509_context context,
  * @ingroup hx509_keyset
  */
 
-int
+HX509_LIB_FUNCTION int HX509_LIB_CALL
 hx509_ci_print_names(hx509_context context, void *ctx, hx509_cert c)
 {
     Certificate *cert;
@@ -415,9 +488,12 @@ hx509_ci_print_names(hx509_context context, void *ctx, hx509_cert c)
  * @ingroup hx509_keyset
  */
 
-int
+HX509_LIB_FUNCTION int HX509_LIB_CALL
 hx509_certs_add(hx509_context context, hx509_certs certs, hx509_cert cert)
 {
+    hx509_cert copy = NULL;
+    int ret;
+
     if (certs->ops->add == NULL) {
 	hx509_set_error_string(context, 0, ENOENT,
 			       "Keyset type %s doesn't support add operation",
@@ -425,7 +501,20 @@ hx509_certs_add(hx509_context context, hx509_certs certs, hx509_cert cert)
 	return ENOENT;
     }
 
-    return (*certs->ops->add)(context, certs, certs->ops_data, cert);
+    if ((certs->flags & HX509_CERTS_NO_PRIVATE_KEYS) &&
+        hx509_cert_have_private_key(cert)) {
+        if ((copy = hx509_cert_copy_no_private_key(context, cert,
+                                                   NULL)) == NULL) {
+            hx509_set_error_string(context, 0, ENOMEM,
+                                   "Could not add certificate to store");
+            return ENOMEM;
+        }
+        cert = copy;
+    }
+
+    ret = (*certs->ops->add)(context, certs, certs->ops_data, cert);
+    hx509_cert_free(copy);
+    return ret;
 }
 
 /**
@@ -442,7 +531,7 @@ hx509_certs_add(hx509_context context, hx509_certs certs, hx509_cert cert)
  * @ingroup hx509_keyset
  */
 
-int
+HX509_LIB_FUNCTION int HX509_LIB_CALL
 hx509_certs_find(hx509_context context,
 		 hx509_certs certs,
 		 const hx509_query *q,
@@ -472,11 +561,14 @@ hx509_certs_find(hx509_context context,
 	    break;
 	if (_hx509_query_match_cert(context, q, c)) {
 	    *r = c;
+            c = NULL;
 	    break;
 	}
 	hx509_cert_free(c);
+        c = NULL;
     }
 
+    hx509_cert_free(c);
     hx509_certs_end_seq(context, certs, cursor);
     if (ret)
 	return ret;
@@ -484,7 +576,7 @@ hx509_certs_find(hx509_context context,
      * Return HX509_CERT_NOT_FOUND if no certificate in certs matched
      * the query.
      */
-    if (c == NULL) {
+    if (*r == NULL) {
 	hx509_clear_error_string(context);
 	return HX509_CERT_NOT_FOUND;
     }
@@ -506,7 +598,7 @@ hx509_certs_find(hx509_context context,
  * @ingroup hx509_keyset
  */
 
-int
+HX509_LIB_FUNCTION int HX509_LIB_CALL
 hx509_certs_filter(hx509_context context,
 		   hx509_certs certs,
 		   const hx509_query *q,
@@ -563,15 +655,14 @@ hx509_certs_filter(hx509_context context,
 }
 
 
-static int
+static int HX509_LIB_CALL
 certs_merge_func(hx509_context context, void *ctx, hx509_cert c)
 {
     return hx509_certs_add(context, (hx509_certs)ctx, c);
 }
 
 /**
- * Merge a certificate store into another. The from store is keep
- * intact.
+ * Merge one certificate store into another. The from store is kept intact.
  *
  * @param context a hx509 context.
  * @param to the store to merge into.
@@ -582,12 +673,12 @@ certs_merge_func(hx509_context context, void *ctx, hx509_cert c)
  * @ingroup hx509_keyset
  */
 
-int
+HX509_LIB_FUNCTION int HX509_LIB_CALL
 hx509_certs_merge(hx509_context context, hx509_certs to, hx509_certs from)
 {
     if (from == NULL)
 	return 0;
-    return hx509_certs_iter(context, from, certs_merge_func, to);
+    return hx509_certs_iter_f(context, from, certs_merge_func, to);
 }
 
 /**
@@ -605,7 +696,7 @@ hx509_certs_merge(hx509_context context, hx509_certs to, hx509_certs from)
  * @ingroup hx509_keyset
  */
 
-int
+HX509_LIB_FUNCTION int HX509_LIB_CALL
 hx509_certs_append(hx509_context context,
 		   hx509_certs to,
 		   hx509_lock lock,
@@ -634,7 +725,7 @@ hx509_certs_append(hx509_context context,
  * @ingroup hx509_keyset
  */
 
-int
+HX509_LIB_FUNCTION int HX509_LIB_CALL
 hx509_get_one_cert(hx509_context context, hx509_certs certs, hx509_cert *c)
 {
     hx509_cursor cursor;
@@ -677,7 +768,7 @@ certs_info_stdio(void *ctx, const char *str)
  * @ingroup hx509_keyset
  */
 
-int
+HX509_LIB_FUNCTION int HX509_LIB_CALL
 hx509_certs_info(hx509_context context,
 		 hx509_certs certs,
 		 int (*func)(void *, const char *),
@@ -696,23 +787,24 @@ hx509_certs_info(hx509_context context,
 				    func, ctx);
 }
 
-void
+HX509_LIB_FUNCTION void HX509_LIB_CALL
 _hx509_pi_printf(int (*func)(void *, const char *), void *ctx,
 		 const char *fmt, ...)
 {
     va_list ap;
     char *str;
+    int ret;
 
     va_start(ap, fmt);
-    vasprintf(&str, fmt, ap);
+    ret = vasprintf(&str, fmt, ap);
     va_end(ap);
-    if (str == NULL)
+    if (ret == -1 || str == NULL)
 	return;
     (*func)(ctx, str);
     free(str);
 }
 
-int
+HX509_LIB_FUNCTION int HX509_LIB_CALL
 _hx509_certs_keys_get(hx509_context context,
 		      hx509_certs certs,
 		      hx509_private_key **keys)
@@ -724,7 +816,7 @@ _hx509_certs_keys_get(hx509_context context,
     return (*certs->ops->getkeys)(context, certs, certs->ops_data, keys);
 }
 
-int
+HX509_LIB_FUNCTION int HX509_LIB_CALL
 _hx509_certs_keys_add(hx509_context context,
 		      hx509_certs certs,
 		      hx509_private_key key)
@@ -740,12 +832,15 @@ _hx509_certs_keys_add(hx509_context context,
 }
 
 
-void
+HX509_LIB_FUNCTION void HX509_LIB_CALL
 _hx509_certs_keys_free(hx509_context context,
 		       hx509_private_key *keys)
 {
-    int i;
+    size_t i;
+
+    if (keys == NULL)
+        return;
     for (i = 0; keys[i]; i++)
-	_hx509_private_key_free(&keys[i]);
+	hx509_private_key_free(&keys[i]);
     free(keys);
 }
