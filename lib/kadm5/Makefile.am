@@ -147,7 +147,6 @@ LDADD = \
 	$(top_builddir)/lib/hdb/libhdb.la \
 	$(top_builddir)/lib/krb5/libkrb5.la \
 	$(top_builddir)/lib/asn1/libasn1.la \
-	$(LIB_hcrypto) \
 	$(LIB_roken) \
 	$(DB3LIB) $(DB1LIB) $(LMDBLIB) $(NDBMLIB) \
 	$(LIB_dlopen) \
@@ -159,7 +158,6 @@ iprop_log_LDADD = \
 	$(top_builddir)/lib/hdb/libhdb.la \
 	$(top_builddir)/lib/krb5/libkrb5.la \
 	$(top_builddir)/lib/asn1/libasn1.la \
-	$(LIB_hcrypto) \
 	$(top_builddir)/lib/sl/libsl.la \
 	$(LIB_readline) \
 	$(LIB_roken) \

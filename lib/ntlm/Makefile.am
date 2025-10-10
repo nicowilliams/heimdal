@@ -22,7 +22,6 @@ $(libheimntlm_la_OBJECTS): $(srcdir)/version-script.map
 libheimntlm_la_LIBADD = \
 	../krb5/libkrb5.la \
 	$(top_builddir)/lib/wind/libwind.la \
-	$(LIB_hcrypto) \
 	$(LIBADD_roken)
 
 $(srcdir)/heimntlm-protos.h: $(dist_libheimntlm_la_SOURCES)

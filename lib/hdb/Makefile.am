@@ -55,7 +55,6 @@ CLEANFILES = $(BUILT_SOURCES) $(gen_files_hdb) \
 LDADD = libhdb.la \
 	../krb5/libkrb5.la \
 	../asn1/libasn1.la \
-	$(LIB_hcrypto) \
 	$(LIB_roken) \
 	$(LIB_openldap) \
 	$(LIB_libintl) \

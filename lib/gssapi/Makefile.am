@@ -279,7 +279,6 @@ libgssapi_la_LIBADD = \
 	$(top_builddir)/lib/krb5/libkrb5.la \
 	$(top_builddir)/lib/asn1/libasn1.la \
 	$(LIB_com_err) \
-	$(LIB_hcrypto) \
 	$(LIBADD_roken)
 
 man_MANS = gssapi.3 gss_acquire_cred.3 mech/mech.5 gss-token.1

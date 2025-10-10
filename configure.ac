@@ -359,8 +359,6 @@ LIBADD_roken="$LIB_roken"
 AC_SUBST(LIBADD_roken)dnl
 LIB_roken="\$(top_builddir)/lib/vers/libvers.la $LIB_roken"
 
-rk_OTP
-
 rk_LIBDISPATCH
 
 AC_CHECK_OSFC2
@@ -734,23 +732,19 @@ AC_CONFIG_FILES(Makefile 		\
 	etc/Makefile			\
 	include/Makefile		\
 	include/gssapi/Makefile		\
-	include/hcrypto/Makefile	\
 	include/kadm5/Makefile		\
 	lib/Makefile			\
-	lib/base/Makefile			\
+	lib/base/Makefile		\
 	lib/asn1/Makefile		\
 	lib/com_err/Makefile		\
-	lib/hcrypto/Makefile		\
 	lib/hx509/Makefile		\
 	lib/gssapi/Makefile		\
-	lib/ntlm/Makefile		\
 	lib/hdb/Makefile		\
 	lib/ipc/Makefile		\
 	lib/kadm5/Makefile		\
 	lib/kafs/Makefile		\
 	lib/kdfs/Makefile		\
 	lib/krb5/Makefile		\
-	lib/otp/Makefile		\
 	lib/roken/Makefile		\
 	lib/sl/Makefile			\
 	lib/sqlite/Makefile		\
@@ -768,7 +762,6 @@ AC_CONFIG_FILES(Makefile 		\
 	appl/afsutil/Makefile		\
 	appl/dbutils/Makefile		\
 	appl/gssmask/Makefile		\
-	appl/otp/Makefile		\
 	appl/test/Makefile		\
 	appl/kf/Makefile		\
 	appl/dceutils/Makefile		\

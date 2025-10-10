@@ -36,6 +36,7 @@
 
 #include <krb5_locl.h> /* for _krb5_SP800_108_HMAC_KDF() */
 
+/* XXX Use OpenSSL 3.x */
 #include <hcrypto/x25519_ref10.h>
 
 #include <gssapi.h>

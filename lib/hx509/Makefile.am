@@ -58,7 +58,6 @@ libhx509template_la_DEPENDENCIES = version-script.map
 
 libhx509_la_LIBADD = \
 	$(LIB_com_err) \
-	$(LIB_hcrypto) \
 	$(LIB_openssl_crypto) \
 	$(top_builddir)/lib/asn1/libasn1.la \
 	$(top_builddir)/lib/wind/libwind.la \
@@ -68,7 +67,6 @@ libhx509_la_LIBADD = \
 
 libhx509template_la_LIBADD = \
 	$(LIB_com_err) \
-	$(LIB_hcrypto) \
 	$(LIB_openssl_crypto) \
 	$(top_builddir)/lib/asn1/libasn1template.la \
 	$(top_builddir)/lib/wind/libwind.la \
@@ -126,7 +124,6 @@ $(hxtool_OBJECTS): hxtool-commands.h $(nodist_include_HEADERS)
 hxtool_LDADD = \
 	libhx509template.la \
 	$(top_builddir)/lib/asn1/libasn1.la \
-	$(LIB_hcrypto) \
 	$(LIB_roken) \
 	$(top_builddir)/lib/sl/libsl.la
 

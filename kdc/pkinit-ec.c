@@ -41,7 +41,9 @@
 /*
  * As with the other *-ec.c files in Heimdal, this is a bit of a hack.
  *
- * The idea is to use OpenSSL for EC because hcrypto doesn't have the
+ * XXX This is no longer relevant now that we've removed hcrypto.
+ *
+ * The idea _was_ to use OpenSSL for EC because hcrypto doesn't have the
  * required functionality at this time.  To do this we segregate
  * EC-using code into separate source files and then we arrange for them
  * to get the OpenSSL headers and not the conflicting hcrypto ones.
@@ -51,7 +53,6 @@
  * strange header include order here.
  */
 
-#ifdef HAVE_HCRYPTO_W_OPENSSL
 #include <openssl/evp.h>
 #include <openssl/ec.h>
 #include <openssl/ecdsa.h>
@@ -63,12 +64,8 @@
 #include <openssl/core_names.h>
 #endif
 #define HEIM_NO_CRYPTO_HDRS
-#endif /* HAVE_HCRYPTO_W_OPENSSL */
-
-#define NO_HCRYPTO_POLLUTION
 
 #include "kdc_locl.h"
-#include <hcrypto/des.h>
 #include <heim_asn1.h>
 #include <rfc2459_asn1.h>
 #include <cms_asn1.h>
@@ -83,7 +80,6 @@ _kdc_pk_free_client_ec_param(krb5_context context,
                              void *k0,
                              void *k1)
 {
-#ifdef HAVE_HCRYPTO_W_OPENSSL
 #ifdef HAVE_OPENSSL_30
     EVP_PKEY_free(k0);
     EVP_PKEY_free(k1);
@@ -91,10 +87,8 @@ _kdc_pk_free_client_ec_param(krb5_context context,
     EC_KEY_free(k0);
     EC_KEY_free(k1);
 #endif
-#endif
 }
 
-#ifdef HAVE_HCRYPTO_W_OPENSSL
 #ifdef HAVE_OPENSSL_30
 static krb5_error_code
 generate_ecdh_keyblock_ossl30(krb5_context context,
@@ -236,7 +230,6 @@ generate_ecdh_keyblock_ossl11(krb5_context context,
     return 0;
 }
 #endif
-#endif /* HAVE_HCRYPTO_W_OPENSSL */
 
 krb5_error_code
 _kdc_generate_ecdh_keyblock(krb5_context context,
@@ -245,7 +238,6 @@ _kdc_generate_ecdh_keyblock(krb5_context context,
                             unsigned char **dh_gen_key, /* shared secret */
                             size_t *dh_gen_keylen)
 {
-#ifdef HAVE_HCRYPTO_W_OPENSSL
 #ifdef HAVE_OPENSSL_30
     return generate_ecdh_keyblock_ossl30(context, ec_key_pk,
                                          (EVP_PKEY **)ec_key_key,
@@ -255,12 +247,8 @@ _kdc_generate_ecdh_keyblock(krb5_context context,
                                          (EC_KEY **)ec_key_key,
                                          dh_gen_key, dh_gen_keylen);
 #endif
-#else
-    return ENOTSUP;
-#endif /* HAVE_HCRYPTO_W_OPENSSL */
 }
 
-#ifdef HAVE_HCRYPTO_W_OPENSSL
 #ifdef HAVE_OPENSSL_30
 static krb5_error_code
 get_ecdh_param_ossl30(krb5_context context,
@@ -425,7 +413,6 @@ get_ecdh_param_ossl11(krb5_context context,
     return ret;
 }
 #endif
-#endif /* HAVE_HCRYPTO_W_OPENSSL */
 
 krb5_error_code
 _kdc_get_ecdh_param(krb5_context context,
@@ -433,15 +420,11 @@ _kdc_get_ecdh_param(krb5_context context,
                     SubjectPublicKeyInfo *dh_key_info,
                     void **out)
 {
-#ifdef HAVE_HCRYPTO_W_OPENSSL
 #ifdef HAVE_OPENSSL_30
     return get_ecdh_param_ossl30(context, config, dh_key_info, (EVP_PKEY **)out);
 #else
     return get_ecdh_param_ossl11(context, config, dh_key_info, (EC_KEY **)out);
 #endif
-#else
-    return ENOTSUP;
-#endif /* HAVE_HCRYPTO_W_OPENSSL */
 }
 
 
@@ -449,7 +432,6 @@ _kdc_get_ecdh_param(krb5_context context,
  *
  */
 
-#ifdef HAVE_HCRYPTO_W_OPENSSL
 #ifdef HAVE_OPENSSL_30
 static krb5_error_code
 serialize_ecdh_key_ossl30(krb5_context context,
@@ -526,7 +508,6 @@ serialize_ecdh_key_ossl11(krb5_context context,
     return 0;
 }
 #endif
-#endif
 
 krb5_error_code
 _kdc_serialize_ecdh_key(krb5_context context,
@@ -534,14 +515,10 @@ _kdc_serialize_ecdh_key(krb5_context context,
                         unsigned char **out,
                         size_t *out_len)
 {
-#ifdef HAVE_HCRYPTO_W_OPENSSL
 #ifdef HAVE_OPENSSL_30
     return serialize_ecdh_key_ossl30(context, key, out, out_len);
 #else
     return serialize_ecdh_key_ossl11(context, key, out, out_len);
-#endif
-#else
-    return ENOTSUP;
 #endif
 }
 

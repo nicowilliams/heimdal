@@ -757,12 +757,9 @@ evp_md_verify_signature(hx509_context context,
     return 0;
 }
 
-#ifdef HAVE_HCRYPTO_W_OPENSSL
-extern const struct signature_alg ecdsa_with_sha512_alg;
 extern const struct signature_alg ecdsa_with_sha384_alg;
 extern const struct signature_alg ecdsa_with_sha256_alg;
 extern const struct signature_alg ecdsa_with_sha1_alg;
-#endif
 
 static const struct signature_alg heim_rsa_pkcs1_x509 = {
     "rsa-pkcs1-x509",
@@ -966,12 +963,10 @@ static const struct signature_alg md5_alg = {
  */
 
 static const struct signature_alg *sig_algs[] = {
-#ifdef HAVE_HCRYPTO_W_OPENSSL
     &ecdsa_with_sha512_alg,
     &ecdsa_with_sha384_alg,
     &ecdsa_with_sha256_alg,
     &ecdsa_with_sha1_alg,
-#endif
     &rsa_with_sha512_alg,
     &rsa_with_sha384_alg,
     &rsa_with_sha256_alg,
@@ -1031,15 +1026,11 @@ alg_for_privatekey(const hx509_private_key pk, int type)
 /*
  *
  */
-#ifdef HAVE_HCRYPTO_W_OPENSSL
 extern hx509_private_key_ops ecdsa_private_key_ops;
-#endif
 
 static struct hx509_private_key_ops *private_algs[] = {
     &rsa_private_key_ops,
-#ifdef HAVE_HCRYPTO_W_OPENSSL
     &ecdsa_private_key_ops,
-#endif
     NULL
 };
 

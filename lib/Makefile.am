@@ -5,9 +5,6 @@ include $(top_srcdir)/Makefile.am.common
 if LIBEDIT
 dir_editline = libedit
 endif
-if OTP
-dir_otp = otp
-endif
 if DCE
 dir_dce = kdfs
 endif
@@ -34,7 +31,6 @@ SUBDIRS = \
 	wind \
 	asn1 \
 	$(dir_sqlite) \
-	hcrypto \
 	ipc \
 	hx509 \
 	krb5 \
@@ -44,7 +40,6 @@ SUBDIRS = \
 	gss_preauth \
 	hdb \
 	kadm5 \
-	$(dir_otp) \
 	$(dir_dce)
 
 EXTRA_DIST = NTMakefile heimdal

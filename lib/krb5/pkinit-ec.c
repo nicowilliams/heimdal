@@ -38,43 +38,14 @@
 
 #ifdef PKINIT
 
-/*
- * As with the other *-ec.c files in Heimdal, this is a bit of a hack.
- *
- * The idea is to use OpenSSL for EC because hcrypto doesn't have the
- * required functionality at this time.  To do this we segregate
- * EC-using code into separate source files and then we arrange for them
- * to get the OpenSSL headers and not the conflicting hcrypto ones.
- *
- * Because of auto-generated *-private.h headers, we end up needing to
- * make sure various types are defined before we include them, thus the
- * strange header include order here.
- */
-
-#ifdef HAVE_HCRYPTO_W_OPENSSL
 #include <openssl/ec.h>
 #include <openssl/ecdh.h>
 #include <openssl/evp.h>
 #include <openssl/bn.h>
 #include <openssl/dh.h>
 #define HEIM_NO_CRYPTO_HDRS
-#endif
-
-/*
- * NO_HCRYPTO_POLLUTION -> don't refer to hcrypto type/function names
- * that we don't need in this file and which would clash with OpenSSL's
- * in ways that are difficult to address in cleaner ways.
- *
- * In the medium- to long-term what we should do is move all PK in
- * Heimdal to the newer EVP interfaces for PK and then nothing outside
- * lib/hcrypto should ever have to include OpenSSL headers, and -more
- * specifically- the only thing that should ever have to include OpenSSL
- * headers is the OpenSSL backend to hcrypto.
- */
-#define NO_HCRYPTO_POLLUTION
 
 #include "krb5_locl.h"
-#include <hcrypto/des.h>
 #include <cms_asn1.h>
 #include <pkcs8_asn1.h>
 #include <pkcs9_asn1.h>
@@ -89,7 +60,6 @@ _krb5_build_authpack_subjectPK_EC(krb5_context context,
                                   krb5_pk_init_ctx ctx,
                                   AuthPack *a)
 {
-#ifdef HAVE_HCRYPTO_W_OPENSSL
     krb5_error_code ret;
     ECParameters ecp;
     unsigned char *p;
@@ -168,11 +138,6 @@ _krb5_build_authpack_subjectPK_EC(krb5_context context,
     return 0;
 
     /* XXX verify that this is right with RFC3279 */
-#else
-    krb5_set_error_message(context, ENOTSUP,
-                           N_("PKINIT: ECDH not supported", ""));
-    return ENOTSUP;
-#endif
 }
 
 krb5_error_code
@@ -183,7 +148,6 @@ _krb5_pk_rd_pa_reply_ecdh_compute_key(krb5_context context,
                                       unsigned char **out,
                                       int *out_sz)
 {
-#ifdef HAVE_HCRYPTO_W_OPENSSL
 #ifdef HAVE_OPENSSL_30
     krb5_error_code ret = 0;
     EVP_PKEY_CTX *pctx = NULL;
@@ -288,22 +252,15 @@ _krb5_pk_rd_pa_reply_ecdh_compute_key(krb5_context context,
 
     return ret;
 #endif
-#else
-    krb5_set_error_message(context, ENOTSUP,
-                           N_("PKINIT: ECDH not supported", ""));
-    return ENOTSUP;
-#endif
 }
 
 void
 _krb5_pk_eckey_free(void *eckey)
 {
-#ifdef HAVE_HCRYPTO_W_OPENSSL
 #ifdef HAVE_OPENSSL_30
     EVP_PKEY_free(eckey);
 #else
     EC_KEY_free(eckey);
-#endif
 #endif
 }
 

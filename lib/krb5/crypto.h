@@ -199,33 +199,3 @@ _krb5_crypto_iov_should_sign(const struct krb5_crypto_iov *iov)
             || iov->flags == KRB5_CRYPTO_TYPE_HEADER
             || iov->flags == KRB5_CRYPTO_TYPE_PADDING);
 }
-
-/* NO_HCRYPTO_POLLUTION is defined in pkinit-ec.c.  See commentary there. */
-#ifndef NO_HCRYPTO_POLLUTION
-/* Interface to the EVP crypto layer provided by hcrypto */
-struct _krb5_evp_schedule {
-    /*
-     * Normally we'd say EVP_CIPHER_CTX here, but!  this header gets
-     * included in lib/krb5/pkinit-ec.c
-     */
-    EVP_CIPHER_CTX ectx;
-    EVP_CIPHER_CTX dctx;
-};
-
-struct krb5_crypto_data {
-    struct _krb5_encryption_type *et;
-    struct _krb5_key_data key;
-    EVP_MD_CTX *mdctx;
-    HMAC_CTX *hmacctx;
-    int num_key_usage;
-    struct _krb5_key_usage *key_usage;
-    krb5_flags flags;
-};
-
-/*
- * Allow generation and verification of unkeyed checksums even when
- * key material is available.
- */
-#define KRB5_CRYPTO_FLAG_ALLOW_UNKEYED_CHECKSUM		    0x01
-
-#endif
