@@ -36,7 +36,6 @@
 #include "kuser_locl.h"
 #include "parse_units.h"
 #include "heimtools-commands.h"
-#undef HC_DEPRECATED_CRYPTO
 
 static const char *
 printable_time_internal(time_t t, int x)

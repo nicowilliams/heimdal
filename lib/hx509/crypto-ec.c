@@ -33,7 +33,6 @@
 
 #include <config.h>
 
-#ifdef HAVE_HCRYPTO_W_OPENSSL
 #include <openssl/evp.h>
 #include <openssl/ec.h>
 #include <openssl/ecdsa.h>
@@ -45,7 +44,6 @@
 #include <openssl/core_names.h>
 #endif
 #define HEIM_NO_CRYPTO_HDRS
-#endif /* HAVE_HCRYPTO_W_OPENSSL */
 
 #include "hx_locl.h"
 
@@ -57,16 +55,13 @@ extern const AlgorithmIdentifier _hx509_signature_sha1_data;
 HX509_LIB_FUNCTION void HX509_LIB_CALL
 _hx509_private_eckey_free(void *eckey)
 {
-#ifdef HAVE_HCRYPTO_W_OPENSSL
 #ifdef HAVE_OPENSSL_30
     EVP_PKEY_free(eckey);
 #else
     EC_KEY_free(eckey);
 #endif
-#endif
 }
 
-#ifdef HAVE_HCRYPTO_W_OPENSSL
 static struct oid2nid_st {
     const heim_oid *oid;
     int nid;
@@ -815,24 +810,14 @@ const struct signature_alg ecdsa_with_sha1_alg = {
     20
 };
 
-#endif /* HAVE_HCRYPTO_W_OPENSSL */
-
 HX509_LIB_FUNCTION const AlgorithmIdentifier * HX509_LIB_CALL
 hx509_signature_ecPublicKey(void)
 {
-#ifdef HAVE_HCRYPTO_W_OPENSSL
     return &_hx509_signature_ecPublicKey;
-#else
-    return NULL;
-#endif /* HAVE_HCRYPTO_W_OPENSSL */
 }
 
 HX509_LIB_FUNCTION const AlgorithmIdentifier * HX509_LIB_CALL
 hx509_signature_ecdsa_with_sha256(void)
 {
-#ifdef HAVE_HCRYPTO_W_OPENSSL
     return &_hx509_signature_ecdsa_with_sha256_data;
-#else
-    return NULL;
-#endif /* HAVE_HCRYPTO_W_OPENSSL */
 }

@@ -34,7 +34,6 @@ ktutil-commands.c ktutil-commands.h: ktutil-commands.in
 LDADD = \
 	$(top_builddir)/lib/kadm5/libkadm5clnt.la \
 	$(top_builddir)/lib/krb5/libkrb5.la \
-	$(LIB_hcrypto) \
 	$(top_builddir)/lib/asn1/libasn1.la \
 	$(top_builddir)/lib/sl/libsl.la \
 	$(LIB_heimbase) \

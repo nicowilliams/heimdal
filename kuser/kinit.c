@@ -34,7 +34,6 @@
  */
 
 #include "kuser_locl.h"
-#undef HC_DEPRECATED_CRYPTO
 #include <krb5_locl.h>
 
 #ifdef HAVE_FRAMEWORK_SECURITY

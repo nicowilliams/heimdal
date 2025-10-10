@@ -38,7 +38,6 @@ RELDIR = lib\heimdal
 DLLDEPS= \
 	$(LIBASN1)	\
 	$(LIBCOMERR)	\
-	$(LIBHCRYPTO)	\
 	$(LIBHX509)	\
 	$(LIBKRB5)	\
 	$(LIBROKEN)	\
@@ -68,7 +67,6 @@ RES=$(OBJ)\heimdal-version.res
 
 DEFSRC= ..\asn1\libasn1-exports.def \
 	..\wind\libwind-exports.def \
-	..\hcrypto\libhcrypto-exports.def \
 	..\hx509\libhx509-exports.def \
 	$(OBJDIR)\lib\krb5\libkrb5-exports.def
 
@@ -90,7 +88,7 @@ clean::
 
 !else
 
-$(LIBHEIMDAL): $(LIBASN1) $(LIBWIND) $(LIBHCRYPTO) $(LIBHX509) $(LIBKRB5) $(LIBHEIMBASE)
+$(LIBHEIMDAL): $(LIBASN1) $(LIBWIND) $(LIBHX509) $(LIBKRB5) $(LIBHEIMBASE)
 	$(LIBCON)
 
 !endif

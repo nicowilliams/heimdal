@@ -7,7 +7,7 @@ WFLAGS += $(WFLAGS_ENUM_CONV)
 AM_CPPFLAGS += $(AFS_EXTRA_DEFS) $(ROKEN_RENAME)
 
 if KRB5
-DEPLIB_krb5 = ../krb5/libkrb5.la $(LIB_hcrypto)
+DEPLIB_krb5 = ../krb5/libkrb5.la
 krb5_am_workaround = -I$(top_srcdir)/lib/krb5
 else
 DEPLIB_krb5  =

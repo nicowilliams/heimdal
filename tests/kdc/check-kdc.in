@@ -748,21 +748,7 @@ ${kdestroy}
 
 rsa=yes
 ecdsa=yes
-pkinit=no
-if ${hxtool} info | grep 'rsa: hx509 null RSA' > /dev/null ; then
-    rsa=no
-fi
-if ${hxtool} info | grep 'rand: not available' > /dev/null ; then
-    rsa=no
-fi
-if ${kinit} --help 2>&1 | grep "CA certificates" > /dev/null; then
-    pkinit=yes
-fi
-
-if ${hxtool} info | grep 'ecdsa: hcrypto null' > /dev/null ; then
-    ecdsa=no
-fi
-
+pkinit=yes
 
 # If we support pkinit and have RSA, lets try that
 if test "$pkinit" = yes -a "$rsa" = yes ; then
