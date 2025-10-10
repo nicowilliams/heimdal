@@ -49,9 +49,6 @@
 #include <parse_units.h>
 #include <krb5.h>
 
-
-#define HC_DEPRECATED_CRYPTO
-
 #include "krb5-types.h"
 #include "crypto-headers.h"
 

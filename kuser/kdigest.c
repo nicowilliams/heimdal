@@ -31,8 +31,6 @@
  * SUCH DAMAGE.
  */
 
-#define HC_DEPRECATED_CRYPTO
-
 #include "kuser_locl.h"
 
 #include <kdigest-commands.h>

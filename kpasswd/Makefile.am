@@ -23,7 +23,6 @@ kpasswdd_LDADD = \
 	$(DB3LIB) $(DB1LIB) $(LMDBLIB) $(NDBMLIB)
 
 LDADD = $(top_builddir)/lib/krb5/libkrb5.la \
-	$(LIB_hcrypto) \
 	$(top_builddir)/lib/asn1/libasn1.la \
 	$(LIB_roken)
 

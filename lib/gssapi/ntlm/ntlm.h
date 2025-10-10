@@ -58,7 +58,6 @@
 
 #include <heimntlm.h>
 
-#define HC_DEPRECATED_CRYPTO
 #include "crypto-headers.h"
 
 typedef OM_uint32

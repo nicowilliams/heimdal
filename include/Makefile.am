@@ -2,7 +2,7 @@
 
 include $(top_srcdir)/Makefile.am.common
 
-SUBDIRS = kadm5 hcrypto gssapi
+SUBDIRS = kadm5 gssapi
 
 noinst_PROGRAMS = bits
 CHECK_LOCAL = no-check-local
@@ -101,7 +101,6 @@ CLEANFILES =			\
 	ntlm_err.h		\
 	ocsp_asn1.h		\
 	ocsp_template_asn1.h	\
-	otp.h			\
 	parse_bytes.h		\
 	parse_time.h		\
 	parse_units.h		\

@@ -478,24 +478,6 @@ EXPORTS
 	krb5_net_read
 	krb5_net_write
 	krb5_net_write_block
-	krb5_ntlm_alloc
-	krb5_ntlm_free
-	krb5_ntlm_init_get_challenge
-	krb5_ntlm_init_get_flags
-	krb5_ntlm_init_get_opaque
-	krb5_ntlm_init_get_targetinfo
-	krb5_ntlm_init_get_targetname
-	krb5_ntlm_init_request
-	krb5_ntlm_rep_get_sessionkey
-	krb5_ntlm_rep_get_status
-	krb5_ntlm_req_set_flags
-	krb5_ntlm_req_set_lm
-	krb5_ntlm_req_set_ntlm
-	krb5_ntlm_req_set_opaque
-	krb5_ntlm_req_set_session
-	krb5_ntlm_req_set_targetname
-	krb5_ntlm_req_set_username
-	krb5_ntlm_request
 	krb5_openlog
 	krb5_pac_add_buffer
 	krb5_pac_free

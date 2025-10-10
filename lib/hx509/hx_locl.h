@@ -86,14 +86,6 @@
 #define O_BINARY 0
 #endif
 
-/*
- * We use OpenSSL for EC, but to do this we need to disable cross-references
- * between OpenSSL and hcrypto bn.h and such.  Source files that use OpenSSL EC
- * must define HEIM_NO_CRYPTO_HDRS before including this file.
- */
-
-#define HC_DEPRECATED_CRYPTO
-
 #ifndef HEIM_NO_CRYPTO_HDRS
 #include "crypto-headers.h"
 #endif

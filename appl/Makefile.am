@@ -2,9 +2,6 @@
 
 include $(top_srcdir)/Makefile.am.common
 
-if OTP
-dir_otp = otp
-endif
 if DCE
 dir_dce = dceutils
 endif
@@ -14,7 +11,6 @@ endif
 SUBDIRS = 					\
 	  $(dir_afsutil)			\
 	  dbutils				\
-	  $(dir_otp)				\
 	  gssmask				\
 	  test					\
 	  kf					\

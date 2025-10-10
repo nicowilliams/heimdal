@@ -45,7 +45,6 @@ bx509d_LDADD =	-ldl \
 		 $(MICROHTTPD_LIBS) \
 		 $(LIB_roken) \
 		 $(LIB_heimbase) \
-		 $(LIB_hcrypto) \
 		 $(top_builddir)/lib/sl/libsl.la \
 		 $(top_builddir)/lib/asn1/libasn1.la \
 		 $(top_builddir)/lib/krb5/libkrb5.la \
@@ -63,7 +62,6 @@ httpkadmind_LDADD =	-ldl \
 		 $(MICROHTTPD_LIBS) \
 		 $(LIB_roken) \
 		 $(LIB_heimbase) \
-		 $(LIB_hcrypto) \
 		 $(top_builddir)/lib/sl/libsl.la \
 		 $(top_builddir)/lib/asn1/libasn1.la \
 		 $(top_builddir)/lib/krb5/libkrb5.la \
@@ -181,7 +179,6 @@ hprop_LDADD = \
 	$(top_builddir)/lib/hdb/libhdb.la \
 	$(top_builddir)/lib/krb5/libkrb5.la \
 	$(LIB_kdb)  \
-	$(LIB_hcrypto) \
 	$(top_builddir)/lib/asn1/libasn1.la \
 	$(LIB_roken) \
 	$(DB3LIB) $(DB1LIB) $(LMDBLIB) $(NDBMLIB)
@@ -190,7 +187,6 @@ hpropd_LDADD = \
 	$(top_builddir)/lib/hdb/libhdb.la \
 	$(top_builddir)/lib/krb5/libkrb5.la \
 	$(LIB_kdb)  \
-	$(LIB_hcrypto) \
 	$(top_builddir)/lib/asn1/libasn1.la \
 	$(LIB_roken) \
 	$(DB3LIB) $(DB1LIB) $(LMDBLIB) $(NDBMLIB)
@@ -207,7 +203,6 @@ libkdc_la_LIBADD = \
 	$(top_builddir)/lib/gss_preauth/libgss_preauth.la \
 	$(LIB_kdb)  \
 	$(top_builddir)/lib/ntlm/libheimntlm.la \
-	$(LIB_hcrypto) \
 	$(LIB_openssl_crypto) \
 	$(top_builddir)/lib/asn1/libasn1.la \
 	$(LIB_roken) \
@@ -215,7 +210,6 @@ libkdc_la_LIBADD = \
 
 LDADD = $(top_builddir)/lib/hdb/libhdb.la \
 	$(top_builddir)/lib/krb5/libkrb5.la \
-	$(LIB_hcrypto) \
 	$(top_builddir)/lib/asn1/libasn1.la \
 	$(LIB_roken) \
 	$(DB3LIB) $(DB1LIB) $(LMDBLIB) $(NDBMLIB)
