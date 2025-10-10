@@ -53,7 +53,6 @@
 #include <roken.h>
 #include <heim_threads.h>
 
-#define HC_DEPRECATED_CRYPTO
 #include "crypto-headers.h"
 
 /*

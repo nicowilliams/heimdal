@@ -33,8 +33,6 @@
  * SUCH DAMAGE.
  */
 
-#define HC_DEPRECATED_CRYPTO
-
 #include "headers.h"
 #include <digest_asn1.h>
 #include <heimntlm.h>

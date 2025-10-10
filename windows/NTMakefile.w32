@@ -162,7 +162,6 @@ pthreadinc= -I$(PTHREAD_INC)
 cincdirs=$(cincdirs) -I$(INCDIR) -I$(INCDIR)\krb5 $(pthreadinc)
 cdefines=$(cdefines) -DHAVE_CONFIG_H
 # Windows CNG provider
-cdefines=$(cdefines) -DHCRYPTO_DEF_PROVIDER=w32crypto
 cdebug=$(cdebug) /Zi
 ldebug=$(ldebug) /DEBUG
 localcflags=$(localcflags) /Oy-
@@ -399,9 +398,6 @@ mkdirs:
 !  if !exist("$(INCDIR)\gssapi")
 	-$(MKDIR) "$(INCDIR)\gssapi"
 !  endif
-!  if !exist("$(INCDIR)\hcrypto")
-	-$(MKDIR) "$(INCDIR)\hcrypto"
-!  endif
 !  if !exist("$(INCDIR)\kadm5")
 	-$(MKDIR) "$(INCDIR)\kadm5"
 !  endif
@@ -581,7 +577,6 @@ LIBCOMERR   =$(LIBDIR)\libcom_err.lib
 LIBEDITLINE =$(LIBDIR)\libeditline.lib
 LIBGSSAPI   =$(LIBDIR)\libgssapi.lib
 LIBGSS_PREAUTH=$(LIBDIR)\libgss_preauth.lib
-LIBHCRYPTO  =$(LIBDIR)\libhcrypto.lib
 LIBHDB	    =$(LIBDIR)\libhdb.lib
 LIBHEIMBASE =$(LIBDIR)\libheimbase.lib
 LIBHEIMDAL  =$(LIBDIR)\heimdal.lib

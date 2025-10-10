@@ -18,11 +18,6 @@ dxy_subst = sed -e 's,[@]srcdir[@],$(srcdir),g' \
 	-e 's,[@]objdir[@],.,g' \
 	-e 's,[@]PACKAGE_VERSION[@],$(PACKAGE_VERSION),g'
 
-hcrypto.dxy: hcrypto.din Makefile
-	$(dxy_subst) < $(srcdir)/hcrypto.din > hcrypto.dxy.tmp
-	chmod +x hcrypto.dxy.tmp
-	mv hcrypto.dxy.tmp hcrypto.dxy
-
 hdb.dxy: hdb.din Makefile
 	$(dxy_subst) < $(srcdir)/hdb.din > hdb.dxy.tmp
 	chmod +x hdb.dxy.tmp
@@ -69,9 +64,7 @@ vars.texi: vars.tin Makefile
 
 PROJECTS = base hdb hx509 gssapi krb5 ntlm wind 
 
-PROJECTS += hcrypto
-
-doxyout doxygen: base.dxy hdb.dxy hx509.dxy hcrypto.dxy gssapi.dxy krb5.dxy ntlm.dxy wind.dxy
+doxyout doxygen: base.dxy hdb.dxy hx509.dxy gssapi.dxy krb5.dxy ntlm.dxy wind.dxy
 	@test -d $(srcdir)/doxyout && \
 	find $(srcdir)/doxyout -type d ! -perm -200 -exec chmod u+w {} ';' ; \
 	rm -rf $(srcdir)/doxyout ; \
@@ -137,7 +130,6 @@ EXTRA_DIST = \
 	footer.html \
 	gssapi.din \
 	hdb.din \
-	hcrypto.din \
 	header.html \
 	heimdal.css \
 	base.din \
@@ -155,7 +147,6 @@ EXTRA_DIST = \
 	vars.tin
 
 CLEANFILES = \
-	hcrypto.dxy* \
 	base.dxy* \
 	hx509.dxy* \
 	hdb.dxy* \

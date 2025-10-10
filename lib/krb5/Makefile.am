@@ -56,7 +56,6 @@ check_PROGRAMS = $(TESTS) test_hostname test_ap-req test_canon test_set_kvno0 \
 		test_mkforwardable
 
 LDADD = libkrb5.la \
-	$(LIB_hcrypto) \
 	$(top_builddir)/lib/asn1/libasn1.la \
 	$(top_builddir)/lib/wind/libwind.la \
 	$(LIB_heimbase) $(LIB_roken)
@@ -84,7 +83,6 @@ libkrb5_la_LIBADD = \
 	$(LIB_openssl_crypto) \
 	$(use_sqlite) \
 	$(LIB_com_err) \
-	$(LIB_hcrypto) \
 	$(LIB_libintl) \
 	$(LIBADD_roken) \
 	$(PTHREAD_LIBADD) \
@@ -98,7 +96,6 @@ librfc3961_la_LIBADD = \
 	$(LIB_pkinit) \
 	$(use_sqlite) \
 	$(LIB_com_err) \
-	$(LIB_hcrypto) \
 	$(LIB_libintl) \
 	$(LIBADD_roken) \
 	$(PTHREAD_LIBADD) \
@@ -327,7 +324,6 @@ test_rfc3961_LDADD = 				\
 	librfc3961.la 				\
 	$(top_builddir)/lib/asn1/libasn1.la	\
 	$(top_builddir)/lib/wind/libwind.la 	\
-	$(LIB_hcrypto)				\
 	$(LIB_roken)
 
 test_plugin_LDFLAGS = -lresolv

@@ -1659,15 +1659,9 @@ info(void *opt, int argc, char **argv)
 	if (m != NULL)
 	    printf("dh: %s\n", m->name);
     }
-#ifdef HAVE_HCRYPTO_W_OPENSSL
     {
-	printf("ecdsa: ECDSA_METHOD-not-export\n");
+	printf("ecdsa: ECDSA_METHOD\n");
     }
-#else
-    {
-	printf("ecdsa: hcrypto null\n");
-    }
-#endif
     {
 	int ret = RAND_status();
 	printf("rand: %s\n", ret == 1 ? "ok" : "not available");
