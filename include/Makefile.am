@@ -69,8 +69,6 @@ CLEANFILES =			\
 	heimbase.h		\
 	heimbase-svc.h		\
 	heimbase-protos.h	\
-	heimntlm-protos.h	\
-	heimntlm.h		\
 	hex.h			\
 	hx509-private.h		\
 	hx509-protos.h		\
@@ -98,7 +96,6 @@ CLEANFILES =			\
 	kx509_err.h		\
 	locate_plugin.h		\
 	login-protos.h		\
-	ntlm_err.h		\
 	ocsp_asn1.h		\
 	ocsp_template_asn1.h	\
 	parse_bytes.h		\
@@ -138,7 +135,6 @@ CLEANFILES =			\
 	gss_preauth_authorizer_plugin.h	\
 	token_validator_plugin.h	\
 	xdbm.h			\
-	x25519_ref10.h		\
 	x690sample_asn1.h	\
 	x690sample_template_asn1.h
 

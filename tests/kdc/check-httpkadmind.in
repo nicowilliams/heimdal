@@ -136,10 +136,15 @@ else
 fi
 
 # HTTP curl-opts
+# Note: We use gss-token instead of curl's --negotiate because curl uses the
+# system's GSS-API library which may do DNS lookups for principal name
+# canonicalization, causing timeouts in test environments.  Heimdal's gss-token
+# respects the krb5.conf name_canon_rules and rdns settings.
 HTTP() {
-    curl -g --resolve ${server}:${restport2}:127.0.0.1  \
-            --resolve ${server}:${restport}:127.0.0.1   \
-         -u: --negotiate $verbose                       \
+    curl -g --resolve ${server}:${restport1}:127.0.0.1  \
+            --resolve ${server}:${restport2}:127.0.0.1  \
+         -H "Authorization: Negotiate $(${gsstoken} HTTP@${server})" \
+         $verbose                                       \
          -D response-headers                            \
          "$@"
 }
@@ -197,12 +202,25 @@ get_keytab_POST() {
 get_keytab_POST_redir() {
     url="http://${server}:${restport}/get-keys?$1"
     shift
+    > response-headers
     HTTP -X POST --data-binary @/dev/null "$@" "$url"
     grep ^X-CSRF-Token: response-headers >/dev/null ||
         { echo "POST w/o CSRF token had response w/o CSRF token!"; return 1; }
     HTTP -X POST --data-binary @/dev/null  -f                           \
         -H "$(sed -e 's/\r//' response-headers | grep ^X-CSRF-Token:)"  \
-        --location --location-trusted "$@" "$url"
+        "$@" "$url"
+    grep '^HTTP/1.1 307 Temporary Redirect' response-headers ||
+        { echo "POST to secondary did not yield a redirect to primary!"; return 1; }
+    grep '^Location: '  response-headers ||
+        { echo "POST to secondary did not yield a redirect to primary!"; return 1; }
+    url=$(sed -e 's/\r//' response-headers | grep '^Location: ' | sed -e's/^Location:.//' )
+    > response-headers
+    HTTP -X POST --data-binary @/dev/null "$@" "$url"
+    grep ^X-CSRF-Token: response-headers >/dev/null ||
+        { echo "POST w/o CSRF token had response w/o CSRF token!"; return 1; }
+    HTTP -X POST --data-binary @/dev/null  -f                           \
+        -H "$(sed -e 's/\r//' response-headers | grep ^X-CSRF-Token:)"  \
+        "$@" "$url"
 }
 
 kdcpid=
@@ -257,10 +275,10 @@ EOF
 ${kdestroy}
 
 # For a while let's not bother with a KDC
-$kimpersonate --ccache=$cache -k $keytab -R -t aes128-cts-hmac-sha1-96  \
+$kimpersonate --ccache=$cache -k $keytab -R -t aes256-cts-hmac-sha1-96  \
    -c foo@${R} -s HTTP/datan.test.h5l.se@${R} ||
     { echo "failed to setup kimpersonate credentials"; exit 2; }
-$kimpersonate -A --ccache=$cache -k $keytab -R -t aes128-cts-hmac-sha1-96  \
+$kimpersonate -A --ccache=$cache -k $keytab -R -t aes256-cts-hmac-sha1-96  \
    -c foo@${R} -s HTTP/localhost@${R} ||
     { echo "failed to setup kimpersonate credentials"; exit 2; }
 $klist -t >/dev/null ||
@@ -401,7 +419,7 @@ get_keytab "dNSName=${hn}" -sf -o "${objdir}/extracted_keytab" ||
     { echo "Failed to get a keytab for $p with curl"; exit 1; }
 ${ktutil} -k "${objdir}/extracted_keytab" list --keys > extracted_keytab.rest1 ||
     { echo "Failed to list keytab for $p"; exit 1; }
-test "$(grep $p extracted_keytab.rest1 | wc -l)" -eq 1 ||
+test "$(grep $p extracted_keytab.rest1 | wc -l)" -eq 2 ||
     { echo "Wrong number of new keys!"; exit 1; }
 get_keytab "dNSName=${hn}&rotate=true" -sf -o "${objdir}/extracted_keytab" &&
     { echo "GET succeeded for write operation!"; exit 1; }
@@ -411,7 +429,7 @@ ${ktutil} -k "${objdir}/extracted_keytab" list --keys > extracted_keytab.rest2 |
     { echo "Failed to list keytab for $p"; exit 1; }
 cmp extracted_keytab.rest1 extracted_keytab.rest2 > /dev/null &&
     { echo "Keys for $p did not change!"; exit 1; }
-test "$(grep $p extracted_keytab.rest2 | wc -l)" -eq 2 ||
+test "$(grep $p extracted_keytab.rest2 | wc -l)" -eq 4 ||
     { echo "Wrong number of new keys!"; exit 1; }
 
 hn=xyz.${domain}
@@ -431,7 +449,7 @@ ${ktutil} -k "${objdir}/extracted_keytab" list --keys > extracted_keytab.rest2 |
     { echo "Failed to list keytab for $p"; exit 1; }
 cmp extracted_keytab.rest1 extracted_keytab.rest2 > /dev/null &&
     { echo "Keys for $p did not change!"; exit 1; }
-test "$(grep $p extracted_keytab.rest2 | wc -l)" -eq 1 ||
+test "$(grep $p extracted_keytab.rest2 | wc -l)" -eq 2 ||
     { echo "Wrong number of new keys!"; exit 1; }
 
 hn=abc.${domain}
@@ -473,7 +491,7 @@ cmp extracted_keytab.kadmin extracted_keytab.rest ||
     { echo "Keytabs for $p don't match!"; exit 1; }
 
 echo "Starting secondary httpkadmind to test HTTP redirection"
-${httpkadmind2} --primary-server-uri=http://localhost:$restport         \
+${httpkadmind2} --primary-server-uri=http://${server}:$restport         \
     -H $server --local --local-read-only -t --daemon ||
     { echo "httpkadmind failed to start"; exit 2; }
 httpkadmind2pid=`getpid httpkadmind`
@@ -515,7 +533,7 @@ ${kadmind2} ||
 kadmind2pid=`getpid kadmind`
 
 # Make a ccache for use with kadmin(1)
-$kimpersonate --ticket-flags=initial --ccache=$admincache -k $keytab -t aes128-cts-hmac-sha1-96  \
+$kimpersonate --ticket-flags=initial --ccache=$admincache -k $keytab -t aes256-cts-hmac-sha1-96  \
    -c httpkadmind/admin@${R} -s kadmin/admin@${R} ||
     { echo "failed to setup kimpersonate credentials"; exit 2; }
 $adminklist -t >/dev/null ||
@@ -593,7 +611,7 @@ get_keytab "dNSName=${hn}" -sf -o "${objdir}/extracted_keytab" ||
     { echo "Failed to get a keytab for $p with curl"; exit 1; }
 ${ktutil} -k "${objdir}/extracted_keytab" list --keys > extracted_keytab.rest1 ||
     { echo "Failed to list keytab for $p"; exit 1; }
-test "$(grep $p extracted_keytab.rest1 | wc -l)" -eq 1 ||
+test "$(grep $p extracted_keytab.rest1 | wc -l)" -eq 2 ||
     { echo "Wrong number of new keys!"; exit 1; }
 get_keytab "dNSName=${hn}&rotate=true" -sf -o "${objdir}/extracted_keytab" &&
     { echo "GET succeeded for write operation!"; exit 1; }
@@ -603,7 +621,7 @@ ${ktutil} -k "${objdir}/extracted_keytab" list --keys > extracted_keytab.rest2 |
     { echo "Failed to list keytab for $p"; exit 1; }
 cmp extracted_keytab.rest1 extracted_keytab.rest2 > /dev/null &&
     { echo "Keys for $p did not change!"; exit 1; }
-test "$(grep $p extracted_keytab.rest2 | wc -l)" -eq 2 ||
+test "$(grep $p extracted_keytab.rest2 | wc -l)" -eq 4 ||
     { echo "Wrong number of new keys!"; exit 1; }
 
 sh ${leaks_kill} httpkadmind $httpkadmindpid || ec=1
@@ -613,6 +631,7 @@ echo "Starting httpkadmind with local read-only HDB and remote read-write HDB"
 ${httpkadmind} -H $server -H localhost -t --daemon              \
     --local-read-only                                           \
     --writable-admin-server=$(uname -n):$admport                \
+    --read-only-admin-server=$(uname -n):$admport2              \
     --kadmin-client-name=httpkadmind/admin@${R}                 \
     --kadmin-client-keytab=$keytab ||
     { echo "httpkadmind failed to start"; exit 2; }
@@ -644,7 +663,7 @@ get_keytab "dNSName=${hn}" -sf -o "${objdir}/extracted_keytab" ||
     { echo "Failed to get a keytab for $p with curl"; exit 1; }
 ${ktutil} -k "${objdir}/extracted_keytab" list --keys > extracted_keytab.rest1 ||
     { echo "Failed to list keytab for $p"; exit 1; }
-test "$(grep $p extracted_keytab.rest1 | wc -l)" -eq 2 ||
+test "$(grep $p extracted_keytab.rest1 | wc -l)" -eq 4 ||
     { echo "Wrong number of new keys!"; exit 1; }
 get_keytab "dNSName=${hn}&rotate=true" -sf -o "${objdir}/extracted_keytab" &&
     { echo "GET succeeded for write operation!"; exit 1; }
@@ -654,7 +673,7 @@ ${ktutil} -k "${objdir}/extracted_keytab" list --keys > extracted_keytab.rest2 |
     { echo "Failed to list keytab for $p"; exit 1; }
 cmp extracted_keytab.rest1 extracted_keytab.rest2 > /dev/null &&
     { echo "Keys for $p did not change!"; exit 1; }
-test "$(grep $p extracted_keytab.rest2 | wc -l)" -eq 3 ||
+test "$(grep $p extracted_keytab.rest2 | wc -l)" -eq 6 ||
     { echo "Wrong number of new keys!"; exit 1; }
 
 echo "Checking that host services as clients can self-create"

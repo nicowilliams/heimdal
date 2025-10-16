@@ -66,6 +66,8 @@ else
 test_cc_LDADD = $(LDADD)
 endif
 
+aes_test_LDADD = $(LDADD) $(LIB_openssl_crypto)
+
 if PKINIT
 LIB_pkinit = ../hx509/libhx509.la
 endif
@@ -140,15 +142,14 @@ dist_libkrb5_la_SOURCES =			\
 	copy_host_realm.c			\
 	crc.c					\
 	creds.c					\
+	crypto-des-common.c			\
+	crypto-des.c				\
 	crypto.c				\
 	crypto.h				\
 	crypto-aes-sha1.c			\
 	crypto-aes-sha2.c			\
 	crypto-algs.c				\
 	crypto-arcfour.c			\
-	crypto-des.c				\
-	crypto-des-common.c			\
-	crypto-des3.c				\
 	crypto-evp.c				\
 	crypto-null.c				\
 	crypto-pk.c				\
@@ -159,7 +160,6 @@ dist_libkrb5_la_SOURCES =			\
 	db_plugin.h				\
 	dcache.c				\
 	deprecated.c				\
-	digest.c				\
 	eai_to_heim_errno.c			\
         enomem.c                                \
 	error_string.c				\
@@ -230,8 +230,6 @@ dist_libkrb5_la_SOURCES =			\
 	salt-aes-sha1.c				\
 	salt-aes-sha2.c				\
 	salt-arcfour.c				\
-	salt-des.c				\
-	salt-des3.c				\
 	sp800-108-kdf.c				\
 	scache.c				\
 	send_to_kdc.c				\
@@ -291,15 +289,14 @@ $(ALL_OBJECTS): krb5_err.h k524_err.h k5e1_err.h \
 
 librfc3961_la_SOURCES =				\
 	crc.c					\
+	crypto-des-common.c			\
+	crypto-des.c				\
 	crypto.c				\
 	crypto.h				\
 	crypto-aes-sha1.c			\
 	crypto-aes-sha2.c			\
 	crypto-algs.c				\
 	crypto-arcfour.c			\
-	crypto-des.c				\
-	crypto-des-common.c			\
-	crypto-des3.c				\
 	crypto-evp.c				\
 	crypto-null.c				\
 	crypto-pk.c				\
@@ -314,8 +311,6 @@ librfc3961_la_SOURCES =				\
 	salt-aes-sha1.c				\
 	salt-aes-sha2.c				\
 	salt-arcfour.c				\
-	salt-des.c				\
-	salt-des3.c				\
 	sp800-108-kdf.c				\
 	store-int.c				\
 	warn.c
@@ -352,7 +347,6 @@ man_MANS =					\
 	krb5_check_transited.3			\
 	krb5_create_checksum.3			\
 	krb5_creds.3				\
-	krb5_digest.3				\
 	krb5_eai_to_heim_errno.3		\
 	krb5_encrypt.3				\
 	krb5_find_padata.3			\

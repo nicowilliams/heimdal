@@ -4,7 +4,7 @@ SUFFIXES = .et .h .pc.in .pc
 
 DEFAULT_INCLUDES = -I. -I$(srcdir) -I$(top_builddir)/include -I$(top_srcdir)/include
 
-AM_CPPFLAGS = $(INCLUDES_roken)
+AM_CPPFLAGS = $(INCLUDES_roken) $(INCLUDE_openssl_crypto)
 
 if do_roken_rename
 ROKEN_RENAME = -DROKEN_RENAME

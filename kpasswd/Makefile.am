@@ -2,11 +2,15 @@
 
 include $(top_srcdir)/Makefile.am.common
 
+AM_CPPFLAGS += -I$(srcdir)/../lib/krb5
+
 man_MANS = kpasswd.1 kpasswdd.8
 
 bin_PROGRAMS = kpasswd
 
 kpasswd_SOURCES = kpasswd.c kpasswd_locl.h
+
+kpasswd_CPPFLAGS = $(AM_CPPFLAGS) -I$(srcdir)/../lib/krb5
 
 libexec_PROGRAMS = kpasswdd
 

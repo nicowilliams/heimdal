@@ -198,12 +198,12 @@ get_via_POST() {
 }
 
 rm -f $kt $ukt
-$ktutil -k $keytab add -r -V 1 -e aes128-cts-hmac-sha1-96               \
+$ktutil -k $keytab add -r -V 1 -e aes256-cts-hmac-sha1-96               \
     -p HTTP/datan.test.h5l.se@${R} ||
     { echo "failed to setup kimpersonate credentials"; exit 2; }
 $ktutil -k $keytab list ||
     { echo "failed to setup kimpersonate credentials"; exit 2; }
-$kimpersonate --ccache=$cache -k $keytab -R -t aes128-cts-hmac-sha1-96  \
+$kimpersonate --ccache=$cache -k $keytab -R -t aes256-cts-hmac-sha1-96  \
    -c foo@${R} -s HTTP/datan.test.h5l.se@${R} ||
     { echo "failed to setup kimpersonate credentials"; exit 2; }
 $klist ||
@@ -652,6 +652,61 @@ if (set -vx; get_cert "&rfc822Name=foo@bar.example" -sf -o "${objdir}/email.pem"
     fi
 else
     echo 'Failed to get an email certificate!'
+    exit 1
+fi
+
+echo "Making an Ed25519 CSR"
+csr_revoke
+$hxtool request-create  --subject='' --generate-key=ed25519 \
+                        --key=FILE:"${objdir}/k-ed25519.der" "${objdir}/req-ed25519" ||
+    { echo "Failed to make an Ed25519 CSR"; exit 2; }
+
+echo "Fetching a trivial user certificate with Ed25519 key"
+csr=$($rkbase64 -- ${objdir}/req-ed25519 | $rkvis -h --stdin)
+token=$(KRB5CCNAME=$cache $gsstoken HTTP@$server)
+if (set -vx; get_cert '' -sf -o "${objdir}/trivial-ed25519.pem"); then
+    $hxtool print --content "FILE:${objdir}/trivial-ed25519.pem"
+    # Check that the certificate has an Ed25519 public key
+    if openssl x509 -in "${objdir}/trivial-ed25519.pem" -noout -text | grep -q "Public Key Algorithm: ED25519"; then
+        echo 'Certificate has Ed25519 public key!'
+    else
+        echo 'FAIL: Certificate does not have Ed25519 public key'
+        exit 1
+    fi
+    if $hxtool acert --end-entity                                            \
+                    --expr="%{certificate.subject} == \"CN=foo,$DCs\""  \
+                    -P "foo@${R}" "FILE:${objdir}/trivial-ed25519.pem"; then
+        echo 'Successfully obtained an Ed25519 client certificate!'
+    else
+        echo 'FAIL: Obtained an Ed25519 certificate w/o expected PKINIT SAN)'
+        exit 1
+    fi
+else
+    echo 'Failed to get an Ed25519 certificate!'
+    exit 1
+fi
+
+echo "Fetching an Ed25519 server certificate with one dNSName SAN"
+csr_grant san_dnsname $server foo@${R}
+csr=$($rkbase64 -- ${objdir}/req-ed25519 | $rkvis -h --stdin)
+token=$(KRB5CCNAME=$cache $gsstoken HTTP@$server)
+if (set -vx; get_cert "&dNSName=$server" -sf -o "${objdir}/server-ed25519.pem"); then
+    $hxtool print --content "FILE:${objdir}/server-ed25519.pem"
+    # Check that the certificate has an Ed25519 public key
+    if openssl x509 -in "${objdir}/server-ed25519.pem" -noout -text | grep -q "Public Key Algorithm: ED25519"; then
+        echo 'Server certificate has Ed25519 public key!'
+    else
+        echo 'FAIL: Server certificate does not have Ed25519 public key'
+        exit 1
+    fi
+    if $hxtool acert --end-entity -D $server "FILE:${objdir}/server-ed25519.pem"; then
+        echo 'Successfully obtained an Ed25519 server certificate!'
+    else
+        echo 'Got a broken Ed25519 server certificate'
+        exit 1
+    fi
+else
+    echo 'Failed to get an Ed25519 server certificate!'
     exit 1
 fi
 
