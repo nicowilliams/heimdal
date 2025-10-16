@@ -403,6 +403,12 @@ be allowed to run.
 .It Li fcache_strict_checking
 strict checking in FILE credential caches that owner, no symlink and
 permissions is correct.
+.It Li pkinit_prefer_ec = Va BOOL
+If set to true then the client will prefer EC/ECC curves for
+PKINIT key agreement, otherwise it will prefer DH.
+Defaults to true.
+The default curve (see below) is
+.Dq X25519 .
 .It Li moduli = Va FILE
 Names a file that contains acceptable modular Diffie-Hellman
 groups for PKINIT.
@@ -415,6 +421,24 @@ are comments.
 .It Li pkinit_dh_min_bits = Va NUMBER
 PKINIT client's minimum acceptable modular Diffie-Hellman public
 key size in bits.
+This can be set to curve names like
+.Dq prime256v1
+or
+.Dq P-256
+for NIST P-256,
+.Dq prime384v1
+or
+.Dq P-384
+for NIST P-384,
+.Dq secp521r1
+or
+.Dq P-521
+for NIST P-521,
+.Dq X25519 ,
+and
+.Dq X448.
+By default the client will prefer
+.Dq X25519 .
 .It Li enable-kx509 = Va boolean
 Enable use of kx509 so that every TGT that can has a corresponding
 PKIX certificate.  Default: false.
@@ -955,6 +979,28 @@ Defaults to
 .It Li pkinit_dh_min_bits = Va NUMBER
 Minimum acceptable modular Diffie-Hellman public key size in
 bits.
+.It Li pkinit_allow_ecdh = {
+.Bl -tag -width "xxx" -offset indent
+.It Va CURVE Li = Va BOOL
+Indicates whether the given curve will be allowed.
+Curve names include
+.Dq prime256v1
+and
+.Dq P-256
+for NIST P-256,
+.Dq prime384v1
+and
+.Dq P-384
+for NIST P-384,
+.Dq secp521r1
+and
+.Dq P-521
+for NIST P-521,
+.Dq X25519 ,
+and
+.Dq X448 .
+.El
+.It Li }
 .It Li pkinit_max_life_from_cert_extension = Va BOOL
 If set to
 .Va true

@@ -146,6 +146,9 @@ struct gss_OID_desc_struct;
 
 #include <der.h>
 
+#define UI_UTIL_FLAG_VERIFY         0x1 /* ask to verify password */
+#define UI_UTIL_FLAG_VERIFY_SILENT  0x2 /* silence on verify failure */
+
 #include <krb5.h>
 #include <krb5_err.h>
 #include <k5e1_err.h>
@@ -260,6 +263,54 @@ struct _krb5_get_init_creds_opt_private {
 typedef uint32_t krb5_enctype_set;
 
 /*
+ * Functions like EVP_sha256() are slow.  Instead we should use EVP_x_fetch()
+ * and cache the result.  Similarly OSSL_LIB_CTX_load_config() is slow, so if
+ * we have a krb5-specific OpenSSL cnf then we want to cache the result of
+ * loading it.  But there are no up_ref/dec_ref OpenSSL functions for any of
+ * the things in this structure(!), so we build our own.
+ *
+ * We could also have a thread-safe global cache of these things to further
+ * reduce the cost of all these OpenSSL function calls by caching their results
+ * even more aggressively, and eventually we will, just not right now.
+ *
+ * Notes:
+ *
+ *  - krb5_context is, unfortunately, mutable, so we can't share it between
+ *    threads
+ *
+ *  - OSSL_LIB_CTX * and all the EVPs we cache here are immutable, so we _can_
+ *    share them between threads to amortize the cost of creating them
+ */
+typedef struct krb5_context_ossl_data *krb5_context_ossl;
+struct krb5_context_ossl_data {
+    OSSL_LIB_CTX *libctx;           /* OpenSSL library context */
+    char *propq;
+    char *cnf;
+    heim_base_atomic(uint32_t) refs;
+    krb5_context_ossl next;         /* thread-safe global cache */
+    OSSL_PROVIDER *openssl_def;
+    OSSL_PROVIDER *openssl_fips;
+    OSSL_PROVIDER *openssl_leg;
+    EVP_SIGNATURE *ecdsa;
+    EVP_KEYMGMT *rsa;
+    EVP_KEYMGMT *dh;
+    EVP_KEYMGMT *ec;
+    EVP_CIPHER *rc4;
+    EVP_CIPHER *aes128_cbc;
+    EVP_CIPHER *aes192_cbc;
+    EVP_CIPHER *aes256_cbc;
+    EVP_CIPHER *aes128_cts;
+    EVP_CIPHER *aes192_cts;
+    EVP_CIPHER *aes256_cts;
+    EVP_MAC *hmac;
+    EVP_MD *md5;
+    EVP_MD *sha1;
+    EVP_MD *sha256;
+    EVP_MD *sha384;
+    EVP_MD *sha512;
+};
+
+/*
  * Do not remove or reorder the fields of this structure.
  * Fields that are no longer used should be marked "deprecated".
  * New fields should always be appended to the end of the
@@ -328,6 +379,9 @@ typedef struct krb5_context_data {
     krb5_name_canon_rule name_canon_rules;
     size_t config_include_depth;
     krb5_boolean no_ticket_store;       /* Don't store service tickets */
+
+    /* OpenSSL 3.x */
+    krb5_context_ossl ossl;
 } krb5_context_data;
 
 #define KRB5_DEFAULT_CCNAME_FILE "FILE:%{TEMP}/krb5cc_%{uid}"
@@ -401,16 +455,23 @@ enum krb5_pk_type {
 enum keyex_enum { USE_RSA, USE_DH, USE_ECDH };
 
 struct krb5_pk_init_ctx_data {
+    TD_DH_PARAMETERS *kdc_sig_algs;
+    TD_DH_PARAMETERS *kdc_dh_algs;
+    const heim_oid *want_sig_alg;
+    const heim_oid *want_dh_alg;
+    const heim_oid *want_kdf_alg;
     struct krb5_pk_identity *id;
     enum keyex_enum keyex;
-    union {
-	DH *dh;
-        void *eckey;
-    } u;
+    EVP_PKEY *pkey;
     krb5_data *clientDHNonce;
     struct krb5_dh_moduli **m;
     hx509_peer_info peer;
+    krb5_principal client;
+    krb5_principal server;
+    krb5_data as_req;
+    krb5_data pk_as_rep;
     enum krb5_pk_type type;
+    unsigned int kdc_dh_alg_idx:8;          /* 256 is plenty */
     unsigned int require_binding:1;
     unsigned int require_eku:1;
     unsigned int require_krbtgt_otherName:1;

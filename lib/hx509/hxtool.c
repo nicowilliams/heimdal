@@ -679,7 +679,7 @@ cms_create_enveloped(struct cms_envelope_options *opt, int argc, char **argv)
     ret = hx509_cms_envelope_1(context, flags, cert, p, sz, enctype,
 			       &contentType, &o);
     if (ret)
-	errx(1, "hx509_cms_envelope_1: %d", ret);
+	hx509_err(context, 1, ret, "hx509_cms_envelope_1: %d", ret);
 
     hx509_cert_free(cert);
     hx509_certs_free(&certs);
@@ -1354,7 +1354,7 @@ ocsp_verify(struct ocsp_verify_options *opt, int argc, char **argv)
 
     ret = _hx509_map_file_os(opt->ocsp_file_string, &os);
     if (ret)
-	err(1, "map_file: %s: %d", argv[0], ret);
+	hx509_err(context, 1, ret, "map_file: %s: %d", argv[0], ret);
 
     ret = hx509_certs_init(context, "MEMORY:test-certs", 0, NULL, &certs);
     if (ret) hx509_err(context, 1, ret, "hx509_certs_init: MEMORY");
@@ -1455,7 +1455,7 @@ get_key(const char *fn, const char *type, int optbits,
         }
     } else {
         if (fn == NULL)
-            err(1, "no private key");
+            errx(1, "no private key");
         ret = read_private_key(fn, signer);
         if (ret)
             hx509_err(context, 1, ret, "failed to read private key from %s",
@@ -1647,24 +1647,60 @@ int
 info(void *opt, int argc, char **argv)
 {
 
-    ENGINE_add_conf_module();
+    OSSL_LIB_CTX *libctx = NULL;     /* use the default libctx */
+    const char   *propq   = NULL;    /* no property query; change to "fips=yes" if needed */
 
+    /* RSA */
     {
-	const RSA_METHOD *m = RSA_get_default_method();
-	if (m != NULL)
-	    printf("rsa: %s\n", m->name);
+        EVP_KEYMGMT *km = EVP_KEYMGMT_fetch(libctx, "RSA", propq);
+        if (km) {
+            const OSSL_PROVIDER *prov = EVP_KEYMGMT_get0_provider(km);
+            const char *pname = prov ? OSSL_PROVIDER_get0_name(prov) : "unknown";
+            printf("rsa: %s\n", pname);
+            EVP_KEYMGMT_free(km);
+        } else {
+            printf("rsa: unavailable\n");
+        }
     }
+
+    /* DH */
     {
-	const DH_METHOD *m = DH_get_default_method();
-	if (m != NULL)
-	    printf("dh: %s\n", m->name);
+        EVP_KEYMGMT *km = EVP_KEYMGMT_fetch(libctx, "DH", propq);
+        if (km) {
+            const OSSL_PROVIDER *prov = EVP_KEYMGMT_get0_provider(km);
+            const char *pname = prov ? OSSL_PROVIDER_get0_name(prov) : "unknown";
+            printf("dh: %s\n", pname);
+            EVP_KEYMGMT_free(km);
+        } else {
+            printf("dh: unavailable\n");
+        }
     }
+
+    /* ECDSA (signature algorithm). If not available, fall back to EC key management. */
     {
-	printf("ecdsa: ECDSA_METHOD\n");
+        EVP_SIGNATURE *sig = EVP_SIGNATURE_fetch(libctx, "ECDSA", propq);
+        if (sig) {
+            const OSSL_PROVIDER *prov = EVP_SIGNATURE_get0_provider(sig);
+            const char *pname = prov ? OSSL_PROVIDER_get0_name(prov) : "unknown";
+            printf("ecdsa: %s\n", pname);
+            EVP_SIGNATURE_free(sig);
+        } else {
+            EVP_KEYMGMT *ec = EVP_KEYMGMT_fetch(libctx, "EC", propq);
+            if (ec) {
+                const OSSL_PROVIDER *prov = EVP_KEYMGMT_get0_provider(ec);
+                const char *pname = prov ? OSSL_PROVIDER_get0_name(prov) : "unknown";
+                printf("ecdsa: %s\n", pname);
+                EVP_KEYMGMT_free(ec);
+            } else {
+                printf("ecdsa: unavailable\n");
+            }
+        }
     }
+
+    /* Random source status (still fine to use in 3.x) */
     {
-	int ret = RAND_status();
-	printf("rand: %s\n", ret == 1 ? "ok" : "not available");
+        int ret = RAND_status();
+        printf("rand: %s\n", ret == 1 ? "ok" : "not available");
     }
 
     return 0;

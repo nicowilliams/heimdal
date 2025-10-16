@@ -116,11 +116,18 @@ try_decrypt(hx509_context context,
     clear.length = len;
 
     {
-	EVP_CIPHER_CTX ctx;
-	EVP_CIPHER_CTX_init(&ctx);
-	EVP_CipherInit_ex(&ctx, c, NULL, key, ivdata, 0);
-	EVP_Cipher(&ctx, clear.data, cipher, len);
-	EVP_CIPHER_CTX_cleanup(&ctx);
+	EVP_CIPHER_CTX *ctx;
+
+        if ((ctx = EVP_CIPHER_CTX_new()) == NULL ||
+            EVP_CIPHER_CTX_init(ctx) <= 0 ||
+            EVP_CipherInit_ex(ctx, c, NULL, key, ivdata, 0) <= 0 ||
+            EVP_Cipher(ctx, clear.data, cipher, len) <= 0) {
+            hx509_set_error_string(context, 0, ENOMEM,
+                                   "Out of memory to decrypt for private key");
+            ret = ENOMEM;
+            goto out;
+        }
+	EVP_CIPHER_CTX_cleanup(ctx);
     }
 
     if (!(flags & HX509_CERTS_NO_PRIVATE_KEYS))

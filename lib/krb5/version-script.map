@@ -219,36 +219,6 @@ HEIMDAL_KRB5_2.0 {
 		krb5_decrypt_ivec;
 		krb5_decrypt_ticket;
 		krb5_derive_key;
-		krb5_digest_alloc;
-		krb5_digest_free;
-		krb5_digest_get_client_binding;
-		krb5_digest_get_identifier;
-		krb5_digest_get_opaque;
-		krb5_digest_get_rsp;
-		krb5_digest_get_server_nonce;
-		krb5_digest_get_session_key;
-		krb5_digest_get_tickets;
-		krb5_digest_init_request;
-		krb5_digest_probe;
-		krb5_digest_rep_get_status;
-		krb5_digest_request;
-		krb5_digest_set_authentication_user;
-		krb5_digest_set_authid;
-		krb5_digest_set_client_nonce;
-		krb5_digest_set_digest;
-		krb5_digest_set_hostname;
-		krb5_digest_set_identifier;
-		krb5_digest_set_method;
-		krb5_digest_set_nonceCount;
-		krb5_digest_set_opaque;
-		krb5_digest_set_qop;
-		krb5_digest_set_realm;
-		krb5_digest_set_responseData;
-		krb5_digest_set_server_cb;
-		krb5_digest_set_server_nonce;
-		krb5_digest_set_type;
-		krb5_digest_set_uri;
-		krb5_digest_set_username;
 		krb5_domain_x500_decode;
 		krb5_domain_x500_encode;
 		krb5_eai_to_heim_errno;
@@ -363,6 +333,7 @@ HEIMDAL_KRB5_2.0 {
 		krb5_get_init_creds_opt_set_pa_password;
 		krb5_get_init_creds_opt_set_pac_request;
 		krb5_get_init_creds_opt_set_pkinit;
+		krb5_get_init_creds_opt_set_pkinit_allowed_algs;
 		krb5_get_init_creds_opt_set_preauth_list;
 		krb5_get_init_creds_opt_set_process_last_req;
 		krb5_get_init_creds_opt_set_proxiable;
@@ -880,6 +851,12 @@ HEIMDAL_KRB5_2.0 {
                 # TGS
                 _krb5_find_capath;
                 _krb5_free_capath;
+
+                # Other
+                _krb5_UI_UTIL_read_pw_string;
+                _krb5_hmac_start_ossl;
+                _krb5_openssl_errors;
+                _krb5_hmac_ossl;
 
 	local:
 		*;

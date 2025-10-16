@@ -299,9 +299,13 @@ $(OBJ)\asn1_ocsp_asn1.c $(OBJ)\ocsp_asn1.h: $(BINDIR)\asn1_compile.exe ocsp.asn1
 	|| ($(RM) $(OBJ)\ocsp_asn1.h ; exit /b 1)
 	cd $(SRCDIR)
 
-$(OBJ)\asn1_pkinit_asn1.c $(OBJ)\pkinit_asn1.h: $(BINDIR)\asn1_compile.exe pkinit.asn1
+$(OBJ)\asn1_pkinit_asn1.c $(OBJ)\pkinit_asn1.h: $(BINDIR)\asn1_compile.exe pkinit.asn1 pkinit.opt
 	cd $(OBJ)
-	$(BINDIR)\asn1_compile.exe --template --one-code-file $(SRCDIR)\pkinit.asn1 pkinit_asn1 \
+	$(BINDIR)\asn1_compile.exe			\
+		--template				\
+		--one-code-file				\
+		--option-file=$(SRCDIR)\pkinit.opt	\
+		$(SRCDIR)\pkinit.asn1 pkinit_asn1	\
 	|| ($(RM) $(OBJ)\pkinit_asn1.h ; exit /b 1)
 	cd $(SRCDIR)
 

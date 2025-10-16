@@ -21,5 +21,9 @@
 #include <openssl/engine.h>
 #include <openssl/pkcs12.h>
 #include <openssl/hmac.h>
+#include <openssl/provider.h>
+#include <openssl/encoder.h>
+#include <openssl/core_names.h>
+#include <openssl/x509.h>
 
 #endif /* __crypto_header__ */

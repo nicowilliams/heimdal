@@ -30,7 +30,6 @@ SCRIPT_TESTS = \
 	check-cc \
 	check-delegation \
 	check-des \
-	check-digest \
 	check-fast \
 	check-kadmin \
 	check-hdb-mitdb \
@@ -180,11 +179,6 @@ check-iprop: check-iprop.in Makefile krb5.conf krb5-master2.conf krb5-slave.conf
 	$(chmod) +x check-iprop.tmp && \
 	mv check-iprop.tmp check-iprop
 
-check-digest: check-digest.in Makefile
-	$(do_subst) < $(srcdir)/check-digest.in > check-digest.tmp && \
-	$(chmod) +x check-digest.tmp && \
-	mv check-digest.tmp check-digest
-
 check-referral: check-referral.in Makefile
 	$(do_subst) < $(srcdir)/check-referral.in > check-referral.tmp && \
 	$(chmod) +x check-referral.tmp && \
@@ -330,12 +324,10 @@ CLEANFILES= \
 	ca.crt \
 	cache.krb5 \
 	cache2.krb5 \
-	cdigest-reply \
 	client-cache \
 	curlheaders \
 	current-db* \
 	current.log* \
-	digest-reply \
 	extracted_config \
 	extracted_keytab* \
 	foopassword \
@@ -373,15 +365,11 @@ CLEANFILES= \
 	negotiate-token \
 	notfoopassword \
 	o2cache.krb5 \
-	o2digest-reply \
 	ocache.krb5 \
 	out-log \
 	req \
 	response-headers \
-	s2digest-reply \
 	sdb \
-	sdigest-init \
-	sdigest-reply \
 	server.keytab \
 	signal \
 	signal2 \
@@ -400,7 +388,6 @@ EXTRA_DIST = \
 	check-cc.in \
 	check-delegation.in \
 	check-des.in \
-	check-digest.in \
 	check-fast.in \
 	check-hdb-mitdb.in \
 	check-httpkadmind.in \
@@ -439,7 +426,6 @@ EXTRA_DIST = \
 	krb5.conf.in \
 	krb5.conf.keys.in \
 	leaks-kill.sh \
-	ntlm-user-file.txt \
 	pki-mapping \
 	uuserver.txt \
 	wait-kdc.sh

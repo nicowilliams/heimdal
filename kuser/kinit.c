@@ -40,9 +40,6 @@
 #include <Security/Security.h>
 #endif
 
-#ifndef NO_NTLM
-#include "heimntlm.h"
-#endif
 
 #ifndef SIGINFO
 #define SIGINFO SIGUSR1
@@ -89,9 +86,6 @@ static int ok_as_delegate_flag = 0;
 static char *fast_armor_cache_string = NULL;
 static int use_referrals_flag = 0;
 static int windows_flag = 0;
-#ifndef NO_NTLM
-static char *ntlm_domain;
-#endif
 
 
 static struct getargs args[] = {
@@ -201,11 +195,6 @@ static struct getargs args[] = {
 
     { "kdc-hostname",	0,  arg_string, &kdc_hostname,
       NP_("KDC host name", ""), "hostname" },
-
-#ifndef NO_NTLM
-    { "ntlm-domain",	0,  arg_string, &ntlm_domain,
-      NP_("NTLM domain", ""), "domain" },
-#endif
 
     { "change-default",  0,  arg_negative_flag, &switch_cache_flags,
       NP_("switch the default cache to the new credentials cache", ""), NULL },
@@ -684,41 +673,6 @@ out:
     return ret;
 }
 
-#ifndef NO_NTLM
-
-static krb5_error_code
-store_ntlmkey(krb5_context context, krb5_ccache id,
-	      const char *domain, struct ntlm_buf *buf)
-{
-    krb5_error_code ret;
-    krb5_data data;
-    char *name;
-    int aret;
-
-    ret = krb5_cc_get_config(context, id, NULL, "default-ntlm-domain", &data);
-    if (ret == 0) {
-        krb5_data_free(&data);
-    } else {
-        data.length = strlen(domain);
-        data.data = rk_UNCONST(domain);
-        ret = krb5_cc_set_config(context, id, NULL, "default-ntlm-domain", &data);
-        if (ret != 0)
-            return ret;
-    }
-
-    aret = asprintf(&name, "ntlm-key-%s", domain);
-    if (aret == -1 || name == NULL)
-	return krb5_enomem(context);
-
-    data.length = buf->length;
-    data.data = buf->data;
-
-    ret = krb5_cc_set_config(context, id, NULL, name, &data);
-    free(name);
-    return ret;
-}
-#endif
-
 static krb5_error_code
 get_new_tickets(krb5_context context,
 		krb5_principal principal,
@@ -742,10 +696,6 @@ get_new_tickets(krb5_context context,
     gss_OID gss_mech = GSS_C_NO_OID;
     krb5_principal federated_name = NULL;
 
-#ifndef NO_NTLM
-    struct ntlm_buf ntlmkey;
-    memset(&ntlmkey, 0, sizeof(ntlmkey));
-#endif
     passwd[0] = '\0';
 
     if (!interactive)
@@ -1072,7 +1022,7 @@ get_new_tickets(krb5_context context,
 	    if (aret == -1)
 		errx(1, "failed to generate passwd prompt: not enough memory");
 
-	    if (UI_UTIL_read_pw_string(passwd, sizeof(passwd)-1, prompt, 0)){
+	    if (_krb5_UI_UTIL_read_pw_string(passwd, sizeof(passwd)-1, prompt, 0)) {
 		memset(passwd, 0, sizeof(passwd));
 		errx(1, "failed to read password");
 	    }
@@ -1090,10 +1040,6 @@ get_new_tickets(krb5_context context,
 
     ret = krb5_init_creds_get(context, ctx);
 
-#ifndef NO_NTLM
-    if (ntlm_domain && passwd[0])
-	heim_ntlm_nt_key(passwd, &ntlmkey);
-#endif
     memset_s(passwd, sizeof(passwd), 0, sizeof(passwd));
 
     switch(ret){
@@ -1184,10 +1130,6 @@ get_new_tickets(krb5_context context,
     if (switch_cache_flags)
 	krb5_cc_switch(context, ccache);
 
-#ifndef NO_NTLM
-    if (ntlm_domain && ntlmkey.data)
-	store_ntlmkey(context, ccache, ntlm_domain, &ntlmkey);
-#endif
 
     if (ok_as_delegate_flag || windows_flag || use_referrals_flag) {
 	unsigned char d = 0;
@@ -1377,11 +1319,6 @@ renew_func(void *ptr)
     if (ret == 0) {
 	expire = ticket_lifetime(ctx->context, ctx->ccache, ctx->principal,
 				 server_str, &renew_expire);
-
-#ifndef NO_AFS
-	if (server_str == NULL && do_afslog && k_hasafs())
-	    krb5_afslog(ctx->context, ctx->ccache, NULL, NULL);
-#endif
     }
 
     update_siginfo_msg(expire, server_str);
@@ -1869,11 +1806,6 @@ main(int argc, char **argv)
     if (ret)
 	krb5_err(context, 1, ret, N_("resolving credentials cache", ""));
 
-#ifndef NO_AFS
-    if (argc > 1 && k_hasafs())
-	k_setpag();
-#endif
-
     if (lifetime) {
 	int tmp = parse_time(lifetime, "s");
 	if (tmp < 0)
@@ -1907,11 +1839,6 @@ main(int argc, char **argv)
                              default_for ? TRUE : FALSE, server_str,
                              ticket_life);
 
-#ifndef NO_AFS
-	if (ret == 0 && server_str == NULL && do_afslog && k_hasafs())
-	    krb5_afslog(context, ccache, NULL, NULL);
-#endif
-
 	if (unique_ccache)
 	    krb5_cc_destroy(context, ccache);
 	exit(ret != 0);
@@ -1924,11 +1851,6 @@ main(int argc, char **argv)
 	    krb5_cc_destroy(context, ccache);
 	exit(1);
     }
-
-#ifndef NO_AFS
-    if (ret == 0 && server_str == NULL && do_afslog && k_hasafs())
-	krb5_afslog(context, ccache, NULL, NULL);
-#endif
 
     if (argc > 1) {
 	struct renew_ctx ctx;
@@ -1964,10 +1886,6 @@ main(int argc, char **argv)
 	    krb5_warnx(context, N_("command not found: %s", ""), argv[1]);
 
 	krb5_cc_destroy(context, ccache);
-#ifndef NO_AFS
-	if (k_hasafs())
-	    k_unlog();
-#endif
     } else {
 	krb5_cc_close(context, ccache);
 	ret = 0;

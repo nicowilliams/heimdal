@@ -96,6 +96,200 @@ set_etypes (krb5_context context,
     return 0;
 }
 
+// XXX Maybe move the OpenSSL libctx cache to lib/base so it can be shared with
+//     lib/hx509!
+//     Or move it to lib/hx509 and use it here.
+//     Or maybe clone this in lib/hx509.  We should be able to have different
+//     OpenSSL configs for hx509 and krb5, for example.
+
+/*
+ * This is a singly-linked list (stack, really) of OpenSSL libctx values, one
+ * per OpenSSL cnf (config) file path.  I.e., this is a collection indexed by
+ * path, though maybe it should be indexed by st_dev/st_ino so that we can
+ * automatically re-read (to some degree) OpenSSL configs when they change.
+ */
+static heim_base_atomic(krb5_context_ossl) cached_ossl;
+
+static void
+free_openssl(krb5_context_ossl *osslp)
+{
+    krb5_context_ossl p = *osslp;
+
+    *osslp = NULL;
+    if (p == NULL)
+        return;
+    if (heim_base_atomic_dec_32(&p->refs) != 0)
+        return;
+    EVP_SIGNATURE_free(p->ecdsa);
+    EVP_KEYMGMT_free(p->rsa);
+    EVP_KEYMGMT_free(p->dh);
+    EVP_KEYMGMT_free(p->ec);
+    EVP_CIPHER_free(p->rc4);
+    EVP_CIPHER_free(p->aes128_cbc);
+    EVP_CIPHER_free(p->aes192_cbc);
+    EVP_CIPHER_free(p->aes256_cbc);
+    EVP_CIPHER_free(p->aes128_cts);
+    EVP_CIPHER_free(p->aes192_cts);
+    EVP_CIPHER_free(p->aes256_cts);
+    EVP_MAC_free(p->hmac);
+    EVP_MD_free(p->md5);
+    EVP_MD_free(p->sha1);
+    EVP_MD_free(p->sha256);
+    EVP_MD_free(p->sha384);
+    EVP_MD_free(p->sha512);
+    if (p->openssl_leg)
+        OSSL_PROVIDER_unload(p->openssl_leg);
+    if (p->openssl_fips)
+        OSSL_PROVIDER_unload(p->openssl_fips);
+    if (p->openssl_def)
+        OSSL_PROVIDER_unload(p->openssl_def);
+    OSSL_LIB_CTX_free(p->libctx);
+    free(p->propq);
+
+    /*
+     * Remove from the global cache?  This happens atexit() if at all, so
+     * perhaps no need to remove from the global cache, which is a nice
+     * simplification.
+     */
+    free(p);
+}
+
+static krb5_error_code
+init_openssl(krb5_context context, krb5_context_ossl *osslp)
+{
+    const char *cnf = krb5_config_get_string_default(context, NULL, NULL,
+                                                     "libdefaults",
+                                                     "openssl_cnf", NULL);
+    const char *propq = krb5_config_get_string_default(context, NULL, NULL,
+                                                       "libdefaults",
+                                                       "openssl_propq",
+                                                       NULL);
+    krb5_context_ossl first, p, ossl;
+    int done = 0;
+
+    *osslp = NULL;
+
+    /*
+     * Ensure that all writes to the list are visible to us before we
+     * derefernce the members of the list.
+     */
+    first = heim_base_atomic_load(&cached_ossl);
+    heim_base_consumer_barrier();
+    for (p = first; p; p = p->next) {
+        if (cnf != p->cnf &&
+            (cnf == NULL || p->cnf == NULL))
+            continue;
+        if ((cnf == NULL && p->cnf == NULL) ||
+            cnf == p->cnf ||
+            strcmp(cnf, p->cnf) == 0) {
+            (void) heim_base_atomic_inc_32(&p->refs);
+            *osslp = p;
+            return 0;
+        }
+    }
+
+    if ((ossl = calloc(1, sizeof(*ossl))) == NULL)
+        return krb5_enomem(context);
+    ossl->refs = 1;
+
+    /* From here on we ignore all failures */
+
+    if (cnf == NULL) {
+        ossl->libctx = OSSL_LIB_CTX_get0_global_default();
+        if ((ossl->libctx = OSSL_LIB_CTX_get0_global_default()) == NULL) {
+            krb5_debug(context, 1,
+                       "Could not load default OpenSSL configuration; ignoring");
+        }
+    } else {
+        if ((ossl->libctx = OSSL_LIB_CTX_new()) == NULL) {
+            krb5_debug(context, 1,
+                       "Could not load OpenSSL configuration %s; ignoring",
+                       cnf);
+        } else {
+            if (OSSL_LIB_CTX_load_config(ossl->libctx, cnf) != 1) {
+                krb5_debug(context, 1,
+                           "Could not load OpenSSL configuration %s; ignoring",
+                           cnf);
+                OSSL_LIB_CTX_free(ossl->libctx);
+                ossl->libctx = NULL;
+            }
+            ossl->openssl_def = OSSL_PROVIDER_load(ossl->libctx, "default");
+        }
+    }
+    if (propq)
+        ossl->propq = strdup(propq);
+    if (ossl->libctx) {
+        if (krb5_config_get_bool_default(context, NULL, 0,
+                                         "libdefaults",
+                                         "fips", NULL))
+            ossl->openssl_fips = OSSL_PROVIDER_load(ossl->libctx, "fips");
+        if (krb5_config_get_bool_default(context, NULL, FALSE,
+                                         "libdefaults",
+                                         "allow_weak_crypto", NULL))
+            ossl->openssl_leg = OSSL_PROVIDER_load(ossl->libctx, "legacy");
+    }
+
+    // for now
+    ossl->openssl_leg = OSSL_PROVIDER_load(ossl->libctx, "legacy");
+
+    ossl->ecdsa         = EVP_SIGNATURE_fetch(ossl->libctx, "ECDSA", ossl->propq);
+    ossl->rsa           = EVP_KEYMGMT_fetch(ossl->libctx, "RSA", ossl->propq);
+    ossl->dh            = EVP_KEYMGMT_fetch(ossl->libctx, "DH", ossl->propq);
+    ossl->ec            = EVP_KEYMGMT_fetch(ossl->libctx, "EC", ossl->propq);
+    ossl->rc4           = EVP_CIPHER_fetch(ossl->libctx, "RC4", ossl->propq);
+    ossl->aes128_cbc    = EVP_CIPHER_fetch(ossl->libctx, "AES-128-CBC", ossl->propq);
+    ossl->aes192_cbc    = EVP_CIPHER_fetch(ossl->libctx, "AES-192-CBC", ossl->propq);
+    ossl->aes256_cbc    = EVP_CIPHER_fetch(ossl->libctx, "AES-256-CBC", ossl->propq);
+    ossl->aes128_cts    = EVP_CIPHER_fetch(ossl->libctx, "AES-128-CBC-CTS", ossl->propq);
+    ossl->aes192_cts    = EVP_CIPHER_fetch(ossl->libctx, "AES-192-CBC-CTS", ossl->propq);
+    ossl->aes256_cts    = EVP_CIPHER_fetch(ossl->libctx, "AES-256-CBC-CTS", ossl->propq);
+    ossl->hmac          = EVP_MAC_fetch(ossl->libctx, "HMAC", ossl->propq);
+    ossl->md5           = EVP_MD_fetch(ossl->libctx, "MD5", ossl->propq);
+    ossl->sha1          = EVP_MD_fetch(ossl->libctx, "SHA1", ossl->propq);
+    ossl->sha256        = EVP_MD_fetch(ossl->libctx, "SHA256", ossl->propq);
+    ossl->sha384        = EVP_MD_fetch(ossl->libctx, "SHA384", ossl->propq);
+    ossl->sha512        = EVP_MD_fetch(ossl->libctx, "SHA512", ossl->propq);
+    *osslp = ossl;
+
+    /* Finish all stores before we publish */
+    heim_base_producer_barrier();
+
+    while (!done) {
+        krb5_context_ossl old = first;
+
+        /* Try to publish */
+        if ((old = heim_base_cas_pointer((void *)&cached_ossl,
+                                         first, ossl)) == first) {
+            /*
+             * Published!  Take one more ref for the reference from the global
+             * list.
+             */
+            heim_base_consumer_barrier();
+            (void) heim_base_atomic_inc_32(&ossl->refs);
+            return 0;
+        }
+        heim_base_consumer_barrier();
+
+        /* Lost a race; try again */
+        first = old;
+        for (p->next = first; p; p = p->next) {
+            if (cnf != p->cnf &&
+                (cnf == NULL || p->cnf == NULL))
+                continue;
+            if ((cnf == NULL && p->cnf == NULL) ||
+                cnf == p->cnf ||
+                strcmp(cnf, p->cnf) == 0) {
+                (void) heim_base_atomic_inc_32(&p->refs);
+                *osslp = p;
+                free_openssl(&ossl); /* Found a better one */
+                return 0;
+            }
+        }
+        /* Did not find a better one, so try to publish again */
+    }
+    return 0;
+}
+
 /*
  * read variables from the configuration file and set in `context'
  */
@@ -114,6 +308,10 @@ init_context_from_config_file(krb5_context context)
     INIT_FIELD(context, int, max_retries, 3, "max_retries");
 
     INIT_FIELD(context, string, http_proxy, NULL, "http_proxy");
+
+    ret = init_openssl(context, &context->ossl);
+    if (ret)
+        return ret;
 
     ret = krb5_config_get_bool_default(context, NULL, FALSE,
 				       "libdefaults",
@@ -659,6 +857,9 @@ krb5_copy_context(krb5_context context, krb5_context *out)
         ret = _krb5_copy_send_to_kdc_func(p, context);
 
     if (ret == 0)
+        heim_base_atomic_inc_32(&p->ossl->refs);
+
+    if (ret == 0)
         *out = p;
     else
         krb5_free_context(p);
@@ -696,6 +897,9 @@ krb5_free_context(krb5_context context)
     krb5_set_extra_addresses(context, NULL);
     krb5_set_ignore_addresses(context, NULL);
     krb5_set_send_to_kdc_func(context, NULL, NULL);
+
+    if (context->ossl)
+        free_openssl(&context->ossl);
 
 #ifdef PKINIT
     hx509_context_free(&context->hx509ctx);

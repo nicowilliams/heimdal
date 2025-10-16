@@ -54,7 +54,6 @@ kinit_auditdns_LDADD = \
 	$(top_builddir)/lib/krb5/libkrb5.la \
 	$(top_builddir)/lib/gssapi/libgssapi.la \
 	$(top_builddir)/lib/gss_preauth/libgss_preauth.la \
-	$(top_builddir)/lib/ntlm/libheimntlm.la \
 	$(top_builddir)/lib/asn1/libasn1.la \
 	$(LIB_libintl) \
 	$(LIB_roken)

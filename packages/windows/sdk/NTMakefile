@@ -105,7 +105,6 @@ INCFILES=\
 	$(SDKINCDIR)\gssapi\gssapi.h		\
 	$(SDKINCDIR)\gssapi\gssapi_krb5.h	\
 	$(SDKINCDIR)\gssapi\gssapi_oid.h	\
-	$(SDKINCDIR)\gssapi\gssapi_ntlm.h	\
 	$(SDKINCDIR)\gssapi\gssapi_spnego.h	\
 	$(SDKINCDIR)\Heimdal.Application.$(MCPU).manifest	\
 

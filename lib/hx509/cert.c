@@ -96,9 +96,6 @@ typedef struct hx509_name_constraints {
 static void
 init_context_once(void *ignored)
 {
-
-    ENGINE_add_conf_module();
-    OpenSSL_add_all_algorithms();
 }
 
 /**
@@ -189,7 +186,7 @@ hx509_context_init(hx509_context *contextp)
     _hx509_ks_mem_register(context);
     _hx509_ks_file_register(context);
     _hx509_ks_pkcs12_register(context);
-    _hx509_ks_pkcs11_register(context);
+    //_hx509_ks_pkcs11_register(context);
     _hx509_ks_dir_register(context);
     _hx509_ks_keychain_register(context);
 
@@ -2722,7 +2719,7 @@ hx509_verify_signature(hx509_context context,
 		       const heim_octet_string *data,
 		       const heim_octet_string *sig)
 {
-    return _hx509_verify_signature(context, signer, alg, data, sig);
+    return _hx509_verify_signature(context, signer, alg, NULL, data, sig);
 }
 
 HX509_LIB_FUNCTION int HX509_LIB_CALL
@@ -2743,7 +2740,7 @@ _hx509_verify_signature_bitstring(hx509_context context,
     os.data = sig->data;
     os.length = sig->length / 8;
 
-    return _hx509_verify_signature(context, signer, alg, data, &os);
+    return _hx509_verify_signature(context, signer, alg, NULL, data, &os);
 }
 
 
@@ -3393,6 +3390,7 @@ _hx509_query_match_cert(hx509_context context, const hx509_query *q, hx509_cert 
 	ret = _hx509_verify_signature(context,
 				      NULL,
 				      hx509_signature_sha1(),
+                                      NULL,
 				      &os,
 				      q->keyhash_sha1);
 	if (ret != 0)
@@ -3849,6 +3847,7 @@ _hx509_cert_to_env(hx509_context context, hx509_cert cert, hx509_env *env)
 	ret = _hx509_create_signature(context,
 				      NULL,
 				      hx509_signature_sha1(),
+                                      NULL,
 				      &os,
 				      NULL,
 				      &sig);

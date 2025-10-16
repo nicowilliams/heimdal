@@ -2,11 +2,13 @@
 
 include $(top_srcdir)/Makefile.am.common
 
-AM_CPPFLAGS += $(INCLUDE_readline)
+AM_CPPFLAGS += $(INCLUDE_readline) -I$(srcdir)/../lib/krb5
 
 man_MANS = ktutil.1
 
 bin_PROGRAMS = ktutil
+
+ktutil_CPPFLAGS = -I$(srcdir)/../lib/krb5
 
 dist_ktutil_SOURCES =				\
 	add.c					\

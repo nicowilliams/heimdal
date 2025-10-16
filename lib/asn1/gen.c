@@ -1125,6 +1125,7 @@ define_open_type(int level, const char *newbasename, const char *name, const cha
     fprintf(jsonfile, "\"objectsetname\":\"%s\",", os->symbol->name);
     fprintf(jsonfile, "\"typeidmember\":\"%s\",", typeidmember->name);
     fprintf(jsonfile, "\"opentypemember\":\"%s\",", opentypemember->name);
+    /* XXX We need to include more metadata about the fields */
     fprintf(jsonfile, "\"typeidfield\":\"%s\",", typeidfield->name);
     fprintf(jsonfile, "\"opentypefield\":\"%s\",", opentypefield->name);
 

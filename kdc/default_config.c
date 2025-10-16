@@ -126,33 +126,6 @@ krb5_kdc_get_config(krb5_context context, krb5_kdc_configuration **config)
 	krb5_config_get_bool_default(context, NULL,
 				     c->require_preauth,
 				     "kdc", "require-preauth", NULL);
-#ifdef DIGEST
-    c->enable_digest =
-	krb5_config_get_bool_default(context, NULL,
-				     FALSE,
-				     "kdc", "enable-digest", NULL);
-
-    {
-	const char *digests;
-
-	digests = krb5_config_get_string(context, NULL,
-					 "kdc",
-					 "digests_allowed", NULL);
-	if (digests == NULL)
-	    digests = "ntlm-v2";
-	c->digests_allowed = parse_flags(digests,_kdc_digestunits, 0);
-	if (c->digests_allowed == -1) {
-	    kdc_log(context, c, 0,
-		    "unparsable digest units (%s), turning off digest",
-		    digests);
-	    c->enable_digest = 0;
-	} else if (c->digests_allowed == 0) {
-	    kdc_log(context, c, 0, "no digest enable, turning digest off");
-	    c->enable_digest = 0;
-	}
-    }
-#endif
-
 #ifdef KX509
     c->enable_kx509 =
 	krb5_config_get_bool_default(context, NULL,

@@ -294,7 +294,7 @@ static const char *cache_dir;
 static const char *csrf_key_file;
 static char *impersonation_key_fn;
 
-static char csrf_key[16];
+static unsigned char csrf_key[16];
 
 static krb5_error_code resp(struct bx509_request_desc *, int,
                             enum MHD_ResponseMemoryMode, const char *,
@@ -2333,35 +2333,31 @@ mac_csrf_token(struct bx509_request_desc *r, krb5_storage *sp)
 {
     krb5_error_code ret;
     krb5_data data;
-    char mac[EVP_MAX_MD_SIZE];
-    unsigned int maclen = sizeof(mac);
-    HMAC_CTX *ctx = NULL;
+    unsigned char mac[EVP_MAX_MD_SIZE];
+    size_t maclen = sizeof(mac);
+    EVP_MAC_CTX *ctx = NULL;
 
     ret = krb5_storage_to_data(sp, &data);
-    if (ret == 0 && (ctx = HMAC_CTX_new()) == NULL)
-            ret = krb5_enomem(r->context);
+    if (ret == 0)
+        ret = _krb5_hmac_start_ossl(csrf_key, sizeof(csrf_key),
+                                    EVP_sha256(), &ctx);
+    if (ret == ENOMEM)
+        ret = krb5_enomem(r->context);
     /* HMAC the token body and the client principal name */
-    if (ret == 0) {
-        if (HMAC_Init_ex(ctx, csrf_key, sizeof(csrf_key),
-                         EVP_sha256(),
-                         NULL) == 0) {
-            HMAC_CTX_cleanup(ctx);
-            ret = krb5_enomem(r->context);
-        } else {
-            HMAC_Update(ctx, data.data, data.length);
-            if (r->cname)
-                HMAC_Update(ctx, r->cname, strlen(r->cname));
-            HMAC_Final(ctx, mac, &maclen);
-            HMAC_CTX_cleanup(ctx);
-            krb5_data_free(&data);
-            data.length = maclen;
-            data.data = mac;
-            if (krb5_storage_write(sp, mac, maclen) != maclen)
-                ret = krb5_enomem(r->context);
-        }
-    }
-    if (ctx)
-        HMAC_CTX_free(ctx);
+    if (ret == 0)
+        ret = (EVP_MAC_update(ctx, data.data, data.length) == 1) ? 0 : EINVAL;
+    if (ret == 0 && r->cname)
+        ret = (EVP_MAC_update(ctx,
+                              (unsigned char *)r->cname,
+                              strlen(r->cname)) == 1) ? 0 : EINVAL;
+    if (ret == 0)
+        ret = (EVP_MAC_final(ctx, mac, &maclen, maclen) == 1) ? 0 : EINVAL;
+    EVP_MAC_CTX_free(ctx);
+    krb5_data_free(&data);
+    data.length = maclen;
+    data.data = mac;
+    if (krb5_storage_write(sp, mac, maclen) != maclen)
+        ret = krb5_enomem(r->context);
     return ret;
 }
 

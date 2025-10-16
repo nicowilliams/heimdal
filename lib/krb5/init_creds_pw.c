@@ -1240,9 +1240,9 @@ pkinit_step(krb5_context context, krb5_init_creds_context ctx, void *pa_ctx, PA_
 	}
     } else if (pa) {
 	ret = _krb5_pk_rd_pa_reply(context,
-				   a->req_body.realm,
 				   ctx->pk_init_ctx,
-				   rep->enc_part.etype,
+				   a,
+				   rep,
 				   ctx->pk_nonce,
 				   &ctx->req_buffer,
 				   pa,
@@ -3403,6 +3403,13 @@ init_creds_step(krb5_context context,
 	goto out;
     if(len != ctx->req_buffer.length)
 	krb5_abortx(context, "internal error in ASN.1 encoder");
+
+    /*
+     * Save the encoded AS-REQ where we can find it w/o having to refactor the
+     * pre-auth service API (struct patype).
+     */
+    der_free_octet_string(&ctx->as_req._save);
+    ret = der_copy_octet_string(&ctx->req_buffer, &ctx->as_req._save);
 
     ret = krb5_data_copy(out,
 			 ctx->req_buffer.data,

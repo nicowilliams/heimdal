@@ -16,13 +16,12 @@ man_MANS = \
 	klist.1 \
 	kdestroy.1 \
 	kswitch.1 \
-	kdigest.8 \
 	kgetcred.1 \
 	kimpersonate.8 \
 	kx509.1
 
 bin_PROGRAMS = kinit kdestroy kgetcred heimtools
-libexec_PROGRAMS = kdigest kimpersonate
+libexec_PROGRAMS = kimpersonate
 
 noinst_PROGRAMS = kverify kdecode_ticket generate-requests
 
@@ -32,7 +31,6 @@ kinit_LDADD = \
 	$(top_builddir)/lib/krb5/libkrb5.la \
 	$(top_builddir)/lib/gssapi/libgssapi.la \
 	$(top_builddir)/lib/gss_preauth/libgss_preauth.la \
-	$(top_builddir)/lib/ntlm/libheimntlm.la \
 	$(top_builddir)/lib/asn1/libasn1.la \
 	$(LIB_libintl) \
 	$(LIB_roken)
@@ -55,24 +53,8 @@ nodist_heimtools_SOURCES = heimtools-commands.c
 
 $(heimtools_OBJECTS): heimtools-commands.h
 
-dist_kdigest_SOURCES = kdigest.c
-nodist_kdigest_SOURCES = kdigest-commands.c
-
-kdigest_LDADD = \
-	$(top_builddir)/lib/ntlm/libheimntlm.la \
-	$(top_builddir)/lib/krb5/libkrb5.la \
-	$(top_builddir)/lib/asn1/libasn1.la \
-	$(top_builddir)/lib/sl/libsl.la \
-	$(LIB_roken)
-
-$(kdigest_OBJECTS): kdigest-commands.h
-
 CLEANFILES = \
-	kdigest-commands.h kdigest-commands.c \
 	heimtools-commands.h heimtools-commands.c
-
-kdigest-commands.c kdigest-commands.h: kdigest-commands.in
-	$(SLC) $(srcdir)/kdigest-commands.in
 
 heimtools-commands.c heimtools-commands.h: heimtools-commands.in
 	$(SLC) $(srcdir)/heimtools-commands.in
@@ -88,11 +70,10 @@ EXTRA_DIST = NTMakefile $(man_MANS) \
 	kdeltkt.c \
 	kvno.c \
 	kdestroy-version.rc \
-	kdigest-version.rc \
 	kgetcred-version.rc \
 	kimpersonate-version.rc \
 	kinit-version.rc \
-	kuser_locl.h heimtools-commands.in kdigest-commands.in copy_cred_cache.1
+	kuser_locl.h heimtools-commands.in copy_cred_cache.1
 
 # make sure install-exec-hook doesn't have any commands in Makefile.am.common
 install-exec-hook:

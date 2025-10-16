@@ -1920,9 +1920,9 @@ mac_csrf_token(kadmin_request_desc r, krb5_storage *sp)
     krb5_error_code ret;
     krb5_principal p = NULL;
     krb5_data data;
-    char mac[EVP_MAX_MD_SIZE];
-    unsigned int maclen = sizeof(mac);
-    HMAC_CTX *ctx = NULL;
+    unsigned char mac[EVP_MAX_MD_SIZE];
+    size_t maclen = sizeof(mac);
+    EVP_MAC_CTX *ctx = NULL;
     size_t i = 0;
     int freeit = 0;
 
@@ -1952,32 +1952,31 @@ mac_csrf_token(kadmin_request_desc r, krb5_storage *sp)
     if (ret == 0 && i == princ.n_key_data)
         i = 0; /* Weird, but can't happen */
 
-    if (ret == 0 && (ctx = HMAC_CTX_new()) == NULL)
-            ret = krb5_enomem(r->context);
     /* HMAC the token body and the client principal name */
+    if (ret == 0)
+        ret = _krb5_hmac_start_ossl(princ.key_data[i].key_data_contents[0],
+                                    princ.key_data[i].key_data_length[0],
+                                    EVP_sha256(), &ctx);
+    if (ret == 0)
+        ret = (EVP_MAC_update(ctx, data.data, data.length) == 1) ? 0 : EINVAL;
+    if (ret == 0)
+        ret = (EVP_MAC_update(ctx,
+                              (unsigned char *)r->cname,
+                              strlen(r->cname)) == 1) ? 0 : EINVAL;
+    if (ret == 0)
+        ret = (EVP_MAC_final(ctx, mac, &maclen, maclen) == 1) ? 0 : EINVAL;
+    EVP_MAC_CTX_free(ctx);
+
+    krb5_data_free(&data);
+    data.length = maclen;
+    data.data = mac;
     if (ret == 0) {
-        if (HMAC_Init_ex(ctx, princ.key_data[i].key_data_contents[0],
-                         princ.key_data[i].key_data_length[0], EVP_sha256(),
-                         NULL) == 0) {
-            HMAC_CTX_cleanup(ctx);
+        if (krb5_storage_write(sp, mac, maclen) != maclen)
             ret = krb5_enomem(r->context);
-        } else {
-            HMAC_Update(ctx, data.data, data.length);
-            HMAC_Update(ctx, r->cname, strlen(r->cname));
-            HMAC_Final(ctx, mac, &maclen);
-            HMAC_CTX_cleanup(ctx);
-            krb5_data_free(&data);
-            data.length = maclen;
-            data.data = mac;
-            if (krb5_storage_write(sp, mac, maclen) != maclen)
-                ret = krb5_enomem(r->context);
-        }
     }
     krb5_free_principal(r->context, p);
     if (freeit)
         kadm5_free_principal_ent(r->kadm_handle, &princ);
-    if (ctx)
-        HMAC_CTX_free(ctx);
     return ret;
 }
 

@@ -10,6 +10,9 @@ m4_define([test_headers], [
 		#include <sys/types.h>
 		#endif
 		#include <openssl/evp.h>
+		#include <openssl/provider.h>
+		#include <openssl/encoder.h>
+		#include <openssl/core_names.h>
 		#include <openssl/bn.h>
 		#include <openssl/md4.h>
 		#include <openssl/md5.h>

@@ -1542,6 +1542,7 @@ C_Sign(CK_SESSION_HANDLE hSession,
     hret = _hx509_create_signature(context,
 				   _hx509_cert_private_key(o->cert),
 				   alg,
+                                   NULL,
 				   &data,
 				   NULL,
 				   &sig);
@@ -1657,6 +1658,7 @@ C_Verify(CK_SESSION_HANDLE hSession,
     hret = _hx509_verify_signature(context,
 				   o->cert,
 				   alg,
+                                   NULL,
 				   &data,
 				   &sig);
     if (hret) {
