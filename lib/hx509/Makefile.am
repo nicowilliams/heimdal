@@ -36,7 +36,6 @@ dist_libhx509_la_SOURCES = \
 	ks_file.c \
 	ks_mem.c \
 	ks_null.c \
-	ks_p11.c \
 	ks_p12.c \
 	ks_keychain.c \
 	lock.c \
@@ -124,6 +123,7 @@ $(hxtool_OBJECTS): hxtool-commands.h $(nodist_include_HEADERS)
 hxtool_LDADD = \
 	libhx509template.la \
 	$(top_builddir)/lib/asn1/libasn1.la \
+	$(LIB_openssl_crypto) \
 	$(LIB_roken) \
 	$(top_builddir)/lib/sl/libsl.la
 

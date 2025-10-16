@@ -231,8 +231,6 @@ extern int do_bonjour;
 
 extern int testing_flag;
 
-extern const struct units _kdc_digestunits[];
-
 #define KDC_LOG_FILE		"kdc.log"
 
 extern struct timeval _kdc_now;

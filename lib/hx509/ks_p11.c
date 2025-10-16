@@ -33,585 +33,121 @@
 
 #include "hx_locl.h"
 
-#ifdef HAVE_DLOPEN
+#include <openssl/store.h>
+#include <openssl/ui.h>
 
-#include "ref/pkcs11.h"
+static heim_base_once_t once = HEIM_BASE_ONCE_INIT;
+static int providers_loaded;
+static OSSL_LIB_CTX *global_libctx;
 
-struct p11_slot {
-    uint64_t flags;
-#define P11_SESSION		1
-#define P11_SESSION_IN_USE	2
-#define P11_LOGIN_REQ		4
-#define P11_LOGIN_DONE		8
-#define P11_TOKEN_PRESENT	16
-    CK_SESSION_HANDLE session;
-    CK_SLOT_ID id;
-    CK_BBOOL token;
-    char *name;
-    hx509_certs certs;
-    char *pin;
-    struct {
-	CK_MECHANISM_TYPE_PTR list;
-	CK_ULONG num;
-	CK_MECHANISM_INFO_PTR *infos;
-    } mechs;
-};
-
-struct p11_module {
-    void *dl_handle;
-    CK_FUNCTION_LIST_PTR funcs;
-    CK_ULONG num_slots;
-    unsigned int ref;
-    unsigned int selected_slot;
-    struct p11_slot *slot;
-};
-
-#define P11FUNC(module,f,args) (*(module)->funcs->C_##f)args
-
-static int p11_get_session(hx509_context,
-			   struct p11_module *,
-			   struct p11_slot *,
-			   hx509_lock,
-			   CK_SESSION_HANDLE *);
-static int p11_put_session(struct p11_module *,
-			   struct p11_slot *,
-			   CK_SESSION_HANDLE);
-static void p11_release_module(struct p11_module *);
-
-static int p11_list_keys(hx509_context,
-			 struct p11_module *,
-			 struct p11_slot *,
-			 CK_SESSION_HANDLE,
-			 hx509_lock,
-			 hx509_certs *);
-
-/*
- *
- */
-
-struct p11_rsa {
-    struct p11_module *p;
-    struct p11_slot *slot;
-    CK_OBJECT_HANDLE private_key;
-    CK_OBJECT_HANDLE public_key;
-};
-
-static int
-p11_rsa_public_encrypt(int flen,
-		       const unsigned char *from,
-		       unsigned char *to,
-		       RSA *rsa,
-		       int padding)
+static void
+load_providers_f(void *arg)
 {
-    return -1;
+    OSSL_LIB_CTX *libctx = OSSL_LIB_CTX_new();
+    OSSL_PROVIDER *def;
+    OSSL_PROVIDER *p11;
+    const char *cnf = arg;
+
+    if (!libctx ||
+        (cnf && !OSSL_LIB_CTX_load_config(libctx, cnf)))
+        return;
+
+    def = OSSL_PROVIDER_load(libctx, "default");
+    p11 = OSSL_PROVIDER_load(libctx, "pkcs11");
+    if (!def || !p11) {
+        OSSL_LIB_CTX_free(libctx);
+        return;
+    }
+
+    global_libctx = libctx;
+    providers_loaded = 1;
 }
 
-static int
-p11_rsa_public_decrypt(int flen,
-		       const unsigned char *from,
-		       unsigned char *to,
-		       RSA *rsa,
-		       int padding)
+static void
+load_providers(void)
 {
-    return -1;
+    heim_base_once_f(&once, NULL, load_providers_f);
 }
 
-
-static int
-p11_rsa_private_encrypt(int flen,
-			const unsigned char *from,
-			unsigned char *to,
-			RSA *rsa,
-			int padding)
+/* Open the PKCS#11 “store”, which should support PKCS#11 URIs (RFC 7512) */
+static OSSL_STORE_CTX *
+open_pkcs11_store(OSSL_LIB_CTX *libctx, const char *uri, const char *propq)
 {
-    struct p11_rsa *p11rsa = RSA_get_app_data(rsa);
-    CK_OBJECT_HANDLE key = p11rsa->private_key;
-    CK_SESSION_HANDLE session;
-    CK_MECHANISM mechanism;
-    CK_ULONG ck_sigsize;
-    int ret;
-
-    if (padding != RSA_PKCS1_PADDING)
-	return -1;
-
-    memset(&mechanism, 0, sizeof(mechanism));
-    mechanism.mechanism = CKM_RSA_PKCS;
-
-    ck_sigsize = RSA_size(rsa);
-
-    ret = p11_get_session(NULL, p11rsa->p, p11rsa->slot, NULL, &session);
-    if (ret)
-	return -1;
-
-    ret = P11FUNC(p11rsa->p, SignInit, (session, &mechanism, key));
-    if (ret != CKR_OK) {
-	p11_put_session(p11rsa->p, p11rsa->slot, session);
-	return -1;
-    }
-
-    ret = P11FUNC(p11rsa->p, Sign,
-		  (session, (CK_BYTE *)(intptr_t)from, flen, to, &ck_sigsize));
-    p11_put_session(p11rsa->p, p11rsa->slot, session);
-    if (ret != CKR_OK)
-	return -1;
-
-    return ck_sigsize;
+    return OSSL_STORE_open_ex(uri, libctx, propq,
+                              /* UI method */ NULL, /* UI data */ NULL,
+                              /* passphrase cb */ NULL, /* cbarg */ NULL);
 }
 
-static int
-p11_rsa_private_decrypt(int flen, const unsigned char *from, unsigned char *to,
-			RSA * rsa, int padding)
+#include <openssl/x509.h>
+
+typedef int (*key_cb)(EVP_PKEY *pkey, const char *desc, void *arg);
+typedef int (*cert_cb)(X509 *cert, const char *desc, void *arg);
+
+int
+enumerate_pkcs11(OSSL_STORE_CTX *sc, key_cb kcb, cert_cb ccb, void *arg)
 {
-    struct p11_rsa *p11rsa = RSA_get_app_data(rsa);
-    CK_OBJECT_HANDLE key = p11rsa->private_key;
-    CK_SESSION_HANDLE session;
-    CK_MECHANISM mechanism;
-    CK_ULONG ck_sigsize;
-    int ret;
-
-    if (padding != RSA_PKCS1_PADDING)
-	return -1;
-
-    memset(&mechanism, 0, sizeof(mechanism));
-    mechanism.mechanism = CKM_RSA_PKCS;
-
-    ck_sigsize = RSA_size(rsa);
-
-    ret = p11_get_session(NULL, p11rsa->p, p11rsa->slot, NULL, &session);
-    if (ret)
-	return -1;
-
-    ret = P11FUNC(p11rsa->p, DecryptInit, (session, &mechanism, key));
-    if (ret != CKR_OK) {
-	p11_put_session(p11rsa->p, p11rsa->slot, session);
-	return -1;
-    }
-
-    ret = P11FUNC(p11rsa->p, Decrypt,
-		  (session, (CK_BYTE *)(intptr_t)from, flen, to, &ck_sigsize));
-    p11_put_session(p11rsa->p, p11rsa->slot, session);
-    if (ret != CKR_OK)
-	return -1;
-
-    return ck_sigsize;
-}
-
-static int
-p11_rsa_init(RSA *rsa)
-{
-    return 1;
-}
-
-static int
-p11_rsa_finish(RSA *rsa)
-{
-    struct p11_rsa *p11rsa = RSA_get_app_data(rsa);
-    p11_release_module(p11rsa->p);
-    free(p11rsa);
-    return 1;
-}
-
-static const RSA_METHOD p11_rsa_pkcs1_method = {
-    "hx509 PKCS11 PKCS#1 RSA",
-    p11_rsa_public_encrypt,
-    p11_rsa_public_decrypt,
-    p11_rsa_private_encrypt,
-    p11_rsa_private_decrypt,
-    NULL,
-    NULL,
-    p11_rsa_init,
-    p11_rsa_finish,
-    0,
-    NULL,
-    NULL,
-    NULL,
-    NULL
-};
-
-/*
- *
- */
-
-static int
-p11_mech_info(hx509_context context,
-	      struct p11_module *p,
-	      struct p11_slot *slot,
-	      int num)
-{
-    CK_ULONG i;
-    int ret;
-
-    ret = P11FUNC(p, GetMechanismList, (slot->id, NULL_PTR, &i));
-    if (ret) {
-	hx509_set_error_string(context, 0, HX509_PKCS11_NO_MECH,
-			       "Failed to get mech list count for slot %d",
-			       num);
-	return HX509_PKCS11_NO_MECH;
-    }
-    if (i == 0) {
-	hx509_set_error_string(context, 0, HX509_PKCS11_NO_MECH,
-			       "no mech supported for slot %d", num);
-	return HX509_PKCS11_NO_MECH;
-    }
-    slot->mechs.list = calloc(i, sizeof(slot->mechs.list[0]));
-    if (slot->mechs.list == NULL) {
-	hx509_set_error_string(context, 0, ENOMEM,
-			       "out of memory");
-	return ENOMEM;
-    }
-    slot->mechs.num = i;
-    ret = P11FUNC(p, GetMechanismList, (slot->id, slot->mechs.list, &i));
-    if (ret) {
-	hx509_set_error_string(context, 0, HX509_PKCS11_NO_MECH,
-			       "Failed to get mech list for slot %d",
-			       num);
-	return HX509_PKCS11_NO_MECH;
-    }
-    assert(i == slot->mechs.num);
-
-    slot->mechs.infos = calloc(i, sizeof(*slot->mechs.infos));
-    if (slot->mechs.list == NULL) {
-	hx509_set_error_string(context, 0, ENOMEM,
-			       "out of memory");
-	return ENOMEM;
-    }
-
-    for (i = 0; i < slot->mechs.num; i++) {
-	slot->mechs.infos[i] = calloc(1, sizeof(*(slot->mechs.infos[0])));
-	if (slot->mechs.infos[i] == NULL) {
-	    hx509_set_error_string(context, 0, ENOMEM,
-				   "out of memory");
-	    return ENOMEM;
-	}
-	ret = P11FUNC(p, GetMechanismInfo, (slot->id, slot->mechs.list[i],
-					    slot->mechs.infos[i]));
-	if (ret) {
-	    hx509_set_error_string(context, 0, HX509_PKCS11_NO_MECH,
-				   "Failed to get mech info for slot %d",
-				   num);
-	    return HX509_PKCS11_NO_MECH;
-	}
-    }
-
-    return 0;
-}
-
-static int
-p11_init_slot(hx509_context context,
-	      struct p11_module *p,
-	      hx509_lock lock,
-	      CK_SLOT_ID id,
-	      int num,
-	      struct p11_slot *slot)
-{
-    CK_SESSION_HANDLE session;
-    CK_SLOT_INFO slot_info;
-    CK_TOKEN_INFO token_info;
-    size_t i;
-    int ret;
-
-    slot->certs = NULL;
-    slot->id = id;
-
-    ret = P11FUNC(p, GetSlotInfo, (slot->id, &slot_info));
-    if (ret) {
-	hx509_set_error_string(context, 0, HX509_PKCS11_TOKEN_CONFUSED,
-			       "Failed to init PKCS11 slot %d",
-			       num);
-	return HX509_PKCS11_TOKEN_CONFUSED;
-    }
-
-    for (i = sizeof(slot_info.slotDescription) - 1; i > 0; i--) {
-	char c = slot_info.slotDescription[i];
-	if (c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '\0')
-	    continue;
-	i++;
-	break;
-    }
-
-    ret = asprintf(&slot->name, "%.*s", (int)i,
-		   slot_info.slotDescription);
-    if (ret == -1)
-	return ENOMEM;
-
-    if ((slot_info.flags & CKF_TOKEN_PRESENT) == 0)
-	return 0;
-
-    ret = P11FUNC(p, GetTokenInfo, (slot->id, &token_info));
-    if (ret) {
-	hx509_set_error_string(context, 0, HX509_PKCS11_NO_TOKEN,
-			       "Failed to init PKCS11 slot %d "
-			       "with error 0x%08x",
-			       num, ret);
-	return HX509_PKCS11_NO_TOKEN;
-    }
-    slot->flags |= P11_TOKEN_PRESENT;
-
-    if (token_info.flags & CKF_LOGIN_REQUIRED)
-	slot->flags |= P11_LOGIN_REQ;
-
-    ret = p11_get_session(context, p, slot, lock, &session);
-    if (ret)
-	return ret;
-
-    ret = p11_mech_info(context, p, slot, num);
-    if (ret)
-	goto out;
-
-    ret = p11_list_keys(context, p, slot, session, lock, &slot->certs);
- out:
-    p11_put_session(p, slot, session);
-
-    return ret;
-}
-
-static int
-p11_get_session(hx509_context context,
-		struct p11_module *p,
-		struct p11_slot *slot,
-		hx509_lock lock,
-		CK_SESSION_HANDLE *psession)
-{
-    CK_RV ret;
-
-    if (slot->flags & P11_SESSION_IN_USE)
-	_hx509_abort("slot already in session");
-
-    if (slot->flags & P11_SESSION) {
-	slot->flags |= P11_SESSION_IN_USE;
-	*psession = slot->session;
-	return 0;
-    }
-
-    ret = P11FUNC(p, OpenSession, (slot->id,
-				   CKF_SERIAL_SESSION,
-				   NULL,
-				   NULL,
-				   &slot->session));
-    if (ret != CKR_OK) {
-	if (context)
-	    hx509_set_error_string(context, 0, HX509_PKCS11_OPEN_SESSION,
-				   "Failed to OpenSession for slot id %d "
-				   "with error: 0x%08x",
-				   (int)slot->id, ret);
-	return HX509_PKCS11_OPEN_SESSION;
-    }
-
-    slot->flags |= P11_SESSION;
+    if (!sc) return 0;
 
     /*
-     * If we have have to login, and haven't tried before and have a
-     * prompter or known to work pin code.
+     * Only ask for keys and certificates.
      *
-     * This code is very conversative and only uses the prompter in
-     * the hx509_lock, the reason is that it's bad to try many
-     * passwords on a pkcs11 token, it might lock up and have to be
-     * unlocked by a administrator.
-     *
-     * XXX try harder to not use pin several times on the same card.
+     * Ignore failure; some loaders don’t implement expect() and still work.
      */
+    if (kcb)
+        OSSL_STORE_expect(sc, OSSL_STORE_INFO_PKEY);
+    if (ccb)
+        OSSL_STORE_expect(sc, OSSL_STORE_INFO_CERT);
 
-    if (   (slot->flags & P11_LOGIN_REQ)
-	&& (slot->flags & P11_LOGIN_DONE) == 0
-	&& (lock || slot->pin))
-    {
-	hx509_prompt prompt;
-	char pin[20];
-	char *str;
+    for (;;) {
+        OSSL_STORE_INFO *info = OSSL_STORE_load(sc);
+        if (info == NULL) {
+            if (OSSL_STORE_eof(sc))
+                break;
+            return 0; /* error */
+        }
 
-	if (slot->pin == NULL) {
+        int type = OSSL_STORE_INFO_get_type(info);
+        const char *desc = OSSL_STORE_INFO_get0_name(info); /* may be NULL */
 
-	    memset(&prompt, 0, sizeof(prompt));
+        switch (type) {
+        case OSSL_STORE_INFO_PKEY: {
+            EVP_PKEY *pkey = OSSL_STORE_INFO_get1_PKEY(info); /* we own this ref */
+            if (pkey && kcb) {
+                if (kcb(pkey, desc, arg))
+                    pkey = NULL;
+            }
+            EVP_PKEY_free(pkey);
+            break;
+        }
+        case OSSL_STORE_INFO_CERT: {
+            X509 *c = OSSL_STORE_INFO_get1_CERT(info);
+            if (c && ccb) {
+                if (ccb(x, desc, arg))
+                    c = NULL;
+            }
+            X509_free(c);
+            break;
+        }
+#if 0
+        case OSSL_STORE_INFO_NAME:
+            /*
+             * A "name" can be a discoverable object. You can follow it with
+             * OSSL_STORE_open(name).
+             */
+            break;
+#endif
+        default:
+            break;
+        }
 
-	    ret = asprintf(&str, "PIN code for %s: ", slot->name);
-	    if (ret == -1 || str == NULL) {
-		if (context)
-		    hx509_set_error_string(context, 0, ENOMEM, "out of memory");
-		return ENOMEM;
-	    }
-	    prompt.prompt = str;
-	    prompt.type = HX509_PROMPT_TYPE_PASSWORD;
-	    prompt.reply.data = pin;
-	    prompt.reply.length = sizeof(pin);
-
-	    ret = hx509_lock_prompt(lock, &prompt);
-	    if (ret) {
-		free(str);
-		if (context)
-		    hx509_set_error_string(context, 0, ret,
-					   "Failed to get pin code for slot "
-					   "id %d with error: %d",
-					   (int)slot->id, ret);
-		return ret;
-	    }
-	    free(str);
-	} else {
-	    strlcpy(pin, slot->pin, sizeof(pin));
-	}
-
-	ret = P11FUNC(p, Login, (slot->session, CKU_USER,
-				 (unsigned char*)pin, strlen(pin)));
-	if (ret != CKR_OK) {
-	    if (context)
-		hx509_set_error_string(context, 0, HX509_PKCS11_LOGIN,
-				       "Failed to login on slot id %d "
-				       "with error: 0x%08x",
-				       (int)slot->id, ret);
-	    switch(ret) {
-	        case CKR_PIN_LOCKED:
-	            return HX509_PKCS11_PIN_LOCKED;
-	        case CKR_PIN_EXPIRED:
-	            return HX509_PKCS11_PIN_EXPIRED;
-	        case CKR_PIN_INCORRECT:
-	            return HX509_PKCS11_PIN_INCORRECT;
-	        case CKR_USER_PIN_NOT_INITIALIZED:
-	            return HX509_PKCS11_PIN_NOT_INITIALIZED;
-	        default:
-	            return HX509_PKCS11_LOGIN;
-	    }
-	} else
-	    slot->flags |= P11_LOGIN_DONE;
-
-	if (slot->pin == NULL) {
-	    slot->pin = strdup(pin);
-	    if (slot->pin == NULL) {
-		if (context)
-		    hx509_set_error_string(context, 0, ENOMEM,
-					   "out of memory");
-		return ENOMEM;
-	    }
-	}
-    } else
-	slot->flags |= P11_LOGIN_DONE;
-
-    slot->flags |= P11_SESSION_IN_USE;
-
-    *psession = slot->session;
-
-    return 0;
+        OSSL_STORE_INFO_free(info);
+    }
+    return 1;
 }
 
-static int
-p11_put_session(struct p11_module *p,
-		struct p11_slot *slot,
-		CK_SESSION_HANDLE session)
-{
-    if ((slot->flags & P11_SESSION_IN_USE) == 0)
-	_hx509_abort("slot not in session");
-    slot->flags &= ~P11_SESSION_IN_USE;
-
-    return 0;
-}
-
-static int
-iterate_entries(hx509_context context,
-		struct p11_module *p, struct p11_slot *slot,
-		CK_SESSION_HANDLE session,
-		CK_ATTRIBUTE *search_data, int num_search_data,
-		CK_ATTRIBUTE *query, int num_query,
-		int (*func)(hx509_context,
-			    struct p11_module *, struct p11_slot *,
-			    CK_SESSION_HANDLE session,
-			    CK_OBJECT_HANDLE object,
-			    void *, CK_ATTRIBUTE *, int), void *ptr)
-{
-    CK_OBJECT_HANDLE object;
-    CK_ULONG object_count;
-    int ret, ret2, i;
-
-    ret = P11FUNC(p, FindObjectsInit, (session, search_data, num_search_data));
-    if (ret != CKR_OK) {
-	return -1;
-    }
-    while (1) {
-	ret = P11FUNC(p, FindObjects, (session, &object, 1, &object_count));
-	if (ret != CKR_OK) {
-	    return -1;
-	}
-	if (object_count == 0)
-	    break;
-
-	for (i = 0; i < num_query; i++)
-	    query[i].pValue = NULL;
-
-	ret = P11FUNC(p, GetAttributeValue,
-		      (session, object, query, num_query));
-	if (ret != CKR_OK) {
-	    return -1;
-	}
-	for (i = 0; i < num_query; i++) {
-	    query[i].pValue = malloc(query[i].ulValueLen);
-	    if (query[i].pValue == NULL) {
-		ret = ENOMEM;
-		goto out;
-	    }
-	}
-	ret = P11FUNC(p, GetAttributeValue,
-		      (session, object, query, num_query));
-	if (ret != CKR_OK) {
-	    ret = -1;
-	    goto out;
-	}
-
-	ret = (*func)(context, p, slot, session, object, ptr, query, num_query);
-	if (ret)
-	    goto out;
-
-	for (i = 0; i < num_query; i++) {
-	    if (query[i].pValue)
-		free(query[i].pValue);
-	    query[i].pValue = NULL;
-	}
-    }
- out:
-
-    for (i = 0; i < num_query; i++) {
-	if (query[i].pValue)
-	    free(query[i].pValue);
-	query[i].pValue = NULL;
-    }
-
-    ret2 = P11FUNC(p, FindObjectsFinal, (session));
-    if (ret2 != CKR_OK) {
-	return ret2;
-    }
-
-    return ret;
-}
-
-static BIGNUM *
-getattr_bn(struct p11_module *p,
-	   struct p11_slot *slot,
-	   CK_SESSION_HANDLE session,
-	   CK_OBJECT_HANDLE object,
-	   unsigned int type)
-{
-    CK_ATTRIBUTE query;
-    BIGNUM *bn;
-    int ret;
-
-    query.type = type;
-    query.pValue = NULL;
-    query.ulValueLen = 0;
-
-    ret = P11FUNC(p, GetAttributeValue,
-		  (session, object, &query, 1));
-    if (ret != CKR_OK)
-	return NULL;
-
-    query.pValue = malloc(query.ulValueLen);
-
-    ret = P11FUNC(p, GetAttributeValue,
-		  (session, object, &query, 1));
-    if (ret != CKR_OK) {
-	free(query.pValue);
-	return NULL;
-    }
-    bn = BN_bin2bn(query.pValue, query.ulValueLen, NULL);
-    free(query.pValue);
-
-    return bn;
-}
+struct p11_slot {
+    hx509_certs certs;
+};
 
 static int
 collect_private_key(hx509_context context,
@@ -685,7 +221,6 @@ static void
 p11_cert_release(hx509_cert cert, void *ctx)
 {
     struct p11_module *p = ctx;
-    p11_release_module(p);
 }
 
 
@@ -751,62 +286,6 @@ collect_cert(hx509_context context,
 
     return ret;
 }
-
-
-static int
-p11_list_keys(hx509_context context,
-	      struct p11_module *p,
-	      struct p11_slot *slot,
-	      CK_SESSION_HANDLE session,
-	      hx509_lock lock,
-	      hx509_certs *certs)
-{
-    struct hx509_collector *collector;
-    CK_OBJECT_CLASS key_class;
-    CK_ATTRIBUTE search_data[] = {
-	{CKA_CLASS, NULL, 0},
-    };
-    CK_ATTRIBUTE query_data[3] = {
-	{CKA_ID, NULL, 0},
-	{CKA_VALUE, NULL, 0},
-	{CKA_LABEL, NULL, 0}
-    };
-    int ret;
-
-    search_data[0].pValue = &key_class;
-    search_data[0].ulValueLen = sizeof(key_class);
-
-    if (lock == NULL)
-	lock = _hx509_empty_lock;
-
-    ret = _hx509_collector_alloc(context, lock, &collector);
-    if (ret)
-	return ret;
-
-    key_class = CKO_PRIVATE_KEY;
-    ret = iterate_entries(context, p, slot, session,
-			  search_data, 1,
-			  query_data, 1,
-			  collect_private_key, collector);
-    if (ret)
-	goto out;
-
-    key_class = CKO_CERTIFICATE;
-    ret = iterate_entries(context, p, slot, session,
-			  search_data, 1,
-			  query_data, 3,
-			  collect_cert, collector);
-    if (ret)
-	goto out;
-
-    ret = _hx509_collector_collect_certs(context, collector, &slot->certs);
-
-out:
-    _hx509_collector_free(collector);
-
-    return ret;
-}
-
 
 static int
 p11_init(hx509_context context,
@@ -964,55 +443,7 @@ p11_init(hx509_context context,
  out:
     if (list)
 	free(list);
-    p11_release_module(p);
     return ret;
-}
-
-static void
-p11_release_module(struct p11_module *p)
-{
-    size_t i;
-
-    if (p->ref == 0)
-	_hx509_abort("pkcs11 ref to low");
-    if (--p->ref > 0)
-	return;
-
-    for (i = 0; i < p->num_slots; i++) {
-	if (p->slot[i].flags & P11_SESSION_IN_USE)
-	    _hx509_abort("pkcs11 module release while session in use");
-	if (p->slot[i].flags & P11_SESSION) {
-	    P11FUNC(p, CloseSession, (p->slot[i].session));
-	}
-
-	if (p->slot[i].name)
-	    free(p->slot[i].name);
-	if (p->slot[i].pin) {
-	    memset(p->slot[i].pin, 0, strlen(p->slot[i].pin));
-	    free(p->slot[i].pin);
-	}
-	if (p->slot[i].mechs.num) {
-	    free(p->slot[i].mechs.list);
-
-	    if (p->slot[i].mechs.infos) {
-		size_t j;
-
-		for (j = 0 ; j < p->slot[i].mechs.num ; j++)
-		    free(p->slot[i].mechs.infos[j]);
-		free(p->slot[i].mechs.infos);
-	    }
-	}
-    }
-    free(p->slot);
-
-    if (p->funcs)
-	P11FUNC(p, Finalize, (NULL));
-
-    if (p->dl_handle)
-	dlclose(p->dl_handle);
-
-    memset(p, 0, sizeof(*p));
-    free(p);
 }
 
 static int
@@ -1025,7 +456,6 @@ p11_free(hx509_certs certs, void *data)
 	if (p->slot[i].certs)
 	    hx509_certs_free(&p->slot[i].certs);
     }
-    p11_release_module(p);
     return 0;
 }
 

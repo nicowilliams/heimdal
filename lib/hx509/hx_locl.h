@@ -263,15 +263,13 @@ struct hx509_private_key_ops {
 };
 
 struct hx509_private_key {
-    unsigned int ref;
     const struct signature_alg *md;
     const heim_oid *signature_alg;
     union {
-	RSA *rsa;
-	void *keydata;
-        void *ecdsa; /* EC_KEY */
-    } private_key;
+        EVP_PKEY *pkey;
+    } private_key; // XXX Remove the union wrapper
     hx509_private_key_ops *ops;
+    uint32_t ref;
 };
 
 /*
@@ -302,12 +300,14 @@ struct signature_alg {
 			    const struct signature_alg *,
 			    const Certificate *,
 			    const AlgorithmIdentifier *,
+                            const EVP_MD *,
 			    const heim_octet_string *,
 			    const heim_octet_string *);
     int (*create_signature)(hx509_context,
 			    const struct signature_alg *,
 			    const hx509_private_key,
 			    const AlgorithmIdentifier *,
+                            const EVP_MD *,
 			    const heim_octet_string *,
 			    AlgorithmIdentifier *,
 			    heim_octet_string *);

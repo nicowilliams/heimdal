@@ -22,7 +22,7 @@ bin_PROGRAMS = string2key
 
 sbin_PROGRAMS = kstash
 
-libexec_PROGRAMS = hprop hpropd kdc digest-service \
+libexec_PROGRAMS = hprop hpropd kdc \
 		   test_token_validator test_csr_authorizer test_kdc_ca
 
 noinst_PROGRAMS = kdc-replay kdc-tester
@@ -45,6 +45,7 @@ bx509d_LDADD =	-ldl \
 		 $(MICROHTTPD_LIBS) \
 		 $(LIB_roken) \
 		 $(LIB_heimbase) \
+		 $(LIB_openssl_crypto) \
 		 $(top_builddir)/lib/sl/libsl.la \
 		 $(top_builddir)/lib/asn1/libasn1.la \
 		 $(top_builddir)/lib/krb5/libkrb5.la \
@@ -62,6 +63,7 @@ httpkadmind_LDADD =	-ldl \
 		 $(MICROHTTPD_LIBS) \
 		 $(LIB_roken) \
 		 $(LIB_heimbase) \
+		 $(LIB_openssl_crypto) \
 		 $(top_builddir)/lib/sl/libsl.la \
 		 $(top_builddir)/lib/asn1/libasn1.la \
 		 $(top_builddir)/lib/krb5/libkrb5.la \
@@ -69,9 +71,6 @@ httpkadmind_LDADD =	-ldl \
 		 $(top_builddir)/lib/gssapi/libgssapi.la
 libexec_PROGRAMS += httpkadmind
 endif
-
-digest_service_SOURCES = \
-	digest-service.c
 
 kdc_SOURCES = connect.c	\
 	config.c	\
@@ -118,13 +117,11 @@ libkdc_la_SOURCES = 		\
 	default_config.c 	\
 	ca.c			\
 	set_dbinfo.c	 	\
-	digest.c		\
 	fast.c			\
 	kdc_locl.h		\
 	kerberos5.c		\
 	krb5tgs.c		\
 	pkinit.c		\
-	pkinit-ec.c		\
 	mssfu.c			\
 	log.c			\
 	misc.c			\
@@ -148,7 +145,6 @@ ALL_OBJECTS += $(string2key_OBJECTS)
 ALL_OBJECTS += $(kstash_OBJECTS)
 ALL_OBJECTS += $(hprop_OBJECTS)
 ALL_OBJECTS += $(hpropd_OBJECTS)
-ALL_OBJECTS += $(digest_service_OBJECTS)
 ALL_OBJECTS += $(bx509d_OBJECTS)
 ALL_OBJECTS += $(httpkadmind_OBJECTS)
 ALL_OBJECTS += $(cjwt_token_validator_la_OBJECTS)
@@ -202,7 +198,6 @@ libkdc_la_LIBADD = \
 	$(top_builddir)/lib/gssapi/libgssapi.la \
 	$(top_builddir)/lib/gss_preauth/libgss_preauth.la \
 	$(LIB_kdb)  \
-	$(top_builddir)/lib/ntlm/libheimntlm.la \
 	$(LIB_openssl_crypto) \
 	$(top_builddir)/lib/asn1/libasn1.la \
 	$(LIB_roken) \
@@ -221,11 +216,6 @@ kdc_LDFLAGS = -framework SystemConfiguration -framework CoreFoundation
 endif
 kdc_CFLAGS = $(CAPNG_CFLAGS)
 
-digest_service_LDADD = \
-	libkdc.la \
-	$(top_builddir)/lib/ntlm/libheimntlm.la \
-	$(top_builddir)/lib/ipc/libheim-ipcs.la \
-	$(LDADD) $(LIB_pidfile)
 kdc_replay_LDADD = libkdc.la $(LDADD) $(LIB_pidfile)
 kdc_tester_LDADD = libkdc.la $(LDADD) $(LIB_pidfile) $(LIB_heimbase)
 test_token_validator_LDADD = libkdc.la $(LDADD) $(LIB_pidfile) $(LIB_heimbase) $(LIB_gssapi)

@@ -582,7 +582,6 @@ LIBHEIMBASE =$(LIBDIR)\libheimbase.lib
 LIBHEIMDAL  =$(LIBDIR)\heimdal.lib
 LIBHEIMIPCC =$(LIBDIR)\libheim-ipcc.lib
 LIBHEIMIPCS =$(LIBDIR)\libheim-ipcs.lib
-LIBHEIMNTLM =$(LIBDIR)\libheimntlm.lib
 LIBHX509    =$(LIBDIR)\libhx509.lib
 LIBKADM5CLNT=$(LIBDIR)\libkadm5clnt.lib
 LIBKADM5SRV =$(LIBDIR)\libkadm5srv.lib

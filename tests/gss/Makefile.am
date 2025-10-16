@@ -6,7 +6,7 @@ include $(top_srcdir)/Makefile.am.common
 
 noinst_DATA = krb5.conf krb5-nodns.conf new_clients_k5.conf mech
 
-SCRIPT_TESTS = check-basic check-nodns check-gss check-gssmask check-context check-spnego check-ntlm check-negoex
+SCRIPT_TESTS = check-basic check-nodns check-gss check-gssmask check-context check-spnego check-negoex
 
 TESTS = $(SCRIPT_TESTS)
 
@@ -52,11 +52,6 @@ check-nodns: check-nodns.in Makefile
 	chmod +x check-nodns.tmp && \
 	mv check-nodns.tmp check-nodns
 
-check-ntlm: check-ntlm.in Makefile
-	$(do_subst) < $(srcdir)/check-ntlm.in > check-ntlm.tmp && \
-	chmod +x check-ntlm.tmp && \
-	mv check-ntlm.tmp check-ntlm
-
 check-negoex: check-negoex.in Makefile
 	$(do_subst) < $(srcdir)/check-negoex.in > check-negoex.tmp && \
 	chmod +x check-negoex.tmp && \
@@ -97,7 +92,6 @@ CLEANFILES= \
 	check-gss.tmp \
 	check-gssmask.tmp \
 	check-spnego.tmp \
-	check-ntlm.tmp \
 	check-context.tmp
 
 EXTRA_DIST = \
@@ -107,10 +101,8 @@ EXTRA_DIST = \
 	check-gss.in \
 	check-gssmask.in \
 	check-spnego.in \
-	check-ntlm.in \
 	check-context.in \
 	check-negoex.in \
-	ntlm-user-file.txt \
 	krb5.conf.in \
 	include-krb5.conf \
 	new_clients_k5.conf.in \
