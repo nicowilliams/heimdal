@@ -342,8 +342,14 @@ AC_SUBST(dpagaix_ldadd)
 AC_SUBST(dpagaix_ldflags)
 
 AC_ARG_ENABLE([afs-support],
-	AS_HELP_STRING([--disable-afs-support],[if you don't want support for AFS]))
-if test "$enable_afs_support" = no; then
+	AS_HELP_STRING([--enable-afs-support],[enable support for AFS]),
+                       [enable_afs_support=yes],
+                       [enable_afs_support=no])
+if test "$enable_afs_support" = yes; then
+	NO_AFS="0"
+        AC_MSG_ERROR([AFS no longer supported])
+else
+        # XXX This is pointless now, should be removed
 	AC_DEFINE(NO_AFS, 1, [Define if you don't wan't support for AFS.])
 	NO_AFS="1"
 fi
@@ -742,7 +748,6 @@ AC_CONFIG_FILES(Makefile 		\
 	lib/hdb/Makefile		\
 	lib/ipc/Makefile		\
 	lib/kadm5/Makefile		\
-	lib/kafs/Makefile		\
 	lib/kdfs/Makefile		\
 	lib/krb5/Makefile		\
 	lib/roken/Makefile		\
@@ -759,7 +764,6 @@ AC_CONFIG_FILES(Makefile 		\
 	kcm/Makefile			\
 	kdc/Makefile			\
 	appl/Makefile			\
-	appl/afsutil/Makefile		\
 	appl/dbutils/Makefile		\
 	appl/gssmask/Makefile		\
 	appl/test/Makefile		\

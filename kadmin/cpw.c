@@ -134,9 +134,9 @@ set_password(void *dup_kadm_handle,
 	free (princ_name);
 	if (aret == -1)
 	    return ENOMEM;
-	ret = UI_UTIL_read_pw_string(pwbuf, sizeof(pwbuf), prompt,
-				     UI_UTIL_FLAG_VERIFY |
-				     UI_UTIL_FLAG_VERIFY_SILENT);
+	ret = _krb5_UI_UTIL_read_pw_string(pwbuf, sizeof(pwbuf), prompt,
+                                           UI_UTIL_FLAG_VERIFY |
+                                           UI_UTIL_FLAG_VERIFY_SILENT);
 	free (prompt);
 	if(ret){
             return KRB5_LIBOS_BADPWDMATCH;

@@ -1,5 +1,3 @@
-# $Id$
-
 include $(top_srcdir)/Makefile.am.common
 
 if LIBEDIT
@@ -17,9 +15,6 @@ endif
 if MAINTAINER_MODE
 dir_sqlite = sqlite
 endif
-if !NO_AFS
-dir_afs = kafs
-endif
 
 SUBDIRS = \
 	roken \
@@ -34,8 +29,6 @@ SUBDIRS = \
 	ipc \
 	hx509 \
 	krb5 \
-	ntlm \
-	$(dir_afs) \
 	gssapi \
 	gss_preauth \
 	hdb \

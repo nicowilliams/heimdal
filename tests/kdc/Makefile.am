@@ -29,14 +29,11 @@ SCRIPT_TESTS = \
 	check-canon \
 	check-cc \
 	check-delegation \
-	check-des \
-	check-digest \
 	check-fast \
 	check-kadmin \
 	check-hdb-mitdb \
 	check-kdc \
 	check-kdc-weak \
-	check-keys \
 	check-kpasswdd \
 	check-pkinit \
 	check-bx509 \
@@ -84,7 +81,8 @@ do_subst = $(heim_verbose)sed $(do_dlopen) \
         -e 's,[@]ENABLE_AFS_STRING_TO_KEY[@],$(ENABLE_AFS_STRING_TO_KEY),' \
         -e 's,[@]ENABLE_AFS_STRING_TO_KEY[@],$(ENABLE_AFS_STRING_TO_KEY),' \
 	-e 's,[@]EGREP[@],$(EGREP),g' \
-	-e 's,[@]MITKRB5[@],$(MITKRB5),g' 
+	-e 's,[@]MITKRB5[@],$(MITKRB5),g' \
+	-e 's,[@]OPENSSL_PKCS11_PROVIDER[@],$(OPENSSL_PKCS11_PROVIDER),g'
 
 chmod = chmod
 
@@ -110,11 +108,6 @@ check-delegation: check-delegation.in Makefile
 	$(chmod) +x check-delegation.tmp && \
 	mv check-delegation.tmp check-delegation
 
-check-des: check-des.in Makefile krb5.conf
-	$(do_subst) < $(srcdir)/check-des.in > check-des.tmp && \
-	$(chmod) +x check-des.tmp && \
-	mv check-des.tmp check-des
-
 check-hdb-mitdb: check-hdb-mitdb.in Makefile krb5-hdb-mitdb.conf
 	$(do_subst) < $(srcdir)/check-hdb-mitdb.in > check-hdb-mitdb.tmp && \
 	$(chmod) +x check-hdb-mitdb.tmp && \
@@ -130,7 +123,7 @@ check-kdc: check-kdc.in Makefile
 	$(chmod) +x check-kdc.tmp && \
 	mv check-kdc.tmp check-kdc
 
-check-kdc-weak: check-kdc-weak.in Makefile
+check-kdc-weak: check-kdc krb5-weak.conf check-kdc-weak.in Makefile
 	$(do_subst) < $(srcdir)/check-kdc-weak.in > check-kdc-weak.tmp && \
 	$(chmod) +x check-kdc-weak.tmp && \
 	mv check-kdc-weak.tmp check-kdc-weak
@@ -139,11 +132,6 @@ check-tester: check-tester.in kdc-tester4.json Makefile
 	$(do_subst) < $(srcdir)/check-tester.in > check-tester.tmp && \
 	$(chmod) +x check-tester.tmp && \
 	mv check-tester.tmp check-tester
-
-check-keys: check-keys.in Makefile
-	$(do_subst) < $(srcdir)/check-keys.in > check-keys.tmp && \
-	$(chmod) +x check-keys.tmp && \
-	mv check-keys.tmp check-keys
 
 check-kinit: check-kinit.in Makefile
 	$(do_subst) < $(srcdir)/check-kinit.in > check-kinit.tmp && \
@@ -179,11 +167,6 @@ check-iprop: check-iprop.in Makefile krb5.conf krb5-master2.conf krb5-slave.conf
 	$(do_subst) < $(srcdir)/check-iprop.in > check-iprop.tmp && \
 	$(chmod) +x check-iprop.tmp && \
 	mv check-iprop.tmp check-iprop
-
-check-digest: check-digest.in Makefile
-	$(do_subst) < $(srcdir)/check-digest.in > check-digest.tmp && \
-	$(chmod) +x check-digest.tmp && \
-	mv check-digest.tmp check-digest
 
 check-referral: check-referral.in Makefile
 	$(do_subst) < $(srcdir)/check-referral.in > check-referral.tmp && \
@@ -255,7 +238,7 @@ krb5-hdb-mitdb.conf: krb5-hdb-mitdb.conf.in Makefile
 krb5-weak.conf: krb5.conf.in Makefile
 	$(do_subst) \
 	   -e 's,[@]WEAK[@],true,g' \
-	   -e 's,[@]dk[@],default_keys = aes256-cts-hmac-sha1-96:pw-salt arcfour-hmac-md5:pw-salt des3-cbc-sha1:pw-salt des:pw-salt,g' \
+           -e 's,[@]dk[@],default_keys = aes256-cts-hmac-sha1-96:pw-salt aes256-cts-hmac-sha384-192:pw-salt arcfour-hmac-md5:pw-salt,g' \
 	   -e 's,[@]messages[@],messages,g' \
 	   -e 's,[@]signalsocket[@],signal,g' \
 	   -e 's,[@]ipropstats[@],iprop-stats,g' \
@@ -330,12 +313,10 @@ CLEANFILES= \
 	ca.crt \
 	cache.krb5 \
 	cache2.krb5 \
-	cdigest-reply \
 	client-cache \
 	curlheaders \
 	current-db* \
 	current.log* \
-	digest-reply \
 	extracted_config \
 	extracted_keytab* \
 	foopassword \
@@ -373,15 +354,11 @@ CLEANFILES= \
 	negotiate-token \
 	notfoopassword \
 	o2cache.krb5 \
-	o2digest-reply \
 	ocache.krb5 \
 	out-log \
 	req \
 	response-headers \
-	s2digest-reply \
 	sdb \
-	sdigest-init \
-	sdigest-reply \
 	server.keytab \
 	signal \
 	signal2 \
@@ -399,8 +376,6 @@ EXTRA_DIST = \
 	check-canon.in \
 	check-cc.in \
 	check-delegation.in \
-	check-des.in \
-	check-digest.in \
 	check-fast.in \
 	check-hdb-mitdb.in \
 	check-httpkadmind.in \
@@ -408,7 +383,6 @@ EXTRA_DIST = \
 	check-kadmin.in \
 	check-kdc-weak.in \
 	check-kdc.in \
-	check-keys.in \
 	check-kinit.in \
 	check-kpasswdd.in \
 	check-pkinit.in \
@@ -439,7 +413,6 @@ EXTRA_DIST = \
 	krb5.conf.in \
 	krb5.conf.keys.in \
 	leaks-kill.sh \
-	ntlm-user-file.txt \
 	pki-mapping \
 	uuserver.txt \
 	wait-kdc.sh

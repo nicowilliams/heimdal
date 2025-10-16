@@ -10,6 +10,9 @@ m4_define([test_headers], [
 		#include <sys/types.h>
 		#endif
 		#include <openssl/evp.h>
+		#include <openssl/provider.h>
+		#include <openssl/encoder.h>
+		#include <openssl/core_names.h>
 		#include <openssl/bn.h>
 		#include <openssl/md4.h>
 		#include <openssl/md5.h>
@@ -139,6 +142,28 @@ if test "$pkcs11_module" != ""; then
   AC_DEFINE_UNQUOTED(PKCS11_MODULE_PATH, "$pkcs11_module", [path to PKCS11 module])
   openssl=no
 fi
+
+dnl Check for OpenSSL PKCS#11 provider (pkcs11-provider project)
+dnl It installs into the OpenSSL modules directory
+openssl_pkcs11_provider=""
+if test "$openssl" = "yes"; then
+    if test "$with_openssl_lib" != ""; then
+        pkcs11_provider_path="${with_openssl_lib}/ossl-modules/pkcs11.so"
+    elif test "$with_openssl" != "" -a "$with_openssl" != "yes"; then
+        pkcs11_provider_path="${with_openssl}/lib/ossl-modules/pkcs11.so"
+    else
+        pkcs11_provider_path="/usr/lib/ossl-modules/pkcs11.so"
+    fi
+    AC_MSG_CHECKING([for OpenSSL PKCS11 provider])
+    if test -f "$pkcs11_provider_path"; then
+        openssl_pkcs11_provider="$pkcs11_provider_path"
+        AC_MSG_RESULT([$openssl_pkcs11_provider])
+    else
+        AC_MSG_RESULT([not found at $pkcs11_provider_path])
+    fi
+fi
+AC_SUBST(OPENSSL_PKCS11_PROVIDER, [$openssl_pkcs11_provider])
+AM_CONDITIONAL([HAVE_OPENSSL_PKCS11_PROVIDER], [test "x$openssl_pkcs11_provider" != "x"])
 
 if test "$openssl" != "yes"; then
     AC_MSG_ERROR([OpenSSL is required])

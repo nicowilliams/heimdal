@@ -37,6 +37,12 @@
 
 #include "krb5_locl.h"
 
+static EVP_CIPHER *
+heim_EVP_rc4(krb5_context context)
+{
+    return context->ossl->rc4;
+}
+
 static struct _krb5_key_type keytype_arcfour = {
     KRB5_ENCTYPE_ARCFOUR_HMAC_MD5,
     "arcfour",
@@ -48,7 +54,7 @@ static struct _krb5_key_type keytype_arcfour = {
     _krb5_arcfour_salt,
     NULL,
     _krb5_evp_cleanup,
-    EVP_rc4
+    heim_EVP_rc4
 };
 
 /*
@@ -82,8 +88,11 @@ _krb5_HMAC_MD5_checksum(krb5_context context,
         if (crypto->mdctx == NULL)
 	    return krb5_enomem(context);
 	m = crypto->mdctx;
-    } else
+    } else {
         m = EVP_MD_CTX_create();
+	if (m == NULL)
+	    return krb5_enomem(context);
+    }
 
     ksign_c.checksum.length = sizeof(ksign_c_data);
     ksign_c.checksum.data   = ksign_c_data;
@@ -94,17 +103,21 @@ _krb5_HMAC_MD5_checksum(krb5_context context,
 
     ksign.key = &kb;
     kb.keyvalue = ksign_c.checksum;
-    EVP_DigestInit_ex(m, EVP_md5(), NULL);
+    if (EVP_DigestInit_ex(m, context->ossl->md5, NULL) != 1)
+	goto out;
     t[0] = (usage >>  0) & 0xFF;
     t[1] = (usage >>  8) & 0xFF;
     t[2] = (usage >> 16) & 0xFF;
     t[3] = (usage >> 24) & 0xFF;
-    EVP_DigestUpdate(m, t, 4);
+    if (EVP_DigestUpdate(m, t, 4) != 1)
+	goto out;
     for (i = 0; i < niov; i++) {
-	if (_krb5_crypto_iov_should_sign(&iov[i]))
-	    EVP_DigestUpdate(m, iov[i].data.data, iov[i].data.length);
+	if (_krb5_crypto_iov_should_sign(&iov[i]) &&
+	    EVP_DigestUpdate(m, iov[i].data.data, iov[i].data.length) != 1)
+	    goto out;
     }
-    EVP_DigestFinal_ex (m, tmp, NULL);
+    if (EVP_DigestFinal_ex(m, tmp, NULL) != 1)
+	goto out;
 
     ret = _krb5_internal_hmac(context, crypto, c, tmp, sizeof(tmp), 0, &ksign, result);
 out:
@@ -138,7 +151,8 @@ ARCFOUR_subencrypt(krb5_context context,
 		   unsigned usage,
 		   void *ivec)
 {
-    EVP_CIPHER_CTX ctx;
+    EVP_CIPHER_CTX *ctx;
+    EVP_CIPHER *cipher;
     struct _krb5_checksum_type *c = _krb5_find_checksum (CKSUMTYPE_RSA_MD5);
     Checksum k1_c, k2_c, k3_c, cksum;
     struct _krb5_key_data ke;
@@ -151,6 +165,14 @@ ARCFOUR_subencrypt(krb5_context context,
     if (len < 16) {
 	    return KRB5KRB_AP_ERR_INAPP_CKSUM;
     }
+
+    cipher = heim_EVP_rc4(context);
+    if (cipher == NULL)
+	return krb5_enomem(context);
+
+    ctx = EVP_CIPHER_CTX_new();
+    if (ctx == NULL)
+	return krb5_enomem(context);
 
     t[0] = (usage >>  0) & 0xFF;
     t[1] = (usage >>  8) & 0xFF;
@@ -189,11 +211,15 @@ ARCFOUR_subencrypt(krb5_context context,
     if (ret)
 	krb5_abortx(context, "hmac failed");
 
-    EVP_CIPHER_CTX_init(&ctx);
-
-    EVP_CipherInit_ex(&ctx, EVP_rc4(), NULL, k3_c.checksum.data, NULL, 1);
-    EVP_Cipher(&ctx, cdata + 16, cdata + 16, len - 16);
-    EVP_CIPHER_CTX_cleanup(&ctx);
+    if (EVP_CipherInit_ex(ctx, cipher, NULL, k3_c.checksum.data, NULL, 1) != 1 ||
+	EVP_Cipher(ctx, cdata + 16, cdata + 16, len - 16) < 0) {
+	EVP_CIPHER_CTX_free(ctx);
+	memset_s(k1_c_data, sizeof(k1_c_data), 0, sizeof(k1_c_data));
+	memset_s(k2_c_data, sizeof(k2_c_data), 0, sizeof(k2_c_data));
+	memset_s(k3_c_data, sizeof(k3_c_data), 0, sizeof(k3_c_data));
+	return krb5_enomem(context);
+    }
+    EVP_CIPHER_CTX_free(ctx);
 
     memset_s(k1_c_data, sizeof(k1_c_data), 0, sizeof(k1_c_data));
     memset_s(k2_c_data, sizeof(k2_c_data), 0, sizeof(k2_c_data));
@@ -209,7 +235,8 @@ ARCFOUR_subdecrypt(krb5_context context,
 		   unsigned usage,
 		   void *ivec)
 {
-    EVP_CIPHER_CTX ctx;
+    EVP_CIPHER_CTX *ctx;
+    EVP_CIPHER *cipher;
     struct _krb5_checksum_type *c = _krb5_find_checksum (CKSUMTYPE_RSA_MD5);
     Checksum k1_c, k2_c, k3_c, cksum;
     struct _krb5_key_data ke;
@@ -223,6 +250,14 @@ ARCFOUR_subdecrypt(krb5_context context,
     if (len < 16) {
 	    return KRB5KRB_AP_ERR_INAPP_CKSUM;
     }
+
+    cipher = heim_EVP_rc4(context);
+    if (cipher == NULL)
+	return krb5_enomem(context);
+
+    ctx = EVP_CIPHER_CTX_new();
+    if (ctx == NULL)
+	return krb5_enomem(context);
 
     t[0] = (usage >>  0) & 0xFF;
     t[1] = (usage >>  8) & 0xFF;
@@ -251,10 +286,15 @@ ARCFOUR_subdecrypt(krb5_context context,
     if (ret)
 	krb5_abortx(context, "hmac failed");
 
-    EVP_CIPHER_CTX_init(&ctx);
-    EVP_CipherInit_ex(&ctx, EVP_rc4(), NULL, k3_c.checksum.data, NULL, 0);
-    EVP_Cipher(&ctx, cdata + 16, cdata + 16, len - 16);
-    EVP_CIPHER_CTX_cleanup(&ctx);
+    if (EVP_CipherInit_ex(ctx, cipher, NULL, k3_c.checksum.data, NULL, 0) != 1 ||
+	EVP_Cipher(ctx, cdata + 16, cdata + 16, len - 16) < 0) {
+	EVP_CIPHER_CTX_free(ctx);
+	memset_s(k1_c_data, sizeof(k1_c_data), 0, sizeof(k1_c_data));
+	memset_s(k2_c_data, sizeof(k2_c_data), 0, sizeof(k2_c_data));
+	memset_s(k3_c_data, sizeof(k3_c_data), 0, sizeof(k3_c_data));
+	return krb5_enomem(context);
+    }
+    EVP_CIPHER_CTX_free(ctx);
 
     ke.key = &kb;
     kb.keyvalue = k2_c.checksum;

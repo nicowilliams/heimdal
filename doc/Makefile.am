@@ -43,11 +43,6 @@ krb5.dxy: krb5.din Makefile
 	chmod +x krb5.dxy.tmp
 	mv krb5.dxy.tmp krb5.dxy
 
-ntlm.dxy: ntlm.din Makefile
-	$(dxy_subst) < $(srcdir)/ntlm.din > ntlm.dxy.tmp
-	chmod +x ntlm.dxy.tmp
-	mv ntlm.dxy.tmp ntlm.dxy
-
 wind.dxy: wind.din Makefile
 	$(dxy_subst) < $(srcdir)/wind.din > wind.dxy.tmp
 	chmod +x wind.dxy.tmp
@@ -62,9 +57,9 @@ vars.texi: vars.tin Makefile
 	chmod +x vars.texi.tmp
 	mv vars.texi.tmp vars.texi
 
-PROJECTS = base hdb hx509 gssapi krb5 ntlm wind 
+PROJECTS = base hdb hx509 gssapi krb5 wind 
 
-doxyout doxygen: base.dxy hdb.dxy hx509.dxy gssapi.dxy krb5.dxy ntlm.dxy wind.dxy
+doxyout doxygen: base.dxy hdb.dxy hx509.dxy gssapi.dxy krb5.dxy wind.dxy
 	@test -d $(srcdir)/doxyout && \
 	find $(srcdir)/doxyout -type d ! -perm -200 -exec chmod u+w {} ';' ; \
 	rm -rf $(srcdir)/doxyout ; \
@@ -135,7 +130,6 @@ EXTRA_DIST = \
 	base.din \
 	hx509.din \
 	krb5.din \
-	ntlm.din \
 	init-creds \
 	latin1.tex \
 	layman.asc \
@@ -152,6 +146,5 @@ CLEANFILES = \
 	hdb.dxy* \
 	gssapi.dxy* \
 	krb5.dxy* \
-	ntlm.dxy* \
 	wind.dxy* \
 	vars.texi*

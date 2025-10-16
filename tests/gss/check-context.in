@@ -80,6 +80,7 @@ echo Creating database
 # XXX ext should ext aliases too
 ${kadmin} <<EOF || exit 1
 init --realm-max-ticket-life=1day --realm-max-renewable-life=1month ${R}
+mod --attributes=+ok-as-delegate krbtgt/${R}@${R}
 add -p p1 --use-defaults host/lucid.test.h5l.se@${R}
 ext -k ${keytab} host/lucid.test.h5l.se@${R}
 add -p p1 --use-defaults host/ok-delegate.test.h5l.se@${R}
@@ -140,7 +141,7 @@ ${context} --client-name=user1@${R} --client-password=u2 --mech-types=all \
         --mech-type=krb5 host@lucid.test.h5l.se && { eval "$testfailed"; }
 ${klist} && { eval "$testfailed"; }
 ${context} --client-name=user1@${R} --client-password=u2 \
-        --mech-types=krb5,ntlm --mech-type=krb5 host@lucid.test.h5l.se \
+        --mech-types=krb5 --mech-type=krb5 host@lucid.test.h5l.se \
         && { eval "$testfailed"; }
 # gss_acquire_cred_with_password() must not have side-effects
 ${klist} && { eval "$testfailed"; }
@@ -436,8 +437,8 @@ done
 echo "====== gss-api session key check"
 
 # this will break when oneone invents a cooler enctype then aes256-cts-hmac-sha1-96
-coolenctype="aes256-cts-hmac-sha1-96"
-limit_enctype="des3-cbc-sha1"
+coolenctype="aes256-cts-hmac-sha384-192"
+limit_enctype="aes256-cts-hmac-sha1-96"
 
 echo "Getting client initial tickets" ; > messages.log
 ${kinit} --password-file=${objdir}/foopassword user1@${R} || \

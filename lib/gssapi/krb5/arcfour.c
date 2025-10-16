@@ -240,7 +240,7 @@ _gssapi_get_mic_arcfour(OM_uint32 * minor_status,
     int32_t seq_number;
     size_t len, total_len;
     u_char k6_data[16], *p0, *p;
-    EVP_CIPHER_CTX rc4_key;
+    EVP_CIPHER_CTX *rc4_key;
 
     _gsskrb5_encap_length (22, &len, &total_len, GSS_KRB5_MECHANISM);
 
@@ -302,10 +302,19 @@ _gssapi_get_mic_arcfour(OM_uint32 * minor_status,
 
     memset (p + 4, (context_handle->more_flags & LOCAL) ? 0 : 0xff, 4);
 
-    EVP_CIPHER_CTX_init(&rc4_key);
-    EVP_CipherInit_ex(&rc4_key, EVP_rc4(), NULL, k6_data, NULL, 1);
-    EVP_Cipher(&rc4_key, p, p, 8);
-    EVP_CIPHER_CTX_cleanup(&rc4_key);
+    if ((rc4_key = EVP_CIPHER_CTX_new()) == NULL) {
+        *minor_status = ENOMEM;
+	return GSS_S_FAILURE;
+    }
+    if (EVP_CIPHER_CTX_init(rc4_key) != 1 ||
+        EVP_CipherInit_ex(rc4_key, context->ossl->rc4, NULL, k6_data, NULL, 1) != 1 ||
+        EVP_Cipher(rc4_key, p, p, 8) != 1) {
+        EVP_CIPHER_CTX_free(rc4_key);
+        _krb5_debug_openssl(context, 4, "Could not encrypt with RC4 with OpenSSL");
+        *minor_status = KRB5_CRYPTO_INTERNAL;
+	return GSS_S_FAILURE;
+    }
+    EVP_CIPHER_CTX_free(rc4_key);
 
     memset_s(k6_data, sizeof(k6_data), 0, sizeof(k6_data));
 
@@ -375,14 +384,22 @@ _gssapi_verify_mic_arcfour(OM_uint32 * minor_status,
     }
 
     {
-	EVP_CIPHER_CTX rc4_key;
+	EVP_CIPHER_CTX *rc4_key;
 
-	EVP_CIPHER_CTX_init(&rc4_key);
-	EVP_CipherInit_ex(&rc4_key, EVP_rc4(), NULL, (void *)k6_data, NULL, 0);
-	EVP_Cipher(&rc4_key, SND_SEQ, p, 8);
-	EVP_CIPHER_CTX_cleanup(&rc4_key);
+        if ((rc4_key = EVP_CIPHER_CTX_new()) == NULL) {
+            *minor_status = ENOMEM;
+            return GSS_S_FAILURE;
+        }
+	if (EVP_CIPHER_CTX_init(rc4_key) != 1 ||
+            EVP_CipherInit_ex(rc4_key, context->ossl->rc4, NULL, (void *)k6_data, NULL, 0) != 1 ||
+            EVP_Cipher(rc4_key, SND_SEQ, p, 8) != 1) {
+            _krb5_debug_openssl(context, 4, "Could not encrypt with RC4 with OpenSSL");
+            *minor_status = KRB5_CRYPTO_INTERNAL;
+            return GSS_S_FAILURE;
+        }
+	EVP_CIPHER_CTX_free(rc4_key);
 
-	memset(k6_data, 0, sizeof(k6_data));
+	memset_s(k6_data, sizeof(k6_data), 0, sizeof(k6_data));
     }
 
     _gss_mg_decode_be_uint32(SND_SEQ, &seq_number);
@@ -528,14 +545,23 @@ _gssapi_wrap_arcfour(OM_uint32 * minor_status,
 
 
     if(conf_req_flag) {
-	EVP_CIPHER_CTX rc4_key;
+	EVP_CIPHER_CTX *rc4_key;
 
-	EVP_CIPHER_CTX_init(&rc4_key);
-	EVP_CipherInit_ex(&rc4_key, EVP_rc4(), NULL, k6_data, NULL, 1);
-	EVP_Cipher(&rc4_key, p0 + 24, p0 + 24, 8 + datalen);
-	EVP_CIPHER_CTX_cleanup(&rc4_key);
+        if ((rc4_key = EVP_CIPHER_CTX_new()) == NULL) {
+            *minor_status = ENOMEM;
+            return GSS_S_FAILURE;
+        }
+        if (EVP_CIPHER_CTX_init(rc4_key) != 1 ||
+            EVP_CipherInit_ex(rc4_key, context->ossl->rc4, NULL, k6_data, NULL, 1) != 1 ||
+            EVP_Cipher(rc4_key, p0 + 24, p0 + 24, 8 + datalen) != 1) {
+            EVP_CIPHER_CTX_free(rc4_key);
+            _krb5_debug_openssl(context, 4, "Could not encrypt with RC4 with OpenSSL");
+            *minor_status = KRB5_CRYPTO_INTERNAL;
+            return GSS_S_FAILURE;
+        }
+	EVP_CIPHER_CTX_free(rc4_key);
     }
-    memset(k6_data, 0, sizeof(k6_data));
+    memset_s(k6_data, sizeof(k6_data), 0, sizeof(k6_data));
 
     ret = arcfour_mic_key(context, key,
 			  p0 + 16, 8, /* SGN_CKSUM */
@@ -547,12 +573,21 @@ _gssapi_wrap_arcfour(OM_uint32 * minor_status,
     }
 
     {
-	EVP_CIPHER_CTX rc4_key;
+	EVP_CIPHER_CTX *rc4_key;
 
-	EVP_CIPHER_CTX_init(&rc4_key);
-	EVP_CipherInit_ex(&rc4_key, EVP_rc4(), NULL, k6_data, NULL, 1);
-	EVP_Cipher(&rc4_key, p0 + 8, p0 + 8 /* SND_SEQ */, 8);
-	EVP_CIPHER_CTX_cleanup(&rc4_key);
+        if ((rc4_key = EVP_CIPHER_CTX_new()) == NULL) {
+            *minor_status = ENOMEM;
+            return GSS_S_FAILURE;
+        }
+	if (EVP_CIPHER_CTX_init(rc4_key) != 1 ||
+            EVP_CipherInit_ex(rc4_key, context->ossl->rc4, NULL, k6_data, NULL, 1) != 1 ||
+            EVP_Cipher(rc4_key, p0 + 8, p0 + 8 /* SND_SEQ */, 8) != 1) {
+            EVP_CIPHER_CTX_free(rc4_key);
+            _krb5_debug_openssl(context, 4, "Could not encrypt with RC4 with OpenSSL");
+            *minor_status = KRB5_CRYPTO_INTERNAL;
+            return GSS_S_FAILURE;
+        }
+	EVP_CIPHER_CTX_free(rc4_key);
 	memset_s(k6_data, sizeof(k6_data), 0, sizeof(k6_data));
     }
 
@@ -647,12 +682,21 @@ OM_uint32 _gssapi_unwrap_arcfour(OM_uint32 *minor_status,
     }
 
     {
-	EVP_CIPHER_CTX rc4_key;
+	EVP_CIPHER_CTX *rc4_key;
 
-	EVP_CIPHER_CTX_init(&rc4_key);
-	EVP_CipherInit_ex(&rc4_key, EVP_rc4(), NULL, k6_data, NULL, 1);
-	EVP_Cipher(&rc4_key, SND_SEQ, p0 + 8, 8);
-	EVP_CIPHER_CTX_cleanup(&rc4_key);
+        if ((rc4_key = EVP_CIPHER_CTX_new()) == NULL) {
+            *minor_status = ENOMEM;
+            return GSS_S_FAILURE;
+        }
+	if (EVP_CIPHER_CTX_init(rc4_key) != 1 ||
+	    EVP_CipherInit_ex(rc4_key, context->ossl->rc4, NULL, k6_data, NULL, 1) != 1 ||
+	    EVP_Cipher(rc4_key, SND_SEQ, p0 + 8, 8) != 1) {
+            EVP_CIPHER_CTX_free(rc4_key);
+            _krb5_debug_openssl(context, 4, "Could not decrypt with RC4 with OpenSSL");
+            *minor_status = KRB5_CRYPTO_INTERNAL;
+            return GSS_S_FAILURE;
+        }
+	EVP_CIPHER_CTX_free(rc4_key);
 	memset_s(k6_data, sizeof(k6_data), 0, sizeof(k6_data));
     }
 
@@ -695,20 +739,29 @@ OM_uint32 _gssapi_unwrap_arcfour(OM_uint32 *minor_status,
     output_message_buffer->length = datalen;
 
     if(conf_flag) {
-	EVP_CIPHER_CTX rc4_key;
+	EVP_CIPHER_CTX *rc4_key;
 
-	EVP_CIPHER_CTX_init(&rc4_key);
-	EVP_CipherInit_ex(&rc4_key, EVP_rc4(), NULL, k6_data, NULL, 1);
-	EVP_Cipher(&rc4_key, Confounder, p0 + 24, 8);
-	EVP_Cipher(&rc4_key, output_message_buffer->value, p0 + GSS_ARCFOUR_WRAP_TOKEN_SIZE, datalen);
-	EVP_CIPHER_CTX_cleanup(&rc4_key);
+        if ((rc4_key = EVP_CIPHER_CTX_new()) == NULL) {
+            *minor_status = ENOMEM;
+            return GSS_S_FAILURE;
+        }
+	if (EVP_CIPHER_CTX_init(rc4_key) != 1 ||
+            EVP_CipherInit_ex(rc4_key, context->ossl->rc4, NULL, k6_data, NULL, 1) != 1 ||
+            EVP_Cipher(rc4_key, Confounder, p0 + 24, 8) != 1 ||
+            EVP_Cipher(rc4_key, output_message_buffer->value, p0 + GSS_ARCFOUR_WRAP_TOKEN_SIZE, datalen) != 1) {
+            EVP_CIPHER_CTX_free(rc4_key);
+            _krb5_debug_openssl(context, 4, "Could not decrypt with RC4 with OpenSSL");
+            *minor_status = KRB5_CRYPTO_INTERNAL;
+            return GSS_S_FAILURE;
+        }
+	EVP_CIPHER_CTX_free(rc4_key);
     } else {
 	memcpy(Confounder, p0 + 24, 8); /* Confounder */
 	memcpy(output_message_buffer->value,
 	       p0 + GSS_ARCFOUR_WRAP_TOKEN_SIZE,
 	       datalen);
     }
-    memset(k6_data, 0, sizeof(k6_data));
+    memset_s(k6_data, sizeof(k6_data), 0, sizeof(k6_data));
 
     if (!IS_DCE_STYLE(context_handle)) {
 	ret = _gssapi_verify_pad(output_message_buffer, datalen, &padlen);
@@ -1087,13 +1140,21 @@ _gssapi_wrap_iov_arcfour(OM_uint32 *minor_status,
     }
 
     if (conf_req_flag) {
-	EVP_CIPHER_CTX rc4_key;
+	EVP_CIPHER_CTX *rc4_key;
 
-	EVP_CIPHER_CTX_init(&rc4_key);
-	EVP_CipherInit_ex(&rc4_key, EVP_rc4(), NULL, k6_data, NULL, 1);
-
-	/* Confounder */
-	EVP_Cipher(&rc4_key, p0 + 24, p0 + 24, 8);
+        if ((rc4_key = EVP_CIPHER_CTX_new()) == NULL) {
+            *minor_status = ENOMEM;
+            return GSS_S_FAILURE;
+        }
+	if (EVP_CIPHER_CTX_init(rc4_key) != 1 ||
+            EVP_CipherInit_ex(rc4_key, context->ossl->rc4, NULL, k6_data, NULL, 1) != 1 ||
+            /* Confounder */
+            EVP_Cipher(rc4_key, p0 + 24, p0 + 24, 8) != 1) {
+            EVP_CIPHER_CTX_free(rc4_key);
+            _krb5_debug_openssl(context, 4, "Could not encrypt with RC4 with OpenSSL");
+            *minor_status = KRB5_CRYPTO_INTERNAL;
+            return GSS_S_FAILURE;
+        }
 
 	/* Seal Data */
 	for (i=0; i < iov_count; i++) {
@@ -1104,19 +1165,28 @@ _gssapi_wrap_iov_arcfour(OM_uint32 *minor_status,
 		continue;
 	    }
 
-	    EVP_Cipher(&rc4_key, iov[i].buffer.value,
-		       iov[i].buffer.value, iov[i].buffer.length);
+	    if (EVP_Cipher(rc4_key, iov[i].buffer.value,
+                           iov[i].buffer.value, iov[i].buffer.length) != 1) {
+                EVP_CIPHER_CTX_free(rc4_key);
+                _krb5_debug_openssl(context, 4, "Could not encrypt with RC4 with OpenSSL");
+                *minor_status = KRB5_CRYPTO_INTERNAL;
+                return GSS_S_FAILURE;
+            }
 	}
 
 	/* Padding */
-	if (padding) {
-	    EVP_Cipher(&rc4_key, padding->buffer.value,
-		       padding->buffer.value, padding->buffer.length);
+	if (padding &&
+	    EVP_Cipher(rc4_key, padding->buffer.value,
+		       padding->buffer.value, padding->buffer.length) != 1) {
+            EVP_CIPHER_CTX_free(rc4_key);
+            _krb5_debug_openssl(context, 4, "Could not encrypt with RC4 with OpenSSL");
+            *minor_status = KRB5_CRYPTO_INTERNAL;
+            return GSS_S_FAILURE;
 	}
 
-	EVP_CIPHER_CTX_cleanup(&rc4_key);
+        EVP_CIPHER_CTX_free(rc4_key);
     }
-    memset(k6_data, 0, sizeof(k6_data));
+    memset_s(k6_data, sizeof(k6_data), 0, sizeof(k6_data));
 
     kret = arcfour_mic_key(context, key,
 			   p0 + 16, 8, /* SGN_CKSUM */
@@ -1128,14 +1198,23 @@ _gssapi_wrap_iov_arcfour(OM_uint32 *minor_status,
     }
 
     {
-	EVP_CIPHER_CTX rc4_key;
+	EVP_CIPHER_CTX *rc4_key;
 
-	EVP_CIPHER_CTX_init(&rc4_key);
-	EVP_CipherInit_ex(&rc4_key, EVP_rc4(), NULL, k6_data, NULL, 1);
-	EVP_Cipher(&rc4_key, p0 + 8, p0 + 8, 8); /* SND_SEQ */
-	EVP_CIPHER_CTX_cleanup(&rc4_key);
+        if ((rc4_key = EVP_CIPHER_CTX_new()) == NULL) {
+            *minor_status = ENOMEM;
+            return GSS_S_FAILURE;
+        }
+        if (EVP_CIPHER_CTX_init(rc4_key) != 1 ||
+            EVP_CipherInit_ex(rc4_key, context->ossl->rc4, NULL, k6_data, NULL, 1) != 1 ||
+            EVP_Cipher(rc4_key, p0 + 8, p0 + 8, 8) != 1 /* SND_SEQ */) {
+            EVP_CIPHER_CTX_free(rc4_key);
+            _krb5_debug_openssl(context, 4, "Could not encrypt with RC4 with OpenSSL");
+            *minor_status = KRB5_CRYPTO_INTERNAL;
+            return GSS_S_FAILURE;
+        }
+	EVP_CIPHER_CTX_free(rc4_key);
 
-	memset(k6_data, 0, sizeof(k6_data));
+        memset_s(k6_data, sizeof(k6_data), 0, sizeof(k6_data));
     }
 
     if (conf_state)
@@ -1201,7 +1280,8 @@ _gssapi_unwrap_iov_arcfour(OM_uint32 *minor_status,
     }
 
     if (padding != NULL && padding->buffer.length != 1) {
-	*minor_status = EINVAL;
+        _krb5_debug(context, 4, "Padding does not match");
+        *minor_status = KRB5_CRYPTO_INTERNAL;
 	return GSS_S_FAILURE;
     }
 
@@ -1269,14 +1349,23 @@ _gssapi_unwrap_iov_arcfour(OM_uint32 *minor_status,
     }
 
     {
-	EVP_CIPHER_CTX rc4_key;
+	EVP_CIPHER_CTX *rc4_key;
 
-	EVP_CIPHER_CTX_init(&rc4_key);
-	EVP_CipherInit_ex(&rc4_key, EVP_rc4(), NULL, k6_data, NULL, 1);
-	EVP_Cipher(&rc4_key, snd_seq, p0 + 8, 8); /* SND_SEQ */
-	EVP_CIPHER_CTX_cleanup(&rc4_key);
+        if ((rc4_key = EVP_CIPHER_CTX_new()) == NULL) {
+            *minor_status = ENOMEM;
+            return GSS_S_FAILURE;
+        }
+	if (EVP_CIPHER_CTX_init(rc4_key) != 1 ||
+            EVP_CipherInit_ex(rc4_key, context->ossl->rc4, NULL, k6_data, NULL, 1) != 1 ||
+            EVP_Cipher(rc4_key, snd_seq, p0 + 8, 8) != 1 /* SND_SEQ */) {
+            EVP_CIPHER_CTX_free(rc4_key);
+            _krb5_debug_openssl(context, 4, "Could not decrypt with RC4 with OpenSSL");
+            *minor_status = KRB5_CRYPTO_INTERNAL;
+            return GSS_S_FAILURE;
+        }
+        EVP_CIPHER_CTX_free(rc4_key);
 
-	memset(k6_data, 0, sizeof(k6_data));
+        memset_s(k6_data, sizeof(k6_data), 0, sizeof(k6_data));
     }
 
     _gss_mg_decode_be_uint32(snd_seq, &seq_number);
@@ -1312,13 +1401,21 @@ _gssapi_unwrap_iov_arcfour(OM_uint32 *minor_status,
     }
 
     if (conf_state == 1) {
-	EVP_CIPHER_CTX rc4_key;
+	EVP_CIPHER_CTX *rc4_key;
 
-	EVP_CIPHER_CTX_init(&rc4_key);
-	EVP_CipherInit_ex(&rc4_key, EVP_rc4(), NULL, k6_data, NULL, 1);
-
-	/* Confounder */
-	EVP_Cipher(&rc4_key, Confounder, p0 + 24, 8);
+        if ((rc4_key = EVP_CIPHER_CTX_new()) == NULL) {
+            *minor_status = ENOMEM;
+            return GSS_S_FAILURE;
+        }
+	if (EVP_CIPHER_CTX_init(rc4_key) != 1 ||
+            EVP_CipherInit_ex(rc4_key, context->ossl->rc4, NULL, k6_data, NULL, 1) != 1 ||
+            /* Confounder */
+            EVP_Cipher(rc4_key, Confounder, p0 + 24, 8) != 1) {
+            EVP_CIPHER_CTX_free(rc4_key);
+            _krb5_debug_openssl(context, 4, "Could not decrypt with RC4 with OpenSSL");
+            *minor_status = KRB5_CRYPTO_INTERNAL;
+            return GSS_S_FAILURE;
+        }
 
 	/* Data */
 	for (i = 0; i < iov_count; i++) {
@@ -1329,22 +1426,31 @@ _gssapi_unwrap_iov_arcfour(OM_uint32 *minor_status,
 		continue;
 	    }
 
-	    EVP_Cipher(&rc4_key, iov[i].buffer.value,
-		       iov[i].buffer.value, iov[i].buffer.length);
+            if (EVP_Cipher(rc4_key, iov[i].buffer.value,
+                           iov[i].buffer.value, iov[i].buffer.length) != 1) {
+                EVP_CIPHER_CTX_free(rc4_key);
+                _krb5_debug_openssl(context, 4, "Could not decrypt with RC4 with OpenSSL");
+                *minor_status = KRB5_CRYPTO_INTERNAL;
+                return GSS_S_FAILURE;
+            }
 	}
 
 	/* Padding */
-	if (padding) {
-	    EVP_Cipher(&rc4_key, padding->buffer.value,
-		       padding->buffer.value, padding->buffer.length);
+	if (padding &&
+	    EVP_Cipher(rc4_key, padding->buffer.value,
+		       padding->buffer.value, padding->buffer.length) != 1) {
+            EVP_CIPHER_CTX_free(rc4_key);
+            _krb5_debug_openssl(context, 4, "Could not encrypt with RC4 with OpenSSL");
+            *minor_status = KRB5_CRYPTO_INTERNAL;
+            return GSS_S_FAILURE;
 	}
 
-	EVP_CIPHER_CTX_cleanup(&rc4_key);
+	EVP_CIPHER_CTX_free(rc4_key);
     } else {
 	/* Confounder */
 	memcpy(Confounder, p0 + 24, 8);
     }
-    memset(k6_data, 0, sizeof(k6_data));
+    memset_s(k6_data, sizeof(k6_data), 0, sizeof(k6_data));
 
     /* Prepare the buffer for signing */
     kret = arcfour_mic_cksum_iov(context,

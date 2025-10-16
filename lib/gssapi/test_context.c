@@ -37,7 +37,6 @@
 #include <gssapi.h>
 #include <gssapi_krb5.h>
 #include <gssapi_spnego.h>
-#include <gssapi_ntlm.h>
 #include "test_common.h"
 
 #ifdef NOTYET
@@ -1101,27 +1100,6 @@ main(int argc, char **argv)
 	mechoid = string_to_oid(mech_string);
 
     if (mechs_string == NULL) {
-        /*
-         * We ought to be able to use the OID set of the one mechanism
-         * OID given.  But there's some breakage that conspires to make
-         * that fail though it should succeed:
-         *
-         *  - the NTLM gss_acquire_cred() refuses to work with
-         *    desired_name == GSS_C_NO_NAME
-         *  - gss_acquire_cred() with desired_mechs == GSS_C_NO_OID_SET
-         *    does work here because we happen to have Kerberos
-         *    credentials in check-ntlm, and the subsequent
-         *    gss_init_sec_context() call finds no cred element for NTLM
-         *    but plows on anyways, surprisingly enough, and then the
-         *    NTLM gss_init_sec_context() just works.
-         *
-         * In summary, there's some breakage in gss_init_sec_context()
-         * and some breakage in NTLM that conspires against us here.
-         *
-         * We work around this in check-ntlm and check-spnego by adding
-         * --client-name=user1@${R} to the invocations of this test
-         * program that require it.
-         */
         oids[0] = *mechoid;
         mechoid_descs.elements = &oids[0];
         mechoid_descs.count = 1;

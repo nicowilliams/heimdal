@@ -42,11 +42,17 @@
 static hx509_context context;
 
 static char *stat_file_string;
+static char *ossl_cnf_string;
+static char *ossl_propq_string;
 static int version_flag;
 static int help_flag;
 
 struct getargs args[] = {
     { "statistic-file", 0, arg_string, &stat_file_string, NULL, NULL },
+    { "ossl-cnf", 0, arg_string, &ossl_cnf_string,
+      "OpenSSL configuration file", "FILE" },
+    { "ossl-propq", 0, arg_string, &ossl_propq_string,
+      "OpenSSL property query string", "PROPQ" },
     { "version", 0, arg_flag, &version_flag, NULL, NULL },
     { "help", 0, arg_flag, &help_flag, NULL, NULL }
 };
@@ -679,7 +685,7 @@ cms_create_enveloped(struct cms_envelope_options *opt, int argc, char **argv)
     ret = hx509_cms_envelope_1(context, flags, cert, p, sz, enctype,
 			       &contentType, &o);
     if (ret)
-	errx(1, "hx509_cms_envelope_1: %d", ret);
+	hx509_err(context, 1, ret, "hx509_cms_envelope_1: %d", ret);
 
     hx509_cert_free(cert);
     hx509_certs_free(&certs);
@@ -1354,7 +1360,7 @@ ocsp_verify(struct ocsp_verify_options *opt, int argc, char **argv)
 
     ret = _hx509_map_file_os(opt->ocsp_file_string, &os);
     if (ret)
-	err(1, "map_file: %s: %d", argv[0], ret);
+	hx509_err(context, 1, ret, "map_file: %s: %d", argv[0], ret);
 
     ret = hx509_certs_init(context, "MEMORY:test-certs", 0, NULL, &certs);
     if (ret) hx509_err(context, 1, ret, "hx509_certs_init: MEMORY");
@@ -1413,14 +1419,22 @@ get_key(const char *fn, const char *type, int optbits,
 
     if (type) {
         struct hx509_generate_private_context *gen_ctx = NULL;
+        const heim_oid *key_oid;
 
-	if (strcasecmp(type, "rsa") != 0)
-	    errx(1, "can only handle rsa keys for now");
+	if (strcasecmp(type, "rsa") == 0) {
+	    key_oid = ASN1_OID_ID_PKCS1_RSAENCRYPTION;
+	} else if (strcasecmp(type, "ec") == 0 || strcasecmp(type, "ecdsa") == 0) {
+	    key_oid = ASN1_OID_ID_ECPUBLICKEY;
+	} else if (strcasecmp(type, "ed25519") == 0) {
+	    key_oid = ASN1_OID_ID_ED25519;
+	} else if (strcasecmp(type, "ed448") == 0) {
+	    key_oid = ASN1_OID_ID_ED448;
+	} else {
+	    errx(1, "unsupported key type: %s (supported: rsa, ec, ed25519, ed448)", type);
+	}
 
-        ret = _hx509_generate_private_key_init(context,
-                                               ASN1_OID_ID_PKCS1_RSAENCRYPTION,
-                                               &gen_ctx);
-        if (ret == 0)
+        ret = _hx509_generate_private_key_init(context, key_oid, &gen_ctx);
+        if (ret == 0 && optbits > 0)
             ret = _hx509_generate_private_key_bits(context, gen_ctx, optbits);
         if (ret == 0)
             ret = _hx509_generate_private_key(context, gen_ctx, signer);
@@ -1455,7 +1469,7 @@ get_key(const char *fn, const char *type, int optbits,
         }
     } else {
         if (fn == NULL)
-            err(1, "no private key");
+            errx(1, "no private key");
         ret = read_private_key(fn, signer);
         if (ret)
             hx509_err(context, 1, ret, "failed to read private key from %s",
@@ -1647,24 +1661,73 @@ int
 info(void *opt, int argc, char **argv)
 {
 
-    ENGINE_add_conf_module();
+    OSSL_LIB_CTX *libctx = NULL;     /* use the default libctx */
+    const char   *propq   = NULL;    /* no property query; change to "fips=yes" if needed */
 
+    /* RSA */
     {
-	const RSA_METHOD *m = RSA_get_default_method();
-	if (m != NULL)
-	    printf("rsa: %s\n", m->name);
+        EVP_KEYMGMT *km = EVP_KEYMGMT_fetch(libctx, "RSA", propq);
+        if (km) {
+            const OSSL_PROVIDER *prov = EVP_KEYMGMT_get0_provider(km);
+            const char *pname = prov ? OSSL_PROVIDER_get0_name(prov) : "unknown";
+            printf("rsa: %s\n", pname);
+            EVP_KEYMGMT_free(km);
+        } else {
+            printf("rsa: unavailable\n");
+        }
     }
+
+    /* DH */
     {
-	const DH_METHOD *m = DH_get_default_method();
-	if (m != NULL)
-	    printf("dh: %s\n", m->name);
+        EVP_KEYMGMT *km = EVP_KEYMGMT_fetch(libctx, "DH", propq);
+        if (km) {
+            const OSSL_PROVIDER *prov = EVP_KEYMGMT_get0_provider(km);
+            const char *pname = prov ? OSSL_PROVIDER_get0_name(prov) : "unknown";
+            printf("dh: %s\n", pname);
+            EVP_KEYMGMT_free(km);
+        } else {
+            printf("dh: unavailable\n");
+        }
     }
+
+    /* DHX */
     {
-	printf("ecdsa: ECDSA_METHOD\n");
+        EVP_KEYMGMT *km = EVP_KEYMGMT_fetch(libctx, "DHX", propq);
+        if (km) {
+            const OSSL_PROVIDER *prov = EVP_KEYMGMT_get0_provider(km);
+            const char *pname = prov ? OSSL_PROVIDER_get0_name(prov) : "unknown";
+            printf("dh: %s\n", pname);
+            EVP_KEYMGMT_free(km);
+        } else {
+            printf("dh: unavailable\n");
+        }
     }
+
+    /* ECDSA (signature algorithm). If not available, fall back to EC key management. */
     {
-	int ret = RAND_status();
-	printf("rand: %s\n", ret == 1 ? "ok" : "not available");
+        EVP_SIGNATURE *sig = EVP_SIGNATURE_fetch(libctx, "ECDSA", propq);
+        if (sig) {
+            const OSSL_PROVIDER *prov = EVP_SIGNATURE_get0_provider(sig);
+            const char *pname = prov ? OSSL_PROVIDER_get0_name(prov) : "unknown";
+            printf("ecdsa: %s\n", pname);
+            EVP_SIGNATURE_free(sig);
+        } else {
+            EVP_KEYMGMT *ec = EVP_KEYMGMT_fetch(libctx, "EC", propq);
+            if (ec) {
+                const OSSL_PROVIDER *prov = EVP_KEYMGMT_get0_provider(ec);
+                const char *pname = prov ? OSSL_PROVIDER_get0_name(prov) : "unknown";
+                printf("ecdsa: %s\n", pname);
+                EVP_KEYMGMT_free(ec);
+            } else {
+                printf("ecdsa: unavailable\n");
+            }
+        }
+    }
+
+    /* Random source status (still fine to use in 3.x) */
+    {
+        int ret = RAND_status();
+        printf("rand: %s\n", ret == 1 ? "ok" : "not available");
     }
 
     return 0;
@@ -2212,8 +2275,16 @@ hxtool_ca(struct certificate_sign_options *opt, int argc, char **argv)
 	    sigalg = hx509_signature_rsa_with_sha1();
 	else if (strcasecmp(opt->signature_algorithm_string, "rsa-with-sha256") == 0)
 	    sigalg = hx509_signature_rsa_with_sha256();
+	else if (strcasecmp(opt->signature_algorithm_string, "rsa-with-sha384") == 0)
+	    sigalg = hx509_signature_rsa_with_sha384();
+	else if (strcasecmp(opt->signature_algorithm_string, "rsa-with-sha512") == 0)
+	    sigalg = hx509_signature_rsa_with_sha512();
+	else if (strcasecmp(opt->signature_algorithm_string, "ed25519") == 0)
+	    sigalg = hx509_signature_ed25519();
+	else if (strcasecmp(opt->signature_algorithm_string, "ed448") == 0)
+	    sigalg = hx509_signature_ed448();
 	else
-	    errx(1, "unsupported sigature algorithm");
+	    errx(1, "unsupported signature algorithm");
 	hx509_ca_tbs_set_signature_algorithm(context, tbs, sigalg);
     }
 
@@ -3231,6 +3302,13 @@ main(int argc, char **argv)
     ret = hx509_context_init(&context);
     if (ret)
 	errx(1, "hx509_context_init failed with %d", ret);
+
+    if (ossl_cnf_string || ossl_propq_string) {
+        ret = hx509_context_set_ossl_cnf_propq(context, ossl_cnf_string,
+                                               ossl_propq_string);
+	if (ret)
+	    errx(1, "hx509_context_set_ossl_cnf_propq failed with %d", ret);
+    }
 
     if (stat_file_string)
 	hx509_query_statistic_file(context, stat_file_string);

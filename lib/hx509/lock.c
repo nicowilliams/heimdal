@@ -33,6 +33,198 @@
 
 #include "hx_locl.h"
 
+/*
+ * lib/hcrypto.ui.c code here
+ */
+#include <signal.h>
+#ifdef HAVE_TERMIOS_H
+#include <termios.h>
+#endif
+
+#define UI_UTIL_FLAG_VERIFY         0x1 /* ask to verify password */
+#define UI_UTIL_FLAG_VERIFY_SILENT  0x2 /* silence on verify failure */
+
+#ifdef HAVE_CONIO_H
+#include <conio.h>
+#endif
+
+static sig_atomic_t intr_flag;
+
+static void
+intr(int sig)
+{
+    intr_flag++;
+}
+
+#ifdef HAVE_CONIO_H
+
+/*
+ * Windows does console slightly different then then unix case.
+ */
+
+static int
+read_string(const char *preprompt, const char *prompt,
+	    char *buf, size_t len, int echo)
+{
+    int of = 0;
+    int c;
+    char *p;
+    void (*oldsigintr)(int);
+
+    printf("%s%s", preprompt, prompt);
+    fflush(stdout);
+
+    oldsigintr = signal(SIGINT, intr);
+
+    p = buf;
+    while(intr_flag == 0){
+	c = ((echo)? _getche(): _getch());
+	if(c == '\n' || c == '\r')
+	    break;
+	if(of == 0)
+	    *p++ = c;
+	of = (p == buf + len);
+    }
+    if(of)
+	p--;
+    *p = 0;
+
+    if(echo == 0){
+	printf("\n");
+    }
+
+    signal(SIGINT, oldsigintr);
+
+    if(intr_flag)
+	return -2;
+    if(of)
+	return -1;
+    return 0;
+}
+
+#else /* !HAVE_CONIO_H */
+
+#ifndef NSIG
+#define NSIG 47
+#endif
+
+static int
+read_string(const char *preprompt, const char *prompt,
+	    char *buf, size_t len, int echo)
+{
+    struct sigaction sigs[NSIG];
+    int oksigs[NSIG];
+    struct sigaction sa;
+    FILE *tty;
+    int ret = 0;
+    int of = 0;
+    int i;
+    int c;
+    char *p;
+
+    struct termios t_new, t_old;
+
+    memset(&oksigs, 0, sizeof(oksigs));
+
+    memset(&sa, 0, sizeof(sa));
+    sa.sa_handler = intr;
+    sigemptyset(&sa.sa_mask);
+    sa.sa_flags = 0;
+    for(i = 1; i < sizeof(sigs) / sizeof(sigs[0]); i++)
+	if (i != SIGALRM)
+	    if (sigaction(i, &sa, &sigs[i]) == 0)
+		oksigs[i] = 1;
+
+    if((tty = fopen("/dev/tty", "r")) != NULL)
+	rk_cloexec_file(tty);
+    else
+	tty = stdin;
+
+    fprintf(stderr, "%s%s", preprompt, prompt);
+    fflush(stderr);
+
+    if(echo == 0){
+	tcgetattr(fileno(tty), &t_old);
+	memcpy(&t_new, &t_old, sizeof(t_new));
+	t_new.c_lflag &= ~ECHO;
+	tcsetattr(fileno(tty), TCSANOW, &t_new);
+    }
+    intr_flag = 0;
+    p = buf;
+    while(intr_flag == 0){
+	c = getc(tty);
+	if(c == EOF){
+	    if(!ferror(tty))
+		ret = 1;
+	    break;
+	}
+	if(c == '\n')
+	    break;
+	if(of == 0)
+	    *p++ = c;
+	of = (p == buf + len);
+    }
+    if(of)
+	p--;
+    *p = 0;
+
+    if(echo == 0){
+	fprintf(stderr, "\n");
+	tcsetattr(fileno(tty), TCSANOW, &t_old);
+    }
+
+    if(tty != stdin)
+	fclose(tty);
+
+    for(i = 1; i < sizeof(sigs) / sizeof(sigs[0]); i++)
+	if (oksigs[i])
+	    sigaction(i, &sigs[i], NULL);
+
+    if(ret)
+	return -3;
+    if(intr_flag)
+	return -2;
+    if(of)
+	return -1;
+    return 0;
+}
+
+#endif /* HAVE_CONIO_H */
+
+int
+_hx509_UI_UTIL_read_pw_string(char *buf, int length, const char *prompt, int verify)
+{
+    int ret;
+
+    ret = read_string("", prompt, buf, length, 0);
+    if (ret)
+	return ret;
+
+    if (verify & UI_UTIL_FLAG_VERIFY) {
+	char *buf2;
+	buf2 = malloc(length);
+	if (buf2 == NULL)
+	    return 1;
+
+	ret = read_string("Verify password - ", prompt, buf2, length, 0);
+	if (ret) {
+	    free(buf2);
+	    return ret;
+	}
+	if (strcmp(buf2, buf) != 0) {
+	    if (!(verify & UI_UTIL_FLAG_VERIFY_SILENT)) {
+		fprintf(stderr, "Verify failure\n");
+		fflush(stderr);
+	    }
+	    ret = 1;
+	}
+	free(buf2);
+    }
+    return ret;
+}
+
+/* lib/hcrypto/ui.c code over */
+
 /**
  * @page page_lock Locking and unlocking certificates and encrypted data.
  *
@@ -187,10 +379,10 @@ static int
 default_prompter(void *data, const hx509_prompt *prompter)
 {
     if (hx509_prompt_hidden(prompter->type)) {
-	if(UI_UTIL_read_pw_string(prompter->reply.data,
-				  prompter->reply.length,
-				  prompter->prompt,
-				  0))
+	if(_hx509_UI_UTIL_read_pw_string(prompter->reply.data,
+                                         prompter->reply.length,
+                                         prompter->prompt,
+                                         0))
 	    return 1;
     } else {
 	char *s = prompter->reply.data;
@@ -239,11 +431,47 @@ hx509_prompt_hidden(hx509_prompt_type type)
     }
 }
 
+static char *
+read_password_file(const char *fn)
+{
+    size_t n = 0;
+    char *s = NULL;
+    FILE *f;
+    int save_errno;
+
+    if ((f = fopen(fn, "r")) == NULL)
+        return NULL;
+
+    if (getline(&s, &n, f) > -1) {
+        char *nl = strchr(s, '\n');
+
+        if (nl) {
+            *nl = '\0';
+            if (nl > s && nl[-1] == '\r')
+                nl[-1] = '\0';
+        }
+    }
+    save_errno = errno;
+    (void) fclose(f);
+    errno = save_errno;
+    return s;
+}
+
 HX509_LIB_FUNCTION int HX509_LIB_CALL
 hx509_lock_command_string(hx509_lock lock, const char *string)
 {
     if (strncasecmp(string, "PASS:", 5) == 0) {
 	hx509_lock_add_password(lock, string + 5);
+    } else if (strncasecmp(string, "FILE:", 5) == 0) {
+        char *pass = read_password_file(string + sizeof("FILE:") - 1);
+
+        if (pass == NULL) {
+            warn("Could not read password from %s", string);
+            return errno;
+        }
+	hx509_lock_add_password(lock, pass);
+        memset(pass, 0, strlen(pass));
+        free(pass);
     } else if (strcasecmp(string, "PROMPT") == 0) {
 	hx509_lock_set_prompter(lock, default_prompter, NULL);
     } else

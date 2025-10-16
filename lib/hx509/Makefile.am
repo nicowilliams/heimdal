@@ -124,6 +124,7 @@ $(hxtool_OBJECTS): hxtool-commands.h $(nodist_include_HEADERS)
 hxtool_LDADD = \
 	libhx509template.la \
 	$(top_builddir)/lib/asn1/libasn1.la \
+	$(LIB_openssl_crypto) \
 	$(LIB_roken) \
 	$(top_builddir)/lib/sl/libsl.la
 
@@ -175,10 +176,10 @@ SCRIPT_TESTS = 			\
 	test_crypto		\
 	test_nist		\
 	test_nist2		\
-	test_pkcs11		\
 	test_java_pkcs11	\
 	test_nist_cert		\
 	test_nist_pkcs12	\
+	test_pkcs12_pbes2	\
 	test_req		\
 	test_windows		\
 	test_query
@@ -242,6 +243,11 @@ test_nist_pkcs12: test_nist_pkcs12.in Makefile
 	$(heim_verbose)chmod +x test_nist_pkcs12.tmp
 	mv test_nist_pkcs12.tmp test_nist_pkcs12
 
+test_pkcs12_pbes2: test_pkcs12_pbes2.in Makefile
+	$(do_subst) < $(srcdir)/test_pkcs12_pbes2.in > test_pkcs12_pbes2.tmp
+	$(heim_verbose)chmod +x test_pkcs12_pbes2.tmp
+	mv test_pkcs12_pbes2.tmp test_pkcs12_pbes2
+
 test_req: test_req.in Makefile
 	$(do_subst) < $(srcdir)/test_req.in > test_req.tmp
 	$(heim_verbose)chmod +x test_req.tmp
@@ -274,6 +280,7 @@ EXTRA_DIST = \
 	test_nist2.in \
 	test_nist_cert.in \
 	test_nist_pkcs12.in \
+	test_pkcs12_pbes2.in \
 	test_pkcs11.in \
 	test_java_pkcs11.in \
 	test_query.in \
