@@ -170,5 +170,5 @@ EXTRA_DIST = \
 	hdb_err.et \
 	hdb.schema \
 	version-script.map \
-	data-mkey.mit.des3.le \
-	data-mkey.mit.des3.be
+	data-mkey.mit.aes256.le \
+	data-mkey.mit.aes256.be
