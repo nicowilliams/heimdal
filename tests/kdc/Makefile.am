@@ -29,7 +29,6 @@ SCRIPT_TESTS = \
 	check-canon \
 	check-cc \
 	check-delegation \
-	check-des \
 	check-fast \
 	check-kadmin \
 	check-hdb-mitdb \
@@ -108,11 +107,6 @@ check-delegation: check-delegation.in Makefile
 	$(do_subst) < $(srcdir)/check-delegation.in > check-delegation.tmp && \
 	$(chmod) +x check-delegation.tmp && \
 	mv check-delegation.tmp check-delegation
-
-check-des: check-des.in Makefile krb5.conf
-	$(do_subst) < $(srcdir)/check-des.in > check-des.tmp && \
-	$(chmod) +x check-des.tmp && \
-	mv check-des.tmp check-des
 
 check-hdb-mitdb: check-hdb-mitdb.in Makefile krb5-hdb-mitdb.conf
 	$(do_subst) < $(srcdir)/check-hdb-mitdb.in > check-hdb-mitdb.tmp && \
@@ -249,7 +243,7 @@ krb5-hdb-mitdb.conf: krb5-hdb-mitdb.conf.in Makefile
 krb5-weak.conf: krb5.conf.in Makefile
 	$(do_subst) \
 	   -e 's,[@]WEAK[@],true,g' \
-	   -e 's,[@]dk[@],default_keys = aes256-cts-hmac-sha1-96:pw-salt arcfour-hmac-md5:pw-salt des3-cbc-sha1:pw-salt des:pw-salt,g' \
+	   -e 's,[@]dk[@],default_keys = aes256-cts-hmac-sha1-96:pw-salt,g' \
 	   -e 's,[@]messages[@],messages,g' \
 	   -e 's,[@]signalsocket[@],signal,g' \
 	   -e 's,[@]ipropstats[@],iprop-stats,g' \
@@ -387,7 +381,6 @@ EXTRA_DIST = \
 	check-canon.in \
 	check-cc.in \
 	check-delegation.in \
-	check-des.in \
 	check-fast.in \
 	check-hdb-mitdb.in \
 	check-httpkadmind.in \
