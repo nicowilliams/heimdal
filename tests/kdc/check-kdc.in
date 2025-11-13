@@ -151,10 +151,10 @@ add -p foo --use-defaults remove@${R}
 add -p nop --use-defaults ${server}@${R}
 cpw -p bla --keepold ${server}@${R}
 cpw -p kaka --keepold ${server}@${R}
-add -p kaka --use-defaults ${server}-des3@${R}
-add -p kaka --use-defaults kt-des3@${R}
-add -p kaka --use-defaults foo/des3-only@${R}
-add -p kaka --use-defaults bar/des3-only@${R}
+add -p kaka --use-defaults ${server}-aes128@${R}
+add -p kaka --use-defaults kt-aes@${R}
+add -p kaka --use-defaults foo/aes128-only@${R}
+add -p kaka --use-defaults bar/aes128-only@${R}
 add -p kaka --use-defaults foo/aes-only@${R}
 add -p sens --use-defaults --attributes=disallow-forwardable sensitive@${R}
 add -p foo --use-defaults ${ps}
@@ -264,13 +264,13 @@ ${EGREP} -v '^FILE:' tempfile | ${EGREP} -v '^Vno' | ${EGREP} -v '^$' | \
 ${kadmin} get foo@${R} > tempfile || exit 1
 enctypes=`grep Keytypes: tempfile | sed 's/(pw-salt)//g' | sed 's/,//g' | sed 's/Keytypes://' | sed 's/\[[0-9]*\]//g'`
 
-enctype_sans_aes=`echo $enctypes | sed 's/aes[^ ]*//g'`
-enctype_sans_des3=`echo $enctypes | sed 's/des3-cbc-sha1//g'`
+enctype_sans_aes_sha2=`echo $enctypes | sed 's/aes[^ ]*sha384[^ ]*//g'`
+enctype_sans_aes_sha1=`echo $enctypes | sed 's/aes[^ ]*sha1[^ ]*//g'`
 
-echo "deleting all but des enctypes on kt-des3 in keytab"
-${kadmin} ext -k ${keytab} kt-des3@${R} || exit 1
-for a in ${enctype_sans_des3} ; do
-   ${ktutil} -k ${keytab} remove -p kt-des3@${R} -e $a
+echo "deleting all but sha1 enctypes on kt-aes in keytab"
+${kadmin} ext -k ${keytab} kt-aes@${R} || exit 1
+for a in ${enctype_sans_aes_sha1}; do
+   ${ktutil} -k ${keytab} remove -p kt-aes@${R} -e $a
 done
 
 echo "checking globbing keys rules"
@@ -705,8 +705,8 @@ echo deleting all but aes enctypes on krbtgt
 ${kadmin} del_enctype krbtgt/${R}@${R} ${enctype_sans_aes} || exit 1
 
 echo deleting all but des enctypes on server-des3
-${kadmin} del_enctype ${server}-des3@${R} ${enctype_sans_des3} || exit 1
-${kadmin} ext -k ${keytab} ${server}-des3@${R} || exit 1
+${kadmin} del_enctype ${server}-aes-sha1@${R} ${enctype_sans_aes_sha1} || exit 1
+${kadmin} ext -k ${keytab} ${server}-aes-sha1@${R} || exit 1
 
 echo "try all permutations (only aes)"; > messages.log
 for a in $enctypes; do
