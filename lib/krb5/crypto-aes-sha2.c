@@ -170,7 +170,8 @@ struct _krb5_encryption_type _krb5_enctype_aes128_cts_hmac_sha256_128 = {
     "aes128-cts-sha256",
     16,
     1,
-    16,
+    16, // XXX WTF this is meant to be sizeof(struct _krb5_evp_schedule), which is 16 but ugh.
+        //     Let's just get rid of this field.
     &keytype_aes128_sha2,
     NULL, /* should never be called */
     &_krb5_checksum_hmac_sha256_128_aes128,
