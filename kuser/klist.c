@@ -341,7 +341,12 @@ print_cred_verbose(krb5_context context, krb5_creds *cred)
     } else {
 	Ticket t;
 	size_t len;
-	char *s;
+	char *s = NULL;
+
+	ret = krb5_enctype_to_string(context, cred->session.keytype, &s);
+	printf(N_("Ticket session etype: %s (%d)\n", ""),
+               ret == 0 ? s : "unknown-enctype", cred->session.keytype);
+        free(s);
 
 	decode_Ticket(cred->ticket.data, cred->ticket.length, &t, &len);
 	ret = krb5_enctype_to_string(context, t.enc_part.etype, &s);
