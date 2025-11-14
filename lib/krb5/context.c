@@ -856,11 +856,10 @@ KRB5_LIB_FUNCTION const krb5_enctype * KRB5_LIB_CALL
 krb5_kerberos_enctypes(krb5_context context)
 {
     static const krb5_enctype p[] = {
-	ETYPE_AES256_CTS_HMAC_SHA1_96,
-	ETYPE_AES128_CTS_HMAC_SHA1_96,
 	ETYPE_AES256_CTS_HMAC_SHA384_192,
 	ETYPE_AES128_CTS_HMAC_SHA256_128,
-	ETYPE_DES3_CBC_SHA1,
+	ETYPE_AES256_CTS_HMAC_SHA1_96,
+	ETYPE_AES128_CTS_HMAC_SHA1_96,
 	ETYPE_ARCFOUR_HMAC_MD5,
 	ETYPE_NULL
     };
@@ -870,12 +869,7 @@ krb5_kerberos_enctypes(krb5_context context)
 	ETYPE_AES128_CTS_HMAC_SHA1_96,
 	ETYPE_AES256_CTS_HMAC_SHA384_192,
 	ETYPE_AES128_CTS_HMAC_SHA256_128,
-	ETYPE_DES3_CBC_SHA1,
-	ETYPE_DES3_CBC_MD5,
 	ETYPE_ARCFOUR_HMAC_MD5,
-	ETYPE_DES_CBC_MD5,
-	ETYPE_DES_CBC_MD4,
-	ETYPE_DES_CBC_CRC,
 	ETYPE_NULL
     };
 
@@ -883,6 +877,9 @@ krb5_kerberos_enctypes(krb5_context context)
      * if the list of enctypes enabled by "allow_weak_crypto"
      * are valid, then return the former default enctype list
      * that contained the weak entries.
+     *
+     * XXX We should nuke all traces of dead code like this that references
+     *     1DES and 3DES.
      */
     if (krb5_enctype_valid(context, ETYPE_DES_CBC_CRC) == 0 &&
         krb5_enctype_valid(context, ETYPE_DES_CBC_MD4) == 0 &&
