@@ -80,6 +80,7 @@ echo Creating database
 # XXX ext should ext aliases too
 ${kadmin} <<EOF || exit 1
 init --realm-max-ticket-life=1day --realm-max-renewable-life=1month ${R}
+mod --attributes=+ok-as-delegate krbtgt/${R}@${R}
 add -p p1 --use-defaults host/lucid.test.h5l.se@${R}
 ext -k ${keytab} host/lucid.test.h5l.se@${R}
 add -p p1 --use-defaults host/ok-delegate.test.h5l.se@${R}
@@ -436,7 +437,7 @@ done
 echo "====== gss-api session key check"
 
 # this will break when oneone invents a cooler enctype then aes256-cts-hmac-sha1-96
-coolenctype="aes256-cts-hmac-sha384-192:pw-salt"
+coolenctype="aes256-cts-hmac-sha384-192"
 limit_enctype="aes256-cts-hmac-sha1-96"
 
 echo "Getting client initial tickets" ; > messages.log
