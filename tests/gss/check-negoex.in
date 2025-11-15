@@ -58,8 +58,6 @@ KRB5_KTNAME="${keytab}-no"
 export KRB5_KTNAME
 KRB5CCNAME="${cache}-no"
 export KRB5CCNAME
-unset NTLM_ACCEPTOR_CCACHE
-unset NTLM_USER_FILE
 
 GSSAPI_SPNEGO_NAME=host@host.test.h5l.se
 export GSSAPI_SPNEGO_NAME
