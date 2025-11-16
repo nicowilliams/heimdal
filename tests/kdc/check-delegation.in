@@ -81,6 +81,7 @@ add -p foo --use-defaults foo@${R}
 add -p cross1 --use-defaults krbtgt/${R2}@${R}
 add -p cross2 --use-defaults krbtgt/${R3}@${R2}
 add -p cross3 --use-defaults krbtgt/${R4}@${R3}
+modify --attributes=+ok-as-delegate krbtgt/${R}@${R}
 modify --attributes=+ok-as-delegate krbtgt/${R2}@${R}
 modify --attributes=+ok-as-delegate krbtgt/${R3}@${R2}
 add -p foo --use-defaults host/server.test3.h5l.se@${R3}
