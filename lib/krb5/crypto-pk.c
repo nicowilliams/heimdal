@@ -97,7 +97,7 @@ _krb5_pk_octetstring2key(krb5_context context,
     EVP_MD_CTX_destroy(m);
 
     ret = krb5_random_to_key(context, type, keydata, keylen, key);
-    memset_s(keydata, sizeof(keylen), 0, sizeof(keylen));
+    memset_s(keydata, keylen, 0, keylen);
     free(keydata);
     return ret;
 }
@@ -288,7 +288,7 @@ _krb5_pk_kdf(krb5_context context,
     free(other.data);
 
     ret = krb5_random_to_key(context, enctype, keydata, keylen, key);
-    memset_s(keydata, sizeof(keylen), 0, sizeof(keylen));
+    memset_s(keydata, keylen, 0, keylen);
     free(keydata);
 
     return ret;
