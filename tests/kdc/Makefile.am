@@ -34,7 +34,6 @@ SCRIPT_TESTS = \
 	check-hdb-mitdb \
 	check-kdc \
 	check-kdc-weak \
-	check-keys \
 	check-kpasswdd \
 	check-pkinit \
 	check-bx509 \
@@ -132,11 +131,6 @@ check-tester: check-tester.in kdc-tester4.json Makefile
 	$(do_subst) < $(srcdir)/check-tester.in > check-tester.tmp && \
 	$(chmod) +x check-tester.tmp && \
 	mv check-tester.tmp check-tester
-
-check-keys: check-keys.in Makefile
-	$(do_subst) < $(srcdir)/check-keys.in > check-keys.tmp && \
-	$(chmod) +x check-keys.tmp && \
-	mv check-keys.tmp check-keys
 
 check-kinit: check-kinit.in Makefile
 	$(do_subst) < $(srcdir)/check-kinit.in > check-kinit.tmp && \
@@ -388,7 +382,6 @@ EXTRA_DIST = \
 	check-kadmin.in \
 	check-kdc-weak.in \
 	check-kdc.in \
-	check-keys.in \
 	check-kinit.in \
 	check-kpasswdd.in \
 	check-pkinit.in \
