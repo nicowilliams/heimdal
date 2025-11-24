@@ -122,7 +122,7 @@ check-kdc: check-kdc.in Makefile
 	$(chmod) +x check-kdc.tmp && \
 	mv check-kdc.tmp check-kdc
 
-check-kdc-weak: check-kdc-weak.in Makefile
+check-kdc-weak: check-kdc krb5-weak.conf check-kdc-weak.in Makefile
 	$(do_subst) < $(srcdir)/check-kdc-weak.in > check-kdc-weak.tmp && \
 	$(chmod) +x check-kdc-weak.tmp && \
 	mv check-kdc-weak.tmp check-kdc-weak
@@ -237,7 +237,7 @@ krb5-hdb-mitdb.conf: krb5-hdb-mitdb.conf.in Makefile
 krb5-weak.conf: krb5.conf.in Makefile
 	$(do_subst) \
 	   -e 's,[@]WEAK[@],true,g' \
-	   -e 's,[@]dk[@],default_keys = aes256-cts-hmac-sha1-96:pw-salt,g' \
+           -e 's,[@]dk[@],default_keys = aes256-cts-hmac-sha1-96:pw-salt aes256-cts-hmac-sha384-192:pw-salt arcfour-hmac-md5:pw-salt,g' \
 	   -e 's,[@]messages[@],messages,g' \
 	   -e 's,[@]signalsocket[@],signal,g' \
 	   -e 's,[@]ipropstats[@],iprop-stats,g' \

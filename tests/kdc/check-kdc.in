@@ -46,7 +46,7 @@ fi
 KRB5_CONFIG="${1-${objdir}/krb5.conf}"
 export KRB5_CONFIG
 
-testfailed="echo test failed; cat messages.log; exit 1"
+testfailed="echo test failed; exit 1"
 
 # If there is no useful db support compiled in, disable test
 ${have_db} || exit 77
@@ -305,7 +305,6 @@ enctypes=`grep Keytypes: tempfile |
     sed 's/Keytypes://' |
     sed 's/ //g' |
     sed 's/\[[0-9]*\]//g'`
-echo HERE enctypes="$enctypes"
 if [ X"$enctypes" != Xaes256-cts-hmac-sha384-192 ] ; then
     echo "aes-sha2 only is not only aes-sha2: $enctypes"
     exit 1
