@@ -197,10 +197,12 @@ check_pidfile_is_dead () {
 
 wait_for_slave () {
     wait_for "iprop versions to change and/or slave to catch up" get_iprop_ver "$@"
+    sleep 1
 }
 
 wait_for_slave2 () {
     wait_for "iprop versions to change and/or second slave to catch up" get_iprop_ver2 "$@"
+    sleep 1
 }
 
 wait_for_master_down () {
