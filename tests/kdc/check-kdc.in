@@ -157,7 +157,7 @@ add -p foo --use-defaults remove@${R}
 add -p nop --use-defaults ${server}@${R}
 cpw -p bla --keepold ${server}@${R}
 cpw -p kaka --keepold ${server}@${R}
-add -p kaka --use-defaults ${server}-aes128@${R}
+add -p kaka --use-defaults ${server}-aes@${R}
 add -p kaka --use-defaults kt-aes@${R}
 add -p kaka --use-defaults foo/aes-sha1-only@${R}
 add -p kaka --use-defaults foo/aes-sha2-only@${R}
@@ -726,9 +726,9 @@ ${kadmin} delete rename@${R2} || exit 1
 echo deleting all but aes enctypes on krbtgt
 ${kadmin} del_enctype krbtgt/${R}@${R} ${enctype_sans_aes_sha2} || exit 1
 
-echo deleting all but aes-sha1 enctypes on server-aes128
-${kadmin} del_enctype ${server}-aes128@${R} ${enctype_sans_aes_sha1} || exit 1
-${kadmin} ext -k ${keytab} ${server}-aes128@${R} || exit 1
+echo deleting all but aes-sha1 enctypes on server-aes
+${kadmin} del_enctype ${server}-aes@${R} ${enctype_sans_aes_sha1} || exit 1
+${kadmin} ext -k ${keytab} ${server}-aes@${R} || exit 1
 
 echo "try all permutations (only aes)"; > messages.log
 for a in $enctypes; do
@@ -743,13 +743,13 @@ for a in $enctypes; do
 			{ ec=1 ; eval "${testfailed}"; }
 
 		echo "Getting tickets ($a ->  $b) (server aes-sha1 only)"; > messages.log
-		${kgetcred} ${server}-aes128@${R} || \
+		${kgetcred} ${server}-aes@${R} || \
 			{ ec=1 ; eval "${testfailed}"; }
-		${test_ap_req} ${server}-aes128@${R} ${keytab} ${cache} || \
+		${test_ap_req} ${server}-aes@${R} ${keytab} ${cache} || \
 			{ ec=1 ; eval "${testfailed}"; }
 
 		${kdestroy} --credential=${server}@${R}
-		${kdestroy} --credential=${server}-aes128@${R}
+		${kdestroy} --credential=${server}-aes@${R}
 	done
 	${kdestroy}
 done

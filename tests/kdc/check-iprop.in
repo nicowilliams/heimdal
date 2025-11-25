@@ -379,7 +379,7 @@ slave_get host/foo@${R} | \
 wait_for_slave2 4
 
 echo "Delete 3DES keys"
-${kadmin} -l del_enctype host/foo@${R} aes128-cts-hmac-sha1-96
+${kadmin} -l del_enctype host/foo@${R} aes256-cts-hmac-sha1-96
 wait_for_slave
 KRB5_CONFIG="${objdir}/krb5-slave.conf" \
 ${kadmin} -l get host/foo@${R} | \
@@ -388,7 +388,7 @@ ${kadmin} -l get host/foo@${R} | \
 ' | ${EGREP} 1234 > /dev/null || exit 1
 KRB5_CONFIG="${objdir}/krb5-slave.conf" \
 ${kadmin} -l get host/foo@${R} | \
-    ${EGREP} 'Keytypes:.*aes128-cts-hmac-sha1-96' > /dev/null && exit 1
+    ${EGREP} 'Keytypes:.*aes256-cts-hmac-sha1-96' > /dev/null && exit 1
 
 echo "Change policy host"
 ${kadmin} -l modify --policy=default host/foo@${R} || exit 1

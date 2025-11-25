@@ -198,12 +198,12 @@ get_via_POST() {
 }
 
 rm -f $kt $ukt
-$ktutil -k $keytab add -r -V 1 -e aes128-cts-hmac-sha1-96               \
+$ktutil -k $keytab add -r -V 1 -e aes256-cts-hmac-sha1-96               \
     -p HTTP/datan.test.h5l.se@${R} ||
     { echo "failed to setup kimpersonate credentials"; exit 2; }
 $ktutil -k $keytab list ||
     { echo "failed to setup kimpersonate credentials"; exit 2; }
-$kimpersonate --ccache=$cache -k $keytab -R -t aes128-cts-hmac-sha1-96  \
+$kimpersonate --ccache=$cache -k $keytab -R -t aes256-cts-hmac-sha1-96  \
    -c foo@${R} -s HTTP/datan.test.h5l.se@${R} ||
     { echo "failed to setup kimpersonate credentials"; exit 2; }
 $klist ||
