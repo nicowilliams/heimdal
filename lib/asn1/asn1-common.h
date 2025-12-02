@@ -75,6 +75,13 @@ enum asn1_print_flags {
     }                                                          \
   } while (0)
 
+#define ASN1_MALLOC_ENCODE_SAVE(T, S, L, R)                     \
+    do {                                                        \
+        der_free_octet_string(&(S)->_save);                     \
+        ASN1_MALLOC_ENCODE(T, (S)->_save.data,                  \
+                           (S)->_save.length, (S), (L), (R));   \
+    } while (0)
+
 #ifdef _WIN32
 #ifndef ASN1_LIB
 #define ASN1EXP  __declspec(dllimport)
