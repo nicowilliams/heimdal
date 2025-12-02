@@ -273,6 +273,13 @@ init_generate (const char *filename, const char *base)
 	  "    }                                                          \\\n"
 	  "  } while (0)\n\n",
 	  headerfile);
+    fputs("#define ASN1_MALLOC_ENCODE_SAVE(T, S, L, R)                     \\\n"
+          "    do {                                                        \\\n"
+          "        der_free_octet_string(&(S)->_save);                     \\\n"
+          "        ASN1_MALLOC_ENCODE(T, (S)->_save.data,                  \\\n"
+          "                           (S)->_save.length, (S), (L), (R));   \\\n"
+          "    } while (0)\n\n",
+          headerfile);
     fputs("#ifdef _WIN32\n"
 	  "#ifndef ASN1_LIB\n"
 	  "#define ASN1EXP  __declspec(dllimport)\n"
