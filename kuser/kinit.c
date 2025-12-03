@@ -85,6 +85,8 @@ static int enterprise_flag = 0;
 static int ok_as_delegate_flag = 0;
 static char *fast_armor_cache_string = NULL;
 static int use_referrals_flag = 0;
+static char *dh_alg = NULL;
+static char *kdf_alg = NULL;
 static int windows_flag = 0;
 
 
@@ -210,6 +212,12 @@ static struct getargs args[] = {
 
     { "use-referrals",	0,  arg_flag, &use_referrals_flag,
       NP_("only use referrals, no dns canonicalisation", ""), NULL },
+
+    { "key-agreement",	0,  arg_string, &dh_alg,
+      "request given PKINIT key agreement algorithm", "ALGORITHM" },
+
+    { "kdf",	0,  arg_string, &kdf_alg,
+      "request given PKINIT key derivation algorithm", "ALGORITHM" },
 
     { "windows",	0,  arg_flag, &windows_flag,
       NP_("get windows behavior", ""), NULL },
@@ -850,6 +858,11 @@ get_new_tickets(krb5_context context,
 	}
 	if (ent_user_id)
 	    krb5_get_init_creds_opt_set_pkinit_user_certs(context, opt, ent_user_id);
+        if (dh_alg || kdf_alg) {
+            ret = krb5_get_init_creds_opt_set_pkinit_allowed_algs(context, opt,
+                                                                  dh_alg, NULL,
+                                                                  kdf_alg);
+        }
     }
 
     if (addrs_flag != -1)
