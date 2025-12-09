@@ -56,7 +56,7 @@ kinit="${TESTS_ENVIRONMENT} ../../kuser/kinit -c $cache ${afs_no_afslog}"
 kdestroy="${TESTS_ENVIRONMENT} ../../kuser/kdestroy -c $cache"
 klist="${TESTS_ENVIRONMENT} ../../kuser/heimtools klist -c $cache"
 kgetcred="${TESTS_ENVIRONMENT} ../../kuser/kgetcred -c $cache"
-kadmin="${TESTS_ENVIRONMENT} ../../kadmin/kadmin -l -r $R"
+kadmin="${TESTS_ENVIRONMENT} ../../kadmin/kadmin -l -A -r $R"
 kdc="${TESTS_ENVIRONMENT} ../../kdc/kdc --addresses=localhost -P $port"
 ktutil="${TESTS_ENVIRONMENT} ../../admin/ktutil"
 
