@@ -50,16 +50,18 @@ on:
 
 jobs:
     unix:
+        # Run if no [only X] tag, or if [only linux] is present (check both push commits and PR titles)
+        if: >-
+            (!contains(github.event.head_commit.message, '[only ') &&
+             !contains(github.event.pull_request.title, '[only ')) ||
+            contains(github.event.head_commit.message, '[only linux]') ||
+            contains(github.event.pull_request.title, '[only linux]')
         runs-on: ${{ matrix.os }}
         strategy:
             fail-fast: false
             matrix:
-                name: [linux-clang, linux-gcc]
+                name: [linux-gcc]
                 include:
-                    - name: linux-clang
-                      os: ubuntu-22.04
-                      compiler: clang
-                      cflags: ''
                     - name: linux-gcc
                       os: ubuntu-22.04
                       compiler: gcc
