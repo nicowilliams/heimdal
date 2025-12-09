@@ -334,6 +334,7 @@ static int daemon_child_fd = -1;
 static int local_hdb;
 static int local_hdb_read_only;
 static int read_only;
+static int async;
 static int verbose_counter;
 static int version_flag;
 static int reverse_proxied_flag;
@@ -398,6 +399,8 @@ get_kadm_handle(krb5_context context,
     set_conf(conf, realm, want_realm, KADM5_CONFIG_REALM);
     set_conf(conf, dbname, hdb, KADM5_CONFIG_DBNAME);
     set_conf(conf, stash_file, stash_file, KADM5_CONFIG_STASH_FILE);
+    if (async)
+        conf.mask |= KADM5_CONFIG_ASYNC_HDB_WRITES;
 
     /*
      * If we have a local HDB we'll use it if we can.  If the local HDB is
@@ -2330,6 +2333,7 @@ static struct getargs args[] = {
     { "local-read-only", 0, arg_flag, &local_hdb_read_only,
         "Use a local HDB as read-only", NULL },
     { "read-only", 0, arg_flag, &read_only, "Allow no writes", NULL },
+    { "async", 'A', arg_flag, &async, "Write to HDB asynchronously", NULL },
     { "stash-file", 0, arg_string, &stash_file,
         "Stash file for HDB", "PATH" },
     { "kadmin-client-name", 0, arg_string, &kadmin_client_name,
