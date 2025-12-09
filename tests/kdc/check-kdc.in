@@ -70,7 +70,7 @@ port=@port@
 pwport=@pwport@
 
 kadmin5="${kadmin} -l -r $R5"
-kadmin="${kadmin} -l -r $R"
+kadmin="${kadmin} -l -A -r $R"
 kdc="${kdc} --addresses=localhost -P $port"
 kpasswdd="${kpasswdd} --addresses=localhost -p $pwport"
 

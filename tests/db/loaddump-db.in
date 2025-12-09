@@ -42,7 +42,7 @@ objdir="@objdir@"
 
 R=EXAMPLE.ORG
 
-kadmin="../../kadmin/kadmin -l -r $R"
+kadmin="../../kadmin/kadmin -l -A -r $R"
 kstash="../../kdc/kstash"
 hprop="../../kdc/hprop"
 hpropd="../../kdc/hpropd"
