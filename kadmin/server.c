@@ -34,6 +34,8 @@
 #include "kadmin_locl.h"
 #include <krb5-private.h>
 
+extern int async_flag;
+
 static kadm5_ret_t check_aliases(kadm5_server_context *,
                                  kadm5_principal_ent_rec *,
                                  kadm5_principal_ent_rec *);
@@ -1111,6 +1113,8 @@ handle_v5(krb5_context contextp,
             krb5_free_ticket(contextp, ticket);
             return;
         }
+        if (async_flag)
+            realm_params.mask |= KADM5_CONFIG_ASYNC_HDB_WRITES;
     }
 
     initial = ticket->ticket.flags.initial;
