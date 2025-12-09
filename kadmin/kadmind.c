@@ -48,6 +48,7 @@ static char *fuzz_keytab_name;
 static char *fuzz_service_name;
 static char *fuzz_admin_server;
 #endif
+int async_flag;
 static int help_flag;
 static int version_flag;
 static int debug_flag;
@@ -71,6 +72,7 @@ static struct getargs args[] = {
     {	"realm",	'r',	arg_string,   &realm,
 	"realm to use", "realm"
     },
+    {	"async", 'A', arg_flag, &async_flag, "do not fsync HDB writes", NULL },
 #ifdef HAVE_DLOPEN
     { "check-library", 0, arg_string, &check_library,
       "library to load password check function from", "library" },
