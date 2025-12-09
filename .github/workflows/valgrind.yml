@@ -24,7 +24,7 @@ jobs:
                       compiler: clang
         steps:
             - name: Clone repository
-              uses: actions/checkout@v1
+              uses: actions/checkout@v4
             - name: Install packages
               if: startsWith(matrix.os, 'ubuntu')
               run: |
@@ -67,5 +67,5 @@ jobs:
             - name: Upload Artifacts
               uses: actions/upload-artifact@v4
               with:
-                name: Test Logs
+                name: Test Logs (valgrind)
                 path: '~/logs-linux-valgrind.tgz'

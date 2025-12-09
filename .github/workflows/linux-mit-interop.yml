@@ -19,9 +19,9 @@ jobs:
                       cflags: ''
         steps:
             - name: Clone repository
-              uses: actions/checkout@v1
+              uses: actions/checkout@v4
             - name: Checkout MIT
-              uses: actions/checkout@v3
+              uses: actions/checkout@v4
               with:
                 repository: krb5/krb5
                 path: mit
@@ -103,15 +103,15 @@ jobs:
             - name: Upload Install Tarball
               uses: actions/upload-artifact@v4
               with:
-                name: Install Tarball
+                name: Install Tarball (mit-interop)
                 path: '~/heimdal-install-linux-${{ matrix.compiler }}.tgz'
             - name: Upload Dist Tarball
               uses: actions/upload-artifact@v4
               with:
-                name: Dist Tarball
+                name: Dist Tarball (mit-interop)
                 path: 'build/heimdal-*.tar.gz'
             - name: Upload Logs Tarball
               uses: actions/upload-artifact@v4
               with:
-                name: Test Logs
+                name: Test Logs (mit-interop)
                 path: '~/logs-linux-${{ matrix.compiler }}.tgz'
