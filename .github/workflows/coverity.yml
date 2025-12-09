@@ -7,8 +7,29 @@ on:
          - 'coverity*'
 
 jobs:
+    secrets-gate:
+        runs-on: ubuntu-latest
+        outputs:
+            ok: ${{ steps.check-secrets.outputs.ok }}
+        steps:
+            - name: Check for Coverity token
+              id: check-secrets
+              env:
+                  TOKEN: ${{ secrets.COVERITY_SCAN_TOKEN }}
+              run: |
+                  if [ -n "$TOKEN" ]; then
+                      echo "ok=true" >> $GITHUB_OUTPUT
+                  fi
+
     linux:
-        #if: ${{ secrets.COVERITY_SCAN_TOKEN }} != ''
+        needs: [secrets-gate]
+        # Run if token exists AND (no [only X] tag, or [only coverity] is present)
+        if: >-
+            needs.secrets-gate.outputs.ok == 'true' &&
+            ((!contains(github.event.head_commit.message, '[only ') &&
+              !contains(github.event.pull_request.title, '[only ')) ||
+             contains(github.event.head_commit.message, '[only coverity]') ||
+             contains(github.event.pull_request.title, '[only coverity]'))
         runs-on: ${{ matrix.os }}
         strategy:
             fail-fast: false
