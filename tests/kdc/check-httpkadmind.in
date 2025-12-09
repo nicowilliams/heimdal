@@ -76,11 +76,11 @@ ukeytab=FILE:${ukt}
 
 kdc="${kdc} --addresses=localhost -P $port"
 kadminr="${kadmin} -r $R -a $(uname -n)"
-kadmin="${kadmin} -l -r $R"
+kadmin="${kadmin} -l -A -r $R"
 kadmind2="${kadmind} --keytab=${keytab} --detach -p $admport2 --read-only"
-kadmind="${kadmind} --keytab=${keytab} --detach -p $admport"
-httpkadmind2="${httpkadmind} --reverse-proxied -T Negotiate -p $restport2"
-httpkadmind="${httpkadmind} --reverse-proxied -T Negotiate -p $restport1"
+kadmind="${kadmind} -A --keytab=${keytab} --detach -p $admport"
+httpkadmind2="${httpkadmind} -A --reverse-proxied -T Negotiate -p $restport2"
+httpkadmind="${httpkadmind} -A --reverse-proxied -T Negotiate -p $restport1"
 
 kinit2="${kinit} -c $cache2 ${afs_no_afslog}"
 kinit="${kinit} -c $cache ${afs_no_afslog}"
