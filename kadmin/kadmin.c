@@ -38,6 +38,7 @@
 static char *config_file;
 static char *keyfile;
 int local_flag;
+static int async_flag;
 static int ad_flag;
 static int help_flag;
 static int version_flag;
@@ -91,6 +92,7 @@ static struct getargs args[] = {
       "password check function to load", "function" },
 #endif
     {	"local", 'l', arg_flag, &local_flag, "local admin mode", NULL },
+    {	"async", 'A', arg_flag, &async_flag, "local admin mode (no fsyncs)", NULL },
     {	"help",		'h',	arg_flag,   &help_flag, NULL, NULL },
     {	"version",	'v',	arg_flag,   &version_flag, NULL, NULL }
 };
@@ -202,6 +204,9 @@ main(int argc, char **argv)
 	krb5_err(context, 1, ret, "reading configuration files");
 
     memset(&conf, 0, sizeof(conf));
+    if (async_flag)
+        conf.mask |= KADM5_CONFIG_ASYNC_HDB_WRITES;
+
     if(realm) {
 	krb5_set_default_realm(context, realm); /* XXX should be fixed
 						   some other way */
