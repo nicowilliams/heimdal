@@ -72,8 +72,10 @@ jobs:
                 echo "bison, flex, ncurses, texinfo, and unzip are in the base OS."
                 echo "berkeley-db, perl, python3, curl, and jq are installed in the"
                 echo "base image already."
-                brew install autoconf automake libtool cpanm texinfo texi2html
+                brew install autoconf automake libtool cpanm texinfo texi2html bash
                 sudo cpanm install JSON
+                # Use Homebrew bash for tests (much faster than /bin/bash on macOS)
+                echo "$(brew --prefix)/bin" >> $GITHUB_PATH
             - name: Clone repository
               uses: actions/checkout@v4
             - name: Build
@@ -95,12 +97,15 @@ jobs:
             #  with:
             #      limit-access-to-actor: true
             - name: Test
+              shell: bash
               env:
                 CC: ${{ matrix.compiler }}
                 MAKEVARS: ${{ matrix.makevars }}
                 CONFIGURE_OPTS:  ${{ matrix.configureopts }}
               run: |
                 set -vx
+                # Verify we're using Homebrew bash (faster than system bash)
+                echo "Using bash: $(which bash) version $BASH_VERSION"
                 sudo lsof -nP -i:49188 || true
                 cd build
                 make check
