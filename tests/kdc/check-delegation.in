@@ -46,7 +46,7 @@ R4=TEST4.H5L.SE
 
 port=@port@
 
-kadmin="${kadmin} -l -r ${R}"
+kadmin="${kadmin} -l -A -r ${R}"
 kdc="${kdc} --addresses=localhost -P $port"
 
 server=host/datan.test4.h5l.se@TEST4.H5L.ORG

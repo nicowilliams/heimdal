@@ -53,7 +53,7 @@ bx509port=@bx509port@
 server=datan.test.h5l.se
 otherserver=other.test.h5l.se
 
-kadmin="${kadmin} -l -r $R"
+kadmin="${kadmin} -l -A -r $R"
 bx509d="${bx509d} --allow-GET --reverse-proxied -p $bx509port -H $server --cert=${objdir}/bx509.pem -t"
 kdc="${kdc} --addresses=localhost -P $port"
 

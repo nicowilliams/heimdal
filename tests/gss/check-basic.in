@@ -54,7 +54,7 @@ cache="FILE:krb5ccfile"
 cache2="FILE:krb5ccfile2"
 nocache="FILE:no-such-cache"
 
-kadmin="${kadmin} -l -r $R"
+kadmin="${kadmin} -l -A -r $R"
 kdc="${kdc} --addresses=localhost -P $port"
 
 acquire_cred="${TESTS_ENVIRONMENT} ../../lib/gssapi/test_acquire_cred"
