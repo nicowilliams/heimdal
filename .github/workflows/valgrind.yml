@@ -13,6 +13,12 @@ on:
 
 jobs:
     unix:
+        # Run if no [only X] tag, or if [only valgrind] is present (check both push commits and PR titles)
+        if: >-
+            (!contains(github.event.head_commit.message, '[only ') &&
+             !contains(github.event.pull_request.title, '[only ')) ||
+            contains(github.event.head_commit.message, '[only valgrind]') ||
+            contains(github.event.pull_request.title, '[only valgrind]')
         runs-on: ${{ matrix.os }}
         strategy:
             fail-fast: false
