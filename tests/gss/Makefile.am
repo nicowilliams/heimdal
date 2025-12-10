@@ -17,6 +17,7 @@ port = 49188
 do_subst = srcdirabs=`cd "$(srcdir)"; pwd`; objdirabs=`pwd`; sed \
 	-e 's,[@]srcdir[@],$(srcdir),g' \
 	-e "s,[@]srcdirabs[@],$${srcdirabs},g" \
+	-e 's,[@]top_srcdir[@],$(top_srcdir),g' \
 	-e 's,[@]env_setup[@],$(top_builddir)/tests/bin/setup-env,g' \
 	-e 's,[@]port[@],$(port),g' \
 	-e 's,[@]objdir[@],$(top_builddir)/tests/gss,g' \
@@ -86,13 +87,15 @@ CLEANFILES= \
 	mech \
 	current-db* \
 	*.log \
+	*.pid \
 	tempfile \
 	check-basic.tmp \
 	check-nodns.tmp \
 	check-gss.tmp \
 	check-gssmask.tmp \
 	check-spnego.tmp \
-	check-context.tmp
+	check-context.tmp \
+	check-negoex.tmp
 
 EXTRA_DIST = \
 	NTMakefile \
@@ -104,6 +107,7 @@ EXTRA_DIST = \
 	check-context.in \
 	check-negoex.in \
 	krb5.conf.in \
+	krb5-nodns.conf.in \
 	include-krb5.conf \
 	new_clients_k5.conf.in \
 	mech.in
