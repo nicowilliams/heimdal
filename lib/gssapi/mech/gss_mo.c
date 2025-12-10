@@ -418,12 +418,13 @@ test_mech_attrs(gssapi_mech_interface mi,
                 int except)
 {
     size_t n, m;
-    int eq = 0;
 
     if (against_attrs == GSS_C_NO_OID_SET)
         return 1;
 
     for (n = 0; n < against_attrs->count; n++) {
+        int eq = 0;
+
         for (m = 0; m < mi->gm_mo_num; m++) {
             eq = gss_oid_equal(mi->gm_mo[m].option,
                                &against_attrs->elements[n]);
