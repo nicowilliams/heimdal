@@ -1198,6 +1198,12 @@ ROKEN_LIB_FUNCTION void ROKEN_LIB_CALL
 mini_inetd_addrinfo (struct addrinfo*, rk_socket_t *);
 
 ROKEN_LIB_FUNCTION void ROKEN_LIB_CALL
+mini_inetd_addrinfo_listen (struct addrinfo *, rk_socket_t **, int *);
+
+ROKEN_LIB_FUNCTION void ROKEN_LIB_CALL
+mini_inetd_accept (rk_socket_t *, int, rk_socket_t *);
+
+ROKEN_LIB_FUNCTION void ROKEN_LIB_CALL
 mini_inetd (int, rk_socket_t *);
 
 #ifndef HAVE_LOCALTIME_R
