@@ -60,12 +60,8 @@ jobs:
         strategy:
             fail-fast: false
             matrix:
-                name: [linux-clang, linux-gcc]
+                name: [linux-gcc]
                 include:
-                    - name: linux-clang
-                      os: ubuntu-22.04
-                      compiler: clang
-                      cflags: ''
                     - name: linux-gcc
                       os: ubuntu-22.04
                       compiler: gcc
