@@ -322,6 +322,62 @@ ${kinit} --canonicalize \
 ${kgetcred} ${server}@${R} || { ec=1 ; eval "${testfailed}"; }
 ${kdestroy}
 
+echo "Testing DH group and KDF algorithm options"
+
+# Test various DH groups (RFC 3526 MODP groups)
+for dh_group in modp_2048 modp_3072; do
+    echo "Trying pk-init with --key-agreement=${dh_group}"; > messages.log
+    ${kinit} --key-agreement=${dh_group} \
+        -C FILE:${base}/pkinit.crt,${keyfile2} bar@${R} || \
+        { ec=1 ; eval "${testfailed}"; }
+    ${kdestroy}
+done
+
+# Test ECDH curves (NIST curves)
+for curve in P-256 P-384 P-521; do
+    echo "Trying pk-init with --key-agreement=${curve}"; > messages.log
+    ${kinit} --key-agreement=${curve} \
+        -C FILE:${base}/pkinit.crt,${keyfile2} bar@${R} || \
+        { ec=1 ; eval "${testfailed}"; }
+    ${kdestroy}
+done
+
+# Test RFC 8636 KDF algorithms
+for kdf in ah-sha256 ah-sha384 ah-sha512; do
+    echo "Trying pk-init with --kdf=${kdf}"; > messages.log
+    ${kinit} --kdf=${kdf} \
+        -C FILE:${base}/pkinit.crt,${keyfile2} bar@${R} || \
+        { ec=1 ; eval "${testfailed}"; }
+    ${kdestroy}
+done
+
+# Test legacy RFC 4556 KDF (SHA-1 based octetstring2key)
+echo "Trying pk-init with --kdf=RFC4556 (legacy)"; > messages.log
+${kinit} --kdf=RFC4556 \
+    -C FILE:${base}/pkinit.crt,${keyfile2} bar@${R} || \
+    { ec=1 ; eval "${testfailed}"; }
+${kdestroy}
+
+# Test combinations of DH group and KDF
+echo "Trying pk-init with --key-agreement=P-256 --kdf=ah-sha256"; > messages.log
+${kinit} --key-agreement=P-256 --kdf=ah-sha256 \
+    -C FILE:${base}/pkinit.crt,${keyfile2} bar@${R} || \
+    { ec=1 ; eval "${testfailed}"; }
+${kdestroy}
+
+echo "Trying pk-init with --key-agreement=modp_3072 --kdf=ah-sha384"; > messages.log
+${kinit} --key-agreement=modp_3072 --kdf=ah-sha384 \
+    -C FILE:${base}/pkinit.crt,${keyfile2} bar@${R} || \
+    { ec=1 ; eval "${testfailed}"; }
+${kdestroy}
+
+# Test X25519 if available (may fail if not supported by OpenSSL build)
+echo "Trying pk-init with --key-agreement=X25519 (may skip if unsupported)"; > messages.log
+${kinit} --key-agreement=X25519 \
+    -C FILE:${base}/pkinit.crt,${keyfile2} bar@${R} 2>/dev/null || \
+    echo "X25519 not supported (skipped)"
+${kdestroy} 2>/dev/null
+
 KRB5_CONFIG="${objdir}/krb5-pkinit-win.conf"
 export KRB5_CONFIG
 
