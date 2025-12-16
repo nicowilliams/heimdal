@@ -3243,6 +3243,42 @@ hx509_query_match_cmp_func(hx509_query *q,
 }
 
 /**
+ * Set the query controller to match certificates with the specified
+ * public key algorithm.
+ *
+ * @param q a hx509 query controller
+ * @param oid the public key algorithm OID to match, or NULL to clear
+ *
+ * @return An hx509 error code, see hx509_get_error_string().
+ *
+ * @ingroup hx509_cert
+ */
+
+HX509_LIB_FUNCTION int HX509_LIB_CALL
+hx509_query_match_key_algorithm(hx509_query *q, const heim_oid *oid)
+{
+    if (q->key_alg) {
+	der_free_oid(q->key_alg);
+	free(q->key_alg);
+	q->key_alg = NULL;
+    }
+    if (oid) {
+	q->key_alg = malloc(sizeof(*q->key_alg));
+	if (q->key_alg == NULL)
+	    return ENOMEM;
+	if (der_copy_oid(oid, q->key_alg)) {
+	    free(q->key_alg);
+	    q->key_alg = NULL;
+	    return ENOMEM;
+	}
+	q->match |= HX509_QUERY_MATCH_KEY_ALG;
+    } else {
+	q->match &= ~HX509_QUERY_MATCH_KEY_ALG;
+    }
+    return 0;
+}
+
+/**
  * Free the query controller.
  *
  * @param context A hx509 context.
@@ -3273,6 +3309,10 @@ hx509_query_free(hx509_context context, hx509_query *q)
 	free(q->friendlyname);
     if (q->expr)
 	_hx509_expr_free(q->expr);
+    if (q->key_alg) {
+	der_free_oid(q->key_alg);
+	free(q->key_alg);
+    }
 
     memset(q, 0, sizeof(*q));
     free(q);
@@ -3422,6 +3462,14 @@ _hx509_query_match_cert(hx509_context context, const hx509_query *q, hx509_cert 
 	ret = _hx509_expr_eval(context, env, q->expr);
 	hx509_env_free(&env);
 	if (ret == 0)
+	    return 0;
+    }
+
+    if (q->match & HX509_QUERY_MATCH_KEY_ALG) {
+	const AlgorithmIdentifier *alg;
+
+	alg = &c->tbsCertificate.subjectPublicKeyInfo.algorithm;
+	if (der_heim_oid_cmp(&alg->algorithm, q->key_alg) != 0)
 	    return 0;
     }
 

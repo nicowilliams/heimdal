@@ -242,6 +242,7 @@ HEIMDAL_X509_1.2 {
 		hx509_query_match_expr;
 		hx509_query_match_friendly_name;
 		hx509_query_match_issuer_serial;
+		hx509_query_match_key_algorithm;
 		hx509_query_match_option;
 		hx509_query_statistic_file;
 		hx509_query_unparse_stats;
