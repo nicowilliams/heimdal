@@ -293,6 +293,8 @@ static const char *priv_key_file;
 static const char *cache_dir;
 static const char *csrf_key_file;
 static char *impersonation_key_fn;
+static const char *impersonation_key_type;
+static int impersonation_key_bits;
 
 static unsigned char csrf_key[16];
 
@@ -382,20 +384,37 @@ generate_key(hx509_context context,
     hx509_private_key key = NULL;
     hx509_certs certs = NULL;
     hx509_cert cert = NULL;
+    const heim_oid *key_oid;
     int ret;
 
-    if (strcmp(gen_type, "rsa") != 0)
-        errx(1, "Only RSA keys are supported at this time");
+    /* Map key type string to OID */
+    if (gen_type == NULL || strcasecmp(gen_type, "rsa") == 0) {
+        key_oid = ASN1_OID_ID_PKCS1_RSAENCRYPTION;
+        if (gen_bits == 0)
+            gen_bits = 2048;
+    } else if (strcasecmp(gen_type, "ec") == 0 ||
+               strcasecmp(gen_type, "ecdsa") == 0) {
+        key_oid = ASN1_OID_ID_ECPUBLICKEY;
+        if (gen_bits == 0)
+            gen_bits = 256;  /* P-256 by default */
+    } else if (strcasecmp(gen_type, "ed25519") == 0) {
+        key_oid = ASN1_OID_ID_ED25519;
+        gen_bits = 0;  /* Ed25519 has fixed size */
+    } else if (strcasecmp(gen_type, "ed448") == 0) {
+        key_oid = ASN1_OID_ID_ED448;
+        gen_bits = 0;  /* Ed448 has fixed size */
+    } else {
+        errx(1, "Unsupported key type: %s (supported: rsa, ec, ed25519, ed448)",
+             gen_type);
+    }
 
     if (asprintf(fn, "PEM-FILE:%s/.%s_priv_key.pem",
                  cache_dir, key_name) == -1 ||
         *fn == NULL)
         err(1, "Could not set up private key for %s", key_name);
 
-    ret = _hx509_generate_private_key_init(context,
-                                           ASN1_OID_ID_PKCS1_RSAENCRYPTION,
-                                           &key_gen_ctx);
-    if (ret == 0)
+    ret = _hx509_generate_private_key_init(context, key_oid, &key_gen_ctx);
+    if (ret == 0 && gen_bits > 0)
         ret = _hx509_generate_private_key_bits(context, key_gen_ctx, gen_bits);
     if (ret == 0)
         ret = _hx509_generate_private_key(context, key_gen_ctx, &key);
@@ -2738,6 +2757,10 @@ static struct getargs args[] = {
         "private key file path (PEM)", "HX509-STORE" },
     { "thread-per-client", 't', arg_flag, &thread_per_client_flag,
         "thread per-client", "use thread per-client" },
+    { "impersonation-key-type", 0, arg_string, &impersonation_key_type,
+        "impersonation key type (rsa, ec, ed25519, ed448)", "TYPE" },
+    { "impersonation-key-bits", 0, arg_integer, &impersonation_key_bits,
+        "impersonation key size/curve (default: 2048 for RSA, 256 for EC)", "BITS" },
     { "verbose", 'v', arg_counter, &verbose_counter, "verbose", "run verbosely" }
 };
 
@@ -2982,7 +3005,27 @@ main(int argc, char **argv)
         setenv("TMPDIR", cache_dir, 1);
     }
 
-    generate_key(context->hx509ctx, "impersonation", "rsa", 2048, &impersonation_key_fn);
+    /*
+     * Get impersonation key configuration from command line or krb5.conf.
+     * Supported key types: rsa, ec (ecdsa), ed25519, ed448
+     * For RSA: bits is key size (default 2048)
+     * For EC: bits is curve size (256=P-256, 384=P-384, 521=P-521, default 256)
+     * For EdDSA: bits is ignored
+     */
+    if (impersonation_key_type == NULL)
+        impersonation_key_type = krb5_config_get_string(context, NULL, "bx509d",
+                                                        "impersonation_key_type",
+                                                        NULL);
+    if (impersonation_key_bits == 0)
+        impersonation_key_bits = krb5_config_get_int_default(context, NULL, 0,
+                                                             "bx509d",
+                                                             "impersonation_key_bits",
+                                                             NULL);
+
+    generate_key(context->hx509ctx, "impersonation",
+                 impersonation_key_type,
+                 (unsigned long)impersonation_key_bits,
+                 &impersonation_key_fn);
 
 again:
     if (cert_file && !priv_key_file)
