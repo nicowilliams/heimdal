@@ -1413,14 +1413,20 @@ get_key(const char *fn, const char *type, int optbits,
 
     if (type) {
         struct hx509_generate_private_context *gen_ctx = NULL;
+        const heim_oid *key_oid;
 
-	if (strcasecmp(type, "rsa") != 0)
-	    errx(1, "can only handle rsa keys for now");
+	if (strcasecmp(type, "rsa") == 0) {
+	    key_oid = ASN1_OID_ID_PKCS1_RSAENCRYPTION;
+	} else if (strcasecmp(type, "ed25519") == 0) {
+	    key_oid = ASN1_OID_ID_ED25519;
+	} else if (strcasecmp(type, "ed448") == 0) {
+	    key_oid = ASN1_OID_ID_ED448;
+	} else {
+	    errx(1, "unsupported key type: %s (supported: rsa, ed25519, ed448)", type);
+	}
 
-        ret = _hx509_generate_private_key_init(context,
-                                               ASN1_OID_ID_PKCS1_RSAENCRYPTION,
-                                               &gen_ctx);
-        if (ret == 0)
+        ret = _hx509_generate_private_key_init(context, key_oid, &gen_ctx);
+        if (ret == 0 && optbits > 0)
             ret = _hx509_generate_private_key_bits(context, gen_ctx, optbits);
         if (ret == 0)
             ret = _hx509_generate_private_key(context, gen_ctx, signer);
@@ -2248,8 +2254,16 @@ hxtool_ca(struct certificate_sign_options *opt, int argc, char **argv)
 	    sigalg = hx509_signature_rsa_with_sha1();
 	else if (strcasecmp(opt->signature_algorithm_string, "rsa-with-sha256") == 0)
 	    sigalg = hx509_signature_rsa_with_sha256();
+	else if (strcasecmp(opt->signature_algorithm_string, "rsa-with-sha384") == 0)
+	    sigalg = hx509_signature_rsa_with_sha384();
+	else if (strcasecmp(opt->signature_algorithm_string, "rsa-with-sha512") == 0)
+	    sigalg = hx509_signature_rsa_with_sha512();
+	else if (strcasecmp(opt->signature_algorithm_string, "ed25519") == 0)
+	    sigalg = hx509_signature_ed25519();
+	else if (strcasecmp(opt->signature_algorithm_string, "ed448") == 0)
+	    sigalg = hx509_signature_ed448();
 	else
-	    errx(1, "unsupported sigature algorithm");
+	    errx(1, "unsupported signature algorithm");
 	hx509_ca_tbs_set_signature_algorithm(context, tbs, sigalg);
     }
 
