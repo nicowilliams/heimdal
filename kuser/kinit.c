@@ -86,6 +86,7 @@ static int ok_as_delegate_flag = 0;
 static char *fast_armor_cache_string = NULL;
 static int use_referrals_flag = 0;
 static char *dh_alg = NULL;
+static char *sig_alg = NULL;
 static char *kdf_alg = NULL;
 static int windows_flag = 0;
 
@@ -215,6 +216,9 @@ static struct getargs args[] = {
 
     { "key-agreement",	0,  arg_string, &dh_alg,
       "request given PKINIT key agreement algorithm", "ALGORITHM" },
+
+    { "signature-algorithm",	0,  arg_string, &sig_alg,
+      "prefer PKINIT certificate with given key algorithm (ed25519, ed448, rsa)", "ALGORITHM" },
 
     { "kdf",	0,  arg_string, &kdf_alg,
       "request given PKINIT key derivation algorithm", "ALGORITHM" },
@@ -858,10 +862,14 @@ get_new_tickets(krb5_context context,
 	}
 	if (ent_user_id)
 	    krb5_get_init_creds_opt_set_pkinit_user_certs(context, opt, ent_user_id);
-        if (dh_alg || kdf_alg) {
+        if (dh_alg || sig_alg || kdf_alg) {
             ret = krb5_get_init_creds_opt_set_pkinit_allowed_algs(context, opt,
-                                                                  dh_alg, NULL,
+                                                                  dh_alg, sig_alg,
                                                                   kdf_alg);
+            if (ret) {
+                krb5_warn(context, ret, "krb5_get_init_creds_opt_set_pkinit_allowed_algs");
+                goto out;
+            }
         }
     }
 
