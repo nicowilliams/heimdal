@@ -235,7 +235,7 @@ rsa_verify_signature(hx509_context context,
     }
 
 out:
-    EVP_PKEY_CTX_free(pctx);
+    EVP_MD_CTX_free(mctx);  /* Also frees pctx */
     EVP_PKEY_free(pkey);
     return ret;
 }
@@ -350,6 +350,7 @@ rsa_create_signature(hx509_context context,
 	return HX509_CMS_FAILED_CREATE_SIGATURE;
     }
 
+    EVP_MD_CTX_free(mctx);
     return 0;
 }
 
@@ -588,8 +589,7 @@ dsa_verify_signature(hx509_context context,
         ret = 0;
 
 out:
-    EVP_PKEY_CTX_free(pctx);
-    EVP_MD_CTX_free(mctx);
+    EVP_MD_CTX_free(mctx);  /* Also frees pctx */
     EVP_PKEY_free(pkey);
     return ret;
 }
@@ -1215,9 +1215,13 @@ _hx509_public_encrypt(hx509_context context,
     if (ret) {
 	der_free_octet_string(ciphertext);
 	hx509_set_error_string(context, 0, ENOMEM, "out of memory");
+        EVP_PKEY_CTX_free(pctx);
+        EVP_PKEY_free(pkey);
 	return ENOMEM;
     }
 
+    EVP_PKEY_CTX_free(pctx);
+    EVP_PKEY_free(pkey);
     return 0;
 }
 
@@ -1268,6 +1272,7 @@ hx509_private_key_private_decrypt(hx509_context context,
         EVP_PKEY_CTX_free(pctx);
         return EINVAL;
     }
+    EVP_PKEY_CTX_free(pctx);
     return 0;
 }
 
@@ -2121,10 +2126,8 @@ hx509_crypto_encrypt(hx509_crypto crypto,
     assert(EVP_CIPHER_iv_length(crypto->c) == (int)ivec->length);
 
     if ((evp = EVP_CIPHER_CTX_new()) == NULL ||
-        EVP_CIPHER_CTX_init(evp) <= 0 ||
         EVP_CipherInit_ex(evp, crypto->c, NULL,
                                 crypto->key.data, ivec->data, 1) <= 0) {
-	EVP_CIPHER_CTX_cleanup(evp);
 	ret = ENOMEM;
 	goto out;
     }
@@ -2183,7 +2186,7 @@ hx509_crypto_encrypt(hx509_crypto crypto,
 	    *ciphertext = NULL;
 	}
     }
-    EVP_CIPHER_CTX_cleanup(evp);
+    EVP_CIPHER_CTX_free(evp);
 
     return ret;
 }
@@ -2195,7 +2198,7 @@ hx509_crypto_decrypt(hx509_crypto crypto,
 		     heim_octet_string *ivec,
 		     heim_octet_string *clear)
 {
-    EVP_CIPHER_CTX *evp;
+    EVP_CIPHER_CTX *evp = NULL;
     void *idata = NULL;
     int ret;
 
@@ -2231,35 +2234,23 @@ hx509_crypto_decrypt(hx509_crypto crypto,
 
     if ((evp = EVP_CIPHER_CTX_new()) == NULL)
         return ENOMEM;
-    int r = EVP_CIPHER_CTX_init(evp);
-    if (r <= 0) {
-        char *s = NULL;
-        fprintf(stderr, "Could not set up to decrypt: %s (r == %d)\n", s, r);
-	return HX509_CRYPTO_INTERNAL_ERROR;
-    }
-    r = EVP_CipherInit_ex(evp, crypto->c, NULL, crypto->key.data, idata, 0);
-    if (r <= 0) {
-	EVP_CIPHER_CTX_cleanup(evp);
-        char *s = NULL;
-        fprintf(stderr, "Could not decrypt: %s (r == %d)\n", s, r);
-	return HX509_CRYPTO_INTERNAL_ERROR;
+
+    if (EVP_CipherInit_ex(evp, crypto->c, NULL, crypto->key.data, idata, 0) <= 0) {
+        ret = HX509_CRYPTO_INTERNAL_ERROR;
+        goto out;
     }
 
     clear->length = length;
     clear->data = malloc(length);
     if (clear->data == NULL) {
-	EVP_CIPHER_CTX_cleanup(evp);
-	clear->length = 0;
-	return ENOMEM;
+	ret = ENOMEM;
+	goto out;
     }
 
-    r = EVP_Cipher(evp, clear->data, data, length);
-    if (r <= 0) {
-        char *s = NULL;
-        fprintf(stderr, "Could not decrypt: %s (r == %d)\n", s, r);
-	return HX509_CRYPTO_INTERNAL_ERROR;
+    if (EVP_Cipher(evp, clear->data, data, length) <= 0) {
+	ret = HX509_CRYPTO_INTERNAL_ERROR;
+	goto out;
     }
-    EVP_CIPHER_CTX_cleanup(evp);
 
     if ((crypto->flags & PADDING_PKCS7) && EVP_CIPHER_block_size(crypto->c) > 1) {
 	int padsize;
@@ -2287,9 +2278,11 @@ hx509_crypto_decrypt(hx509_crypto crypto,
 	}
     }
 
+    EVP_CIPHER_CTX_free(evp);
     return 0;
 
  out:
+    EVP_CIPHER_CTX_free(evp);
     if (clear->data)
 	free(clear->data);
     clear->data = NULL;
