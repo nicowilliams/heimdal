@@ -35,6 +35,7 @@ SCRIPT_TESTS = \
 	check-kdc \
 	check-kdc-weak \
 	check-kpasswdd \
+	check-mit-kdc \
 	check-pkinit \
 	check-bx509 \
 	check-httpkadmind \
@@ -147,6 +148,11 @@ check-uu: check-uu.in Makefile
 	$(do_subst) < $(srcdir)/check-uu.in > check-uu.tmp && \
 	$(chmod) +x check-uu.tmp && \
 	mv check-uu.tmp check-uu
+
+check-mit-kdc: check-mit-kdc.in Makefile
+	$(do_subst) < $(srcdir)/check-mit-kdc.in > check-mit-kdc.tmp && \
+	$(chmod) +x check-mit-kdc.tmp && \
+	mv check-mit-kdc.tmp check-mit-kdc
 
 check-pkinit: check-pkinit.in Makefile krb5-pkinit.conf krb5-pkinit2.conf
 	$(do_subst) < $(srcdir)/check-pkinit.in > check-pkinit.tmp && \
@@ -385,6 +391,7 @@ EXTRA_DIST = \
 	check-kdc.in \
 	check-kinit.in \
 	check-kpasswdd.in \
+	check-mit-kdc.in \
 	check-pkinit.in \
 	check-referral.in \
 	check-tester.in \
