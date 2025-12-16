@@ -905,8 +905,12 @@ extern const struct signature_alg ecdsa_with_sha512_alg;
 extern const struct signature_alg ecdsa_with_sha384_alg;
 extern const struct signature_alg ecdsa_with_sha256_alg;
 extern const struct signature_alg ecdsa_with_sha1_alg;
+extern const struct signature_alg ed25519_alg;
+extern const struct signature_alg ed448_alg;
 
 static const struct signature_alg *sig_algs[] = {
+    &ed25519_alg,
+    &ed448_alg,
     &ecdsa_with_sha512_alg,
     &ecdsa_with_sha384_alg,
     &ecdsa_with_sha256_alg,
@@ -971,10 +975,14 @@ alg_for_privatekey(const hx509_private_key pk, int type)
  *
  */
 extern hx509_private_key_ops ecdsa_private_key_ops;
+extern hx509_private_key_ops ed25519_private_key_ops;
+extern hx509_private_key_ops ed448_private_key_ops;
 
 static struct hx509_private_key_ops *private_algs[] = {
     &rsa_private_key_ops,
     &ecdsa_private_key_ops,
+    &ed25519_private_key_ops,
+    &ed448_private_key_ops,
     NULL
 };
 
@@ -1358,9 +1366,12 @@ _hx509_generate_private_key_init(hx509_context context,
 {
     *ctx = NULL;
 
-    if (der_heim_oid_cmp(oid, ASN1_OID_ID_PKCS1_RSAENCRYPTION) != 0) {
+    /* Check that we support this key type */
+    if (der_heim_oid_cmp(oid, ASN1_OID_ID_PKCS1_RSAENCRYPTION) != 0 &&
+        der_heim_oid_cmp(oid, ASN1_OID_ID_ED25519) != 0 &&
+        der_heim_oid_cmp(oid, ASN1_OID_ID_ED448) != 0) {
 	hx509_set_error_string(context, 0, EINVAL,
-			       "private key not an RSA key");
+			       "unsupported key type for generation");
 	return EINVAL;
     }
 

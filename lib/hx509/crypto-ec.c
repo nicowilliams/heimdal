@@ -41,6 +41,7 @@
 #include <openssl/objects.h>
 #include <openssl/asn1.h>
 #include <openssl/core_names.h>
+#include <openssl/encoder.h>
 #define HEIM_NO_CRYPTO_HDRS
 
 #include "hx_locl.h"
@@ -594,4 +595,424 @@ HX509_LIB_FUNCTION const AlgorithmIdentifier * HX509_LIB_CALL
 hx509_signature_ecdsa_with_sha256(void)
 {
     return &_hx509_signature_ecdsa_with_sha256_data;
+}
+
+/*
+ * EdDSA (Ed25519 and Ed448) support
+ *
+ * EdDSA is a "pure" signature scheme - there is no separate digest step.
+ * The signature algorithm OID is also the key algorithm OID.
+ *
+ *   Ed25519: OID 1.3.101.112
+ *   Ed448:   OID 1.3.101.113
+ */
+
+/* Ed25519: 1.3.101.112 */
+static const unsigned ed25519_oid[] = { 1, 3, 101, 112 };
+const AlgorithmIdentifier _hx509_signature_ed25519_data = {
+    { 4, rk_UNCONST(ed25519_oid) }, NULL, {0}
+};
+
+/* Ed448: 1.3.101.113 */
+static const unsigned ed448_oid[] = { 1, 3, 101, 113 };
+const AlgorithmIdentifier _hx509_signature_ed448_data = {
+    { 4, rk_UNCONST(ed448_oid) }, NULL, {0}
+};
+
+static int
+eddsa_verify_signature(hx509_context context,
+                       const struct signature_alg *sig_alg,
+                       const Certificate *signer,
+                       const AlgorithmIdentifier *alg,
+                       const EVP_MD *md,
+                       const heim_octet_string *data,
+                       const heim_octet_string *sig)
+{
+    const SubjectPublicKeyInfo *spi;
+    EVP_MD_CTX *mdctx = NULL;
+    EVP_PKEY *public = NULL;
+    const unsigned char *p;
+    size_t len;
+    int ret = 0;
+
+    spi = &signer->tbsCertificate.subjectPublicKeyInfo;
+
+    /* Verify the key OID matches what we expect */
+    if (der_heim_oid_cmp(&spi->algorithm.algorithm, sig_alg->key_oid) != 0) {
+        hx509_set_error_string(context, 0, HX509_CRYPTO_SIG_INVALID_FORMAT,
+                               "EdDSA key OID mismatch");
+        return HX509_CRYPTO_SIG_INVALID_FORMAT;
+    }
+
+    /* EdDSA public keys are encoded directly as BIT STRING */
+    p = spi->subjectPublicKey.data;
+    /* BIT STRING length is in bits, convert to bytes */
+    len = spi->subjectPublicKey.length / 8;
+
+    if (der_heim_oid_cmp(sig_alg->key_oid, ASN1_OID_ID_ED25519) == 0)
+        public = EVP_PKEY_new_raw_public_key(EVP_PKEY_ED25519, NULL, p, len);
+    else if (der_heim_oid_cmp(sig_alg->key_oid, ASN1_OID_ID_ED448) == 0)
+        public = EVP_PKEY_new_raw_public_key(EVP_PKEY_ED448, NULL, p, len);
+
+    if (public == NULL) {
+        _hx509_set_error_string_openssl(context, 0, HX509_CRYPTO_SIG_INVALID_FORMAT,
+                                        "Could not parse EdDSA public key");
+        return HX509_CRYPTO_SIG_INVALID_FORMAT;
+    }
+
+    mdctx = EVP_MD_CTX_new();
+    if (mdctx == NULL) {
+        EVP_PKEY_free(public);
+        return hx509_enomem(context);
+    }
+
+    /* EdDSA uses NULL for the md parameter - "pure" signing */
+    if (EVP_DigestVerifyInit(mdctx, NULL, NULL, NULL, public) != 1) {
+        hx509_set_error_string(context, 0, HX509_CRYPTO_SIG_INVALID_FORMAT,
+                               "EdDSA verify init failed");
+        ret = HX509_CRYPTO_SIG_INVALID_FORMAT;
+    } else if (EVP_DigestVerify(mdctx, sig->data, sig->length,
+                                 data->data, data->length) != 1) {
+        hx509_set_error_string(context, 0, HX509_CRYPTO_SIG_INVALID_FORMAT,
+                               "EdDSA signature verification failed");
+        ret = HX509_CRYPTO_SIG_INVALID_FORMAT;
+    }
+
+    EVP_MD_CTX_free(mdctx);
+    EVP_PKEY_free(public);
+    return ret;
+}
+
+static int
+eddsa_create_signature(hx509_context context,
+                       const struct signature_alg *sig_alg,
+                       const hx509_private_key signer,
+                       const AlgorithmIdentifier *alg,
+                       const EVP_MD *md,
+                       const heim_octet_string *data,
+                       AlgorithmIdentifier *signatureAlgorithm,
+                       heim_octet_string *sig)
+{
+    EVP_MD_CTX *mdctx = NULL;
+    int ret = 0;
+
+    sig->data = NULL;
+    sig->length = 0;
+
+    if (signatureAlgorithm) {
+        /* EdDSA has no parameters */
+        ret = _hx509_set_digest_alg(signatureAlgorithm, sig_alg->sig_oid,
+                                    NULL, 0);
+        if (ret)
+            return ret;
+    }
+
+    mdctx = EVP_MD_CTX_new();
+    if (mdctx == NULL)
+        return hx509_enomem(context);
+
+    /* EdDSA uses NULL for the md parameter - "pure" signing */
+    if (EVP_DigestSignInit(mdctx, NULL, NULL, NULL,
+                           signer->private_key.pkey) != 1) {
+        hx509_set_error_string(context, 0, HX509_CMS_FAILED_CREATE_SIGATURE,
+                               "EdDSA sign init failed");
+        ret = HX509_CMS_FAILED_CREATE_SIGATURE;
+        goto out;
+    }
+
+    /* First call to get the signature length */
+    if (EVP_DigestSign(mdctx, NULL, &sig->length,
+                       data->data, data->length) != 1) {
+        hx509_set_error_string(context, 0, HX509_CMS_FAILED_CREATE_SIGATURE,
+                               "EdDSA sign length failed");
+        ret = HX509_CMS_FAILED_CREATE_SIGATURE;
+        goto out;
+    }
+
+    sig->data = malloc(sig->length);
+    if (sig->data == NULL) {
+        ret = hx509_enomem(context);
+        goto out;
+    }
+
+    /* Second call to actually sign */
+    if (EVP_DigestSign(mdctx, sig->data, &sig->length,
+                       data->data, data->length) != 1) {
+        _hx509_set_error_string_openssl(context, 0, HX509_CMS_FAILED_CREATE_SIGATURE,
+                                        "EdDSA sign failed");
+        ret = HX509_CMS_FAILED_CREATE_SIGATURE;
+        free(sig->data);
+        sig->data = NULL;
+        sig->length = 0;
+    }
+
+out:
+    if (ret && signatureAlgorithm)
+        free_AlgorithmIdentifier(signatureAlgorithm);
+    EVP_MD_CTX_free(mdctx);
+    return ret;
+}
+
+static int
+eddsa_available(const hx509_private_key signer,
+                const AlgorithmIdentifier *sig_alg)
+{
+    int pkey_id;
+
+    if (signer->private_key.pkey == NULL)
+        return 0;
+
+    pkey_id = EVP_PKEY_base_id(signer->private_key.pkey);
+
+    /* Ed25519 key can only use Ed25519 signature */
+    if (pkey_id == EVP_PKEY_ED25519)
+        return der_heim_oid_cmp(&sig_alg->algorithm, ASN1_OID_ID_ED25519) == 0;
+
+    /* Ed448 key can only use Ed448 signature */
+    if (pkey_id == EVP_PKEY_ED448)
+        return der_heim_oid_cmp(&sig_alg->algorithm, ASN1_OID_ID_ED448) == 0;
+
+    return 0;
+}
+
+static int
+eddsa_private_key2SPKI(hx509_context context,
+                       hx509_private_key private_key,
+                       SubjectPublicKeyInfo *spki)
+{
+    unsigned char *pub = NULL;
+    size_t publen = 0;
+    int ret;
+
+    memset(spki, 0, sizeof(*spki));
+
+    /* Get the raw public key */
+    if (EVP_PKEY_get_raw_public_key(private_key->private_key.pkey,
+                                    NULL, &publen) != 1)
+        return HX509_CRYPTO_SIG_INVALID_FORMAT;
+
+    pub = malloc(publen);
+    if (pub == NULL)
+        return hx509_enomem(context);
+
+    if (EVP_PKEY_get_raw_public_key(private_key->private_key.pkey,
+                                    pub, &publen) != 1) {
+        free(pub);
+        return HX509_CRYPTO_SIG_INVALID_FORMAT;
+    }
+
+    /* Set the algorithm OID */
+    ret = der_copy_oid(private_key->ops->key_oid, &spki->algorithm.algorithm);
+    if (ret) {
+        free(pub);
+        return ret;
+    }
+
+    /* EdDSA has no algorithm parameters */
+    spki->algorithm.parameters = NULL;
+
+    /* Set the public key as a BIT STRING */
+    spki->subjectPublicKey.data = pub;
+    spki->subjectPublicKey.length = publen * 8;
+
+    return 0;
+}
+
+static int
+eddsa_private_key_export(hx509_context context,
+                         const hx509_private_key key,
+                         hx509_key_format_t format,
+                         heim_octet_string *data)
+{
+    unsigned char *p = NULL;
+    size_t size = 0;
+    int ret;
+
+    data->data = NULL;
+    data->length = 0;
+
+    switch (format) {
+    case HX509_KEY_FORMAT_DER: {
+        /* EdDSA private keys are exported in PKCS#8 format */
+        OSSL_ENCODER_CTX *ctx =
+            OSSL_ENCODER_CTX_new_for_pkey(key->private_key.pkey,
+                                          OSSL_KEYMGMT_SELECT_PRIVATE_KEY,
+                                          "DER",
+                                          "PrivateKeyInfo", /* PKCS#8 */
+                                          NULL);
+        if (ctx == NULL) {
+            _hx509_set_error_string_openssl(context, 0, ENOMEM,
+                                            "Could not allocate EdDSA private key encoder");
+            return ENOMEM;
+        }
+
+        ret = OSSL_ENCODER_to_data(ctx, &p, &size);
+        OSSL_ENCODER_CTX_free(ctx);
+        if (ret != 1) {
+            _hx509_set_error_string_openssl(context, 0, EINVAL,
+                                            "Could not encode EdDSA private key");
+            return EINVAL;
+        }
+
+        data->data = malloc(size);
+        if (data->data == NULL) {
+            OPENSSL_free(p);
+            hx509_set_error_string(context, 0, ENOMEM, "malloc out of memory");
+            return ENOMEM;
+        }
+        data->length = size;
+        memcpy(data->data, p, size);
+        OPENSSL_free(p);
+        break;
+    }
+    default:
+        return HX509_CRYPTO_KEY_FORMAT_UNSUPPORTED;
+    }
+
+    return 0;
+}
+
+static int
+eddsa_private_key_import(hx509_context context,
+                         const AlgorithmIdentifier *keyai,
+                         const void *data,
+                         size_t len,
+                         hx509_key_format_t format,
+                         hx509_private_key private_key)
+{
+    const unsigned char *p = data;
+    EVP_PKEY *key = NULL;
+    int pkey_type;
+
+    /* Determine key type from algorithm OID */
+    if (der_heim_oid_cmp(&keyai->algorithm, ASN1_OID_ID_ED25519) == 0)
+        pkey_type = EVP_PKEY_ED25519;
+    else if (der_heim_oid_cmp(&keyai->algorithm, ASN1_OID_ID_ED448) == 0)
+        pkey_type = EVP_PKEY_ED448;
+    else
+        return HX509_ALG_NOT_SUPP;
+
+    switch (format) {
+    case HX509_KEY_FORMAT_PKCS8:
+        key = d2i_PrivateKey(pkey_type, NULL, &p, len);
+        if (key == NULL) {
+            _hx509_set_error_string_openssl(context, 0, HX509_PARSING_KEY_FAILED,
+                                            "Failed to parse EdDSA private key");
+            return HX509_PARSING_KEY_FAILED;
+        }
+        break;
+
+    default:
+        return HX509_CRYPTO_KEY_FORMAT_UNSUPPORTED;
+    }
+
+    private_key->private_key.pkey = key;
+    private_key->signature_alg = &keyai->algorithm;
+
+    return 0;
+}
+
+static int
+eddsa_generate_private_key(hx509_context context,
+                           struct hx509_generate_private_context *ctx,
+                           hx509_private_key private_key)
+{
+    EVP_PKEY *pkey = NULL;
+    EVP_PKEY_CTX *pctx = NULL;
+    int pkey_type;
+
+    if (der_heim_oid_cmp(ctx->key_oid, ASN1_OID_ID_ED25519) == 0)
+        pkey_type = EVP_PKEY_ED25519;
+    else if (der_heim_oid_cmp(ctx->key_oid, ASN1_OID_ID_ED448) == 0)
+        pkey_type = EVP_PKEY_ED448;
+    else
+        return HX509_ALG_NOT_SUPP;
+
+    pctx = EVP_PKEY_CTX_new_id(pkey_type, NULL);
+    if (pctx == NULL)
+        return hx509_enomem(context);
+
+    if (EVP_PKEY_keygen_init(pctx) <= 0 ||
+        EVP_PKEY_keygen(pctx, &pkey) <= 0) {
+        EVP_PKEY_CTX_free(pctx);
+        _hx509_set_error_string_openssl(context, 0, HX509_CRYPTO_KEY_FORMAT_UNSUPPORTED,
+                                        "Failed to generate EdDSA key");
+        return HX509_CRYPTO_KEY_FORMAT_UNSUPPORTED;
+    }
+
+    EVP_PKEY_CTX_free(pctx);
+    private_key->private_key.pkey = pkey;
+    private_key->signature_alg = ctx->key_oid;
+
+    return 0;
+}
+
+static BIGNUM *
+eddsa_get_internal(hx509_context context,
+                   hx509_private_key key,
+                   const char *type)
+{
+    return NULL;
+}
+
+hx509_private_key_ops ed25519_private_key_ops = {
+    "PRIVATE KEY",          /* Use PKCS#8 PEM format for compatibility */
+    ASN1_OID_ID_ED25519,
+    eddsa_available,
+    eddsa_private_key2SPKI,
+    eddsa_private_key_export,
+    eddsa_private_key_import,
+    eddsa_generate_private_key,
+    eddsa_get_internal
+};
+
+hx509_private_key_ops ed448_private_key_ops = {
+    "PRIVATE KEY",          /* Use PKCS#8 PEM format for compatibility */
+    ASN1_OID_ID_ED448,
+    eddsa_available,
+    eddsa_private_key2SPKI,
+    eddsa_private_key_export,
+    eddsa_private_key_import,
+    eddsa_generate_private_key,
+    eddsa_get_internal
+};
+
+const struct signature_alg ed25519_alg = {
+    "ed25519",
+    ASN1_OID_ID_ED25519,
+    &_hx509_signature_ed25519_data,
+    ASN1_OID_ID_ED25519,         /* key_oid == sig_oid for EdDSA */
+    NULL,                        /* No separate digest algorithm */
+    PROVIDE_CONF|REQUIRE_SIGNER|SIG_PUBLIC_SIG|SELF_SIGNED_OK,
+    0,
+    NULL,                        /* No EVP_MD for EdDSA */
+    eddsa_verify_signature,
+    eddsa_create_signature,
+    64                           /* Ed25519 signature size */
+};
+
+const struct signature_alg ed448_alg = {
+    "ed448",
+    ASN1_OID_ID_ED448,
+    &_hx509_signature_ed448_data,
+    ASN1_OID_ID_ED448,           /* key_oid == sig_oid for EdDSA */
+    NULL,                        /* No separate digest algorithm */
+    PROVIDE_CONF|REQUIRE_SIGNER|SIG_PUBLIC_SIG|SELF_SIGNED_OK,
+    0,
+    NULL,                        /* No EVP_MD for EdDSA */
+    eddsa_verify_signature,
+    eddsa_create_signature,
+    114                          /* Ed448 signature size */
+};
+
+HX509_LIB_FUNCTION const AlgorithmIdentifier * HX509_LIB_CALL
+hx509_signature_ed25519(void)
+{
+    return &_hx509_signature_ed25519_data;
+}
+
+HX509_LIB_FUNCTION const AlgorithmIdentifier * HX509_LIB_CALL
+hx509_signature_ed448(void)
+{
+    return &_hx509_signature_ed448_data;
 }
