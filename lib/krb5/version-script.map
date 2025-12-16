@@ -205,6 +205,8 @@ HEIMDAL_KRB5_2.0 {
 		krb5_data_realloc;
 		krb5_data_zero;
 		krb5_debug;
+		_krb5_debug;
+		_krb5_debug_openssl;
 		krb5_decode_Authenticator;
 		krb5_decode_ETYPE_INFO2;
 		krb5_decode_ETYPE_INFO;
@@ -586,6 +588,7 @@ HEIMDAL_KRB5_2.0 {
 		krb5_set_dns_canonicalize_hostname;
 		krb5_set_error_message;
 		krb5_set_error_string;
+                _krb5_set_error_message_openssl;
 		krb5_set_extra_addresses;
 		krb5_set_fcache_version;
 		krb5_set_home_dir_access;
