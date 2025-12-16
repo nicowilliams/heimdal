@@ -196,6 +196,7 @@ _hx509_set_error_stringv_openssl(hx509_context context, int flags, int code,
         return;
     } else {
         heim_error_append(msg, msg2);
+        heim_release(msg2);
     }
 
     if (flags & HX509_ERROR_APPEND) {
