@@ -447,6 +447,12 @@ ecdsa_private_key2SPKI(hx509_context context,
             return HX509_CRYPTO_SIG_INVALID_FORMAT;
         }
 
+        spki->algorithm.parameters = calloc(1, sizeof(*spki->algorithm.parameters));
+        if (spki->algorithm.parameters == NULL) {
+            free_AlgorithmIdentifier(&spki->algorithm);
+            return hx509_enomem(context);
+        }
+
         ecparam.element = choice_ECParameters_namedCurve;
         ret = der_copy_oid(curve_oid, &ecparam.u.namedCurve);
         if (ret) {
@@ -503,7 +509,52 @@ ecdsa_private_key_export(hx509_context context,
 			 hx509_key_format_t format,
 			 heim_octet_string *data)
 {
-    return HX509_CRYPTO_KEY_FORMAT_UNSUPPORTED;
+    unsigned char *p = NULL;
+    size_t size = 0;
+    int ret;
+
+    data->data = NULL;
+    data->length = 0;
+
+    switch (format) {
+    case HX509_KEY_FORMAT_DER: {
+        /* EC private keys are exported in PKCS#8 format */
+        OSSL_ENCODER_CTX *ctx =
+            OSSL_ENCODER_CTX_new_for_pkey(key->private_key.pkey,
+                                          OSSL_KEYMGMT_SELECT_PRIVATE_KEY,
+                                          "DER",
+                                          "PrivateKeyInfo", /* PKCS#8 */
+                                          NULL);
+        if (ctx == NULL) {
+            _hx509_set_error_string_openssl(context, 0, ENOMEM,
+                                            "Could not allocate EC private key encoder");
+            return ENOMEM;
+        }
+
+        ret = OSSL_ENCODER_to_data(ctx, &p, &size);
+        OSSL_ENCODER_CTX_free(ctx);
+        if (ret != 1) {
+            _hx509_set_error_string_openssl(context, 0, EINVAL,
+                                            "Could not encode EC private key");
+            return EINVAL;
+        }
+
+        data->data = malloc(size);
+        if (data->data == NULL) {
+            OPENSSL_free(p);
+            hx509_set_error_string(context, 0, ENOMEM, "malloc out of memory");
+            return ENOMEM;
+        }
+        data->length = size;
+        memcpy(data->data, p, size);
+        OPENSSL_free(p);
+        break;
+    }
+    default:
+        return HX509_CRYPTO_KEY_FORMAT_UNSUPPORTED;
+    }
+
+    return 0;
 }
 
 static int
