@@ -105,6 +105,7 @@ krb5_sendauth(krb5_context context,
     krb5_data ap_req, error_data;
     krb5_creds this_cred;
     krb5_principal this_client = NULL;
+    krb5_creds *freeme = NULL;
     krb5_creds *creds;
     ssize_t sret;
     krb5_boolean my_ccache = FALSE;
@@ -167,12 +168,13 @@ krb5_sendauth(krb5_context context,
 	in_creds = &this_cred;
     }
     if (in_creds->ticket.length == 0) {
-	ret = krb5_get_credentials (context, 0, ccache, in_creds, &creds);
+	ret = krb5_get_credentials (context, 0, ccache, in_creds, &freeme);
 	if (ret) {
 	    if(my_ccache)
 		krb5_cc_close(context, ccache);
-	    return ret;
+	    goto out;
 	}
+        creds = freeme;
     } else {
 	creds = in_creds;
     }
@@ -186,19 +188,19 @@ krb5_sendauth(krb5_context context,
 				&ap_req);
 
     if (ret)
-	return ret;
+	goto out;
 
     ret = krb5_write_message (context,
 			      p_fd,
 			      &ap_req);
     if (ret)
-	return ret;
+	goto out;
 
     krb5_data_free (&ap_req);
 
     ret = krb5_read_message (context, p_fd, &error_data);
     if (ret)
-	return ret;
+	goto out;
 
     if (error_data.length != 0) {
 	KRB_ERROR error;
@@ -217,10 +219,10 @@ krb5_sendauth(krb5_context context,
 	    } else {
 		krb5_free_error_contents (context, &error);
 	    }
-	    return ret;
+	    goto out;
 	} else {
 	    krb5_clear_error_message(context);
-	    return ret;
+	    goto out;
 	}
     } else
 	krb5_data_free (&error_data);
@@ -234,13 +236,13 @@ krb5_sendauth(krb5_context context,
 				 p_fd,
 				 &ap_rep);
 	if (ret)
-	    return ret;
+	    goto out;
 
 	ret = krb5_rd_rep (context, *auth_context, &ap_rep,
 			   rep_result ? rep_result : &ignore);
 	krb5_data_free (&ap_rep);
 	if (ret)
-	    return ret;
+	    goto out;
 	if (rep_result == NULL)
 	    krb5_free_ap_rep_enc_part (context, ignore);
     }
@@ -248,10 +250,8 @@ krb5_sendauth(krb5_context context,
     if (out_creds)
         ret = krb5_copy_creds(context, creds, out_creds);
 
-    this_cred.server = NULL;
-    if (creds == &this_cred)
-        krb5_free_cred_contents(context, creds);
-    else if (creds)
-        krb5_free_creds(context, creds);
+out:
+    krb5_free_principal(context, this_client);
+    krb5_free_creds(context, freeme);
     return ret;
 }
