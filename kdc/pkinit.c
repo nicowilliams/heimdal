@@ -86,6 +86,98 @@ static struct {
  *
  */
 
+/*
+ * Convert key algorithm name to OID
+ */
+static const heim_oid *
+key_algorithm_name_to_oid(const char *name)
+{
+    if (strcasecmp(name, "ed25519") == 0)
+        return ASN1_OID_ID_ED25519;
+    else if (strcasecmp(name, "ed448") == 0)
+        return ASN1_OID_ID_ED448;
+    else if (strcasecmp(name, "rsa") == 0 ||
+             strcasecmp(name, "rsa-sha256") == 0)
+        return &asn1_oid_id_pkcs1_rsaEncryption;
+    else if (strcasecmp(name, "ecdsa-p256") == 0 ||
+             strcasecmp(name, "secp256r1") == 0 ||
+             strcasecmp(name, "prime256v1") == 0)
+        return &asn1_oid_id_ecPublicKey;
+    else if (strcasecmp(name, "ecdsa-p384") == 0 ||
+             strcasecmp(name, "secp384r1") == 0)
+        return &asn1_oid_id_ecPublicKey;
+    else if (strcasecmp(name, "ecdsa-p521") == 0 ||
+             strcasecmp(name, "secp521r1") == 0)
+        return &asn1_oid_id_ecPublicKey;
+    return NULL;
+}
+
+/*
+ * Find a KDC certificate, preferring key algorithms in the order
+ * specified by pkinit_kdc_key_algorithms configuration.
+ */
+static int
+find_kdc_cert(krb5_context context,
+              krb5_kdc_configuration *config,
+              hx509_cert *certp)
+{
+    hx509_query *q;
+    int ret;
+    size_t i;
+
+    *certp = NULL;
+
+    ret = hx509_query_alloc(context->hx509ctx, &q);
+    if (ret)
+        return ret;
+
+    hx509_query_match_option(q, HX509_QUERY_OPTION_PRIVATE_KEY);
+    if (config->pkinit_kdc_friendly_name)
+        hx509_query_match_friendly_name(q, config->pkinit_kdc_friendly_name);
+
+    /*
+     * Try each preferred algorithm in order
+     */
+    if (config->pkinit_kdc_key_algorithms) {
+        for (i = 0; config->pkinit_kdc_key_algorithms[i]; i++) {
+            const heim_oid *alg_oid;
+
+            alg_oid = key_algorithm_name_to_oid(config->pkinit_kdc_key_algorithms[i]);
+            if (alg_oid == NULL)
+                continue;
+
+            ret = hx509_query_match_key_algorithm(q, alg_oid);
+            if (ret) {
+                hx509_query_free(context->hx509ctx, q);
+                return ret;
+            }
+
+            ret = hx509_certs_find(context->hx509ctx,
+                                   kdc_identity->certs,
+                                   q,
+                                   certp);
+            if (ret == 0) {
+                /* Found a certificate with this key algorithm */
+                hx509_query_free(context->hx509ctx, q);
+                return 0;
+            }
+
+            /* Clear the key algorithm match for next iteration */
+            hx509_query_match_key_algorithm(q, NULL);
+        }
+    }
+
+    /*
+     * Fallback: find any matching certificate without key algorithm preference
+     */
+    ret = hx509_certs_find(context->hx509ctx,
+                           kdc_identity->certs,
+                           q,
+                           certp);
+    hx509_query_free(context->hx509ctx, q);
+    return ret;
+}
+
 static krb5_error_code
 check_dh_param(krb5_context, krb5_kdc_configuration *, SubjectPublicKeyInfo *,
                pk_client_params *);
@@ -1212,22 +1304,9 @@ pk_mk_pa_reply_enckey(krb5_context context,
 	krb5_abortx(context, "Internal ASN.1 encoder error");
 
     {
-	hx509_query *q;
 	hx509_cert cert;
 
-	ret = hx509_query_alloc(context->hx509ctx, &q);
-	if (ret)
-	    goto out;
-
-	hx509_query_match_option(q, HX509_QUERY_OPTION_PRIVATE_KEY);
-	if (config->pkinit_kdc_friendly_name)
-	    hx509_query_match_friendly_name(q, config->pkinit_kdc_friendly_name);
-
-	ret = hx509_certs_find(context->hx509ctx,
-			       kdc_identity->certs,
-			       q,
-			       &cert);
-	hx509_query_free(context->hx509ctx, q);
+	ret = find_kdc_cert(context, config, &cert);
 	if (ret)
 	    goto out;
 
@@ -1299,7 +1378,6 @@ pk_mk_pa_reply_dh(krb5_context context,
     ContentInfo contentinfo;
     krb5_error_code ret;
     hx509_cert cert;
-    hx509_query *q;
     unsigned char *p = NULL;
     size_t size = 0;
 
@@ -1333,19 +1411,7 @@ pk_mk_pa_reply_dh(krb5_context context,
      * filled in above
      */
 
-    ret = hx509_query_alloc(context->hx509ctx, &q);
-    if (ret)
-	goto out;
-
-    hx509_query_match_option(q, HX509_QUERY_OPTION_PRIVATE_KEY);
-    if (config->pkinit_kdc_friendly_name)
-	hx509_query_match_friendly_name(q, config->pkinit_kdc_friendly_name);
-
-    ret = hx509_certs_find(context->hx509ctx,
-			   kdc_identity->certs,
-			   q,
-			   &cert);
-    hx509_query_free(context->hx509ctx, q);
+    ret = find_kdc_cert(context, config, &cert);
     if (ret)
 	goto out;
 
