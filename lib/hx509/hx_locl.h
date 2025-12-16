@@ -146,7 +146,8 @@ struct hx509_query_data {
 #define HX509_QUERY_MATCH_TIME			0x200000
 #define HX509_QUERY_MATCH_EKU			0x400000
 #define HX509_QUERY_MATCH_EXPR			0x800000
-#define HX509_QUERY_MASK			0xffffff
+#define HX509_QUERY_MATCH_KEY_ALG		0x1000000
+#define HX509_QUERY_MASK			0x1ffffff
     Certificate *subject;
     Certificate *certificate;
     heim_integer *serial;
@@ -162,6 +163,7 @@ struct hx509_query_data {
     time_t timenow;
     heim_oid *eku;
     struct hx_expr *expr;
+    heim_oid *key_alg;
 };
 
 struct hx509_keyset_ops {
