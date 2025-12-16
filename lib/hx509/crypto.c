@@ -1806,15 +1806,15 @@ CMSRC2CBCParam_set(hx509_context context, const heim_octet_string *param,
     }
     switch(rc2param.rc2ParameterVersion) {
     case 160:
-	crypto->c = EVP_rc2_40_cbc();
+	crypto->c = context->ossl ? context->ossl->rc2_40_cbc : EVP_rc2_40_cbc();
 	p->maximum_effective_key = 40;
 	break;
     case 120:
-	crypto->c = EVP_rc2_64_cbc();
+	crypto->c = context->ossl ? context->ossl->rc2_64_cbc : EVP_rc2_64_cbc();
 	p->maximum_effective_key = 64;
 	break;
     case 58:
-	crypto->c = EVP_rc2_cbc();
+	crypto->c = context->ossl ? context->ossl->rc2_cbc : EVP_rc2_cbc();
 	p->maximum_effective_key = 128;
 	break;
     default:
@@ -2222,18 +2222,10 @@ hx509_crypto_decrypt(hx509_crypto crypto,
 	return HX509_CRYPTO_ALGORITHM_BEST_BEFORE;
 
     /*
-     * XXX Disgusting hack.  We should just remove all weak crypto instead and
-     *     ensure we only use strong crypto.  _And_ we should implement PBES1
-     *     [RFC 8018] [PKCS#5 v2.1] anyways since PBES2 adds integrity
-     *     protection.  But right now the priority is to get on with OpenSSL
-     *     3.x.
-     *
-     *     Or we could stop supporting PKCS#12 -- it's pretty useless.  Then we
-     *     wouldn't need any symmetric key encryption/decryption functionality
-     *     in this file.
+     * Note: The legacy provider for weak crypto (RC2, 3DES-CBC, etc.) used in
+     * PKCS#12 is now loaded during hx509_context_init() and unloaded during
+     * hx509_context_free().  This ensures proper cleanup without memory leaks.
      */
-    if ((crypto->cipher->flags & CIPHER_WEAK))
-        (void) OSSL_PROVIDER_load(NULL, "legacy");
 
     if (ivec && EVP_CIPHER_iv_length(crypto->c) < (int)ivec->length)
 	return HX509_CRYPTO_INTERNAL_ERROR;
@@ -2373,54 +2365,57 @@ out:
 }
 
 static const heim_oid *
-find_string2key(const heim_oid *oid,
+find_string2key(hx509_context context,
+		const heim_oid *oid,
 		const EVP_CIPHER **c,
 		const EVP_MD **md,
 		PBE_string2key_func *s2k)
 {
+    hx509_context_ossl ossl = context ? context->ossl : NULL;
+
     if (der_heim_oid_cmp(oid, ASN1_OID_ID_PBEWITHSHAAND40BITRC2_CBC) == 0) {
-	*c = EVP_rc2_40_cbc();
+	*c = ossl ? ossl->rc2_40_cbc : EVP_rc2_40_cbc();
         if (*c == NULL)
             return NULL;
-	*md = EVP_sha1();
+	*md = ossl ? ossl->sha1 : EVP_sha1();
         if (*md == NULL)
             return NULL;
 	*s2k = PBE_string2key;
 	return &asn1_oid_private_rc2_40;
     } else if (der_heim_oid_cmp(oid, ASN1_OID_ID_PBEWITHSHAAND128BITRC2_CBC) == 0) {
-	*c = EVP_rc2_cbc();
+	*c = ossl ? ossl->rc2_cbc : EVP_rc2_cbc();
         if (*c == NULL)
             return NULL;
-	*md = EVP_sha1();
+	*md = ossl ? ossl->sha1 : EVP_sha1();
         if (*md == NULL)
             return NULL;
 	*s2k = PBE_string2key;
 	return ASN1_OID_ID_PKCS3_RC2_CBC;
 #if 0
     } else if (der_heim_oid_cmp(oid, ASN1_OID_ID_PBEWITHSHAAND40BITRC4) == 0) {
-	*c = EVP_rc4_40();
+	*c = ossl ? ossl->rc4_40 : EVP_rc4_40();
         if (*c == NULL)
             return NULL;
-	*md = EVP_sha1();
+	*md = ossl ? ossl->sha1 : EVP_sha1();
         if (*md == NULL)
             return NULL;
 	*s2k = PBE_string2key;
 	return NULL;
     } else if (der_heim_oid_cmp(oid, ASN1_OID_ID_PBEWITHSHAAND128BITRC4) == 0) {
-	*c = EVP_rc4();
+	*c = ossl ? ossl->rc4 : EVP_rc4();
         if (*c == NULL)
             return NULL;
-	*md = EVP_sha1();
+	*md = ossl ? ossl->sha1 : EVP_sha1();
         if (*md == NULL)
             return NULL;
 	*s2k = PBE_string2key;
 	return ASN1_OID_ID_PKCS3_RC4;
 #endif
     } else if (der_heim_oid_cmp(oid, ASN1_OID_ID_PBEWITHSHAAND3_KEYTRIPLEDES_CBC) == 0) {
-	*c = EVP_des_ede3_cbc();
+	*c = ossl ? ossl->des_ede3_cbc : EVP_des_ede3_cbc();
         if (*c == NULL)
             return NULL;
-	*md = EVP_sha1();
+	*md = ossl ? ossl->sha1 : EVP_sha1();
         if (*md == NULL)
             return NULL;
 	*s2k = PBE_string2key;
@@ -2470,7 +2465,7 @@ _hx509_pbe_decrypt(hx509_context context,
 
     memset(content, 0, sizeof(*content));
 
-    enc_oid = find_string2key(&ai->algorithm, &c, &md, &s2k);
+    enc_oid = find_string2key(context, &ai->algorithm, &c, &md, &s2k);
     if (enc_oid == NULL) {
 	hx509_set_error_string(context, 0, HX509_ALG_NOT_SUPP,
 			       "String to key algorithm not supported");

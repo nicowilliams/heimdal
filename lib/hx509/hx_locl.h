@@ -193,6 +193,38 @@ struct _hx509_password {
 
 extern hx509_lock _hx509_empty_lock;
 
+/*
+ * OpenSSL provider context for hx509.
+ * This is used to cache providers and fetched algorithms:
+ * - default: for standard crypto (RSA, EC, AES, SHA, etc.)
+ * - legacy: for weak crypto used in PKCS#12 (RC2, 3DES-CBC, etc.)
+ * - Fetched message digests (EVP_MD) for SHA-512, SHA-384, SHA-256, SHA-1, MD5
+ * - Fetched ciphers (EVP_CIPHER) for RC2, RC4, 3DES-CBC, AES
+ */
+typedef struct hx509_context_ossl_data *hx509_context_ossl;
+struct hx509_context_ossl_data {
+    OSSL_LIB_CTX *libctx;           /* OpenSSL library context */
+    OSSL_PROVIDER *openssl_def;     /* Default provider for standard crypto */
+    OSSL_PROVIDER *openssl_leg;     /* Legacy provider for weak crypto */
+    /* Message digests */
+    EVP_MD *md5;
+    EVP_MD *sha1;
+    EVP_MD *sha256;
+    EVP_MD *sha384;
+    EVP_MD *sha512;
+    /* Ciphers - legacy/weak (PKCS#12) */
+    EVP_CIPHER *rc2_40_cbc;
+    EVP_CIPHER *rc2_64_cbc;
+    EVP_CIPHER *rc2_cbc;
+    EVP_CIPHER *rc4_40;
+    EVP_CIPHER *rc4;
+    EVP_CIPHER *des_ede3_cbc;
+    /* Ciphers - standard */
+    EVP_CIPHER *aes_128_cbc;
+    EVP_CIPHER *aes_192_cbc;
+    EVP_CIPHER *aes_256_cbc;
+};
+
 struct hx509_context_data {
     struct hx509_keyset_ops **ks_ops;
     int ks_num_ops;
@@ -206,6 +238,7 @@ struct hx509_context_data {
     hx509_certs default_trust_anchors;
     heim_context hcontext;
     heim_config_section *cf;
+    hx509_context_ossl ossl;        /* OpenSSL provider context */
 };
 
 /* _hx509_calculate_path flag field */
