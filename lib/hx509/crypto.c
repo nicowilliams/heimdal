@@ -1549,7 +1549,7 @@ hx509_private_key_free(hx509_private_key *keyp)
     *keyp = NULL;
     if (key->ref == 0)  // XXX Use atomics; don't check for zero anyways
 	_hx509_abort("key refcount == 0 on free");
-    if (key->ref-- > 0) // XXX Use atomics
+    if (--key->ref > 0) // XXX Use atomics
 	return 0;
 
     EVP_PKEY_free(key->private_key.pkey);
