@@ -133,22 +133,23 @@ static const EVP_MD *
 signature_alg2digest_evp_md(hx509_context context,
                             const AlgorithmIdentifier *digest_alg)
 {
+    /* Use cached digests from the context if available */
     if ((&digest_alg->algorithm == &asn1_oid_id_sha512 ||
          der_heim_oid_cmp(&digest_alg->algorithm, &asn1_oid_id_sha512) == 0))
-        return EVP_sha512();
+        return context->ossl ? context->ossl->sha512 : EVP_sha512();
     if ((&digest_alg->algorithm == &asn1_oid_id_sha384 ||
          der_heim_oid_cmp(&digest_alg->algorithm, &asn1_oid_id_sha384) == 0))
-        return EVP_sha384();
+        return context->ossl ? context->ossl->sha384 : EVP_sha384();
     if ((&digest_alg->algorithm == &asn1_oid_id_sha256 ||
          der_heim_oid_cmp(&digest_alg->algorithm, &asn1_oid_id_sha256) == 0))
-        return EVP_sha256();
+        return context->ossl ? context->ossl->sha256 : EVP_sha256();
     if ((&digest_alg->algorithm == &asn1_oid_id_secsig_sha_1 ||
          der_heim_oid_cmp(&digest_alg->algorithm, &asn1_oid_id_secsig_sha_1) == 0))
-        return EVP_sha1();
+        return context->ossl ? context->ossl->sha1 : EVP_sha1();
     if ((&digest_alg->algorithm == &asn1_oid_id_rsa_digest_md5 ||
          der_heim_oid_cmp(&digest_alg->algorithm,
                           &asn1_oid_id_rsa_digest_md5) == 0))
-        return EVP_md5();
+        return context->ossl ? context->ossl->md5 : EVP_md5();
 
     /*
      * XXX Decode the `digest_alg->algorithm' OID and include it in the error

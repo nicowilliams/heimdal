@@ -93,6 +93,121 @@ typedef struct hx509_name_constraints {
 #define GeneralSubtrees_SET(g,var) \
 	(g)->len = (var)->len, (g)->val = (var)->val;
 
+/*
+ * OpenSSL provider management for hx509.
+ *
+ * We load both the default and legacy providers during context init:
+ * - default: needed for standard crypto (RSA, EC, AES, SHA, etc.)
+ * - legacy: needed for PKCS#12 weak crypto (RC2, 3DES-CBC, etc.)
+ *
+ * We also fetch and cache commonly used algorithms (EVP_MD, EVP_CIPHER) to
+ * avoid repeated fetching and to ensure proper cleanup.
+ *
+ * Note: In OpenSSL 3.x, explicitly loading any provider on the global context
+ * disables the auto-loading behavior, so we must explicitly load the default
+ * provider when we load the legacy provider.
+ *
+ * All fetched algorithms and providers are freed during context free.
+ */
+static void
+free_openssl_hx509(hx509_context_ossl *osslp)
+{
+    hx509_context_ossl p = *osslp;
+
+    *osslp = NULL;
+    if (p == NULL)
+        return;
+
+    /* Free fetched message digests */
+    EVP_MD_free(p->md5);
+    EVP_MD_free(p->sha1);
+    EVP_MD_free(p->sha256);
+    EVP_MD_free(p->sha384);
+    EVP_MD_free(p->sha512);
+
+    /* Free fetched ciphers - legacy */
+    EVP_CIPHER_free(p->rc2_40_cbc);
+    EVP_CIPHER_free(p->rc2_64_cbc);
+    EVP_CIPHER_free(p->rc2_cbc);
+    EVP_CIPHER_free(p->rc4_40);
+    EVP_CIPHER_free(p->rc4);
+    EVP_CIPHER_free(p->des_ede3_cbc);
+
+    /* Free fetched ciphers - standard */
+    EVP_CIPHER_free(p->aes_128_cbc);
+    EVP_CIPHER_free(p->aes_192_cbc);
+    EVP_CIPHER_free(p->aes_256_cbc);
+
+    /* Unload providers */
+    if (p->openssl_leg)
+        OSSL_PROVIDER_unload(p->openssl_leg);
+    if (p->openssl_def)
+        OSSL_PROVIDER_unload(p->openssl_def);
+
+    /* Note: we don't free libctx if it's the global default */
+    free(p);
+}
+
+static int
+init_openssl_hx509(hx509_context context)
+{
+    hx509_context_ossl ossl;
+
+    if ((ossl = calloc(1, sizeof(*ossl))) == NULL)
+        return ENOMEM;
+
+    /*
+     * Use the global default library context.  We could make this
+     * configurable via hx509.conf in the future if needed.
+     */
+    ossl->libctx = OSSL_LIB_CTX_get0_global_default();
+
+    /*
+     * Load the default provider first - this is required because in OpenSSL
+     * 3.x, explicitly loading any provider disables auto-loading of the
+     * default provider.
+     */
+    ossl->openssl_def = OSSL_PROVIDER_load(ossl->libctx, "default");
+
+    /*
+     * Load the legacy provider for PKCS#12 weak crypto support.
+     * This is needed for algorithms like RC2, 3DES-CBC, etc. that are
+     * commonly used in PKCS#12 files.
+     */
+    ossl->openssl_leg = OSSL_PROVIDER_load(ossl->libctx, "legacy");
+
+    /*
+     * Fetch and cache message digests.
+     * We ignore failures here - the algorithms will be NULL if not available.
+     */
+    ossl->md5    = EVP_MD_fetch(ossl->libctx, "MD5", NULL);
+    ossl->sha1   = EVP_MD_fetch(ossl->libctx, "SHA1", NULL);
+    ossl->sha256 = EVP_MD_fetch(ossl->libctx, "SHA256", NULL);
+    ossl->sha384 = EVP_MD_fetch(ossl->libctx, "SHA384", NULL);
+    ossl->sha512 = EVP_MD_fetch(ossl->libctx, "SHA512", NULL);
+
+    /*
+     * Fetch and cache ciphers - legacy (PKCS#12).
+     * These come from the legacy provider.
+     */
+    ossl->rc2_40_cbc   = EVP_CIPHER_fetch(ossl->libctx, "RC2-40-CBC", NULL);
+    ossl->rc2_64_cbc   = EVP_CIPHER_fetch(ossl->libctx, "RC2-64-CBC", NULL);
+    ossl->rc2_cbc      = EVP_CIPHER_fetch(ossl->libctx, "RC2-CBC", NULL);
+    ossl->rc4_40       = EVP_CIPHER_fetch(ossl->libctx, "RC4-40", NULL);
+    ossl->rc4          = EVP_CIPHER_fetch(ossl->libctx, "RC4", NULL);
+    ossl->des_ede3_cbc = EVP_CIPHER_fetch(ossl->libctx, "DES-EDE3-CBC", NULL);
+
+    /*
+     * Fetch and cache ciphers - standard.
+     */
+    ossl->aes_128_cbc = EVP_CIPHER_fetch(ossl->libctx, "AES-128-CBC", NULL);
+    ossl->aes_192_cbc = EVP_CIPHER_fetch(ossl->libctx, "AES-192-CBC", NULL);
+    ossl->aes_256_cbc = EVP_CIPHER_fetch(ossl->libctx, "AES-256-CBC", NULL);
+
+    context->ossl = ossl;
+    return 0;
+}
+
 static void
 init_context_once(void *ignored)
 {
@@ -198,6 +313,15 @@ hx509_context_init(hx509_context *contextp)
     initialize_hx_error_table_r(&context->et_list);
     initialize_asn1_error_table_r(&context->et_list);
 
+    /* Initialize OpenSSL provider context (legacy provider for PKCS#12) */
+    if ((ret = init_openssl_hx509(context))) {
+        free_error_table(context->et_list);
+        heim_config_file_free(context->hcontext, context->cf);
+        heim_context_free(&context->hcontext);
+        free(context);
+        return ret;
+    }
+
 #ifdef HX509_DEFAULT_ANCHORS
     anchors = heim_config_get_string_default(context->hcontext, context->cf,
                                              HX509_DEFAULT_ANCHORS,
@@ -278,6 +402,7 @@ hx509_context_free(hx509_context *context)
     if ((*context)->querystat)
 	free((*context)->querystat);
     hx509_certs_free(&(*context)->default_trust_anchors);
+    free_openssl_hx509(&(*context)->ossl);
     heim_config_file_free((*context)->hcontext, (*context)->cf);
     heim_context_free(&(*context)->hcontext);
     memset(*context, 0, sizeof(**context));
