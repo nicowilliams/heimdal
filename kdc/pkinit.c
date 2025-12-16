@@ -277,7 +277,8 @@ gen_eph_for_peer_spki(astgs_request_t r, SubjectPublicKeyInfo *spki,
     if (!kctx) {
         EVP_PKEY_free(*peer);
         *peer = NULL;
-        return EINVAL;
+        ret = EINVAL;
+        goto out;
     }
 
     /* This works for all key agreement types! */
@@ -286,7 +287,8 @@ gen_eph_for_peer_spki(astgs_request_t r, SubjectPublicKeyInfo *spki,
         EVP_PKEY_CTX_free(kctx);
         EVP_PKEY_free(*peer);
         *peer = NULL;
-        return EINVAL;
+        ret = EINVAL;
+        goto out;
     }
 
 out:
@@ -299,6 +301,7 @@ out:
             _kdc_set_e_text(r, "PKINIT: key agreement failed: %s",
                             s ? s : "<could not format OpenSSL error>");
             free(s);
+            ret = KRB5_CRYPTO_INTERNAL;
         }
     }
     EVP_PKEY_CTX_free(kctx);
@@ -367,8 +370,6 @@ serialize_key_share(krb5_context context,
                     size_t *out_len)
 {
     unsigned char *p;
-    char *omsg1 = NULL;
-    char *omsg2 = NULL;
     size_t sz;
     int len;
 
@@ -377,20 +378,10 @@ serialize_key_share(krb5_context context,
 
     len = i2d_PublicKey(key, NULL);
     if (len <= 0) {
-        omsg1 = _krb5_openssl_errors();
-
         if (EVP_PKEY_get_octet_string_param(key, OSSL_PKEY_PARAM_PUB_KEY, NULL,
-                                            0, &sz) != 1) {
-            omsg2 = _krb5_openssl_errors();
-
-            krb5_set_error_message(context, EINVAL /*XXX*/,
-                                   "PKINIT failed to encode raw ECDH public key: %s\n%s",
-                                   omsg1, omsg2);
-            free(omsg1);
-            free(omsg2);
-            return EINVAL;
-        }
-        free(omsg1);
+                                            0, &sz) != 1)
+            return _krb5_set_error_message_openssl(context, KRB5_CRYPTO_INTERNAL,
+                                   "PKINIT failed to encode raw ECDH public key");
     } else {
         sz = len;
     }
@@ -403,20 +394,12 @@ serialize_key_share(krb5_context context,
     if (len > 0 && (len = i2d_PublicKey(key, &p)) <= 0) {
         free(*out);
         *out = NULL;
-        omsg1 = _krb5_openssl_errors();
-        krb5_set_error_message(context, EINVAL /* XXX Better error please */,
-                               "PKINIT failed to encode raw ECDH public key: %s",
-                               omsg1);
-        free(omsg1);
-        return EINVAL;
+        return _krb5_set_error_message_openssl(context, KRB5_CRYPTO_INTERNAL,
+                                               "PKINIT failed to encode raw ECDH public key");
     } else if (EVP_PKEY_get_octet_string_param(key, OSSL_PKEY_PARAM_PUB_KEY,
                                                p, sz, &sz) != 1) {
-        omsg1 = _krb5_openssl_errors();
-        krb5_set_error_message(context, EINVAL /* XXX Better error please */,
-                               "PKINIT failed to encode raw ECDH public key: %s",
-                               omsg1);
-        free(omsg1);
-        return EINVAL;
+        return _krb5_set_error_message_openssl(context, KRB5_CRYPTO_INTERNAL,
+                                               "PKINIT failed to encode raw ECDH public key");
     }
 
     *out_len = sz * 8;

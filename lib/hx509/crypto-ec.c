@@ -389,8 +389,112 @@ ecdsa_private_key2SPKI(hx509_context context,
 		       hx509_private_key private_key,
 		       SubjectPublicKeyInfo *spki)
 {
+    unsigned char *pub = NULL;
+    size_t publen = 0;
+    size_t group_name_len = 0;
+    char group_name_buf[96];
+    int nid;
+    int ret;
+
     memset(spki, 0, sizeof(*spki));
-    return ENOMEM;
+
+    /* Get the group/curve name */
+    if (EVP_PKEY_get_group_name(private_key->private_key.pkey, group_name_buf,
+                                sizeof(group_name_buf), &group_name_len) != 1 ||
+        group_name_len >= sizeof(group_name_buf)) {
+        hx509_set_error_string(context, 0, HX509_CRYPTO_SIG_INVALID_FORMAT,
+                               "Could not get EC group name");
+        return HX509_CRYPTO_SIG_INVALID_FORMAT;
+    }
+
+    nid = OBJ_txt2nid(group_name_buf);
+    if (nid == NID_undef) {
+        hx509_set_error_string(context, 0, HX509_CRYPTO_SIG_INVALID_FORMAT,
+                               "Unknown EC group: %s", group_name_buf);
+        return HX509_CRYPTO_SIG_INVALID_FORMAT;
+    }
+
+    /* Set the algorithm OID to ecPublicKey */
+    ret = der_copy_oid(ASN1_OID_ID_ECPUBLICKEY, &spki->algorithm.algorithm);
+    if (ret)
+        return ret;
+
+    /* Set the EC parameters (curve OID) */
+    {
+        ECParameters ecparam;
+        size_t size;
+        const heim_oid *curve_oid = NULL;
+
+        /* Map NID to OID */
+        switch (nid) {
+        case NID_X9_62_prime256v1:
+            curve_oid = ASN1_OID_ID_EC_GROUP_SECP256R1;
+            break;
+#ifdef NID_secp384r1
+        case NID_secp384r1:
+            curve_oid = ASN1_OID_ID_EC_GROUP_SECP384R1;
+            break;
+#endif
+#ifdef NID_secp521r1
+        case NID_secp521r1:
+            curve_oid = ASN1_OID_ID_EC_GROUP_SECP521R1;
+            break;
+#endif
+        default:
+            free_AlgorithmIdentifier(&spki->algorithm);
+            hx509_set_error_string(context, 0, HX509_CRYPTO_SIG_INVALID_FORMAT,
+                                   "Unsupported EC curve NID: %d", nid);
+            return HX509_CRYPTO_SIG_INVALID_FORMAT;
+        }
+
+        ecparam.element = choice_ECParameters_namedCurve;
+        ret = der_copy_oid(curve_oid, &ecparam.u.namedCurve);
+        if (ret) {
+            free_AlgorithmIdentifier(&spki->algorithm);
+            return ret;
+        }
+
+        ASN1_MALLOC_ENCODE(ECParameters, spki->algorithm.parameters->data,
+                           spki->algorithm.parameters->length,
+                           &ecparam, &size, ret);
+        free_ECParameters(&ecparam);
+        if (ret) {
+            free_AlgorithmIdentifier(&spki->algorithm);
+            return ret;
+        }
+    }
+
+    /* Get the public key in uncompressed point format */
+    if (EVP_PKEY_get_octet_string_param(private_key->private_key.pkey,
+                                        OSSL_PKEY_PARAM_PUB_KEY,
+                                        NULL, 0, &publen) != 1) {
+        free_AlgorithmIdentifier(&spki->algorithm);
+        hx509_set_error_string(context, 0, HX509_CRYPTO_SIG_INVALID_FORMAT,
+                               "Could not get EC public key size");
+        return HX509_CRYPTO_SIG_INVALID_FORMAT;
+    }
+
+    pub = malloc(publen);
+    if (pub == NULL) {
+        free_AlgorithmIdentifier(&spki->algorithm);
+        return hx509_enomem(context);
+    }
+
+    if (EVP_PKEY_get_octet_string_param(private_key->private_key.pkey,
+                                        OSSL_PKEY_PARAM_PUB_KEY,
+                                        pub, publen, &publen) != 1) {
+        free(pub);
+        free_AlgorithmIdentifier(&spki->algorithm);
+        hx509_set_error_string(context, 0, HX509_CRYPTO_SIG_INVALID_FORMAT,
+                               "Could not get EC public key");
+        return HX509_CRYPTO_SIG_INVALID_FORMAT;
+    }
+
+    /* Set the public key as a BIT STRING */
+    spki->subjectPublicKey.data = pub;
+    spki->subjectPublicKey.length = publen * 8;
+
+    return 0;
 }
 
 static int
@@ -478,7 +582,75 @@ ecdsa_generate_private_key(hx509_context context,
 			   struct hx509_generate_private_context *ctx,
 			   hx509_private_key private_key)
 {
-    return ENOMEM;
+    EVP_PKEY *pkey = NULL;
+    EVP_PKEY_CTX *pctx = NULL;
+    int nid;
+
+    /*
+     * Map key size to curve NID.
+     * Default to P-256 if no size specified.
+     */
+    switch (ctx->num_bits) {
+    case 0:
+    case 256:
+        nid = NID_X9_62_prime256v1;  /* P-256 / secp256r1 */
+        break;
+    case 384:
+        nid = NID_secp384r1;         /* P-384 */
+        break;
+    case 521:
+        nid = NID_secp521r1;         /* P-521 */
+        break;
+    default:
+        hx509_set_error_string(context, 0, EINVAL,
+                               "Unsupported EC key size %lu "
+                               "(supported: 256, 384, 521)",
+                               ctx->num_bits);
+        return EINVAL;
+    }
+
+    pctx = EVP_PKEY_CTX_new_id(EVP_PKEY_EC, NULL);
+    if (pctx == NULL)
+        return hx509_enomem(context);
+
+    if (EVP_PKEY_keygen_init(pctx) <= 0) {
+        EVP_PKEY_CTX_free(pctx);
+        _hx509_set_error_string_openssl(context, 0, HX509_CRYPTO_KEY_FORMAT_UNSUPPORTED,
+                                        "Failed to initialize EC key generation");
+        return HX509_CRYPTO_KEY_FORMAT_UNSUPPORTED;
+    }
+
+    if (EVP_PKEY_CTX_set_ec_paramgen_curve_nid(pctx, nid) <= 0) {
+        EVP_PKEY_CTX_free(pctx);
+        _hx509_set_error_string_openssl(context, 0, HX509_CRYPTO_KEY_FORMAT_UNSUPPORTED,
+                                        "Failed to set EC curve");
+        return HX509_CRYPTO_KEY_FORMAT_UNSUPPORTED;
+    }
+
+    if (EVP_PKEY_keygen(pctx, &pkey) <= 0) {
+        EVP_PKEY_CTX_free(pctx);
+        _hx509_set_error_string_openssl(context, 0, HX509_CRYPTO_KEY_FORMAT_UNSUPPORTED,
+                                        "Failed to generate EC key");
+        return HX509_CRYPTO_KEY_FORMAT_UNSUPPORTED;
+    }
+
+    EVP_PKEY_CTX_free(pctx);
+    private_key->private_key.pkey = pkey;
+
+    /* Select appropriate signature algorithm based on curve */
+    switch (nid) {
+    case NID_secp521r1:
+        private_key->signature_alg = ASN1_OID_ID_ECDSA_WITH_SHA512;
+        break;
+    case NID_secp384r1:
+        private_key->signature_alg = ASN1_OID_ID_ECDSA_WITH_SHA384;
+        break;
+    default:
+        private_key->signature_alg = ASN1_OID_ID_ECDSA_WITH_SHA256;
+        break;
+    }
+
+    return 0;
 }
 
 static BIGNUM *
