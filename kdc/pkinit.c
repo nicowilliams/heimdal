@@ -504,6 +504,7 @@ _kdc_pk_free_client_param(krb5_context context, pk_client_params *cp)
 	hx509_peer_info_free(cp->peer);
     if (cp->client_anchors)
 	hx509_certs_free(&cp->client_anchors);
+    free(cp->raw_shared_secret);
     memset(cp, 0, sizeof(*cp));
     free(cp);
 }
