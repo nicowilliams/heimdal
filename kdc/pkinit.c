@@ -1438,6 +1438,7 @@ _kdc_pk_mk_pa_reply(astgs_request_t r, pk_client_params *cp)
 	if (cp->keyex == USE_RSA) {
 	    ContentInfo info;
 
+	    memset(&info, 0, sizeof(info));
 	    type = "enckey";
 
 	    rep.element = choice_PA_PK_AS_REP_encKeyPack;
@@ -1483,6 +1484,7 @@ _kdc_pk_mk_pa_reply(astgs_request_t r, pk_client_params *cp)
 	} else {
 	    ContentInfo info;
 
+	    memset(&info, 0, sizeof(info));
 	    switch (cp->keyex) {
 	    case USE_DH: type = "dh"; break;
 	    case USE_ECDH: type = "ecdh"; break;
@@ -1665,6 +1667,7 @@ _kdc_pk_mk_pa_reply(astgs_request_t r, pk_client_params *cp)
 	PA_PK_AS_REP_Win2k rep;
 	ContentInfo info;
 
+	memset(&info, 0, sizeof(info));
 	if (cp->keyex != USE_RSA) {
 	    ret = KRB5KRB_ERR_GENERIC;
 	    krb5_set_error_message(r->context, ret,
