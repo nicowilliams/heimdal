@@ -340,8 +340,9 @@ _krb5_pk_rd_pa_reply_ossl_compute_key(krb5_context context,
                                "(EVP_PKEY_derive)");
     if (ret == 0)
         *out_sz = shared_len;
-    EVP_PKEY_CTX_free(pctx); // move
+    EVP_PKEY_CTX_free(pctx);
     EVP_PKEY_free(template);
+    EVP_PKEY_free(public);
 
     return ret;
 }
