@@ -1913,6 +1913,16 @@ _krb5_pk_set_user_id(krb5_context context,
     hx509_query_match_option(q, HX509_QUERY_OPTION_PRIVATE_KEY);
     hx509_query_match_option(q, HX509_QUERY_OPTION_KU_DIGITALSIGNATURE);
 
+    if (ctx->want_sig_alg) {
+	ret = hx509_query_match_key_algorithm(q, ctx->want_sig_alg);
+	if (ret) {
+	    pk_copy_error(context, context->hx509ctx, ret,
+			  "Failed setting key algorithm query");
+	    hx509_query_free(context->hx509ctx, q);
+	    return ret;
+	}
+    }
+
     if (principal && strncmp("LKDC:SHA1.", krb5_principal_get_realm(context, principal), 9) == 0) {
 	ctx->id->flags |= PKINIT_BTMM;
     }
@@ -2482,9 +2492,24 @@ krb5_get_init_creds_opt_set_pkinit_allowed_algs(krb5_context context,
     const heim_oid *oid = NULL;
 
     if (sig_alg) {
-        krb5_set_error_message(context, KRB5_KDC_ERR_INVALID_HASH_ALG,
-                               "PKINIT: Setting preferred certificate signature algorithm is currently not supported");
-        return KRB5_KDC_ERR_INVALID_HASH_ALG;
+        /*
+         * Signature algorithm preferences select certificates by public key
+         * algorithm OID.
+         */
+        if (strcasecmp(sig_alg, "ed25519") == 0)
+            oid = ASN1_OID_ID_ED25519;
+        else if (strcasecmp(sig_alg, "ed448") == 0)
+            oid = ASN1_OID_ID_ED448;
+        else if (strcasecmp(sig_alg, "rsa") == 0 ||
+                 strcasecmp(sig_alg, "rsa-sha256") == 0)
+            oid = &asn1_oid_id_pkcs1_rsaEncryption;
+        else if ((oid = _krb5_ec_nidname2heim_oid(sig_alg)) == NULL) {
+            krb5_set_error_message(context, KRB5_KDC_ERR_INVALID_HASH_ALG,
+                                   "PKINIT: Signature/key algorithm %s unknown",
+                                   sig_alg);
+            return KRB5_KDC_ERR_INVALID_HASH_ALG;
+        }
+        opt->opt_private->pk_init_ctx->want_sig_alg = oid;
     }
 
     if (dh_alg) {
