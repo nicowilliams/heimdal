@@ -1368,6 +1368,7 @@ _hx509_generate_private_key_init(hx509_context context,
 
     /* Check that we support this key type */
     if (der_heim_oid_cmp(oid, ASN1_OID_ID_PKCS1_RSAENCRYPTION) != 0 &&
+        der_heim_oid_cmp(oid, ASN1_OID_ID_ECPUBLICKEY) != 0 &&
         der_heim_oid_cmp(oid, ASN1_OID_ID_ED25519) != 0 &&
         der_heim_oid_cmp(oid, ASN1_OID_ID_ED448) != 0) {
 	hx509_set_error_string(context, 0, EINVAL,

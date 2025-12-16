@@ -1417,12 +1417,14 @@ get_key(const char *fn, const char *type, int optbits,
 
 	if (strcasecmp(type, "rsa") == 0) {
 	    key_oid = ASN1_OID_ID_PKCS1_RSAENCRYPTION;
+	} else if (strcasecmp(type, "ec") == 0 || strcasecmp(type, "ecdsa") == 0) {
+	    key_oid = ASN1_OID_ID_ECPUBLICKEY;
 	} else if (strcasecmp(type, "ed25519") == 0) {
 	    key_oid = ASN1_OID_ID_ED25519;
 	} else if (strcasecmp(type, "ed448") == 0) {
 	    key_oid = ASN1_OID_ID_ED448;
 	} else {
-	    errx(1, "unsupported key type: %s (supported: rsa, ed25519, ed448)", type);
+	    errx(1, "unsupported key type: %s (supported: rsa, ec, ed25519, ed448)", type);
 	}
 
         ret = _hx509_generate_private_key_init(context, key_oid, &gen_ctx);
