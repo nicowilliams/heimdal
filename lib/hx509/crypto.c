@@ -2441,6 +2441,245 @@ _hx509_pbe_encrypt(hx509_context context,
 }
 
 /*
+ * Try PBES2 decryption - returns 1 if handled (success or error), 0 if not PBES2
+ */
+static int
+try_pbes2_decrypt(hx509_context context,
+		  hx509_lock lock,
+		  const AlgorithmIdentifier *ai,
+		  const heim_octet_string *econtent,
+		  heim_octet_string *content,
+		  int *result)
+{
+    const struct _hx509_password *pw;
+    PBES2_params pbes2;
+    PBKDF2_params pbkdf2;
+    const EVP_MD *prf_md = NULL;
+    const EVP_CIPHER *cipher = NULL;
+    const heim_oid *enc_oid = NULL;
+    hx509_context_ossl ossl = context ? context->ossl : NULL;
+    heim_octet_string key, iv, iv_param;
+    int ret;
+    size_t i;
+
+    *result = 0;
+    memset(&pbes2, 0, sizeof(pbes2));
+    memset(&pbkdf2, 0, sizeof(pbkdf2));
+    memset(&key, 0, sizeof(key));
+    memset(&iv, 0, sizeof(iv));
+    memset(&iv_param, 0, sizeof(iv_param));
+    memset(content, 0, sizeof(*content));
+
+    /* Check if this is PBES2 */
+    if (der_heim_oid_cmp(&ai->algorithm, ASN1_OID_ID_PBES2) != 0)
+	return 0;  /* Not PBES2, caller should try legacy PBE */
+
+    if (ai->parameters == NULL) {
+	hx509_set_error_string(context, 0, HX509_ALG_NOT_SUPP,
+			       "PBES2 missing parameters");
+	*result = HX509_ALG_NOT_SUPP;
+	return 1;
+    }
+
+    ret = decode_PBES2_params(ai->parameters->data, ai->parameters->length,
+			      &pbes2, NULL);
+    if (ret) {
+	hx509_set_error_string(context, 0, ret,
+			       "Failed to decode PBES2 parameters");
+	*result = ret;
+	return 1;
+    }
+
+    /* Check that the KDF is PBKDF2 */
+    if (der_heim_oid_cmp(&pbes2.keyDerivationFunc.algorithm,
+			 ASN1_OID_ID_PBKDF2) != 0) {
+	hx509_set_error_string(context, 0, HX509_ALG_NOT_SUPP,
+			       "PBES2 KDF algorithm not supported (only PBKDF2)");
+	ret = HX509_ALG_NOT_SUPP;
+	goto out;
+    }
+
+    /* Decode PBKDF2 parameters */
+    if (pbes2.keyDerivationFunc.parameters == NULL) {
+	hx509_set_error_string(context, 0, HX509_ALG_NOT_SUPP,
+			       "PBKDF2 missing parameters");
+	ret = HX509_ALG_NOT_SUPP;
+	goto out;
+    }
+
+    ret = decode_PBKDF2_params(pbes2.keyDerivationFunc.parameters->data,
+			       pbes2.keyDerivationFunc.parameters->length,
+			       &pbkdf2, NULL);
+    if (ret) {
+	hx509_set_error_string(context, 0, ret,
+			       "Failed to decode PBKDF2 parameters");
+	goto out;
+    }
+
+    /* Determine the PRF (defaults to HMAC-SHA1) */
+    if (pbkdf2.prf == NULL) {
+	prf_md = ossl ? ossl->sha1 : EVP_sha1();
+    } else if (der_heim_oid_cmp(&pbkdf2.prf->algorithm,
+				ASN1_OID_ID_HMACWITHSHA1) == 0) {
+	prf_md = ossl ? ossl->sha1 : EVP_sha1();
+    } else if (der_heim_oid_cmp(&pbkdf2.prf->algorithm,
+				ASN1_OID_ID_HMACWITHSHA256) == 0) {
+	prf_md = ossl ? ossl->sha256 : EVP_sha256();
+    } else if (der_heim_oid_cmp(&pbkdf2.prf->algorithm,
+				ASN1_OID_ID_HMACWITHSHA384) == 0) {
+	prf_md = ossl ? ossl->sha384 : EVP_sha384();
+    } else if (der_heim_oid_cmp(&pbkdf2.prf->algorithm,
+				ASN1_OID_ID_HMACWITHSHA512) == 0) {
+	prf_md = ossl ? ossl->sha512 : EVP_sha512();
+    } else {
+	hx509_set_error_string(context, 0, HX509_ALG_NOT_SUPP,
+			       "PBKDF2 PRF algorithm not supported");
+	ret = HX509_ALG_NOT_SUPP;
+	goto out;
+    }
+
+    if (prf_md == NULL) {
+	ret = HX509_ALG_NOT_SUPP;
+	goto out;
+    }
+
+    /* Determine the encryption cipher
+     * Note: Use the rfc2459 OID macros (ASN1_OID_ID_AES_*_CBC) for enc_oid
+     * since those are what hx509_crypto_init() uses for cipher lookup
+     */
+    if (der_heim_oid_cmp(&pbes2.encryptionScheme.algorithm,
+			 ASN1_OID_ID_AES_128_CBC) == 0) {
+	cipher = ossl ? ossl->aes_128_cbc : EVP_aes_128_cbc();
+	enc_oid = ASN1_OID_ID_AES_128_CBC;
+    } else if (der_heim_oid_cmp(&pbes2.encryptionScheme.algorithm,
+				ASN1_OID_ID_AES_192_CBC) == 0) {
+	cipher = ossl ? ossl->aes_192_cbc : EVP_aes_192_cbc();
+	enc_oid = ASN1_OID_ID_AES_192_CBC;
+    } else if (der_heim_oid_cmp(&pbes2.encryptionScheme.algorithm,
+				ASN1_OID_ID_AES_256_CBC) == 0) {
+	cipher = ossl ? ossl->aes_256_cbc : EVP_aes_256_cbc();
+	enc_oid = ASN1_OID_ID_AES_256_CBC;
+    } else if (der_heim_oid_cmp(&pbes2.encryptionScheme.algorithm,
+				ASN1_OID_ID_PKCS3_DES_EDE3_CBC) == 0) {
+	cipher = ossl ? ossl->des_ede3_cbc : EVP_des_ede3_cbc();
+	enc_oid = ASN1_OID_ID_PKCS3_DES_EDE3_CBC;
+    } else {
+	hx509_set_error_string(context, 0, HX509_ALG_NOT_SUPP,
+			       "PBES2 encryption algorithm not supported");
+	ret = HX509_ALG_NOT_SUPP;
+	goto out;
+    }
+
+    if (cipher == NULL) {
+	ret = HX509_ALG_NOT_SUPP;
+	goto out;
+    }
+
+    /* Extract the IV from the encryption scheme parameters */
+    if (pbes2.encryptionScheme.parameters == NULL) {
+	hx509_set_error_string(context, 0, HX509_CRYPTO_INTERNAL_ERROR,
+			       "PBES2 encryption scheme missing IV");
+	ret = HX509_CRYPTO_INTERNAL_ERROR;
+	goto out;
+    }
+
+    ret = decode_PKCS12_OctetString(pbes2.encryptionScheme.parameters->data,
+				     pbes2.encryptionScheme.parameters->length,
+				     &iv_param, NULL);
+    if (ret) {
+	hx509_set_error_string(context, 0, ret,
+			       "Failed to decode PBES2 IV");
+	goto out;
+    }
+
+    if (iv_param.length != (size_t)EVP_CIPHER_iv_length(cipher)) {
+	hx509_set_error_string(context, 0, HX509_CRYPTO_INTERNAL_ERROR,
+			       "PBES2 IV length mismatch");
+	ret = HX509_CRYPTO_INTERNAL_ERROR;
+	goto out;
+    }
+
+    /* Allocate key and IV buffers */
+    key.length = EVP_CIPHER_key_length(cipher);
+    key.data = malloc(key.length);
+    if (key.data == NULL) {
+	ret = ENOMEM;
+	hx509_clear_error_string(context);
+	goto out;
+    }
+
+    iv.length = EVP_CIPHER_iv_length(cipher);
+    iv.data = malloc(iv.length);
+    if (iv.data == NULL) {
+	ret = ENOMEM;
+	hx509_clear_error_string(context);
+	goto out;
+    }
+    memcpy(iv.data, iv_param.data, iv.length);
+
+    pw = _hx509_lock_get_passwords(lock);
+
+    ret = HX509_CRYPTO_INTERNAL_ERROR;
+    for (i = 0; i < pw->len + 1; i++) {
+	hx509_crypto crypto;
+	const char *password;
+	int passwordlen;
+
+	if (i < pw->len)
+	    password = pw->val[i];
+	else if (i < pw->len + 1)
+	    password = "";
+	else
+	    password = NULL;
+
+	passwordlen = password ? strlen(password) : 0;
+
+	/* Derive the key using PBKDF2 */
+	if (PKCS5_PBKDF2_HMAC(password, passwordlen,
+			      pbkdf2.salt.data, pbkdf2.salt.length,
+			      pbkdf2.iterationCount,
+			      prf_md,
+			      key.length, key.data) != 1) {
+	    hx509_set_error_string(context, 0, HX509_CRYPTO_INTERNAL_ERROR,
+				   "PBKDF2 key derivation failed");
+	    ret = HX509_CRYPTO_INTERNAL_ERROR;
+	    goto out;
+	}
+
+	/* Create the crypto context */
+	ret = hx509_crypto_init(context, NULL, enc_oid, &crypto);
+	if (ret)
+	    goto out;
+
+	ret = hx509_crypto_set_key_data(crypto, key.data, key.length);
+	if (ret) {
+	    hx509_crypto_destroy(crypto);
+	    goto out;
+	}
+
+	ret = hx509_crypto_decrypt(crypto,
+				   econtent->data,
+				   econtent->length,
+				   &iv,
+				   content);
+	hx509_crypto_destroy(crypto);
+	if (ret == 0)
+	    goto out;
+    }
+
+out:
+    free_PBES2_params(&pbes2);
+    free_PBKDF2_params(&pbkdf2);
+    der_free_octet_string(&iv_param);
+    if (key.data)
+	der_free_octet_string(&key);
+    if (iv.data)
+	der_free_octet_string(&iv);
+    *result = ret;
+    return 1;  /* Was PBES2, result contains status */
+}
+
+/*
  *
  */
 
@@ -2460,6 +2699,11 @@ _hx509_pbe_decrypt(hx509_context context,
     int ret = 0;
     size_t i;
 
+    /* First try PBES2 (modern PKCS#12) */
+    if (try_pbes2_decrypt(context, lock, ai, econtent, content, &ret))
+	return ret;
+
+    /* Fall back to legacy PKCS#12 PBE */
     memset(&key, 0, sizeof(key));
     memset(&iv, 0, sizeof(iv));
 
