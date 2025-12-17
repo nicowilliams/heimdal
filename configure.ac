@@ -264,10 +264,19 @@ AC_SUBST([CJSON_LIBS])
 
 dnl mitkrb5
 AC_ARG_WITH([mitkrb5],
-  AC_HELP_STRING([--with-mitkrb5], [Path to MIT Kerberos for interop testing @<:@default=check@:>@]),
+  AC_HELP_STRING([--with-mitkrb5=PATH], [Path to MIT Kerberos for interop testing]),
   [],
-  [with_mikrb5=check])
-AM_CONDITIONAL([MITKRB5], [test "$with_mitkrb5" != "no"])
+  [with_mitkrb5=no])
+MITKRB5=
+if test "$with_mitkrb5" != "no" && test "$with_mitkrb5" != "yes"; then
+  if test -d "$with_mitkrb5"; then
+    MITKRB5="$with_mitkrb5"
+  else
+    AC_MSG_WARN([MIT Kerberos directory $with_mitkrb5 does not exist])
+  fi
+fi
+AC_SUBST(MITKRB5)
+AM_CONDITIONAL([MITKRB5], [test -n "$MITKRB5"])
 
 dnl Check for sqlite
 rk_TEST_PACKAGE(sqlite3,
