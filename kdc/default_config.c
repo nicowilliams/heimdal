@@ -113,7 +113,7 @@ krb5_kdc_get_config(krb5_context context, krb5_kdc_configuration **config)
     c->pkinit_max_life_bound = 0;
     c->synthetic_clients_max_life = 300;
     c->synthetic_clients_max_renew = 300;
-    c->pkinit_dh_min_bits = 1024;
+    c->pkinit_dh_min_bits = 2048;
     c->db = NULL;
     c->num_db = 0;
     c->logf = NULL;
