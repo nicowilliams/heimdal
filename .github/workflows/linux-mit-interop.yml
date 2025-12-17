@@ -74,7 +74,12 @@ jobs:
               run: |
                 cd build
                 ulimit -c unlimited
+                cd lib
                 make check
+                cd ../tests/bin
+                make check
+                cd ../kdc
+                make SCRIPT_TESTS='check-fast check-mit-kdc' check
             - name: Make Install
               env:
                 CC: ${{ matrix.compiler }}
