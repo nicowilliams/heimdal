@@ -234,7 +234,7 @@ init_openssl(krb5_context context, krb5_context_ossl *osslp)
 
     ossl->ecdsa         = EVP_SIGNATURE_fetch(ossl->libctx, "ECDSA", ossl->propq);
     ossl->rsa           = EVP_KEYMGMT_fetch(ossl->libctx, "RSA", ossl->propq);
-    ossl->dh            = EVP_KEYMGMT_fetch(ossl->libctx, "DH", ossl->propq);
+    ossl->dh            = EVP_KEYMGMT_fetch(ossl->libctx, "DHX", ossl->propq);
     ossl->ec            = EVP_KEYMGMT_fetch(ossl->libctx, "EC", ossl->propq);
     ossl->rc4           = EVP_CIPHER_fetch(ossl->libctx, "RC4", ossl->propq);
     ossl->aes128_cbc    = EVP_CIPHER_fetch(ossl->libctx, "AES-128-CBC", ossl->propq);
