@@ -219,7 +219,7 @@ pkinit_make_dh_key(krb5_context context,
             EVP_PKEY_keygen(kctx, pkey) <= 0)
             *pkey = NULL;
     } else {
-        if ((pctx = EVP_PKEY_CTX_new_from_name(context->ossl->libctx, "DH",
+        if ((pctx = EVP_PKEY_CTX_new_from_name(context->ossl->libctx, "DHX",
                                                context->ossl->propq)) == NULL ||
             EVP_PKEY_paramgen_init(pctx) <= 0 ||
             EVP_PKEY_CTX_set_params(pctx, p) <= 0 ||
@@ -385,33 +385,19 @@ select_dh_group(krb5_context context, EVP_PKEY **params, const char **group,
     if (krb5_config_get_bool_default(context, NULL, TRUE,
                                      "libdefaults",
                                      "pkinit_dh_use_modp", NULL)) {
-        if (min_bits == 0) {
-            /* XXX Watch out: MIT uses "3072" to mean NIST P-256 */
-            *group = "modp_3072";
-            return 0;
-        }
-        if (min_bits == 8192) {
-            *group = "modp_8192";
-            return 0;
-        }
-        if (min_bits == 6144) {
-            *group = "modp_6144";
-            return 0;
-        }
-        if (min_bits == 4096) {
-            *group = "modp_4096";
-            return 0;
-        }
-        if (min_bits == 3072) {
-            /* XXX Watch out: MIT uses "3072" to mean NIST P-256 */
-            *group = "modp_3072";
-            return 0;
-        }
-        if (min_bits == 2048) {
+        /*
+         * Use RFC 3526 Oakley groups (modp_*).  MIT Kerberos only supports
+         * 1024 (disabled by default), 2048, and 4096.  Default to 2048.
+         */
+        if (min_bits == 0 || min_bits <= 2048) {
             *group = "modp_2048";
             return 0;
         }
-        /* Continue below */
+        if (min_bits <= 4096) {
+            *group = "modp_4096";
+            return 0;
+        }
+        /* Larger sizes not supported by MIT, fall through to moduli file */
     }
 
     if (moduli[0] == NULL) {

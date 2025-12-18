@@ -368,10 +368,24 @@ ${kdestroy}
 echo "Test 4 PASSED"
 
 #
-# Test 4: FAST with Heimdal kinit (if MIT KDC supports it)
+# Test 5: PKINIT authentication with Heimdal kinit with a preference for an EC
+#         DH curve (P-521)
+#
+echo "=== Test 5: Heimdal kinit with PKINIT against MIT KDC (modp 2048) ==="
+
+${kinit} --key-agreement=modp_2048 -C FILE:${objdir}/mit-user.pem foo@${R} 2>/dev/null || { ec=1;  eval "${testfailed}"; }
+${klist} || { ec=1; eval "${testfailed}"; }
+${klist} | grep "krbtgt/${R}@${R}" > /dev/null || { ec=1; echo "No TGT found"; eval "${testfailed}"; }
+${kgetcred} ${server}@${R} || { ec=1; eval "${testfailed}"; }
+${kdestroy}
+
+echo "Test 5 PASSED"
+
+#
+# Test 6: FAST with Heimdal kinit (if MIT KDC supports it)
 #
 echo ""
-echo "=== Test 5: Testing with FAST armor ==="
+echo "=== Test 6: Testing with FAST armor ==="
 
 # Get armor ticket
 ${kinit} --password-file=${objdir}/foopassword foo@${R} || \
@@ -383,7 +397,7 @@ ${kinit} -c ${acache} --password-file=${objdir}/foopassword bar@${R} --fast-armo
 
 rm -f "${acache#FILE:}"
 ${kdestroy}
-echo "Test 5 completed"
+echo "Test 6 completed"
 
 #
 # Done
