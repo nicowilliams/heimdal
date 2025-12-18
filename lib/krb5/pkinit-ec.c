@@ -112,7 +112,25 @@ _krb5_pkinit_pick_curve(krb5_context context, krb5_pk_init_ctx ctx)
      */
     for (i = 0; p && i < p->len; i++) {
         oid = &p->val[i].algorithm;
-        if ((curve = ec_oid2nidname(oid)) &&
+
+        if (der_heim_oid_cmp(oid, &asn1_oid_id_ecPublicKey) == 0 &&
+            p->val[i].parameters) {
+            ECParameters ecp;
+
+            memset(&ecp, 0, sizeof(ecp));
+            if (decode_ECParameters(p->val[i].parameters->data,
+                                    p->val[i].parameters->length,
+                                    &ecp, NULL))
+                continue;
+            if (ecp.element != choice_ECParameters_namedCurve) {
+                free_ECParameters(&ecp);
+                continue;
+            }
+            curve = ec_oid2nidname(&ecp.u.namedCurve);
+            if (krb5_config_get_bool_default(context, NULL, 1, "libdefaults",
+                                             "pkinit_allow_ecdh", curve, NULL))
+                return _krb5_ec_nidname2heim_oid(curve);
+        } else if ((curve = ec_oid2nidname(oid)) &&
             krb5_config_get_bool_default(context, NULL, 1, "libdefaults",
                                          "pkinit_allow_ecdh", curve, NULL))
             /* Normalize to constant OID */

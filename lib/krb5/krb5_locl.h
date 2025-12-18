@@ -457,6 +457,11 @@ enum keyex_enum { USE_RSA, USE_DH, USE_ECDH };
 struct krb5_pk_init_ctx_data {
     TD_DH_PARAMETERS *kdc_sig_algs;
     TD_DH_PARAMETERS *kdc_dh_algs;
+    /*
+     * We need _two_ signature algorithms we could want: one for the
+     * certificate (and chain) and one for the signature in the AuthPack.
+     * For now we only have one.
+     */
     const heim_oid *want_sig_alg;
     const heim_oid *want_dh_alg;
     const heim_oid *want_kdf_alg;
