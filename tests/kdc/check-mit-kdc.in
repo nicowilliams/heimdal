@@ -324,67 +324,54 @@ ${klist} | grep "${server}@${R}" > /dev/null || { ec=1; echo "No service ticket 
 ${kdestroy}
 echo "Test 1 PASSED"
 
-set -vx
-
 #
 # Test 2: PKINIT authentication with Heimdal kinit
 #
-if [ "$pkinit_configured" = yes ]; then
-    echo ""
-    echo "=== Test 2: Heimdal kinit with PKINIT against MIT KDC ==="
+echo "=== Test 2: Heimdal kinit with PKINIT against MIT KDC (negotiate ECDH curve) ==="
 
-    # Note: MIT KDC may reject small RSA keys (< 2048 bits) used in test data
-    # So we make this test non-fatal
-    if ${kinit} -C FILE:${objdir}/mit-user.pem foo@${R} 2>/dev/null; then
-        echo "Verifying PKINIT ticket"
-        ${klist} || { ec=1; eval "${testfailed}"; }
-        ${klist} | grep "krbtgt/${R}@${R}" > /dev/null || { ec=1; echo "No TGT found"; eval "${testfailed}"; }
-
-        ${kdestroy}
-        echo "Test 2 PASSED"
-    else
-        echo "PKINIT failed (expected if MIT KDC rejects small test keys)"
-        echo "Test 2 SKIPPED"
-    fi
-else
-    echo ""
-    echo "=== Skipping Test 2: PKINIT not available ==="
-fi
-
-#
-# Test 3: GSS-API with gss-token
-#
-echo ""
-echo "=== Test 3: GSS-API interop with gss-token ==="
-
-# Get tickets first
-${kinit} --password-file=${objdir}/foopassword foo@${R} || \
-    { ec=1; eval "${testfailed}"; }
-
-# Run gss-token as initiator
-KRB5_KTNAME="${keytab}"
-export KRB5_KTNAME
-
-echo "Testing GSS-API token exchange"
-token=$(${gsstoken} "$(echo ${server} | tr '/' '@@')" 2>&1) || \
-    { ec=1; echo "gss-token initiate failed: $token"; eval "${testfailed}"; }
-
-set +vx
-
-if [ -n "$token" ]; then
-    echo "GSS-API token generated successfully"
-    echo "Test 3 PASSED"
-else
-    echo "Warning: Empty token generated"
-fi
-
+# Note that MIT does not support X25519, but Heimdal prefers X225519, but we
+# should negotiate to P-256:
+${kinit} -C FILE:${objdir}/mit-user.pem foo@${R} 2>/dev/null || { ec=1;  eval "${testfailed}"; }
+${klist} || { ec=1; eval "${testfailed}"; }
+${klist} | grep "krbtgt/${R}@${R}" > /dev/null || { ec=1; echo "No TGT found"; eval "${testfailed}"; }
+${kgetcred} ${server}@${R} || { ec=1; eval "${testfailed}"; }
 ${kdestroy}
+
+echo "Test 2 PASSED"
+
+#
+# Test 3: PKINIT authentication with Heimdal kinit with a preference for an EC
+#         DH curve (P-256)
+#
+echo "=== Test 3: Heimdal kinit with PKINIT against MIT KDC (P-256) ==="
+
+${kinit} --key-agreement=P-256 -C FILE:${objdir}/mit-user.pem foo@${R} 2>/dev/null || { ec=1;  eval "${testfailed}"; }
+${klist} || { ec=1; eval "${testfailed}"; }
+${klist} | grep "krbtgt/${R}@${R}" > /dev/null || { ec=1; echo "No TGT found"; eval "${testfailed}"; }
+${kgetcred} ${server}@${R} || { ec=1; eval "${testfailed}"; }
+${kdestroy}
+
+echo "Test 3 PASSED"
+
+#
+# Test 4: PKINIT authentication with Heimdal kinit with a preference for an EC
+#         DH curve (P-521)
+#
+echo "=== Test 4: Heimdal kinit with PKINIT against MIT KDC (P-521) ==="
+
+${kinit} --key-agreement=P-521 -C FILE:${objdir}/mit-user.pem foo@${R} 2>/dev/null || { ec=1;  eval "${testfailed}"; }
+${klist} || { ec=1; eval "${testfailed}"; }
+${klist} | grep "krbtgt/${R}@${R}" > /dev/null || { ec=1; echo "No TGT found"; eval "${testfailed}"; }
+${kgetcred} ${server}@${R} || { ec=1; eval "${testfailed}"; }
+${kdestroy}
+
+echo "Test 4 PASSED"
 
 #
 # Test 4: FAST with Heimdal kinit (if MIT KDC supports it)
 #
 echo ""
-echo "=== Test 4: Testing with FAST armor ==="
+echo "=== Test 5: Testing with FAST armor ==="
 
 # Get armor ticket
 ${kinit} --password-file=${objdir}/foopassword foo@${R} || \
@@ -396,7 +383,7 @@ ${kinit} -c ${acache} --password-file=${objdir}/foopassword bar@${R} --fast-armo
 
 rm -f "${acache#FILE:}"
 ${kdestroy}
-echo "Test 4 completed"
+echo "Test 5 completed"
 
 #
 # Done

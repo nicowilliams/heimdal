@@ -52,6 +52,9 @@ struct krb5_dh_moduli {
 
 #include <der.h>
 
+#include <openssl/bn.h>
+#include <openssl/param_build.h>
+
 krb5_error_code
 _krb5_pkinit_pkey2SubjectPublicKeyInfo(krb5_context context,
                                        const EVP_PKEY *pkey,
@@ -84,46 +87,113 @@ _krb5_pkinit_pkey2SubjectPublicKeyInfo(krb5_context context,
     return ret;
 }
 
-/* For parsing moduli file into params for EVP_PKEY * values */
+/* Makes a EVP_PKEY * params object from modp DH p, g, q (q is optional) */
 static EVP_PKEY *
 dh_params_from_pg(krb5_context context,
                   const unsigned char *p, size_t plen,
                   const unsigned char *g, size_t glen,
                   const unsigned char *q, size_t qlen)
 {
-    OSSL_PARAM par_pg[] = {
-        OSSL_PARAM_octet_string(OSSL_PKEY_PARAM_FFC_P, (void*)p, plen),
-        OSSL_PARAM_octet_string(OSSL_PKEY_PARAM_FFC_G, (void*)g, glen),
-        OSSL_PARAM_END
-    };
-    OSSL_PARAM par_pgq[] = {
-        OSSL_PARAM_octet_string(OSSL_PKEY_PARAM_FFC_P, (void*)p, plen),
-        OSSL_PARAM_octet_string(OSSL_PKEY_PARAM_FFC_G, (void*)g, glen),
-        OSSL_PARAM_octet_string(OSSL_PKEY_PARAM_FFC_Q, (void*)q, qlen),
-        /* If you have q, include:
-           OSSL_PARAM_octet_string(OSSL_PKEY_PARAM_FFC_Q, (void*)q, qlen), */
-        OSSL_PARAM_END
-    };
     EVP_PKEY *params = NULL;
-    EVP_PKEY_CTX *ctx = EVP_PKEY_CTX_new_from_name(context->ossl->libctx, "DH",
-                                                   context->ossl->propq);
+    EVP_PKEY_CTX *ctx = NULL;
+    BIGNUM *p_bn = NULL;
+    BIGNUM *g_bn = NULL;
+    BIGNUM *q_bn = NULL;
+    OSSL_PARAM_BLD *bld = NULL;
+    OSSL_PARAM *par = NULL;
 
-    if (q) {
-        if ((ctx = EVP_PKEY_CTX_new_from_name(context->ossl->libctx, "DH",
-                                              context->ossl->propq)) == NULL ||
-            EVP_PKEY_fromdata_init(ctx) <= 0 ||
-            EVP_PKEY_fromdata(ctx, &params, OSSL_KEYMGMT_SELECT_DOMAIN_PARAMETERS, par_pgq) <= 0)
-            params = NULL;
-    } else {
-        if ((ctx = EVP_PKEY_CTX_new_from_name(context->ossl->libctx, "DH",
-                                              context->ossl->propq)) == NULL ||
-            EVP_PKEY_fromdata_init(ctx) <= 0 ||
-            EVP_PKEY_fromdata(ctx, &params, OSSL_KEYMGMT_SELECT_DOMAIN_PARAMETERS, par_pg) <= 0)
-            params = NULL;
-    }
+    /* Convert raw bytes to BIGNUMs - OpenSSL 3.x requires BN for FFC params */
+    p_bn = BN_bin2bn(p, plen, NULL);
+    g_bn = BN_bin2bn(g, glen, NULL);
+    if (q && qlen)
+        q_bn = BN_bin2bn(q, qlen, NULL);
 
+    if (!p_bn || !g_bn || (q && qlen && !q_bn))
+        goto out;
+
+    /* Build OSSL_PARAM array */
+    bld = OSSL_PARAM_BLD_new();
+    if (!bld)
+        goto out;
+    if (!OSSL_PARAM_BLD_push_BN(bld, OSSL_PKEY_PARAM_FFC_P, p_bn) ||
+        !OSSL_PARAM_BLD_push_BN(bld, OSSL_PKEY_PARAM_FFC_G, g_bn))
+        goto out;
+    if (q_bn && !OSSL_PARAM_BLD_push_BN(bld, OSSL_PKEY_PARAM_FFC_Q, q_bn))
+        goto out;
+    par = OSSL_PARAM_BLD_to_param(bld);
+    if (!par)
+        goto out;
+
+    /*
+     * Always use DHX (X9.42 DH) for PKINIT - this produces the
+     * id-dhpublicnumber OID (1.2.840.10046.2.1) that PKINIT requires,
+     * rather than the PKCS#3 OID (1.2.840.113549.1.3.1) that "DH" uses.
+     */
+    ctx = EVP_PKEY_CTX_new_from_name(context->ossl->libctx, "DHX",
+                                     context->ossl->propq);
+    if (!ctx)
+        goto out;
+    if (EVP_PKEY_fromdata_init(ctx) <= 0)
+        goto out;
+    if (EVP_PKEY_fromdata(ctx, &params, EVP_PKEY_KEY_PARAMETERS, par) <= 0)
+        params = NULL;
+
+out:
+    OSSL_PARAM_free(par);
+    OSSL_PARAM_BLD_free(bld);
     EVP_PKEY_CTX_free(ctx);
+    BN_free(p_bn);
+    BN_free(g_bn);
+    BN_free(q_bn);
     return params;
+}
+
+/*
+ * Produce OpenSSL 3.x params from the p, g, q in a modp DH
+ * AlgorithmIdentifier returned by a KDC.
+ *
+ * Note that we don't validate the domain parameters.
+ */
+static krb5_error_code
+dh_params_from_AI(krb5_context context,
+                  heim_octet_string *ai_params,
+                  EVP_PKEY **out)
+{
+    DomainParameters dp;
+    krb5_error_code ret;
+    const unsigned char *p, *g, *q;
+    size_t plen, glen, qlen;
+
+    *out = NULL;
+    ret = decode_DomainParameters(ai_params->data, ai_params->length, &dp, NULL);
+    if (ret)
+        return ret;
+
+    /*
+     * heim_integer has the DER-encoding of the INTEGER.  OpenSSL wants the
+     * unsigned, unpadded DER-encoding of the INTEGER.  So we reject negative
+     * numbers and remove any padding, then use dh_params_from_pg().
+     */
+
+    if (dp.p.negative || dp.g.negative || (dp.q && dp.q->negative))
+        return EINVAL;
+
+    p = dp.p.data;
+    plen = dp.p.length;
+    g = dp.g.data;
+    glen = dp.g.length;
+    q = dp.q ? dp.q->data : NULL;
+    qlen = dp.q ? dp.q->length : 0;
+
+    if (dp.p.length > 1 && p[0] == 0) { p++; plen--; }
+    if (dp.g.length > 1 && g[0] == 0) { g++; glen--; }
+    if (q && dp.q->length > 1 && q[0] == 0) { q++; qlen--; }
+
+    *out = dh_params_from_pg(context, p, plen, g, glen, q, qlen);
+    free_DomainParameters(&dp);
+    if (*out)
+        return 0;
+    return EINVAL;
 }
 
 static krb5_error_code
@@ -201,11 +271,116 @@ _krb5_pk_cert_free(struct krb5_pk_cert *cert)
     free(cert);
 }
 
+static enum keyex_enum
+select_dh_type(krb5_context context, krb5_pk_init_ctx ctx)
+{
+    TD_DH_PARAMETERS *p = ctx->kdc_dh_algs;
+    hx509_cert cert = ctx->id->cert;
+    size_t i;
+    int seen_ec = 0;
+    int seen_modp = 0;
+    int prefer_ec =
+        krb5_config_get_bool_default(context, NULL, -1,
+                                     "libdefaults", "pkinit_prefer_ec", NULL);
+
+    /*
+     * The KDC offered key agreement algorithms; pick one we like.  We
+     * prefer EC to modp DH.
+     */
+    if (p) {
+        for (i = 0; i < p->len; i++) {
+            const heim_oid *oid = &p->val[i].algorithm;
+
+            if (der_heim_oid_cmp(oid, &asn1_oid_id_X25519) == 0 ||
+                der_heim_oid_cmp(oid, &asn1_oid_id_X448) == 0 ||
+                der_heim_oid_cmp(oid, &asn1_oid_id_ec_group_secp256r1) == 0 ||
+                der_heim_oid_cmp(oid, &asn1_oid_id_ec_group_secp384r1) == 0 ||
+                der_heim_oid_cmp(oid, &asn1_oid_id_ec_group_secp521r1) == 0)
+                seen_ec = 1;
+            else if (der_heim_oid_cmp(oid, &asn1_oid_id_dhpublicnumber) == 0 &&
+                p->val[i].parameters != NULL)
+                seen_modp = 1;
+        }
+    }
+
+    if (prefer_ec == -1 && cert) {
+        AlgorithmIdentifier alg;
+
+        /* Cert indicates EC support -> then use ECDH */
+        if (hx509_cert_get_SPKI_AlgorithmIdentifier(context->hx509ctx, cert,
+                                                    &alg) == 0) {
+            if (der_heim_oid_cmp(&alg.algorithm, &asn1_oid_id_ecPublicKey) == 0)
+                prefer_ec = 1;
+            else if (der_heim_oid_cmp(&alg.algorithm, &asn1_oid_id_Ed25519) == 0)
+                prefer_ec = 1;
+            else if (der_heim_oid_cmp(&alg.algorithm, &asn1_oid_id_Ed448) == 0)
+                prefer_ec = 1;
+            free_AlgorithmIdentifier(&alg);
+        }
+    }
+
+    /* Whichever we preferred, if the KDC offered it, use that */
+    if (prefer_ec > 0 && seen_ec)
+        return USE_ECDH;
+    if (prefer_ec == 0 && seen_modp)
+        return USE_DH;
+    /* Whichever we preferred, if the KDC only offered the other, use that */
+    if (seen_ec)
+        return USE_ECDH;
+    if (seen_modp)
+        return USE_DH;
+
+    /*
+     * The KDC offered nothing (yet, perhaps because we have not yet tried, or
+     * perhaps it doesn't support telling us its preference).
+     *
+     * Prefer EC/X DH then.
+     */
+    if (prefer_ec == -1)
+        prefer_ec = 1;
+
+    return prefer_ec ? USE_ECDH : USE_DH;
+}
+
 static krb5_error_code
 select_dh_group(krb5_context context, EVP_PKEY **params, const char **group,
-                unsigned long min_bits, struct krb5_dh_moduli **moduli)
+                unsigned long min_bits, krb5_pk_init_ctx ctx)
 {
     const struct krb5_dh_moduli *m;
+    struct krb5_dh_moduli **moduli = ctx->m;
+    TD_DH_PARAMETERS *p = ctx->kdc_dh_algs;
+    krb5_error_code ret;
+
+    if (p) {
+        size_t i;
+
+        /*
+         * Pick the first DH modp group offered by the KDC.  We do not validate
+         * this group if [libdefaults] pkinit_dh_trust_modp_kdc_choice is set
+         * to true.  Since we're going to get a signature from the KDC and we
+         * validate the KDC's certificate, we can default this to TRUE.
+         *
+         * NOTE: If we ever try to build something like PKU2U w/ anonymous
+         *       server support then we'll need to default this to FALSE for
+         *       that case!
+         */
+        if (!krb5_config_get_bool_default(context, NULL, TRUE,
+                                          "libdefaults",
+                                          "pkinit_dh_trust_modp_kdc_choice", NULL))
+            return KRB5_KDC_ERR_DH_KEY_PARAMETERS_NOT_ACCEPTED;
+        for (i = 0; i < p->len; i++) {
+            if (der_heim_oid_cmp(&p->val[i].algorithm,
+                                 &asn1_oid_id_dhpublicnumber) != 0 ||
+                p->val[i].parameters == NULL)
+                continue;
+            ret = dh_params_from_AI(context, p->val[i].parameters, params);
+            if (ret)
+                // XXX More trace/error info would be nice
+                return KRB5_KDC_ERR_DH_KEY_PARAMETERS_NOT_ACCEPTED;
+            return 0;
+        }
+        return KRB5_KDC_ERR_DH_KEY_PARAMETERS_NOT_ACCEPTED;
+    }
 
     if (krb5_config_get_bool_default(context, NULL, TRUE,
                                      "libdefaults",
@@ -648,12 +823,11 @@ build_auth_pack(krb5_context context,
             if (ret)
                 return ret;
 
-            ret = select_dh_group(context, &params, &group,
-                                  dh_min_bits, ctx->m);
+            ret = select_dh_group(context, &params, &group, dh_min_bits, ctx);
             if (ret)
                 return ret;
 
-            ret = pkinit_make_dh_key(context, params, NULL, &ctx->pkey);
+            ret = pkinit_make_dh_key(context, params, group, &ctx->pkey);
             if (ret)
                 return ret;
 
@@ -906,6 +1080,8 @@ _krb5_pk_mk_padata(krb5_context context,
 		   int win2k,
 		   const KDC_REQ_BODY *req_body,
 		   unsigned nonce,
+                   krb5_error_code error_code,
+                   TYPED_DATA *td,
 		   METHOD_DATA *md)
 {
     krb5_pk_init_ctx ctx = c;
@@ -2513,9 +2689,11 @@ krb5_get_init_creds_opt_set_pkinit_allowed_algs(krb5_context context,
     }
 
     if (dh_alg) {
-        if ((oid = _krb5_ec_nidname2heim_oid(dh_alg)) == NULL &&
-            strncmp(dh_alg, "modp", sizeof("modp") - 1) == 0) {
+        if ((oid = _krb5_ec_nidname2heim_oid(dh_alg))) {
+            opt->opt_private->pk_init_ctx->keyex = USE_ECDH;
+        } else if (strncmp(dh_alg, "modp", sizeof("modp") - 1) == 0) {
             oid = &asn1_oid_id_dhpublicnumber;
+            opt->opt_private->pk_init_ctx->keyex = USE_DH;
         }
         if (oid == NULL) {
             krb5_set_error_message(context, KRB5_KDC_ERR_INVALID_HASH_ALG,
@@ -2653,46 +2831,11 @@ krb5_get_init_creds_opt_set_pkinit(krb5_context context,
 	opt->opt_private->pk_init_ctx->id->cert = NULL;
 
     if ((flags & KRB5_GIC_OPT_PKINIT_USE_ENCKEY) == 0) {
-	hx509_context hx509ctx = context->hx509ctx;
-	hx509_cert cert = opt->opt_private->pk_init_ctx->id->cert;
-        const char *dh_min_bits = krb5_config_get_string(context, NULL,
-                                                         "libdefaults",
-                                                         "pkinit_dh_min_bits",
-                                                         NULL);
-        int prefer_ec = krb5_config_get_bool_default(context, NULL, 1,
-                                                     "libdefaults",
-                                                     "pkinit_prefer_ec", NULL);
-
-        /* MIT Kerberos config compat! */
-        if (dh_min_bits) {
-            if (strcmp(dh_min_bits, "P-256") == 0 ||
-                strcmp(dh_min_bits, "P-384") == 0 ||
-                strcmp(dh_min_bits, "P-521") == 0 ||
-                /* These are Heimdal-only as of this writing */
-                strcmp(dh_min_bits, "X25519") == 0 ||
-                strcmp(dh_min_bits, "X448"))
-                prefer_ec = 1;
-        }
-
-        /* Use DH or ECDH */
-	opt->opt_private->pk_init_ctx->keyex = prefer_ec ? USE_ECDH : USE_DH;
-
-	if (!prefer_ec && cert) {
-	    AlgorithmIdentifier alg;
-
-            /* Use DH but the cert indicates EC support?  Then use ECDH. */
-	    ret = hx509_cert_get_SPKI_AlgorithmIdentifier(hx509ctx, cert, &alg);
-	    if (ret == 0) {
-		if (der_heim_oid_cmp(&alg.algorithm, &asn1_oid_id_ecPublicKey) == 0)
-		    opt->opt_private->pk_init_ctx->keyex = USE_ECDH;
-                else if (der_heim_oid_cmp(&alg.algorithm, &asn1_oid_id_Ed25519) == 0)
-		    opt->opt_private->pk_init_ctx->keyex = USE_ECDH;
-                else if (der_heim_oid_cmp(&alg.algorithm, &asn1_oid_id_Ed448) == 0)
-		    opt->opt_private->pk_init_ctx->keyex = USE_ECDH;
-		free_AlgorithmIdentifier(&alg);
-            }
-        }
+        /* Use key agreement (modp DH) or ECDH (including X curves) */
+	opt->opt_private->pk_init_ctx->keyex =
+            select_dh_type(context, opt->opt_private->pk_init_ctx);
     } else {
+        /* Use RSA key transport */
 	opt->opt_private->pk_init_ctx->keyex = USE_RSA;
 
 	if (opt->opt_private->pk_init_ctx->id->certs == NULL) {
