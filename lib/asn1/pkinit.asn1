@@ -133,6 +133,9 @@ ReplyKeyPack ::= SEQUENCE {
 
 TD-DH-PARAMETERS ::= SEQUENCE OF AlgorithmIdentifier
 
+-- No need for this one since it's the same as TD-DH-PARAMETERS:
+-- TD-CMS-DIGEST-ALGORITHMS-DATA ::= SEQUENCE OF AlgorithmIdentifier
+
 
 -- Windows compat glue --
 
