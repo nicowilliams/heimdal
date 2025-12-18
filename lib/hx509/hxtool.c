@@ -1684,6 +1684,19 @@ info(void *opt, int argc, char **argv)
         }
     }
 
+    /* DHX */
+    {
+        EVP_KEYMGMT *km = EVP_KEYMGMT_fetch(libctx, "DHX", propq);
+        if (km) {
+            const OSSL_PROVIDER *prov = EVP_KEYMGMT_get0_provider(km);
+            const char *pname = prov ? OSSL_PROVIDER_get0_name(prov) : "unknown";
+            printf("dh: %s\n", pname);
+            EVP_KEYMGMT_free(km);
+        } else {
+            printf("dh: unavailable\n");
+        }
+    }
+
     /* ECDSA (signature algorithm). If not available, fall back to EC key management. */
     {
         EVP_SIGNATURE *sig = EVP_SIGNATURE_fetch(libctx, "ECDSA", propq);
