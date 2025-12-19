@@ -275,7 +275,6 @@ gen_eph_for_peer_spki(astgs_request_t r, SubjectPublicKeyInfo *spki,
     kctx = EVP_PKEY_CTX_new_from_pkey(r->context->ossl->libctx, *peer,
                                       r->context->ossl->propq);
     if (!kctx) {
-        EVP_PKEY_free(*peer);
         *peer = NULL;
         ret = EINVAL;
         goto out;
@@ -284,8 +283,6 @@ gen_eph_for_peer_spki(astgs_request_t r, SubjectPublicKeyInfo *spki,
     /* This works for all key agreement types! */
     if (EVP_PKEY_keygen_init(kctx) <= 0 ||
         EVP_PKEY_keygen(kctx, eph) <= 0) {
-        EVP_PKEY_CTX_free(kctx);
-        EVP_PKEY_free(*peer);
         *peer = NULL;
         ret = EINVAL;
         goto out;
