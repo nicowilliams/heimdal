@@ -407,12 +407,12 @@ serialize_key_share(krb5_context context,
         return ret;
 
     /* Copy the subjectPublicKey bit string data */
-    *out = malloc(spki.subjectPublicKey.length);
+    *out = malloc((spki.subjectPublicKey.length + 7) / 8);
     if (*out == NULL) {
         free_SubjectPublicKeyInfo(&spki);
         return krb5_enomem(context);
     }
-    memcpy(*out, spki.subjectPublicKey.data, spki.subjectPublicKey.length);
+    memcpy(*out, spki.subjectPublicKey.data, (spki.subjectPublicKey.length + 7) / 8);
     *out_len = spki.subjectPublicKey.length;
 
     free_SubjectPublicKeyInfo(&spki);
