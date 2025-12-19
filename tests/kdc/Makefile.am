@@ -36,6 +36,8 @@ SCRIPT_TESTS = \
 	check-kdc-weak \
 	check-kpasswdd \
 	check-mit-kdc \
+	check-old-heimdal-kdc \
+	check-old-heimdal-client \
 	check-pkinit \
 	check-bx509 \
 	check-httpkadmind \
@@ -83,6 +85,7 @@ do_subst = $(heim_verbose)sed $(do_dlopen) \
         -e 's,[@]ENABLE_AFS_STRING_TO_KEY[@],$(ENABLE_AFS_STRING_TO_KEY),' \
 	-e 's,[@]EGREP[@],$(EGREP),g' \
 	-e 's,[@]MITKRB5[@],$(MITKRB5),g' \
+	-e 's,[@]OLD_HEIMDAL[@],$(OLD_HEIMDAL),g' \
 	-e 's,[@]OPENSSL_PKCS11_PROVIDER[@],$(OPENSSL_PKCS11_PROVIDER),g'
 
 chmod = chmod
@@ -153,6 +156,16 @@ check-mit-kdc: check-mit-kdc.in Makefile
 	$(do_subst) < $(srcdir)/check-mit-kdc.in > check-mit-kdc.tmp && \
 	$(chmod) +x check-mit-kdc.tmp && \
 	mv check-mit-kdc.tmp check-mit-kdc
+
+check-old-heimdal-kdc: check-old-heimdal-kdc.in Makefile krb5.conf
+	$(do_subst) < $(srcdir)/check-old-heimdal-kdc.in > check-old-heimdal-kdc.tmp && \
+	$(chmod) +x check-old-heimdal-kdc.tmp && \
+	mv check-old-heimdal-kdc.tmp check-old-heimdal-kdc
+
+check-old-heimdal-client: check-old-heimdal-client.in Makefile
+	$(do_subst) < $(srcdir)/check-old-heimdal-client.in > check-old-heimdal-client.tmp && \
+	$(chmod) +x check-old-heimdal-client.tmp && \
+	mv check-old-heimdal-client.tmp check-old-heimdal-client
 
 check-pkinit: check-pkinit.in Makefile krb5-pkinit.conf krb5-pkinit2.conf
 	$(do_subst) < $(srcdir)/check-pkinit.in > check-pkinit.tmp && \
@@ -392,6 +405,8 @@ EXTRA_DIST = \
 	check-kinit.in \
 	check-kpasswdd.in \
 	check-mit-kdc.in \
+	check-old-heimdal-kdc.in \
+	check-old-heimdal-client.in \
 	check-pkinit.in \
 	check-referral.in \
 	check-tester.in \
