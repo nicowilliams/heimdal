@@ -278,6 +278,22 @@ fi
 AC_SUBST(MITKRB5)
 AM_CONDITIONAL([MITKRB5], [test -n "$MITKRB5"])
 
+dnl older-heimdal (for interop testing)
+AC_ARG_WITH([older-heimdal],
+  AC_HELP_STRING([--with-older-heimdal=PATH], [Path to older version of Heimdal for interop testing]),
+  [],
+  [with_oldheimdal=no])
+MITKRB5=
+if test "$with_oldheimdal" != "no" && test "$with_oldheimdal" != "yes"; then
+  if test -d "$with_oldheimdal"; then
+    OLD_HEIMDAL="$with_oldheimdal"
+  else
+    AC_MSG_WARN([Older Heimdal directory $with_oldheimdal does not exist])
+  fi
+fi
+AC_SUBST(OLD_HEIMDAL)
+AM_CONDITIONAL([OLD_HEIMDAL], [test -n "$OLD_HEIMDAL"])
+
 dnl Check for sqlite
 rk_TEST_PACKAGE(sqlite3,
 [#include <sqlite3.h>
