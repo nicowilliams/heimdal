@@ -334,8 +334,8 @@ p11_init(hx509_context context,
                                NULL, NULL, NULL, NULL, NULL);
     if (store == NULL) {
         ret = HX509_PKCS11_LOAD;
-        hx509_set_error_string(context, 0, ret,
-                               "Failed to open PKCS#11 store: %s", p->uri);
+        _hx509_set_error_string_openssl(context, 0, ret,
+                                        "Failed to open PKCS#11 store: %s", p->uri);
         goto out;
     }
 
