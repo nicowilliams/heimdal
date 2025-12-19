@@ -35,6 +35,7 @@
 
 #include "hx_locl.h"
 #include "ref/pkcs11.h"
+#include <openssl/core_names.h>
 
 #define OBJECT_ID_MASK		0xfff
 #define HANDLE_OBJECT_ID(h)	((h) & OBJECT_ID_MASK)
@@ -367,51 +368,72 @@ static CK_RV
 add_pubkey_info(hx509_context hxctx, struct st_object *o,
 		CK_KEY_TYPE key_type, hx509_cert cert)
 {
-    BIGNUM *num;
-    CK_BYTE *modulus = NULL;
-    size_t modulus_len = 0;
-    CK_ULONG modulus_bits = 0;
-    CK_BYTE *exponent = NULL;
-    size_t exponent_len = 0;
+    SubjectPublicKeyInfo spki;
+    size_t spki_len;
+    void *spki_data;
+    int ret;
 
-    if (key_type != CKK_RSA)
-	return CKR_OK;
-    if (_hx509_cert_private_key(cert) == NULL)
-	return CKR_OK;
+    /* Add CKA_PUBLIC_KEY_INFO (PKCS#11 3.0) for all key types */
+    ret = hx509_cert_get_SPKI(hxctx, cert, &spki);
+    if (ret == 0) {
+	ASN1_MALLOC_ENCODE(SubjectPublicKeyInfo, spki_data, spki_len,
+			   &spki, &spki_len, ret);
+	if (ret == 0 && spki_data) {
+	    add_object_attribute(o, 0, CKA_PUBLIC_KEY_INFO, spki_data, spki_len);
+	    free(spki_data);
+	}
+	free_SubjectPublicKeyInfo(&spki);
+    }
 
-    num = _hx509_private_key_get_internal(context,
-					  _hx509_cert_private_key(cert),
-					  "rsa-modulus");
-    if (num == NULL)
-	return CKR_GENERAL_ERROR;
-    modulus_bits = BN_num_bits(num);
+    /* For RSA keys, extract modulus and exponent from certificate's public key */
+    if (key_type == CKK_RSA) {
+	Certificate *c = _hx509_get_cert(cert);
+	EVP_PKEY *pkey = NULL;
+	const unsigned char *p;
+	BIGNUM *n = NULL, *e = NULL;
+	CK_BYTE *modulus = NULL;
+	CK_BYTE *exponent = NULL;
+	size_t modulus_len, exponent_len;
+	CK_ULONG modulus_bits;
 
-    modulus_len = BN_num_bytes(num);
-    modulus = malloc(modulus_len);
-    BN_bn2bin(num, modulus);
-    BN_free(num);
+	/* Decode public key from certificate SPKI */
+	p = c->tbsCertificate.subjectPublicKeyInfo.subjectPublicKey.data;
+	pkey = d2i_PublicKey(EVP_PKEY_RSA, NULL, &p,
+			     c->tbsCertificate.subjectPublicKeyInfo.subjectPublicKey.length / 8);
+	if (pkey == NULL) {
+	    st_logf("add_pubkey_info: failed to decode RSA public key\n");
+	    return CKR_OK;  /* Not fatal, just skip RSA attrs */
+	}
 
-    add_object_attribute(o, 0, CKA_MODULUS, modulus, modulus_len);
-    add_object_attribute(o, 0, CKA_MODULUS_BITS,
-			 &modulus_bits, sizeof(modulus_bits));
+	/* Get modulus and exponent using OpenSSL 3.0 API */
+	if (EVP_PKEY_get_bn_param(pkey, OSSL_PKEY_PARAM_RSA_N, &n) &&
+	    EVP_PKEY_get_bn_param(pkey, OSSL_PKEY_PARAM_RSA_E, &e)) {
 
-    free(modulus);
+	    modulus_bits = BN_num_bits(n);
+	    modulus_len = BN_num_bytes(n);
+	    modulus = malloc(modulus_len);
+	    if (modulus) {
+		BN_bn2bin(n, modulus);
+		add_object_attribute(o, 0, CKA_MODULUS, modulus, modulus_len);
+		add_object_attribute(o, 0, CKA_MODULUS_BITS, &modulus_bits, sizeof(modulus_bits));
+		free(modulus);
+	    }
 
-    num = _hx509_private_key_get_internal(context,
-					  _hx509_cert_private_key(cert),
-					  "rsa-exponent");
-    if (num == NULL)
-	return CKR_GENERAL_ERROR;
+	    exponent_len = BN_num_bytes(e);
+	    exponent = malloc(exponent_len);
+	    if (exponent) {
+		BN_bn2bin(e, exponent);
+		add_object_attribute(o, 0, CKA_PUBLIC_EXPONENT, exponent, exponent_len);
+		free(exponent);
+	    }
 
-    exponent_len = BN_num_bytes(num);
-    exponent = malloc(exponent_len);
-    BN_bn2bin(num, exponent);
-    BN_free(num);
+	    st_logf("add_pubkey_info: added RSA modulus (%zu bytes) and exponent\n", modulus_len);
+	}
 
-    add_object_attribute(o, 0, CKA_PUBLIC_EXPONENT,
-			 exponent, exponent_len);
-
-    free(exponent);
+	BN_free(n);
+	BN_free(e);
+	EVP_PKEY_free(pkey);
+    }
 
     return CKR_OK;
 }
@@ -538,6 +560,8 @@ add_cert(hx509_context hxctx, void *ctx, hx509_cert cert)
     add_object_attribute(o, 0, CKA_VERIFY_RECOVER, &bool_false, sizeof(bool_false));
     add_object_attribute(o, 0, CKA_WRAP, &bool_true, sizeof(bool_true));
     add_object_attribute(o, 0, CKA_TRUSTED, &bool_true, sizeof(bool_true));
+    add_object_attribute(o, 0, CKA_COPYABLE, &bool_false, sizeof(bool_false));
+    add_object_attribute(o, 0, CKA_DESTROYABLE, &bool_false, sizeof(bool_false));
 
     add_pubkey_info(hxctx, o, key_type, cert);
 
@@ -583,6 +607,10 @@ add_cert(hx509_context hxctx, void *ctx, hx509_cert cert)
 	add_object_attribute(o, 0, CKA_UNWRAP, &bool_true, sizeof(bool_true));
 	add_object_attribute(o, 0, CKA_EXTRACTABLE, &bool_true, sizeof(bool_true));
 	add_object_attribute(o, 0, CKA_NEVER_EXTRACTABLE, &bool_false, sizeof(bool_false));
+	add_object_attribute(o, 0, CKA_COPYABLE, &bool_false, sizeof(bool_false));
+	add_object_attribute(o, 0, CKA_DESTROYABLE, &bool_false, sizeof(bool_false));
+	add_object_attribute(o, 0, CKA_ALWAYS_SENSITIVE, &bool_false, sizeof(bool_false));
+	add_object_attribute(o, 0, CKA_ALWAYS_AUTHENTICATE, &bool_false, sizeof(bool_false));
 
 	add_pubkey_info(hxctx, o, key_type, cert);
     }
