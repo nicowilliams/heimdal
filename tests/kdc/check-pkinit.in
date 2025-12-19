@@ -412,41 +412,84 @@ ${kdestroy}
 KRB5_CONFIG="${objdir}/krb5-pkinit.conf"
 export KRB5_CONFIG
 
-# XXX Either finish re-writing lib/hx509/ks_p11.c / lib/hx509/softp11.c or
-#     figure out how to configure OpenSSL w/ a PKCS#11 provider then do that
-#     for testing that we can do PKINIT with a client credential held in a
-#     token.
+# PKCS#11 support via OpenSSL pkcs11-provider
+# Requires --with-openssl-pkcs11-provider=path to be set at configure time
+openssl_pkcs11_provider="@OPENSSL_PKCS11_PROVIDER@"
 
-#echo "Trying PKCS11 support"
-#
-#cat > test-rc-file.rc <<EOF
-#certificate	cert	User certificate	FILE:${base}/pkinit.crt,${keyfile2}
-#app-fatal	true
-#EOF
-#
-#SOFTPKCS11RC="test-rc-file.rc"
-#export SOFTPKCS11RC
-#
-#dir=${base}/../../lib/hx509
-#file=
-#
-#for a in libhx509.so .libs/libhx509.so libhx509.dylib .libs/libhx509.dylib ; do
-#    if [ -f $dir/$a ] ; then
-#	file=$dir/$a
-#	break
-#    fi
-#done
-#
-#if [ X"$file" != X -a @DLOPEN@ ] ; then
-#
-#    echo "Trying pk-init (principal in pki-mapping file) "; > messages.log
-#    ${kinit} -C PKCS11:${file} foo@${R} || \
-#	{ ec=1 ; eval "${testfailed}"; }
-#    ${kgetcred} ${server}@${R} || { ec=1 ; eval "${testfailed}"; }
-#    ${kdestroy}
-#
-#fi
+if [ "x${openssl_pkcs11_provider}" != "x" ] ; then
 
+    echo "Trying PKCS11 support (via OpenSSL pkcs11-provider)"
+
+    # Find the soft PKCS#11 module (libhx509.so contains softp11)
+    dir=${base}/../../lib/hx509
+    p11_module=
+
+    for a in libhx509.so .libs/libhx509.so libhx509.dylib .libs/libhx509.dylib ; do
+        if [ -f $dir/$a ] ; then
+            p11_module=$(cd $dir && pwd)/$a
+            break
+        fi
+    done
+
+    if [ "x${p11_module}" != "x" ] ; then
+
+        # Convert to absolute paths for softp11 config
+        # (softp11 may run from a different working directory context)
+        abs_objdir=$(cd ${objdir} && pwd)
+        abs_pkinit_crt="${abs_objdir}/pkinit.crt"
+        abs_keyfile2=$(cd $(dirname ${keyfile2}) && pwd)/$(basename ${keyfile2})
+
+        # Create softp11 config file
+        cat > ${objdir}/test-rc-file.rc <<EOF
+debug	${abs_objdir}/softp11-debug.log
+certificate	cert	User certificate	FILE:${abs_pkinit_crt},${abs_keyfile2}
+app-fatal	true
+EOF
+
+        SOFTPKCS11RC="${abs_objdir}/test-rc-file.rc"
+        export SOFTPKCS11RC
+
+        # Create OpenSSL config file for pkcs11-provider
+        cat > ${objdir}/openssl-pkcs11.cnf <<EOF
+openssl_conf = openssl_init
+
+[openssl_init]
+providers = provider_sect
+
+[provider_sect]
+default = default_sect
+pkcs11 = pkcs11_sect
+
+[default_sect]
+activate = 1
+
+[pkcs11_sect]
+module = ${openssl_pkcs11_provider}
+pkcs11-module-path = ${p11_module}
+activate = 1
+EOF
+
+        OPENSSL_CONF="${abs_objdir}/openssl-pkcs11.cnf"
+        export OPENSSL_CONF
+        export PKCS11_PROVIDER_MODULE="${abs_objdir}/../../lib/hx509/.libs/libhx509.so"
+
+        echo "Trying pk-init with PKCS#11 (principal in pki-mapping file) "; > messages.log
+        ${kinit} -C "PKCS11:pkcs11:" foo@${R} || \
+            { ec=1 ; eval "${testfailed}"; }
+        ${kgetcred} ${server}@${R} || { ec=1 ; eval "${testfailed}"; }
+        ${kdestroy}
+
+        unset PKCS11_PROVIDER_MODULE
+        unset OPENSSL_CONF
+        unset SOFTPKCS11RC
+
+    else
+        echo "Skipping PKCS#11 test: soft PKCS#11 module not found"
+    fi
+
+else
+    echo "Skipping PKCS#11 test: --with-openssl-pkcs11-provider not configured"
+fi
 
 echo "killing kdc (${kdcpid})"
 sh ${leaks_kill} kdc $kdcpid || ec=1
