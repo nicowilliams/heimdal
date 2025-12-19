@@ -1496,7 +1496,7 @@ C_SignInit(CK_SESSION_HANDLE hSession,
     CK_RV ret;
 
     INIT_CONTEXT();
-    st_logf("SignInit\n");
+    st_logf("SignInit: mechanism 0x%lx\n", (unsigned long)pMechanism->mechanism);
     VERIFY_SESSION_HANDLE(hSession, &state);
 
     ret = commonInit(attr, sizeof(attr)/sizeof(attr[0]),
@@ -1522,16 +1522,10 @@ C_Sign(CK_SESSION_HANDLE hSession,
     struct session_state *state;
     struct st_object *o;
     CK_RV ret;
-    int hret;
-    const AlgorithmIdentifier *alg;
-    heim_octet_string sig, data;
 
     INIT_CONTEXT();
-    st_logf("Sign\n");
+    st_logf("Sign: dataLen=%lu\n", (unsigned long)ulDataLen);
     VERIFY_SESSION_HANDLE(hSession, &state);
-
-    sig.data = NULL;
-    sig.length = 0;
 
     if (state->sign_object == -1)
 	return CKR_ARGUMENTS_BAD;
@@ -1556,39 +1550,67 @@ C_Sign(CK_SESSION_HANDLE hSession,
     }
 
     switch(state->sign_mechanism->mechanism) {
-    case CKM_RSA_PKCS:
-	alg = hx509_signature_rsa_pkcs1_x509();
-	break;
+    case CKM_RSA_PKCS: {
+	/*
+	 * CKM_RSA_PKCS: The input is already a DigestInfo (or any data to be
+	 * signed raw). We need raw RSA PKCS#1 v1.5 signing, not digest+sign.
+	 */
+	hx509_private_key privkey = _hx509_cert_private_key(o->cert);
+	EVP_PKEY *pkey = privkey->private_key.pkey;
+	EVP_PKEY_CTX *pctx;
+	size_t siglen;
+
+	pctx = EVP_PKEY_CTX_new(pkey, NULL);
+	if (pctx == NULL) {
+	    st_logf("Sign: EVP_PKEY_CTX_new failed\n");
+	    ret = CKR_DEVICE_ERROR;
+	    goto out;
+	}
+
+	if (EVP_PKEY_sign_init(pctx) <= 0) {
+	    st_logf("Sign: EVP_PKEY_sign_init failed\n");
+	    EVP_PKEY_CTX_free(pctx);
+	    ret = CKR_DEVICE_ERROR;
+	    goto out;
+	}
+
+	if (EVP_PKEY_CTX_set_rsa_padding(pctx, RSA_PKCS1_PADDING) <= 0) {
+	    st_logf("Sign: EVP_PKEY_CTX_set_rsa_padding failed\n");
+	    EVP_PKEY_CTX_free(pctx);
+	    ret = CKR_DEVICE_ERROR;
+	    goto out;
+	}
+
+	/* First call to get signature length */
+	siglen = 0;
+	if (EVP_PKEY_sign(pctx, NULL, &siglen, pData, ulDataLen) <= 0) {
+	    st_logf("Sign: EVP_PKEY_sign (get length) failed\n");
+	    EVP_PKEY_CTX_free(pctx);
+	    ret = CKR_DEVICE_ERROR;
+	    goto out;
+	}
+
+	*pulSignatureLen = siglen;
+	st_logf("Sign: sigLen=%lu\n", (unsigned long)siglen);
+
+	if (pSignature != NULL_PTR) {
+	    if (EVP_PKEY_sign(pctx, pSignature, &siglen, pData, ulDataLen) <= 0) {
+		st_logf("Sign: EVP_PKEY_sign failed\n");
+		EVP_PKEY_CTX_free(pctx);
+		ret = CKR_DEVICE_ERROR;
+		goto out;
+	    }
+	}
+	EVP_PKEY_CTX_free(pctx);
+	ret = CKR_OK;
+	goto out;
+    }
     default:
 	ret = CKR_FUNCTION_NOT_SUPPORTED;
 	goto out;
     }
 
-    data.data = pData;
-    data.length = ulDataLen;
-
-    hret = _hx509_create_signature(context,
-				   _hx509_cert_private_key(o->cert),
-				   alg,
-                                   NULL,
-				   &data,
-				   NULL,
-				   &sig);
-    if (hret) {
-	ret = CKR_DEVICE_ERROR;
-	goto out;
-    }
-    *pulSignatureLen = sig.length;
-
-    if (pSignature != NULL_PTR)
-	memcpy(pSignature, sig.data, sig.length);
-
-    ret = CKR_OK;
  out:
-    if (sig.data) {
-	memset(sig.data, 0, sig.length);
-	der_free_octet_string(&sig);
-    }
     return ret;
 }
 

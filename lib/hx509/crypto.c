@@ -192,6 +192,7 @@ rsa_verify_signature(hx509_context context,
     size_t size;
     int ret = EINVAL;
 
+    ERR_clear_error(); /* Clear any pre-existing errors */
     md = md ? md : (sig_alg->evp_md ? sig_alg->evp_md() : NULL);
 
     p = signer->tbsCertificate.subjectPublicKeyInfo._save.data;
