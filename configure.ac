@@ -282,13 +282,13 @@ dnl older-heimdal (for interop testing)
 AC_ARG_WITH([older-heimdal],
   AC_HELP_STRING([--with-older-heimdal=PATH], [Path to older version of Heimdal for interop testing]),
   [],
-  [with_oldheimdal=no])
-MITKRB5=
-if test "$with_oldheimdal" != "no" && test "$with_oldheimdal" != "yes"; then
-  if test -d "$with_oldheimdal"; then
-    OLD_HEIMDAL="$with_oldheimdal"
+  [with_older_heimdal=no])
+OLD_HEIMDAL=
+if test "$with_older_heimdal" != "no" && test "$with_older_heimdal" != "yes"; then
+  if test -d "$with_older_heimdal"; then
+    OLD_HEIMDAL="$with_older_heimdal"
   else
-    AC_MSG_WARN([Older Heimdal directory $with_oldheimdal does not exist])
+    AC_MSG_WARN([Older Heimdal directory $with_older_heimdal does not exist])
   fi
 fi
 AC_SUBST(OLD_HEIMDAL)
