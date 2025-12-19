@@ -82,7 +82,8 @@ do_subst = $(heim_verbose)sed $(do_dlopen) \
         -e 's,[@]ENABLE_AFS_STRING_TO_KEY[@],$(ENABLE_AFS_STRING_TO_KEY),' \
         -e 's,[@]ENABLE_AFS_STRING_TO_KEY[@],$(ENABLE_AFS_STRING_TO_KEY),' \
 	-e 's,[@]EGREP[@],$(EGREP),g' \
-	-e 's,[@]MITKRB5[@],$(MITKRB5),g' 
+	-e 's,[@]MITKRB5[@],$(MITKRB5),g' \
+	-e 's,[@]OPENSSL_PKCS11_PROVIDER[@],$(OPENSSL_PKCS11_PROVIDER),g'
 
 chmod = chmod
 
