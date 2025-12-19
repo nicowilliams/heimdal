@@ -363,46 +363,62 @@ generate_key_agreement_keyblock(astgs_request_t r,
     return ret;
 }
 
+/*
+ * Serialize the public key from an EVP_PKEY for a key share.
+ *
+ * OpenSSL 3.x doesn't support i2d_PublicKey() for DH keys and
+ * EVP_PKEY_get_octet_string_param() doesn't work either.  Instead we use
+ * i2d_PUBKEY() (which works for all key types) to get the SubjectPublicKeyInfo,
+ * then decode it to extract the subjectPublicKey bit string.
+ */
 static krb5_error_code
 serialize_key_share(krb5_context context,
                     EVP_PKEY *key,
                     unsigned char **out,
                     size_t *out_len)
 {
+    SubjectPublicKeyInfo spki;
+    krb5_error_code ret;
+    unsigned char *buf = NULL;
     unsigned char *p;
-    size_t sz;
-    int len;
+    size_t len, size;
 
     *out = NULL;
     *out_len = 0;
 
-    len = i2d_PublicKey(key, NULL);
-    if (len <= 0) {
-        if (EVP_PKEY_get_octet_string_param(key, OSSL_PKEY_PARAM_PUB_KEY, NULL,
-                                            0, &sz) != 1)
-            return _krb5_set_error_message_openssl(context, KRB5_CRYPTO_INTERNAL,
-                                   "PKINIT failed to encode raw ECDH public key");
-    } else {
-        sz = len;
-    }
+    /* Encode as SubjectPublicKeyInfo using i2d_PUBKEY (works for all types) */
+    len = i2d_PUBKEY(key, NULL);
+    if (len <= 0)
+        return _krb5_set_error_message_openssl(context, KRB5_CRYPTO_INTERNAL,
+                                               "PKINIT failed to encode public key");
 
-    *out = malloc(sz);
-    if (*out == NULL)
+    p = buf = malloc(len);
+    if (p == NULL)
         return krb5_enomem(context);
 
-    p = *out;
-    if (len > 0 && (len = i2d_PublicKey(key, &p)) <= 0) {
-        free(*out);
-        *out = NULL;
+    if (i2d_PUBKEY(key, &p) != (int)len) {
+        free(buf);
         return _krb5_set_error_message_openssl(context, KRB5_CRYPTO_INTERNAL,
-                                               "PKINIT failed to encode raw ECDH public key");
-    } else if (EVP_PKEY_get_octet_string_param(key, OSSL_PKEY_PARAM_PUB_KEY,
-                                               p, sz, &sz) != 1) {
-        return _krb5_set_error_message_openssl(context, KRB5_CRYPTO_INTERNAL,
-                                               "PKINIT failed to encode raw ECDH public key");
+                                               "PKINIT failed to encode public key");
     }
 
-    *out_len = sz * 8;
+    /* Decode to extract the subjectPublicKey */
+    memset(&spki, 0, sizeof(spki));
+    ret = decode_SubjectPublicKeyInfo(buf, len, &spki, &size);
+    free(buf);
+    if (ret)
+        return ret;
+
+    /* Copy the subjectPublicKey bit string data */
+    *out = malloc(spki.subjectPublicKey.length);
+    if (*out == NULL) {
+        free_SubjectPublicKeyInfo(&spki);
+        return krb5_enomem(context);
+    }
+    memcpy(*out, spki.subjectPublicKey.data, spki.subjectPublicKey.length);
+    *out_len = spki.subjectPublicKey.length;
+
+    free_SubjectPublicKeyInfo(&spki);
     return 0;
 }
 
