@@ -190,7 +190,7 @@ rsa_verify_signature(hx509_context context,
     EVP_PKEY *pkey = NULL;
     const unsigned char *p;
     size_t size;
-    int ret = EINVAL;
+    int ret = HX509_CRYPTO_INTERNAL_ERROR;
 
     ERR_clear_error(); /* Clear any pre-existing errors */
     md = md ? md : (sig_alg->evp_md ? sig_alg->evp_md() : NULL);
@@ -200,7 +200,6 @@ rsa_verify_signature(hx509_context context,
 
     pkey = d2i_PUBKEY(NULL, &p, size);
     if (pkey == NULL) {
-	ret = ENOMEM; // XXX Maybe it's not ENOMEM...
 	_hx509_set_error_string_openssl(context, 0, ret, "Could not parse SubjectPublicKeyInfo (RSA)");
 	goto out;
     }
@@ -208,6 +207,7 @@ rsa_verify_signature(hx509_context context,
     if (EVP_PKEY_base_id(pkey) != EVP_PKEY_RSA) {
         ret = HX509_CRYPTO_SIG_INVALID_FORMAT; // Can't happen
         hx509_set_error_string(context, 0, ret, "public key is not RSA");
+        goto out;
     }
 
     if ((mctx = EVP_MD_CTX_new()) == NULL) {
@@ -508,9 +508,9 @@ rsa_private_key_export(hx509_context context,
         ret = OSSL_ENCODER_to_data(ctx, &p, &size);
         OSSL_ENCODER_CTX_free(ctx);
         if (ret != 1) {
-	    _hx509_set_error_string_openssl(context, 0, EINVAL,
+	    _hx509_set_error_string_openssl(context, 0, HX509_CRYPTO_INTERNAL_ERROR,
                                             "Could not encode a private key");
-	    return EINVAL;
+	    return HX509_CRYPTO_INTERNAL_ERROR;
         }
 
 	data->data = malloc(size);
@@ -561,7 +561,7 @@ dsa_verify_signature(hx509_context context,
     EVP_PKEY *pkey = NULL;
     const unsigned char *p;
     size_t size;
-    int ret = EINVAL;
+    int ret = HX509_CRYPTO_INTERNAL_ERROR;
 
     md = md ? md : (sig_alg->evp_md ? sig_alg->evp_md() : NULL);
     p = signer->tbsCertificate.subjectPublicKeyInfo._save.data;
@@ -1177,9 +1177,9 @@ _hx509_public_encrypt(hx509_context context,
 
     pkey = d2i_PUBKEY(NULL, &p, size);
     if (pkey == NULL) {
-	_hx509_set_error_string_openssl(context, 0, EINVAL,
+	_hx509_set_error_string_openssl(context, 0, HX509_CRYPTO_INTERNAL_ERROR,
                                         "Could not parse SubjectPublicKeyInfo");
-	return EINVAL;
+	return HX509_CRYPTO_INTERNAL_ERROR;
     }
 
     pctx = EVP_PKEY_CTX_new_from_pkey(NULL, pkey, NULL);
@@ -1208,11 +1208,11 @@ _hx509_public_encrypt(hx509_context context,
     if (EVP_PKEY_encrypt(pctx,
                          to, &tosize,
                          cleartext->data, cleartext->length) <= 0) {
-        _hx509_set_error_string_openssl(context, 0, EINVAL,
+        _hx509_set_error_string_openssl(context, 0, HX509_CRYPTO_INTERNAL_ERROR,
                                         "Could not encrypt to a public key");
         EVP_PKEY_CTX_free(pctx);
         EVP_PKEY_free(pkey);
-        return EINVAL;
+        return HX509_CRYPTO_INTERNAL_ERROR;
     }
 
     ciphertext->length = tosize;
@@ -1275,10 +1275,10 @@ hx509_private_key_private_decrypt(hx509_context context,
 
     if (EVP_PKEY_decrypt(pctx, cleartext->data, &cleartext->length,
                          ciphertext->data, ciphertext->length) < 0) {
-	hx509_set_error_string(context, 0, EINVAL,
+	hx509_set_error_string(context, 0, HX509_CRYPTO_INTERNAL_ERROR,
                                "Could not decrypt with a private key");
         EVP_PKEY_CTX_free(pctx);
-        return EINVAL;
+        return HX509_CRYPTO_INTERNAL_ERROR;
     }
     EVP_PKEY_CTX_free(pctx);
     return 0;
@@ -1371,9 +1371,9 @@ _hx509_generate_private_key_init(hx509_context context,
         der_heim_oid_cmp(oid, ASN1_OID_ID_ECPUBLICKEY) != 0 &&
         der_heim_oid_cmp(oid, ASN1_OID_ID_ED25519) != 0 &&
         der_heim_oid_cmp(oid, ASN1_OID_ID_ED448) != 0) {
-	hx509_set_error_string(context, 0, EINVAL,
+	hx509_set_error_string(context, 0, HX509_ALG_NOT_SUPP,
 			       "unsupported key type for generation");
-	return EINVAL;
+	return HX509_ALG_NOT_SUPP;
     }
 
     *ctx = calloc(1, sizeof(**ctx));
@@ -1653,7 +1653,7 @@ _hx509_private_key_export(hx509_context context,
                                &ki, &size, ret);
         free_PKCS8PrivateKeyInfo(&ki);
         if (ret == 0 && size != data->length)
-            ret = EINVAL;
+            ret = HX509_CRYPTO_INTERNAL_ERROR;
         if (ret)
             hx509_set_error_string(context, 0, ret,
                                    "Private key PKCS#8 encoding failed");
