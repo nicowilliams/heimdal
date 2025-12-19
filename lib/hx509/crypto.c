@@ -1204,7 +1204,6 @@ _hx509_public_encrypt(hx509_context context,
 	return ENOMEM;
     }
 
-    tosize = 0;
     if (EVP_PKEY_encrypt(pctx,
                          to, &tosize,
                          cleartext->data, cleartext->length) <= 0) {
