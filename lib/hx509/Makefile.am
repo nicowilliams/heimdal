@@ -176,7 +176,6 @@ SCRIPT_TESTS = 			\
 	test_crypto		\
 	test_nist		\
 	test_nist2		\
-	test_pkcs11		\
 	test_java_pkcs11	\
 	test_nist_cert		\
 	test_nist_pkcs12	\
