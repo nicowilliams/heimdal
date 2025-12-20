@@ -3,16 +3,10 @@ name: Linux Build
 on:
     push:
       branches:
-         - 'interop-mit*'
+         - 'interop*'
 
 jobs:
     unix:
-        # Run if no [only X] tag, or if [only mit-interop] is present (check both push commits and PR titles)
-        if: >-
-            (!contains(github.event.head_commit.message, '[only ') &&
-             !contains(github.event.pull_request.title, '[only ')) ||
-            contains(github.event.head_commit.message, '[only mit-interop]') ||
-            contains(github.event.pull_request.title, '[only mit-interop]')
         runs-on: ${{ matrix.os }}
         strategy:
             fail-fast: false
@@ -60,7 +54,7 @@ jobs:
                 /bin/sh ./autogen.sh
                 mkdir build
                 cd build
-                ../configure --prefix=$HOME/oh5l --disable-shared --enable-static
+                ../configure --prefix=$HOME/oh5l --srcdir=`dirname "$PWD"` --enable-maintainer-mode --enable-developer --with-ldap $CONFIGURE_OPTS CFLAGS="${{ matrix.cflags }} -Wno-error=shadow -Wno-error=bad-function-cast -Wno-error=unused-function -Wno-error=unused-result -Wno-error=deprecated-declarations"
                 make -j4
                 make install
             - name: Build MIT
@@ -96,7 +90,7 @@ jobs:
                 cd ../tests/bin
                 make check
                 cd ../kdc
-                make SCRIPT_TESTS='check-fast check-mit-kdc' check
+                make SCRIPT_TESTS='check-fast check-mit-kdc check-old-heimdal-client check-old-heimdal-kdc' check
             - name: Make Install
               env:
                 CC: ${{ matrix.compiler }}
@@ -119,27 +113,13 @@ jobs:
               if: ${{ failure() }}
               run: |
                 find build -name \*.trs | xargs grep -lw FAIL | sed -e 's/trs$/log/' | xargs cat
-            - name: Make Dist
-              run: |
-                cd build
-                make dist
-                make distclean
-                if [ "$(git ls-files -o|grep -v ^build/ | wc -l)" -ne 0 ]; then
-                  echo "Files not removed by make distclean:"
-                  git ls-files -o|grep -v ^build/
-                fi
             - name: Upload Install Tarball
               uses: actions/upload-artifact@v4
               with:
-                name: Install Tarball (mit-interop)
+                name: Install Tarball (interop)
                 path: '~/heimdal-install-linux-${{ matrix.compiler }}.tgz'
-            - name: Upload Dist Tarball
-              uses: actions/upload-artifact@v4
-              with:
-                name: Dist Tarball (mit-interop)
-                path: 'build/heimdal-*.tar.gz'
             - name: Upload Logs Tarball
               uses: actions/upload-artifact@v4
               with:
-                name: Test Logs (mit-interop)
+                name: Test Logs (interop)
                 path: '~/logs-linux-${{ matrix.compiler }}.tgz'
