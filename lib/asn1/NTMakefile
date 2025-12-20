@@ -537,7 +537,8 @@ $(OBJ)\check-der.exe: $(OBJ)\check-der.obj $(OBJ)\check-common.obj \
 	$(EXEPREP_NODIST)
 
 $(OBJ)\check-gen-template.exe: $(OBJ)\check-gen.obj $(OBJ)\check-common.obj \
-		$(LIBHEIMDAL) $(LIBROKEN) $(OBJ)\asn1_test_template_asn1.obj
+		$(LIBHEIMDAL) $(LIBROKEN) $(OBJ)\asn1_test_template_asn1.obj \
+                $(OBJ)\asn1_x690sample_asn1.s.obj
 	$(EXECONLINK)
 	$(EXEPREP_NODIST)
 
