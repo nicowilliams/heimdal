@@ -72,7 +72,7 @@ $(OBJ)\asn1_err.c $(OBJ)\asn1_err.h: asn1_err.et
 	$(BINDIR)\compile_et.exe $(SRCDIR)\asn1_err.et
 	cd $(SRCDIR)
 
-$(BINDIR)\asn1_print.exe: $(OBJ)\asn1_print.obj $(LIBHEIMDAL)
+$(BINDIR)\asn1_print.exe: $(OBJ)\asn1_print.obj $(OBJ)\asn1_x690sample_asn1.s.obj $(LIBHEIMDAL)
 	$(EXECONLINK) $(LIBVERS) $(LIBROKEN) $(LIBCOMERR)
 	$(EXEPREP)
 
