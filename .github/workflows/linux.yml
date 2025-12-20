@@ -98,6 +98,7 @@ jobs:
                 MAKEVARS: ${{ matrix.makevars }}
               run: |
                 cd build
+                sudo sysctl kernel.core_pattern=core.%p || true
                 ulimit -c unlimited
                 make check
             - name: Make Install
