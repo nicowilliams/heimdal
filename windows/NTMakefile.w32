@@ -588,7 +588,6 @@ LIBHX509    =$(LIBDIR)\libhx509.lib
 LIBKADM5CLNT=$(LIBDIR)\libkadm5clnt.lib
 LIBKADM5SRV =$(LIBDIR)\libkadm5srv.lib
 LIBKDC	    =$(LIBDIR)\libkdc.lib
-LIBLTM	    =$(LIBDIR)\libltm.lib
 LIBKRB5	    =$(LIBDIR)\libkrb5.lib
 LIBRFC3961  =$(LIBDIR)\librfc3961.lib
 LIBROKEN    =$(LIBDIR)\libroken.lib
@@ -596,7 +595,6 @@ LIBSL	    =$(LIBDIR)\libsl.lib
 LIBSQLITE   =$(LIBDIR)\libsqlite.lib
 LIBVERS	    =$(LIBDIR)\libvers.lib
 LIBWIND	    =$(LIBDIR)\libwind.lib
-LIBX25519   =$(LIBDIR)\libx25519.lib
 
 !ifdef VER_DEBUG
 ASM_DBG=.Debug
