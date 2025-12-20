@@ -508,7 +508,8 @@ LIBGSSAPI_LIBS=\
         $(LIBHEIMBASE)  \
 	$(LIBROKEN)	\
 	$(LIBHEIMDAL)	\
-	$(LIBCOMERR)
+	$(LIBCOMERR)	\
+	$(LIB_openssl_crypto)
 
 LIBGSSAPI_SDKLIBS=\
 	$(PTHREAD_LIB)  \
