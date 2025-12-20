@@ -114,7 +114,7 @@ jobs:
                 echo Compiler: ${{ matrix.compiler }}
                 if "${{ matrix.compiler }}"=="clang-cl" (
                     clang-cl --version
-                    nmake /f NTMakefile CC=clang-cl APPVEYOR=1 MAKEINFO=makeinfo NO_INSTALLERS=1 INCLUDE_openssl_crypto="%INCLUDE_openssl_crypto%" LIB_openssl_crypto="%LIB_openssl_crypto%"
+                    nmake /f NTMakefile CC=clang-cl APPVEYOR=1 MAKEINFO=makeinfo NO_INSTALLERS=1 INCLUDE_openssl_crypto="%INCLUDE_openssl_crypto%" LIB_openssl_crypto="%LIB_openssl_crypto%" CFLAGS="-msse2"
                 ) else (
                     nmake /f NTMakefile APPVEYOR=1 MAKEINFO=makeinfo NO_INSTALLERS=1 INCLUDE_openssl_crypto="%INCLUDE_openssl_crypto%" LIB_openssl_crypto="%LIB_openssl_crypto%"
                 )
