@@ -71,6 +71,14 @@
 
 #include <der.h>
 
+#ifndef SSIZE_MAX
+#ifdef _WIN64
+#define SSIZE_MAX _I64_MAX
+#else
+#define SSIZE_MAX INT_MAX
+#endif
+#endif
+
 #ifndef O_CLOEXEC
 #define O_CLOEXEC 0
 #endif
@@ -85,6 +93,7 @@
  */
 
 #define HC_DEPRECATED_CRYPTO
+
 #ifndef HEIM_NO_CRYPTO_HDRS
 #include "crypto-headers.h"
 #endif
