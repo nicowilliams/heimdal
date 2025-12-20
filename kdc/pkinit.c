@@ -215,6 +215,7 @@ gen_eph_for_peer_spki(astgs_request_t r, SubjectPublicKeyInfo *spki,
 
     switch (EVP_PKEY_base_id(*peer)) {
     case EVP_PKEY_X25519:
+        kdc_audit_addkv((kdc_request_t)r, 0, "keyagreement", "x25519");
         if (!krb5_config_get_bool_default(r->context, NULL, 1, "kdc",
                                           "pkinit_allow_ecdh" "x25519",
                                           NULL)) {
@@ -224,6 +225,7 @@ gen_eph_for_peer_spki(astgs_request_t r, SubjectPublicKeyInfo *spki,
         }
         break;
     case EVP_PKEY_X448:
+        kdc_audit_addkv((kdc_request_t)r, 0, "keyagreement", "x448");
         if (!krb5_config_get_bool_default(r->context, NULL, 1, "kdc",
                                           "pkinit_allow_ecdh", "x448", NULL)) {
             _kdc_set_e_text(r, "PKINIT: X448 not allowed");
@@ -235,9 +237,11 @@ gen_eph_for_peer_spki(astgs_request_t r, SubjectPublicKeyInfo *spki,
         if (EVP_PKEY_get_utf8_string_param(*peer, OSSL_PKEY_PARAM_GROUP_NAME,
                                            curve, sizeof(curve), &clen) != 1) {
             _kdc_set_e_text(r, "PKINIT: unknown ECDH curve");
+            kdc_audit_addkv((kdc_request_t)r, 0, "keyagreement", "unknown");
             ret = KRB5_KDC_ERR_DH_KEY_PARAMETERS_NOT_ACCEPTED;
             goto out;
         }
+        kdc_audit_addkv((kdc_request_t)r, 0, "keyagreement", "%s", curve);
         if (!krb5_config_get_bool_default(r->context, NULL, 1, "kdc",
                                           "pkinit_allow_ecdh", curve, NULL)) {
             _kdc_set_e_text(r, "PKINIT: ECDH curve not allowed: %s", curve);
@@ -262,9 +266,12 @@ gen_eph_for_peer_spki(astgs_request_t r, SubjectPublicKeyInfo *spki,
          * builtins
          */
         ret = check_dh_param(r->context, r->config, spki, cp);
+        kdc_audit_addkv((kdc_request_t)r, 0, "keyagreement", "%s",
+                        cp->dh_group_name ? cp->dh_group_name : "unknown");
         break;
     default:
         /* Unknown (to us) key agreement algorithm */
+        kdc_audit_addkv((kdc_request_t)r, 0, "keyagreement", "unknown");
         sn = OBJ_nid2sn(EVP_PKEY_base_id(*peer));
         _kdc_set_e_text(r, "PKINIT: key agreement algorithm not supported: %s",
                         sn ? sn : "<unknown>");
@@ -529,6 +536,19 @@ generate_dh_keyblock(astgs_request_t r,
                                           &client_params->raw_shared_secret_len);
     if (ret)
         return ret;
+
+    {
+        const char *n = NULL;
+        char *s = NULL;
+
+        (void) der_find_heim_oid_by_oid(client_params->kdf, &n);
+        if (n == NULL)
+            (void) der_print_heim_oid_sym(client_params->kdf, '.', &s);
+
+        kdc_audit_addkv((kdc_request_t)r, 0, "kdf", "%s",
+                        n ? n : (s ? : "unknown"));
+        free(s);
+    }
 
     ret = _krb5_pk_kdf(r->context, client_params->kdf,
                        client_params->raw_shared_secret,
