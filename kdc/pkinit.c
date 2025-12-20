@@ -549,8 +549,7 @@ generate_dh_keyblock(astgs_request_t r,
                         n ? n : (s ? : "unknown"));
         free(s);
     } else {
-        kdc_audit_addkv((kdc_request_t)r, 0, "kdf", "%s",
-                        n ? n : (s ? : "RFC4556"));
+        kdc_audit_addkv((kdc_request_t)r, 0, "kdf", "RFC4556");
     }
 
     ret = _krb5_pk_kdf(r->context, client_params->kdf,
