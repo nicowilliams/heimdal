@@ -111,7 +111,6 @@ EXPORTS
 	krb5_cc_move
 	krb5_cc_new_unique
 	krb5_cc_next_cred
-;!	krb5_cc_next_cred_match
 	krb5_cc_register
 	krb5_cc_remove_cred
 	krb5_cc_resolve
@@ -349,7 +348,6 @@ EXPORTS
 	krb5_get_in_tkt_with_keytab
 	krb5_get_in_tkt_with_password
 	krb5_get_in_tkt_with_skey
-;!	krb5_get_init_creds
 	krb5_get_init_creds_keyblock
 	krb5_get_init_creds_keytab
 	krb5_get_init_creds_opt_alloc
@@ -622,6 +620,7 @@ EXPORTS
 	krb5_set_dns_canonicalize_hostname
 	krb5_set_error_message
 	krb5_set_error_string
+	_krb5_set_error_message_openssl
 	krb5_set_extra_addresses
 	krb5_set_fcache_version
 	krb5_set_home_dir_access
