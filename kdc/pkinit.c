@@ -182,12 +182,13 @@ static krb5_error_code
 check_dh_param(krb5_context, krb5_kdc_configuration *, SubjectPublicKeyInfo *,
                pk_client_params *);
 
-static int
+static krb5_error_code
 gen_eph_for_peer_spki(astgs_request_t r, SubjectPublicKeyInfo *spki,
                       pk_client_params *cp,
                       EVP_PKEY **peer, EVP_PKEY **eph)
 {
     EVP_PKEY_CTX *kctx = NULL;
+    krb5_error_code ret = 0;
     const char *sn;
     char curve[128];
     size_t clen = 0;
@@ -195,7 +196,6 @@ gen_eph_for_peer_spki(astgs_request_t r, SubjectPublicKeyInfo *spki,
                                               "kdc", "pkinit_dh_minbits",
                                               NULL);
     int bits;
-    int ret = 0;
 
     *peer = *eph = NULL;
 
@@ -275,7 +275,6 @@ gen_eph_for_peer_spki(astgs_request_t r, SubjectPublicKeyInfo *spki,
     kctx = EVP_PKEY_CTX_new_from_pkey(r->context->ossl->libctx, *peer,
                                       r->context->ossl->propq);
     if (!kctx) {
-        *peer = NULL;
         ret = EINVAL;
         goto out;
     }
@@ -283,7 +282,6 @@ gen_eph_for_peer_spki(astgs_request_t r, SubjectPublicKeyInfo *spki,
     /* This works for all key agreement types! */
     if (EVP_PKEY_keygen_init(kctx) <= 0 ||
         EVP_PKEY_keygen(kctx, eph) <= 0) {
-        *peer = NULL;
         ret = EINVAL;
         goto out;
     }
@@ -1107,11 +1105,6 @@ _kdc_pk_rd_padata(astgs_request_t priv,
             ret = gen_eph_for_peer_spki(priv,
                                         ap.clientPublicValue, cp,
                                         &cp->peer_pkey, &cp->us_pkey);
-
-            if (ret == 0 && cp->keyex == USE_DH)
-                /* Checks the p/g/q against the moduli file or builtins */
-		ret = check_dh_param(context, config,
-                                     ap.clientPublicValue, cp);
             if (ret) {
 		ret = KRB5_BADMSGTYPE;
 		krb5_set_error_message(context, ret,
