@@ -56,6 +56,10 @@ jobs:
             contains(github.event.head_commit.message, '[only windows]') ||
             contains(github.event.pull_request.title, '[only windows]')
         runs-on: windows-latest
+        strategy:
+            fail-fast: false
+            matrix:
+                compiler: [msvc, clang-cl]
         env:
             APPVER: '10.0'
             CODESIGN_PKT: 0000000000000000
@@ -107,7 +111,13 @@ jobs:
                 echo PATH=%PATH%
                 echo INCLUDE_openssl_crypto=%INCLUDE_openssl_crypto%
                 echo LIB_openssl_crypto=%LIB_openssl_crypto%
-                nmake /f NTMakefile APPVEYOR=1 MAKEINFO=makeinfo NO_INSTALLERS=1 INCLUDE_openssl_crypto="%INCLUDE_openssl_crypto%" LIB_openssl_crypto="%LIB_openssl_crypto%"
+                echo Compiler: ${{ matrix.compiler }}
+                if "${{ matrix.compiler }}"=="clang-cl" (
+                    clang-cl --version
+                    nmake /f NTMakefile CC=clang-cl APPVEYOR=1 MAKEINFO=makeinfo NO_INSTALLERS=1 INCLUDE_openssl_crypto="%INCLUDE_openssl_crypto%" LIB_openssl_crypto="%LIB_openssl_crypto%"
+                ) else (
+                    nmake /f NTMakefile APPVEYOR=1 MAKEINFO=makeinfo NO_INSTALLERS=1 INCLUDE_openssl_crypto="%INCLUDE_openssl_crypto%" LIB_openssl_crypto="%LIB_openssl_crypto%"
+                )
 
             - name: Test
               shell: cmd
@@ -119,5 +129,5 @@ jobs:
             - name: Upload Artifacts
               uses: actions/upload-artifact@v4
               with:
-                name: Objects
+                name: Objects-${{ matrix.compiler }}
                 path: 'D:/a/heimdal/heimdal/out/'
