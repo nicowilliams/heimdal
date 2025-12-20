@@ -157,7 +157,7 @@ pthreadinc= -I$(PTHREAD_INC)
 !endif
 
 !ifdef INCLUDE_openssl_crypto
-opensslinc= -I$(INCLUDE_openssl_crypto)
+opensslinc= -I"$(INCLUDE_openssl_crypto)"
 !endif
 
 #----------------------------------------------------------------
