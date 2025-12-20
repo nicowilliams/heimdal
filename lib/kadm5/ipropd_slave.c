@@ -620,19 +620,24 @@ receive_everything(krb5_context context, int fd,
 		krb5_err(context, IPROPD_RESTART_SLOW, ret, "hdb_store");
 
 	    hdb_free_entry(context, mydb, &entry);
-	    krb5_data_free(&data);
-	} else if (opcode == NOW_YOU_HAVE)
-	    ;
-	else
+	} else if (opcode == NOW_YOU_HAVE) {
+	    /* Read vno before freeing data, since sp is backed by data */
+	    krb5_ret_uint32(sp, &vno);
+	    krb5_storage_free(sp);
+	    sp = NULL;
+	} else
 	    krb5_errx(context, 1, "strange opcode %d", opcode);
+        krb5_data_free(&data);
     } while (opcode == ONE_PRINC);
 
     if (opcode != NOW_YOU_HAVE)
         krb5_errx(context, IPROPD_RESTART_SLOW,
                   "receive_everything: strange %d", opcode);
 
-    krb5_ret_uint32(sp, &vno);
-    krb5_storage_free(sp);
+    if (sp) {
+        krb5_storage_free(sp);
+        sp = NULL;
+    }
 
     reinit_log(context, server_context, vno);
 
@@ -647,7 +652,7 @@ receive_everything(krb5_context context, int fd,
     if (ret)
         krb5_err(context, IPROPD_RESTART_SLOW, ret, "db->rename");
 
-
+    ret = mydb->hdb_destroy(context, mydb);
     return 0;
 
  cleanup:
