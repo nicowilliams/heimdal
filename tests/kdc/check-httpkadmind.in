@@ -137,8 +137,8 @@ fi
 
 # HTTP curl-opts
 HTTP() {
-    curl -g --connect-to ${server}:${restport1}:127.0.0.1:${restport1}  \
-            --connect-to ${server}:${restport2}:127.0.0.1:${restport2}  \
+    curl -g --resolve ${server}:${restport1}:127.0.0.1  \
+            --resolve ${server}:${restport2}:127.0.0.1  \
          -u: --negotiate $verbose                       \
          -D response-headers                            \
          "$@"
