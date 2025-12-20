@@ -208,6 +208,8 @@ EXPORTS
 	krb5_data_realloc
 	krb5_data_zero
 	krb5_debug
+	_krb5_debug
+        _krb5_debug_openssl
 	krb5_decode_Authenticator
 	krb5_decode_ETYPE_INFO2
 	krb5_decode_ETYPE_INFO
