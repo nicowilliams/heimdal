@@ -545,8 +545,11 @@ generate_dh_keyblock(astgs_request_t r,
         if (n == NULL)
             (void) der_print_heim_oid_sym(client_params->kdf, '.', &s);
 
-        kdc_audit_addkv((kdc_request_t)r, 0, "kdf", "%s",
-                        n ? n : (s ? : "unknown"));
+        if (n == NULL)
+            n = s;
+        if (n == NULL)
+            n = "unknown";
+        kdc_audit_addkv((kdc_request_t)r, 0, "kdf", "%s", n);
         free(s);
     } else {
         kdc_audit_addkv((kdc_request_t)r, 0, "kdf", "RFC4556");
