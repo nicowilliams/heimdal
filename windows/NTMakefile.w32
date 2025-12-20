@@ -567,7 +567,7 @@ DLLPREP_NODIST=\
 ( $(_VC_MANIFEST_EMBED_DLL) && $(_VC_MANIFEST_CLEAN) && $(SYMSTORE_IMPORT) ) || ( $(RM) $@ && exit /b 1 )
 
 DLLPREP_MERGE=\
-( ( $(_MERGE_MANIFEST_DLL) || $(_INSERT_APPMANIFEST_DLL) && $(SYMSTORE_IMPORT) ) && $(_CODESIGN) && $(_CODESIGN_SHA256) ) || ( $(RM) $@ && exit /b 1 )
+( ( $(_MERGE_MANIFEST_DLL) || $(_INSERT_APPMANIFEST_DLL) ) && $(SYMSTORE_IMPORT) && $(_CODESIGN) && $(_CODESIGN_SHA256) ) || ( $(RM) $@ && exit /b 1 )
 
 #----------------------------------------------------------------------
 # Convenience macros for import libraries and assemblies
