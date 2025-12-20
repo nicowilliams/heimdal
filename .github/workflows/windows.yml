@@ -59,7 +59,8 @@ jobs:
         strategy:
             fail-fast: false
             matrix:
-                compiler: [msvc, clang-cl]
+                # clang-cl disabled due to LLVM 19 bug with MMX intrinsics in VS 2022 headers
+                compiler: [msvc]
         env:
             APPVER: '10.0'
             CODESIGN_PKT: 0000000000000000
