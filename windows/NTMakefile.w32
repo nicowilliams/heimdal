@@ -156,10 +156,14 @@ LIGHT=$(LIGHT_CMD) -nologo
 pthreadinc= -I$(PTHREAD_INC)
 !endif
 
+!ifdef INCLUDE_openssl_crypto
+opensslinc= -I$(INCLUDE_openssl_crypto)
+!endif
+
 #----------------------------------------------------------------
 # Build options
 
-cincdirs=$(cincdirs) -I$(INCDIR) -I$(INCDIR)\krb5 $(pthreadinc)
+cincdirs=$(cincdirs) -I$(INCDIR) -I$(INCDIR)\krb5 $(pthreadinc) $(opensslinc)
 cdefines=$(cdefines) -DHAVE_CONFIG_H
 # Windows CNG provider
 cdebug=$(cdebug) /Zi
