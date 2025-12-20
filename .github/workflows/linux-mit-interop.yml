@@ -26,6 +26,11 @@ jobs:
         steps:
             - name: Clone repository
               uses: actions/checkout@v4
+            - name: Clone older Heimdal for interop testing
+              uses: actions/checkout@v4
+              with:
+                ref: older-branch-for-interop-testing
+                path: older-heimdal
             - name: Checkout MIT
               uses: actions/checkout@v4
               with:
@@ -47,6 +52,17 @@ jobs:
                 # Temporary workaround for:
                 # https://github.com/actions/virtual-environments/issues/3185
                 sudo hostname localhost
+            - name: Build older Heimdal
+              env:
+                CC: ${{ matrix.compiler }}
+              run: |
+                cd older-heimdal
+                /bin/sh ./autogen.sh
+                mkdir build
+                cd build
+                ../configure --prefix=$HOME/oh5l --disable-shared --enable-static
+                make -j4
+                make install
             - name: Build MIT
               env:
                 CC: ${{ matrix.compiler }}
@@ -65,7 +81,7 @@ jobs:
                 /bin/sh ./autogen.sh
                 mkdir build
                 cd build
-                ../configure --srcdir=`dirname "$PWD"` --enable-maintainer-mode --enable-developer --with-ldap $CONFIGURE_OPTS --prefix=$HOME/inst CFLAGS="${{ matrix.cflags }} -Wno-error=shadow -Wno-error=bad-function-cast -Wno-error=unused-function -Wno-error=unused-result -Wno-error=deprecated-declarations" --with-mitkrb5=$HOME/mitkrb5
+                ../configure --srcdir=`dirname "$PWD"` --enable-maintainer-mode --enable-developer --with-ldap $CONFIGURE_OPTS --prefix=$HOME/inst CFLAGS="${{ matrix.cflags }} -Wno-error=shadow -Wno-error=bad-function-cast -Wno-error=unused-function -Wno-error=unused-result -Wno-error=deprecated-declarations" --with-mitkrb5=$HOME/mitkrb5 --with-older-heimdal=$HOME/oh5l
                 make -j4
             - name: Test
               env:
