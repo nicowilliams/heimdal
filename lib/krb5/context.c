@@ -272,7 +272,8 @@ init_openssl(krb5_context context, krb5_context_ossl *osslp)
 
         /* Lost a race; try again */
         first = old;
-        for (p->next = first; p; p = p->next) {
+        ossl->next = first;
+        for (p = first; p; p = p->next) {
             if (cnf != p->cnf &&
                 (cnf == NULL || p->cnf == NULL))
                 continue;
