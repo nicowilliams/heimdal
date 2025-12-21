@@ -353,6 +353,8 @@ static const char *writable_kadmin_server;
 static const char *stash_file;
 static const char *kadmin_client_name = "httpkadmind/admin";
 static const char *kadmin_client_keytab;
+static const char *ossl_cnf;
+static const char *ossl_propq;
 static struct getarg_strings auth_types;
 
 #define set_conf(c, f, v, b) \
@@ -2342,6 +2344,12 @@ static struct getargs args[] = {
         "Keytab with client credentials for remote kadmind", "KEYTAB" },
     { "token-authentication-type", 'T', arg_strings, &auth_types,
         "Token authentication type(s) supported", "HTTP-AUTH-TYPE" },
+    { "ossl-cnf",     0,      arg_string, &ossl_cnf,
+      "OpenSSL configuration file", "FILE"
+    },
+    { "ossl-propq",   0,      arg_string, &ossl_propq,
+      "OpenSSL property query string (e.g., provider=pkcs11)", "PROPQ"
+    },
     { "verbose", 'v', arg_counter, &verbose_counter, "verbose", "run verbosely" }
 };
 
@@ -2547,6 +2555,12 @@ main(int argc, char **argv)
 
     if ((errno = get_krb5_context(&context)))
         err(1, "Could not init krb5 context (config file issue?)");
+
+    if (ossl_cnf || ossl_propq) {
+	ret = krb5_set_ossl_cnf_propq(context, ossl_cnf, ossl_propq);
+	if (ret)
+	    krb5_err(context, 1, ret, "krb5_set_ossl_cnf_propq");
+    }
 
     get_csrf_prot_type(context);
 
