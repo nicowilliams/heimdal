@@ -291,10 +291,6 @@ struct krb5_context_ossl_data {
     OSSL_PROVIDER *openssl_def;
     OSSL_PROVIDER *openssl_fips;
     OSSL_PROVIDER *openssl_leg;
-    EVP_SIGNATURE *ecdsa;
-    EVP_KEYMGMT *rsa;
-    EVP_KEYMGMT *dh;
-    EVP_KEYMGMT *ec;
     EVP_CIPHER *rc4;
     EVP_CIPHER *aes128_cbc;
     EVP_CIPHER *aes192_cbc;
