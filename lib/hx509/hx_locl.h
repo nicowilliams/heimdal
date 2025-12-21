@@ -96,6 +96,7 @@ struct hx509_generate_private_context;
 typedef struct hx509_path hx509_path;
 
 #include <heimbase.h>
+#include "heimbase-atomics.h"
 
 #include <hx509.h>
 
@@ -208,10 +209,18 @@ extern hx509_lock _hx509_empty_lock;
  * - legacy: for weak crypto used in PKCS#12 (RC2, 3DES-CBC, etc.)
  * - Fetched message digests (EVP_MD) for SHA-512, SHA-384, SHA-256, SHA-1, MD5
  * - Fetched ciphers (EVP_CIPHER) for RC2, RC4, 3DES-CBC, AES
+ *
+ * Contexts are cached globally in a singly-linked list keyed by (cnf, propq).
+ * This allows sharing across multiple hx509_context instances and avoids
+ * repeated algorithm fetching when propq is set to the same value.
  */
 typedef struct hx509_context_ossl_data *hx509_context_ossl;
 struct hx509_context_ossl_data {
+    struct hx509_context_ossl_data *next;  /* Next in global cache list */
+    heim_base_atomic(uint32_t) refs;       /* Reference count */
+    char *cnf;                      /* OpenSSL config file path */
     OSSL_LIB_CTX *libctx;           /* OpenSSL library context */
+    char *propq;                    /* OpenSSL property query string */
     OSSL_PROVIDER *openssl_def;     /* Default provider for standard crypto */
     OSSL_PROVIDER *openssl_leg;     /* Legacy provider for weak crypto */
     /* Message digests */

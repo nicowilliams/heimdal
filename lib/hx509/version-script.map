@@ -151,6 +151,7 @@ HEIMDAL_X509_1.2 {
 		hx509_context_free;
 		hx509_context_init;
 		hx509_context_set_missing_revoke;
+		hx509_context_set_ossl_cnf_propq;
 		hx509_crl_add_revoked_certs;
 		hx509_crl_alloc;
 		hx509_crl_free;
