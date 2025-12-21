@@ -999,7 +999,7 @@ static int
 run_threaded_test(gss_OID mechoid, gss_OID nameoid, const char *target,
                   gss_cred_id_t client_cred, int nthreads, int iterations)
 {
-    pthread_t *threads;
+    HEIMDAL_THREAD_ID *threads;
     struct threaded_test_args *thread_args;
     int i, ret = 0;
 
@@ -1021,13 +1021,13 @@ run_threaded_test(gss_OID mechoid, gss_OID nameoid, const char *target,
         thread_args[i].iterations = iterations;
         thread_args[i].failed = 0;
 
-        if (pthread_create(&threads[i], NULL, threaded_test_worker,
+        if (HEIMDAL_THREAD_create(&threads[i], threaded_test_worker,
                            &thread_args[i]) != 0)
-            errx(1, "pthread_create failed for thread %d", i);
+            errx(1, "HEIMDAL_THREAD_create failed for thread %d", i);
     }
 
     for (i = 0; i < nthreads; i++) {
-        pthread_join(threads[i], NULL);
+        HEIMDAL_THREAD_join(threads[i], NULL);
         if (thread_args[i].failed)
             ret = 1;
     }
