@@ -103,6 +103,7 @@ typedef unsigned long HEIM_PRIV_thread_key;
 
 #define HEIMDAL_THREAD_ID thr_t
 #define HEIMDAL_THREAD_create(t,f,a) thr_create((t), 0, (f), (a))
+#define HEIMDAL_THREAD_join(t,r) thr_join((t), 0, (r))
 
 #elif defined(ENABLE_PTHREAD_SUPPORT) && (!defined(__NetBSD__) || __NetBSD_Version__ >= 299001200)
 
@@ -142,6 +143,7 @@ typedef unsigned long HEIM_PRIV_thread_key;
 
 #define HEIMDAL_THREAD_ID pthread_t
 #define HEIMDAL_THREAD_create(t,f,a) pthread_create((t), 0, (f), (a))
+#define HEIMDAL_THREAD_join(t,r) pthread_join((t), (r))
 
 #elif defined(_WIN32)
 
@@ -288,9 +290,44 @@ heim_rwlock_destroy(heim_rwlock_t *l)
 #define HEIMDAL_getspecific(k) (heim_w32_getspecific(k))
 #define HEIMDAL_key_delete(k) (heim_w32_delete_key(k))
 
-#define HEIMDAL_THREAD_ID DWORD
-#define HEIMDAL_THREAD_create(t,f,a) \
-    ((CreateThread(0, 0, (f), (a), 0, (t)) == INVALID_HANDLE_VALUE) ? EINVAL : 0)
+typedef struct heim_thread {
+    HANDLE handle;
+    DWORD id;
+} heim_thread_t;
+
+static inline int
+heim_thread_create(heim_thread_t *t, LPTHREAD_START_ROUTINE f, void *a)
+{
+    t->handle = CreateThread(NULL, 0, f, a, 0, &t->id);
+    if (t->handle == NULL || t->handle == INVALID_HANDLE_VALUE)
+        return EINVAL;
+    return 0;
+}
+
+static inline int
+heim_thread_join(heim_thread_t t, void **retval)
+{
+    DWORD ret;
+    DWORD exitcode;
+
+    ret = WaitForSingleObject(t.handle, INFINITE);
+    if (ret != WAIT_OBJECT_0) {
+        CloseHandle(t.handle);
+        return EINVAL;
+    }
+    if (retval) {
+        if (GetExitCodeThread(t.handle, &exitcode))
+            *retval = (void *)(uintptr_t)exitcode;
+        else
+            *retval = NULL;
+    }
+    CloseHandle(t.handle);
+    return 0;
+}
+
+#define HEIMDAL_THREAD_ID heim_thread_t
+#define HEIMDAL_THREAD_create(t,f,a) heim_thread_create((t), (f), (a))
+#define HEIMDAL_THREAD_join(t,r) heim_thread_join((t), (r))
 
 #elif defined(HEIMDAL_DEBUG_THREADS)
 
@@ -318,6 +355,7 @@ heim_rwlock_destroy(heim_rwlock_t *l)
 
 #define HEIMDAL_THREAD_ID int
 #define HEIMDAL_THREAD_create(t,f,a) abort()
+#define HEIMDAL_THREAD_join(t,r) abort()
 
 #else /* no thread support, no debug case */
 
@@ -340,6 +378,7 @@ heim_rwlock_destroy(heim_rwlock_t *l)
 
 #define HEIMDAL_THREAD_ID int
 #define HEIMDAL_THREAD_create(t,f,a) abort()
+#define HEIMDAL_THREAD_join(t,r) abort()
 
 #define HEIMDAL_internal_thread_key 1
 
