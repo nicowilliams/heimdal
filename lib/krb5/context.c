@@ -120,10 +120,6 @@ free_openssl(krb5_context_ossl *osslp)
         return;
     if (heim_base_atomic_dec_32(&p->refs) != 0)
         return;
-    EVP_SIGNATURE_free(p->ecdsa);
-    EVP_KEYMGMT_free(p->rsa);
-    EVP_KEYMGMT_free(p->dh);
-    EVP_KEYMGMT_free(p->ec);
     EVP_CIPHER_free(p->rc4);
     EVP_CIPHER_free(p->aes128_cbc);
     EVP_CIPHER_free(p->aes192_cbc);
@@ -232,10 +228,6 @@ init_openssl(krb5_context context, krb5_context_ossl *osslp)
     // for now
     ossl->openssl_leg = OSSL_PROVIDER_load(ossl->libctx, "legacy");
 
-    ossl->ecdsa         = EVP_SIGNATURE_fetch(ossl->libctx, "ECDSA", ossl->propq);
-    ossl->rsa           = EVP_KEYMGMT_fetch(ossl->libctx, "RSA", ossl->propq);
-    ossl->dh            = EVP_KEYMGMT_fetch(ossl->libctx, "DHX", ossl->propq);
-    ossl->ec            = EVP_KEYMGMT_fetch(ossl->libctx, "EC", ossl->propq);
     ossl->rc4           = EVP_CIPHER_fetch(ossl->libctx, "RC4", ossl->propq);
     ossl->aes128_cbc    = EVP_CIPHER_fetch(ossl->libctx, "AES-128-CBC", ossl->propq);
     ossl->aes192_cbc    = EVP_CIPHER_fetch(ossl->libctx, "AES-192-CBC", ossl->propq);
