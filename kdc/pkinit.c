@@ -653,7 +653,7 @@ select_kdf(krb5_context context,
                                                  "pkinit_enable_kdf_ah_sha256",
                                                  NULL);
     kdf_ah_sha384 = krb5_config_get_bool_default(context, NULL, 1, "kdc",
-                                                 "pkinit_enable_kdf_ah_sha256",
+                                                 "pkinit_enable_kdf_ah_sha384",
                                                  NULL);
     kdf_ah_sha512 = krb5_config_get_bool_default(context, NULL, 1, "kdc",
                                                  "pkinit_enable_kdf_ah_sha512",
@@ -700,7 +700,7 @@ select_kdf(krb5_context context,
         cp->kdf = &asn1_oid_id_pkinit_kdf_ah_sha256;
         return 0;
     }
-    if (accepted & (0UL<<1)) {
+    if (accepted & (1UL<<1)) {
         kdc_log(context, config, 2, "Accepted PKINIT SHA-1 KDF");
         cp->kdf = &asn1_oid_id_pkinit_kdf_ah_sha1;
         return 0;
