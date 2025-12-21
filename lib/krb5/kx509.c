@@ -867,21 +867,29 @@ mk_kx509_req(krb5_context context,
                      params) != 1) {
         ret = krb5_enomem(context);
     } else {
-        if (EVP_MAC_update(ctx, version_2_0, sizeof(version_2_0)) != 1)
+        if (EVP_MAC_update(ctx, version_2_0, sizeof(version_2_0)) != 1) {
+            ret = krb5_enomem(context);
             goto out;
+        }
         if (private_key || kx509_ctx->given_csr.data) {
             if (EVP_MAC_update(ctx, kx509_req.pk_key.data,
-                               kx509_req.pk_key.length) != 1)
+                               kx509_req.pk_key.length) != 1) {
+                ret = krb5_enomem(context);
                 goto out;
+            }
         } else {
             /* Probe */
             if (EVP_MAC_update(ctx, kx509_req.authenticator.data,
-                               kx509_req.authenticator.length) != 1)
+                               kx509_req.authenticator.length) != 1) {
+                ret = krb5_enomem(context);
                 goto out;
+            }
         }
         if (EVP_MAC_final(ctx, kx509_req.pk_hash.data, &len,
-                          kx509_req.pk_hash.length) != 1)
+                          kx509_req.pk_hash.length) != 1) {
+            ret = krb5_enomem(context);
             goto out;
+        }
         // assert(len == kx509_req.pk_hash.length);
     }
 
