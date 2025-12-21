@@ -295,6 +295,8 @@ static const char *csrf_key_file;
 static char *impersonation_key_fn;
 static const char *impersonation_key_type;
 static int impersonation_key_bits;
+static const char *ossl_cnf;
+static const char *ossl_propq;
 
 static unsigned char csrf_key[16];
 
@@ -2761,6 +2763,10 @@ static struct getargs args[] = {
         "impersonation key type (rsa, ec, ed25519, ed448)", "TYPE" },
     { "impersonation-key-bits", 0, arg_integer, &impersonation_key_bits,
         "impersonation key size/curve (default: 2048 for RSA, 256 for EC)", "BITS" },
+    { "ossl-cnf", 0, arg_string, &ossl_cnf,
+        "OpenSSL configuration file", "FILE" },
+    { "ossl-propq", 0, arg_string, &ossl_propq,
+        "OpenSSL property query string (e.g., provider=pkcs11)", "PROPQ" },
     { "verbose", 'v', arg_counter, &verbose_counter, "verbose", "run verbosely" }
 };
 
@@ -2939,6 +2945,12 @@ main(int argc, char **argv)
 
     if ((errno = get_krb5_context(&context)))
         err(1, "Could not init krb5 context");
+
+    if (ossl_cnf || ossl_propq) {
+        ret = krb5_set_ossl_cnf_propq(context, ossl_cnf, ossl_propq);
+        if (ret)
+            krb5_err(context, 1, ret, "krb5_set_ossl_cnf_propq");
+    }
 
     bx509_openlog(context, "bx509d", &logfac);
     krb5_set_log_dest(context, logfac);
