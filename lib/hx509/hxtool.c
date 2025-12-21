@@ -42,11 +42,17 @@
 static hx509_context context;
 
 static char *stat_file_string;
+static char *ossl_cnf_string;
+static char *ossl_propq_string;
 static int version_flag;
 static int help_flag;
 
 struct getargs args[] = {
     { "statistic-file", 0, arg_string, &stat_file_string, NULL, NULL },
+    { "ossl-cnf", 0, arg_string, &ossl_cnf_string,
+      "OpenSSL configuration file", "FILE" },
+    { "ossl-propq", 0, arg_string, &ossl_propq_string,
+      "OpenSSL property query string", "PROPQ" },
     { "version", 0, arg_flag, &version_flag, NULL, NULL },
     { "help", 0, arg_flag, &help_flag, NULL, NULL }
 };
@@ -3294,6 +3300,13 @@ main(int argc, char **argv)
     ret = hx509_context_init(&context);
     if (ret)
 	errx(1, "hx509_context_init failed with %d", ret);
+
+    if (ossl_cnf_string || ossl_propq_string) {
+        ret = hx509_context_set_ossl_cnf_propq(context, ossl_cnf_string,
+                                               ossl_propq_string);
+	if (ret)
+	    errx(1, "hx509_context_set_ossl_cnf_propq failed with %d", ret);
+    }
 
     if (stat_file_string)
 	hx509_query_statistic_file(context, stat_file_string);

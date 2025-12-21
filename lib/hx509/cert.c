@@ -107,8 +107,113 @@ typedef struct hx509_name_constraints {
  * disables the auto-loading behavior, so we must explicitly load the default
  * provider when we load the legacy provider.
  *
- * All fetched algorithms and providers are freed during context free.
+ * Contexts are cached globally in a singly-linked list keyed by (cnf, propq).
+ * This allows sharing across multiple hx509_context instances and avoids
+ * repeated algorithm fetching when propq is set to the same value.
  */
+
+/* Global cache of OpenSSL contexts, keyed by (cnf, propq) */
+static heim_base_atomic(hx509_context_ossl) cached_ossl_hx509;
+
+/* Helper to compare two nullable strings for equality */
+static int
+str_equal(const char *a, const char *b)
+{
+    if (a == b)
+        return 1;
+    if (a == NULL || b == NULL)
+        return 0;
+    return strcmp(a, b) == 0;
+}
+
+/* Check if an ossl context matches the given (cnf, propq) tuple */
+static int
+ossl_matches(hx509_context_ossl p, const char *cnf, const char *propq)
+{
+    return str_equal(p->cnf, cnf) && str_equal(p->propq, propq);
+}
+
+/*
+ * Create a new OpenSSL context with the given cnf and propq.
+ * Does not add to the global cache.
+ */
+static int
+make_openssl_hx509(hx509_context context,
+                   const char *cnf,
+                   const char *propq,
+                   hx509_context_ossl *osslp)
+{
+    hx509_context_ossl ossl;
+
+    *osslp = NULL;
+
+    if ((ossl = calloc(1, sizeof(*ossl))) == NULL)
+        return ENOMEM;
+    ossl->refs = 1;
+
+    /*
+     * Use the global default library context.  We could make this
+     * configurable via hx509.conf in the future if needed.
+     */
+    ossl->libctx = OSSL_LIB_CTX_get0_global_default();
+
+    /* Store cnf and propq for cache lookup */
+    if (cnf && (ossl->cnf = strdup(cnf)) == NULL) {
+        free(ossl);
+        return ENOMEM;
+    }
+    if (propq && (ossl->propq = strdup(propq)) == NULL) {
+        free(ossl->cnf);
+        free(ossl);
+        return ENOMEM;
+    }
+
+    /*
+     * Load the default provider first - this is required because in OpenSSL
+     * 3.x, explicitly loading any provider disables auto-loading of the
+     * default provider.
+     */
+    ossl->openssl_def = OSSL_PROVIDER_load(ossl->libctx, "default");
+
+    /*
+     * Load the legacy provider for PKCS#12 weak crypto support.
+     * This is needed for algorithms like RC2, 3DES-CBC, etc. that are
+     * commonly used in PKCS#12 files.
+     */
+    ossl->openssl_leg = OSSL_PROVIDER_load(ossl->libctx, "legacy");
+
+    /*
+     * Fetch and cache message digests.
+     * We ignore failures here - the algorithms will be NULL if not available.
+     */
+    ossl->md5    = EVP_MD_fetch(ossl->libctx, "MD5", ossl->propq);
+    ossl->sha1   = EVP_MD_fetch(ossl->libctx, "SHA1", ossl->propq);
+    ossl->sha256 = EVP_MD_fetch(ossl->libctx, "SHA256", ossl->propq);
+    ossl->sha384 = EVP_MD_fetch(ossl->libctx, "SHA384", ossl->propq);
+    ossl->sha512 = EVP_MD_fetch(ossl->libctx, "SHA512", ossl->propq);
+
+    /*
+     * Fetch and cache ciphers - legacy (PKCS#12).
+     * These come from the legacy provider.
+     */
+    ossl->rc2_40_cbc   = EVP_CIPHER_fetch(ossl->libctx, "RC2-40-CBC", ossl->propq);
+    ossl->rc2_64_cbc   = EVP_CIPHER_fetch(ossl->libctx, "RC2-64-CBC", ossl->propq);
+    ossl->rc2_cbc      = EVP_CIPHER_fetch(ossl->libctx, "RC2-CBC", ossl->propq);
+    ossl->rc4_40       = EVP_CIPHER_fetch(ossl->libctx, "RC4-40", ossl->propq);
+    ossl->rc4          = EVP_CIPHER_fetch(ossl->libctx, "RC4", ossl->propq);
+    ossl->des_ede3_cbc = EVP_CIPHER_fetch(ossl->libctx, "DES-EDE3-CBC", ossl->propq);
+
+    /*
+     * Fetch and cache ciphers - standard.
+     */
+    ossl->aes_128_cbc = EVP_CIPHER_fetch(ossl->libctx, "AES-128-CBC", ossl->propq);
+    ossl->aes_192_cbc = EVP_CIPHER_fetch(ossl->libctx, "AES-192-CBC", ossl->propq);
+    ossl->aes_256_cbc = EVP_CIPHER_fetch(ossl->libctx, "AES-256-CBC", ossl->propq);
+
+    *osslp = ossl;
+    return 0;
+}
+
 static void
 free_openssl_hx509(hx509_context_ossl *osslp)
 {
@@ -116,6 +221,10 @@ free_openssl_hx509(hx509_context_ossl *osslp)
 
     *osslp = NULL;
     if (p == NULL)
+        return;
+
+    /* Decrement refcount; only free if we're the last reference */
+    if (heim_base_atomic_dec_32(&p->refs) != 0)
         return;
 
     /* Free fetched message digests */
@@ -145,67 +254,95 @@ free_openssl_hx509(hx509_context_ossl *osslp)
         OSSL_PROVIDER_unload(p->openssl_def);
 
     /* Note: we don't free libctx if it's the global default */
+    free(p->cnf);
+    free(p->propq);
     free(p);
 }
 
+/*
+ * Look up or create an OpenSSL context with the given propq.
+ * The cnf comes from the hx509.conf config file.
+ * Contexts are cached globally and shared via refcounting.
+ */
 static int
-init_openssl_hx509(hx509_context context)
+init_openssl_hx509_with_propq(hx509_context context,
+                              const char *cnf,
+                              const char *propq,
+                              hx509_context_ossl *osslp)
 {
-    hx509_context_ossl ossl;
+    hx509_context_ossl first, p, ossl;
+    int ret;
+    int done = 0;
 
-    if ((ossl = calloc(1, sizeof(*ossl))) == NULL)
-        return ENOMEM;
-
-    /*
-     * Use the global default library context.  We could make this
-     * configurable via hx509.conf in the future if needed.
-     */
-    ossl->libctx = OSSL_LIB_CTX_get0_global_default();
+    *osslp = NULL;
 
     /*
-     * Load the default provider first - this is required because in OpenSSL
-     * 3.x, explicitly loading any provider disables auto-loading of the
-     * default provider.
+     * Ensure that all writes to the list are visible to us before we
+     * dereference the members of the list.
      */
-    ossl->openssl_def = OSSL_PROVIDER_load(ossl->libctx, "default");
+    first = heim_base_atomic_load(&cached_ossl_hx509);
+    heim_base_consumer_barrier();
+    for (p = first; p; p = p->next) {
+        if (ossl_matches(p, cnf, propq)) {
+            (void) heim_base_atomic_inc_32(&p->refs);
+            *osslp = p;
+            return 0;
+        }
+    }
 
-    /*
-     * Load the legacy provider for PKCS#12 weak crypto support.
-     * This is needed for algorithms like RC2, 3DES-CBC, etc. that are
-     * commonly used in PKCS#12 files.
-     */
-    ossl->openssl_leg = OSSL_PROVIDER_load(ossl->libctx, "legacy");
+    /* Not found in cache, create a new one */
+    ret = make_openssl_hx509(context, cnf, propq, &ossl);
+    if (ret)
+        return ret;
 
-    /*
-     * Fetch and cache message digests.
-     * We ignore failures here - the algorithms will be NULL if not available.
-     */
-    ossl->md5    = EVP_MD_fetch(ossl->libctx, "MD5", NULL);
-    ossl->sha1   = EVP_MD_fetch(ossl->libctx, "SHA1", NULL);
-    ossl->sha256 = EVP_MD_fetch(ossl->libctx, "SHA256", NULL);
-    ossl->sha384 = EVP_MD_fetch(ossl->libctx, "SHA384", NULL);
-    ossl->sha512 = EVP_MD_fetch(ossl->libctx, "SHA512", NULL);
+    /* Finish all stores before we publish */
+    heim_base_producer_barrier();
 
-    /*
-     * Fetch and cache ciphers - legacy (PKCS#12).
-     * These come from the legacy provider.
-     */
-    ossl->rc2_40_cbc   = EVP_CIPHER_fetch(ossl->libctx, "RC2-40-CBC", NULL);
-    ossl->rc2_64_cbc   = EVP_CIPHER_fetch(ossl->libctx, "RC2-64-CBC", NULL);
-    ossl->rc2_cbc      = EVP_CIPHER_fetch(ossl->libctx, "RC2-CBC", NULL);
-    ossl->rc4_40       = EVP_CIPHER_fetch(ossl->libctx, "RC4-40", NULL);
-    ossl->rc4          = EVP_CIPHER_fetch(ossl->libctx, "RC4", NULL);
-    ossl->des_ede3_cbc = EVP_CIPHER_fetch(ossl->libctx, "DES-EDE3-CBC", NULL);
+    while (!done) {
+        hx509_context_ossl old = first;
 
-    /*
-     * Fetch and cache ciphers - standard.
-     */
-    ossl->aes_128_cbc = EVP_CIPHER_fetch(ossl->libctx, "AES-128-CBC", NULL);
-    ossl->aes_192_cbc = EVP_CIPHER_fetch(ossl->libctx, "AES-192-CBC", NULL);
-    ossl->aes_256_cbc = EVP_CIPHER_fetch(ossl->libctx, "AES-256-CBC", NULL);
+        /* Try to publish */
+        ossl->next = first;
+        if ((old = heim_base_cas_pointer((void *)&cached_ossl_hx509,
+                                         first, ossl)) == first) {
+            /*
+             * Published!  Take one more ref for the reference from the global
+             * list.
+             */
+            heim_base_consumer_barrier();
+            (void) heim_base_atomic_inc_32(&ossl->refs);
+            *osslp = ossl;
+            return 0;
+        }
+        heim_base_consumer_barrier();
 
-    context->ossl = ossl;
+        /* Lost a race; try again */
+        first = old;
+        ossl->next = first;
+        for (p = first; p; p = p->next) {
+            if (ossl_matches(p, cnf, propq)) {
+                (void) heim_base_atomic_inc_32(&p->refs);
+                *osslp = p;
+                free_openssl_hx509(&ossl); /* Found a better one */
+                return 0;
+            }
+        }
+        /* Did not find a better one, so try to publish again */
+    }
     return 0;
+}
+
+static int
+init_openssl_hx509(hx509_context context, hx509_context_ossl *osslp)
+{
+    const char *cnf =
+        heim_config_get_string(context->hcontext, context->cf,
+                               "libdefaults", "openssl_cnf",
+                               NULL);
+    const char *propq =
+        heim_config_get_string(context->hcontext, context->cf,
+                               "libdefaults", "ossl_propq", NULL);
+    return init_openssl_hx509_with_propq(context, cnf, propq, osslp);
 }
 
 static void
@@ -314,7 +451,7 @@ hx509_context_init(hx509_context *contextp)
     initialize_asn1_error_table_r(&context->et_list);
 
     /* Initialize OpenSSL provider context (legacy provider for PKCS#12) */
-    if ((ret = init_openssl_hx509(context))) {
+    if ((ret = init_openssl_hx509(context, &context->ossl))) {
         free_error_table(context->et_list);
         heim_config_file_free(context->hcontext, context->cf);
         heim_context_free(&context->hcontext);
@@ -376,6 +513,52 @@ hx509_context_set_missing_revoke(hx509_context context, int flag)
 	context->flags |= HX509_CTX_VERIFY_MISSING_OK;
     else
 	context->flags &= ~HX509_CTX_VERIFY_MISSING_OK;
+}
+
+/**
+ * Set the OpenSSL configuration and/or property query string for algorithm
+ * fetching.
+ *
+ * This allows selecting specific provider implementations (e.g., "fips=yes")
+ * and amortizes the cost of OpenSSL algorithm "fetching".
+ *
+ * This function looks up or creates an OpenSSL context with the specified
+ * propq and re-fetches all algorithms using that propq.  Contexts are cached
+ * globally and shared via refcounting.
+ *
+ * This must be called after hx509_context_init() and before any cryptographic
+ * operations using the resulting context.
+ *
+ * @param context hx509 context
+ * @param cnf OpenSSL configuration file (NULL for OpenSSL default)
+ * @param propq OpenSSL property query string (NULL for OpenSSL default)
+ *
+ * @return 0 on success, ENOMEM on allocation failure
+ *
+ * @ingroup hx509
+ */
+
+HX509_LIB_FUNCTION int HX509_LIB_CALL
+hx509_context_set_ossl_cnf_propq(hx509_context context,
+                                 const char *cnf,
+                                 const char *propq)
+{
+    hx509_context_ossl new_ossl = NULL;
+    int ret;
+
+    if (context == NULL)
+        return EINVAL;
+
+    /* Look up or create a cached OpenSSL context with the new propq */
+    ret = init_openssl_hx509_with_propq(context, cnf, propq, &new_ossl);
+    if (ret)
+        return ret;
+
+    /* Release the old context and use the new one */
+    free_openssl_hx509(&context->ossl);
+    context->ossl = new_ossl;
+
+    return 0;
 }
 
 /**
