@@ -1523,6 +1523,8 @@ static char *keytab_str = sHDB;
 static char *database;
 static char *config_file;
 static char *port_str;
+static char *ossl_cnf;
+static char *ossl_propq;
 static int detach_from_console;
 static int daemon_child = -1;
 
@@ -1548,6 +1550,12 @@ static struct getargs args[] = {
       "basename of pidfile; private argument for testing", "NAME" },
     { "hostname", 0, arg_string, rk_UNCONST(&master_hostname),
       "hostname of master (if not same as hostname)", "hostname" },
+    { "ossl-cnf",     0,      arg_string, &ossl_cnf,
+      "OpenSSL configuration file", "FILE"
+    },
+    { "ossl-propq",   0,      arg_string, &ossl_propq,
+      "OpenSSL property query string (e.g., provider=pkcs11)", "PROPQ"
+    },
     { "verbose", 0, arg_flag, &verbose, NULL, NULL },
     { "version", 0, arg_flag, &version_flag, NULL, NULL },
     { "help", 0, arg_flag, &help_flag, NULL, NULL }
@@ -1607,6 +1615,12 @@ main(int argc, char **argv)
     ret = krb5_init_context(&context);
     if (ret)
         errx(1, "krb5_init_context failed: %d", ret);
+
+    if (ossl_cnf || ossl_propq) {
+        ret = krb5_set_ossl_cnf_propq(context, ossl_cnf, ossl_propq);
+        if (ret)
+            krb5_err(context, 1, ret, "krb5_set_ossl_cnf_propq");
+    }
 
     setup_signal();
 
