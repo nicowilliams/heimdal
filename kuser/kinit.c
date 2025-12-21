@@ -88,6 +88,8 @@ static int use_referrals_flag = 0;
 static char *dh_alg = NULL;
 static char *sig_alg = NULL;
 static char *kdf_alg = NULL;
+static char *ossl_cnf = NULL;
+static char *ossl_propq = NULL;
 static int windows_flag = 0;
 
 
@@ -222,6 +224,14 @@ static struct getargs args[] = {
 
     { "kdf",	0,  arg_string, &kdf_alg,
       "request given PKINIT key derivation algorithm", "ALGORITHM" },
+
+    { "ossl-cnf",     0,      arg_string, &ossl_cnf,
+      "OpenSSL configuration file", "FILE"
+    },
+
+    { "ossl-propq",   0,      arg_string, &ossl_propq,
+      "OpenSSL property query string (e.g., provider=pkcs11)", "PROPQ"
+    },
 
     { "windows",	0,  arg_flag, &windows_flag,
       NP_("get windows behavior", ""), NULL },
@@ -1670,6 +1680,12 @@ main(int argc, char **argv)
 
     argc -= optidx;
     argv += optidx;
+
+    if (ossl_cnf || ossl_propq) {
+	ret = krb5_set_ossl_cnf_propq(context, ossl_cnf, ossl_propq);
+	if (ret)
+	    krb5_err(context, 1, ret, "krb5_set_ossl_cnf_propq");
+    }
 
     krb5_appdefault_boolean(context, "kinit", NULL, "historical_anon_pkinit",
                             FALSE, &historical_anon_pkinit);
