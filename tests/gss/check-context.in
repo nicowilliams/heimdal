@@ -607,6 +607,26 @@ ${context} \
     host/long.test.h5l.se || \
 	{ eval "$testfailed"; }
 
+test_section "threaded context establishment"
+test_section "Getting client initial tickets for threaded test"
+test_run ${kinit} --password-file=${objdir}/foopassword user1@${R}
+
+test_section "threaded gss context (krb5)"
+test_run ${context} \
+    --mech-type=krb5 \
+    --threaded \
+    --num-threads=4 \
+    --max-loops=5 \
+    --name-type=hostbased-service host@lucid.test.h5l.se
+
+test_section "threaded gss context (spnego)"
+test_run ${context} \
+    --mech-type=spnego \
+    --threaded \
+    --num-threads=4 \
+    --max-loops=5 \
+    --name-type=hostbased-service host@lucid.test.h5l.se
+
 trap "" EXIT
 
 echo "killing kdc (${kdcpid})"
