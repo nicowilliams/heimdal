@@ -336,12 +336,14 @@ static int
 init_openssl_hx509(hx509_context context, hx509_context_ossl *osslp)
 {
     const char *cnf =
-        heim_config_get_string(context->hcontext, context->cf,
-                               "libdefaults", "openssl_cnf",
-                               NULL);
+        heim_config_get_string_default(context->hcontext, context->cf,
+                                       secure_getenv("HX509_OPENSSL_CNF"),
+                                       "libdefaults", "openssl_cnf",
+                                       NULL);
     const char *propq =
-        heim_config_get_string(context->hcontext, context->cf,
-                               "libdefaults", "openssl_propq", NULL);
+        heim_config_get_string_default(context->hcontext, context->cf,
+                                       secure_getenv("HX509_OPENSSL_PROPQ"),
+                                       "libdefaults", "openssl_propq", NULL);
     return init_openssl_hx509_with_propq(context, cnf, propq, osslp);
 }
 
