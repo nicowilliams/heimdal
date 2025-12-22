@@ -1550,8 +1550,24 @@ Per user Heimdal configuration file path.
 Common Heimdal configuration file path.
 .El
 .Sh ENVIRONMENT
-.Ev KRB5_CONFIG
+.Bl -tag -width "xxx" -offset indent
+.It Ev KRB5CCNAME
+names the credentials cache to use.
+.It Ev KRB5_TRACE
+names a file to write tracing messages to.
+See also
+.Xr krb5_openlog 3 .
+.It Ev KRB5_KTNAME
+names the keytab to use (server-side).
+.It Ev KRB5_CLIENT_KTNAME
+names the keytab to use (client-side).
+.It Ev KRB5_OPENSSL_CNF
+names the OpenSSL configuration file to use.
+.It Ev KRB5_OPENSSL_PROPQ
+names the OpenSSL provider property query to use.
+.It Ev KRB5_CONFIG
 points to the configuration file to read.
+.El
 .Sh FILES
 .Bl -tag -width "/etc/krb5.conf"
 .It Pa /etc/krb5.conf
