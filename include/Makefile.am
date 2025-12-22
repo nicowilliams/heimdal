@@ -133,7 +133,6 @@ CLEANFILES =			\
 	kdc-audit.h		\
 	csr_authorizer_plugin.h	\
 	gss_preauth_authorizer_plugin.h	\
-	token_validator_plugin.h	\
 	xdbm.h			\
 	x690sample_asn1.h	\
 	x690sample_template_asn1.h
