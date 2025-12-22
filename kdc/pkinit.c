@@ -193,7 +193,7 @@ gen_eph_for_peer_spki(astgs_request_t r, SubjectPublicKeyInfo *spki,
     char curve[128];
     size_t clen = 0;
     int minbits = krb5_config_get_int_default(r->context, NULL, 0,
-                                              "kdc", "pkinit_dh_minbits",
+                                              "kdc", "pkinit_dh_min_bits",
                                               NULL);
     int bits;
 
