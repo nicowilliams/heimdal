@@ -341,7 +341,7 @@ init_openssl_hx509(hx509_context context, hx509_context_ossl *osslp)
                                NULL);
     const char *propq =
         heim_config_get_string(context->hcontext, context->cf,
-                               "libdefaults", "ossl_propq", NULL);
+                               "libdefaults", "openssl_propq", NULL);
     return init_openssl_hx509_with_propq(context, cnf, propq, osslp);
 }
 
