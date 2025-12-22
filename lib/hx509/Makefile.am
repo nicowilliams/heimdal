@@ -27,6 +27,7 @@ dist_libhx509_la_SOURCES = \
 	file.c \
 	hx509.h \
 	hx_locl.h \
+	jose.c \
 	sel.c \
 	sel.h \
 	sel-gram.y \
@@ -124,6 +125,7 @@ $(hxtool_OBJECTS): hxtool-commands.h $(nodist_include_HEADERS)
 hxtool_LDADD = \
 	libhx509template.la \
 	$(top_builddir)/lib/asn1/libasn1.la \
+	$(top_builddir)/lib/base/libheimbase.la \
 	$(LIB_openssl_crypto) \
 	$(LIB_roken) \
 	$(top_builddir)/lib/sl/libsl.la

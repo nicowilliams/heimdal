@@ -317,3 +317,14 @@ HEIMDAL_X509_1.3 {
 		hx509_ca_tbs_set_signature_algorithm;
 };
 
+HEIMDAL_X509_1.4 {
+	global:
+		hx509_jwk_to_json;
+		hx509_jws_sign;
+		hx509_jws_verify;
+		hx509_jwt_sign;
+		hx509_jwt_verify;
+		hx509_pem_to_jwk;
+		hx509_pem_to_jwk_json;
+};
+

@@ -3266,6 +3266,197 @@ acert(struct acert_options *opt, int argc, char **argv)
 }
 
 /*
+ * JWT / JWS / JWK commands
+ */
+
+static char *
+read_file_to_string(const char *filename)
+{
+    FILE *f;
+    long size;
+    char *data;
+
+    f = fopen(filename, "r");
+    if (f == NULL)
+        return NULL;
+
+    fseek(f, 0, SEEK_END);
+    size = ftell(f);
+    fseek(f, 0, SEEK_SET);
+
+    data = malloc(size + 1);
+    if (data == NULL) {
+        fclose(f);
+        return NULL;
+    }
+
+    if (fread(data, 1, size, f) != (size_t)size) {
+        free(data);
+        fclose(f);
+        return NULL;
+    }
+    data[size] = '\0';
+    fclose(f);
+    return data;
+}
+
+int
+jwt_sign(struct jwt_sign_options *opt, int argc, char **argv)
+{
+    char *pem_key = NULL;
+    char *token = NULL;
+    FILE *out = stdout;
+    int ret;
+
+    if (opt->private_key_string == NULL)
+        errx(1, "--private-key is required");
+
+    pem_key = read_file_to_string(opt->private_key_string);
+    if (pem_key == NULL)
+        err(1, "Could not read private key from %s", opt->private_key_string);
+
+    ret = hx509_jwt_sign(context,
+                         opt->algorithm_string,
+                         pem_key,
+                         opt->issuer_string,
+                         opt->subject_string,
+                         opt->audience_string,
+                         opt->lifetime_integer,
+                         NULL, /* extra_claims */
+                         &token);
+    free(pem_key);
+
+    if (ret)
+        hx509_err(context, 1, ret, "Failed to sign JWT");
+
+    if (opt->output_string) {
+        out = fopen(opt->output_string, "w");
+        if (out == NULL)
+            err(1, "Could not open %s for writing", opt->output_string);
+    }
+
+    fprintf(out, "%s\n", token);
+    free(token);
+
+    if (opt->output_string)
+        fclose(out);
+
+    return 0;
+}
+
+int
+jwt_verify(struct jwt_verify_options *opt, int argc, char **argv)
+{
+    char **pem_keys = NULL;
+    char *token = NULL;
+    heim_dict_t claims = NULL;
+    heim_string_t claims_json = NULL;
+    size_t num_keys = 0;
+    int ret;
+    size_t i;
+
+    if (opt->public_key_strings.num_strings == 0)
+        errx(1, "--public-key is required");
+
+    /* Load all public keys */
+    num_keys = opt->public_key_strings.num_strings;
+    pem_keys = calloc(num_keys, sizeof(char *));
+    if (pem_keys == NULL)
+        err(1, "Out of memory");
+
+    for (i = 0; i < num_keys; i++) {
+        pem_keys[i] = read_file_to_string(opt->public_key_strings.strings[i]);
+        if (pem_keys[i] == NULL)
+            err(1, "Could not read public key from %s",
+                opt->public_key_strings.strings[i]);
+    }
+
+    /* Get token */
+    if (opt->token_string) {
+        token = strdup(opt->token_string);
+    } else {
+        char buf[8192];
+        if (fgets(buf, sizeof(buf), stdin) == NULL)
+            errx(1, "Could not read token from stdin");
+        /* Remove trailing newline */
+        buf[strcspn(buf, "\r\n")] = '\0';
+        token = strdup(buf);
+    }
+
+    if (token == NULL)
+        err(1, "Out of memory");
+
+    /* Verify */
+    ret = hx509_jwt_verify(context,
+                           token,
+                           (const char **)pem_keys,
+                           num_keys,
+                           opt->audience_string,
+                           0, /* use current time */
+                           &claims);
+
+    for (i = 0; i < num_keys; i++)
+        free(pem_keys[i]);
+    free(pem_keys);
+    free(token);
+
+    if (ret)
+        hx509_err(context, 1, ret, "JWT verification failed");
+
+    /* Print claims */
+    claims_json = heim_json_copy_serialize(claims, HEIM_JSON_F_INDENT2, NULL);
+    if (claims_json)
+        printf("%s\n", heim_string_get_utf8(claims_json));
+
+    heim_release(claims_json);
+    heim_release(claims);
+
+    return 0;
+}
+
+int
+pem_to_jwk(struct pem_to_jwk_options *opt, int argc, char **argv)
+{
+    char *pem_key = NULL;
+    char *jwk_json = NULL;
+    const char *input_file;
+    FILE *out = stdout;
+    int ret;
+
+    /* Get input file from option or argument */
+    if (opt->input_string)
+        input_file = opt->input_string;
+    else if (argc > 0)
+        input_file = argv[0];
+    else
+        errx(1, "PEM file required (use --input or provide as argument)");
+
+    pem_key = read_file_to_string(input_file);
+    if (pem_key == NULL)
+        err(1, "Could not read PEM key from %s", input_file);
+
+    ret = hx509_pem_to_jwk_json(context, pem_key, &jwk_json);
+    free(pem_key);
+
+    if (ret)
+        hx509_err(context, 1, ret, "Failed to convert PEM to JWK");
+
+    if (opt->output_string) {
+        out = fopen(opt->output_string, "w");
+        if (out == NULL)
+            err(1, "Could not open %s for writing", opt->output_string);
+    }
+
+    fprintf(out, "%s\n", jwk_json);
+    free(jwk_json);
+
+    if (opt->output_string)
+        fclose(out);
+
+    return 0;
+}
+
+/*
  *
  */
 
