@@ -700,7 +700,7 @@ select_kdf(krb5_context context,
         cp->kdf = &asn1_oid_id_pkinit_kdf_ah_sha256;
         return 0;
     }
-    if (accepted & (1UL<<1)) {
+    if (accepted & (1UL<<0)) {
         kdc_log(context, config, 2, "Accepted PKINIT SHA-1 KDF");
         cp->kdf = &asn1_oid_id_pkinit_kdf_ah_sha1;
         return 0;
@@ -1112,6 +1112,8 @@ _kdc_pk_rd_padata(astgs_request_t priv,
             else if (der_heim_oid_cmp(offered, &asn1_oid_id_X25519) == 0)
                 cp->keyex = USE_ECDH;
             else if (der_heim_oid_cmp(offered, &asn1_oid_id_X448) == 0)
+                cp->keyex = USE_ECDH;
+            else if (der_heim_oid_cmp(offered, &asn1_oid_id_ecPublicKey) == 0)
                 cp->keyex = USE_ECDH;
             else if (der_heim_oid_cmp(offered, &asn1_oid_id_ec_group_secp256r1) == 0)
                 cp->keyex = USE_ECDH;
