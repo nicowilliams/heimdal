@@ -63,7 +63,6 @@
 
 #include <microhttpd.h>
 #include "kdc_locl.h"
-#include "token_validator_plugin.h"
 #include <getarg.h>
 #include <roken.h>
 #include <krb5.h>
