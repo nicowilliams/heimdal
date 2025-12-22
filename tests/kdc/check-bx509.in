@@ -39,6 +39,8 @@ testfailed="echo test failed; cat messages.log; exit 1"
 
 . ${env_setup}
 
+srcdir="${top_srcdir}/tests/kdc"
+
 # If there is no useful db support compiled in, disable test
 ${have_db} || exit 77
 
@@ -112,6 +114,13 @@ rm -f *.pem *.crt *.der
 rm -rf authz_dir
 
 mkdir -p authz_dir
+
+# Generate JWT signing keys upfront (needed before config file is read)
+echo "Generating JWT signing keys"
+openssl genpkey -algorithm RSA -out ${objdir}/jwt_sign.pem -pkeyopt rsa_keygen_bits:2048 2>/dev/null ||
+    { echo "Failed to generate JWT signing key"; exit 2; }
+openssl pkey -in ${objdir}/jwt_sign.pem -pubout -out ${objdir}/jwt_sign_pub.pem 2>/dev/null ||
+    { echo "Failed to extract JWT public key"; exit 2; }
 
 > messages.log
 
@@ -278,6 +287,43 @@ $test_token_validator -a datan.test.h5l.se Negotiate "$token" &&
 token=$(KRB5CCNAME=$cache $gsstoken HTTP@$server)
 $test_token_validator -a datan.test.h5l.se Negotiate "$token" ||
     { echo "Negotiate token validator failed to validate valid token"; exit 2; }
+
+echo "Testing JWT validator with RFC test vectors"
+${objdir}/../../kdc/test_jwt_validator ||
+    { echo "JWT validator RFC test vectors failed"; exit 2; }
+
+echo "Check Bearer/JWT token validator"
+# JWT signing key was already generated at start of test
+
+# Generate a valid JWT using hxtool
+jwt_token=$($hxtool jwt-sign -k ${objdir}/jwt_sign.pem -a RS256 \
+    -s "foo@${R}" -i "test-issuer" -A "datan.test.h5l.se" -l 3600 | tr -d '\n')
+
+echo "Testing Bearer token validator with valid JWT"
+$test_token_validator -a datan.test.h5l.se Bearer "$jwt_token" ||
+    { echo "Bearer token validator failed to validate valid JWT"; exit 2; }
+
+echo "Testing Bearer token validator with wrong audience"
+$test_token_validator -a wrong.audience.example Bearer "$jwt_token" &&
+    { echo "Bearer token validator accepted JWT with wrong audience"; exit 2; }
+
+echo "Testing Bearer token validator with tampered JWT"
+tampered_jwt=$(echo "$jwt_token" | sed 's/eyJ/eXJ/')
+$test_token_validator -a datan.test.h5l.se Bearer "$tampered_jwt" &&
+    { echo "Bearer token validator accepted tampered JWT"; exit 2; }
+
+echo "Testing Bearer token validator with expired JWT"
+# Use negative lifetime to create an already-expired token
+expired_jwt=$($hxtool jwt-sign -k ${objdir}/jwt_sign.pem -a RS256 \
+    -s "foo@${R}" -i "test-issuer" -A "datan.test.h5l.se" -l -3600 | tr -d '\n')
+$test_token_validator -a datan.test.h5l.se Bearer "$expired_jwt" &&
+    { echo "Bearer token validator accepted expired JWT"; exit 2; }
+
+# Note: ES256 and EdDSA signature verification is tested by the RFC test vectors
+# in test_jwt_validator. The Bearer token tests use only RS256 because the
+# configuration only supports a single key file.
+
+echo "JWT/Bearer token validator tests passed"
 
 
 echo "Starting CSR authorizer IPC service"
