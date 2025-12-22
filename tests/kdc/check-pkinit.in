@@ -324,30 +324,65 @@ ${kdestroy}
 
 echo "Testing DH group and KDF algorithm options"
 
+# Helper function to check that the KDC used the expected key agreement algorithm
+check_keyagreement() {
+    expected="$1"
+    if grep "AS-REQ SUCCESS" messages.log | grep -q "keyagreement=${expected}"; then
+        echo "  OK: keyagreement=${expected}"
+    else
+        echo "  FAIL: expected keyagreement=${expected}"
+        grep "AS-REQ SUCCESS" messages.log | head -1
+        ec=1
+    fi
+}
+
+# Helper function to check that the KDC used the expected KDF
+check_kdf() {
+    expected="$1"
+    if grep "AS-REQ SUCCESS" messages.log | grep -q "kdf=${expected}"; then
+        echo "  OK: kdf=${expected}"
+    else
+        echo "  FAIL: expected kdf=${expected}"
+        grep "AS-REQ SUCCESS" messages.log | head -1
+        ec=1
+    fi
+}
+
 # Test various DH groups (RFC 3526 MODP groups)
+# Note: The KDC logs the moduli name from its built-in/configured moduli file,
+# not the client's requested group name.  The default built-in is rfc3526-MODP-group14.
 for dh_group in modp_2048 modp_3072; do
     echo "Trying pk-init with --key-agreement=${dh_group}"; > messages.log
     ${kinit} --key-agreement=${dh_group} \
         -C FILE:${base}/pkinit.crt,${keyfile2} bar@${R} || \
         { ec=1 ; eval "${testfailed}"; }
+    # The KDC uses its configured moduli; default is rfc3526-MODP-group14
+    check_keyagreement "rfc3526-MODP-group14"
     ${kdestroy}
 done
 
 # Test ECDH curves (NIST curves)
-for curve in P-256 P-384 P-521; do
-    echo "Trying pk-init with --key-agreement=${curve}"; > messages.log
-    ${kinit} --key-agreement=${curve} \
+# Note: OpenSSL uses different names internally (prime256v1, secp384r1, secp521r1)
+for curve in P-256:prime256v1 P-384:secp384r1 P-521:secp521r1; do
+    cli_name="${curve%%:*}"
+    log_name="${curve##*:}"
+    echo "Trying pk-init with --key-agreement=${cli_name}"; > messages.log
+    ${kinit} --key-agreement=${cli_name} \
         -C FILE:${base}/pkinit.crt,${keyfile2} bar@${R} || \
         { ec=1 ; eval "${testfailed}"; }
+    check_keyagreement "${log_name}"
     ${kdestroy}
 done
 
 # Test RFC 8636 KDF algorithms
-for kdf in ah-sha256 ah-sha384 ah-sha512; do
-    echo "Trying pk-init with --kdf=${kdf}"; > messages.log
-    ${kinit} --kdf=${kdf} \
+for kdf in ah-sha256:id_pkinit_kdf_ah_sha256 ah-sha384:id_pkinit_kdf_ah_sha384 ah-sha512:id_pkinit_kdf_ah_sha512; do
+    cli_name="${kdf%%:*}"
+    log_name="${kdf##*:}"
+    echo "Trying pk-init with --kdf=${cli_name}"; > messages.log
+    ${kinit} --kdf=${cli_name} \
         -C FILE:${base}/pkinit.crt,${keyfile2} bar@${R} || \
         { ec=1 ; eval "${testfailed}"; }
+    check_kdf "${log_name}"
     ${kdestroy}
 done
 
@@ -356,6 +391,7 @@ echo "Trying pk-init with --kdf=RFC4556 (legacy)"; > messages.log
 ${kinit} --kdf=RFC4556 \
     -C FILE:${base}/pkinit.crt,${keyfile2} bar@${R} || \
     { ec=1 ; eval "${testfailed}"; }
+check_kdf "RFC4556"
 ${kdestroy}
 
 # Test combinations of DH group and KDF
@@ -363,20 +399,28 @@ echo "Trying pk-init with --key-agreement=P-256 --kdf=ah-sha256"; > messages.log
 ${kinit} --key-agreement=P-256 --kdf=ah-sha256 \
     -C FILE:${base}/pkinit.crt,${keyfile2} bar@${R} || \
     { ec=1 ; eval "${testfailed}"; }
+check_keyagreement "prime256v1"
+check_kdf "id_pkinit_kdf_ah_sha256"
 ${kdestroy}
 
 echo "Trying pk-init with --key-agreement=modp_3072 --kdf=ah-sha384"; > messages.log
 ${kinit} --key-agreement=modp_3072 --kdf=ah-sha384 \
     -C FILE:${base}/pkinit.crt,${keyfile2} bar@${R} || \
     { ec=1 ; eval "${testfailed}"; }
+# The KDC uses its configured moduli; default is rfc3526-MODP-group14
+check_keyagreement "rfc3526-MODP-group14"
+check_kdf "id_pkinit_kdf_ah_sha384"
 ${kdestroy}
 
 # Test X25519 if available (may fail if not supported by OpenSSL build)
 echo "Trying pk-init with --key-agreement=X25519 (may skip if unsupported)"; > messages.log
-${kinit} --key-agreement=X25519 \
-    -C FILE:${base}/pkinit.crt,${keyfile2} bar@${R} 2>/dev/null || \
+if ${kinit} --key-agreement=X25519 \
+    -C FILE:${base}/pkinit.crt,${keyfile2} bar@${R} 2>/dev/null; then
+    check_keyagreement "x25519"
+    ${kdestroy}
+else
     echo "X25519 not supported (skipped)"
-${kdestroy} 2>/dev/null
+fi
 
 KRB5_CONFIG="${objdir}/krb5-pkinit-win.conf"
 export KRB5_CONFIG
