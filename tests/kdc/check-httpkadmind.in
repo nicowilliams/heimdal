@@ -136,10 +136,15 @@ else
 fi
 
 # HTTP curl-opts
+# Note: We use gss-token instead of curl's --negotiate because curl uses the
+# system's GSS-API library which may do DNS lookups for principal name
+# canonicalization, causing timeouts in test environments.  Heimdal's gss-token
+# respects the krb5.conf name_canon_rules and rdns settings.
 HTTP() {
     curl -g --resolve ${server}:${restport1}:127.0.0.1  \
             --resolve ${server}:${restport2}:127.0.0.1  \
-         -u: --negotiate $verbose                       \
+         -H "Authorization: Negotiate $(${gsstoken} HTTP@${server})" \
+         $verbose                                       \
          -D response-headers                            \
          "$@"
 }
@@ -626,6 +631,7 @@ echo "Starting httpkadmind with local read-only HDB and remote read-write HDB"
 ${httpkadmind} -H $server -H localhost -t --daemon              \
     --local-read-only                                           \
     --writable-admin-server=$(uname -n):$admport                \
+    --read-only-admin-server=$(uname -n):$admport2              \
     --kadmin-client-name=httpkadmind/admin@${R}                 \
     --kadmin-client-keytab=$keytab ||
     { echo "httpkadmind failed to start"; exit 2; }
