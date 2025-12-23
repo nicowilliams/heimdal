@@ -82,7 +82,7 @@ get_jwk_paths(krb5_context context,
         n++;
     /* Then previous key (for key rotation) */
     if ((paths[n] = get_kv(context, realm, "jwk_previous", NULL)) != NULL ||
-        (paths[n] = get_kv(context, realm, "cjwt_jwk_previous", NULL)) != NULL
+        (paths[n] = get_kv(context, realm, "cjwt_jwk_previous", NULL)) != NULL)
         n++;
 
     return n;
