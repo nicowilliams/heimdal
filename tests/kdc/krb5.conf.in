@@ -83,6 +83,7 @@
 	allow-anonymous = true
 	digests_allowed = chap-md5,digest-md5,ntlm-v1,ntlm-v1-session,ntlm-v2,ms-chap-v2
         strict-nametypes = true
+        pkinit_allow_rsa_key_transport = true
 
 	enable-http = true
 

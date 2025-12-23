@@ -939,6 +939,10 @@ Enabled by default for now, but in a future release will be
 disabled.
 .It Li enable-pkinit = Va BOOL
 Enable PKINIT (disabled by default).
+.It Li pkinit_allow_rsa_key_transport = Va BOOL
+Enable RSA key transport.
+This is disabled by default as using Diffie-Hellman key agreement
+is more secure.
 .It Li pkinit_enable_rfc4556_kdf-pkinit = Va BOOL
 Enable or disable interoperability with clients that do not
 implement RFC 8636 (PKINIT algorithm agility).
