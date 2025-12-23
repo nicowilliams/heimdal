@@ -58,12 +58,13 @@
 #include <krb5.h>
 #include <base64.h>
 #include <heimbase.h>
-#include <heim-ipc.h>
 
 #include <openssl/evp.h>
 #include <openssl/pem.h>
 #include <openssl/err.h>
 #include <openssl/x509.h>
+
+#include "jwt_validator.h"
 
 /* JSON parsing - simple recursive descent parser for JWT claims */
 
@@ -747,7 +748,6 @@ parse_jwt_claims(const char *payload_json, jwt_claims *claims)
 {
     json_value *root = NULL;
     json_value *aud;
-    json_value *priv;
     const char *s;
     size_t i;
 
