@@ -1141,8 +1141,19 @@ _kdc_pk_rd_padata(astgs_request_t priv,
 		free_AuthPack(&ap);
 		goto out;
 	    }
-	} else
-	    cp->keyex = USE_RSA;
+	} else {
+            if (!krb5_config_get_bool_default(context, NULL,
+                                             FALSE,
+                                             "kdc",
+                                             "pkinit_allow_rsa_key_transport",
+                                             NULL)) {
+                ret = KRB5_KDC_ERR_PUBLIC_KEY_ENCRYPTION_NOT_SUPPORTED;
+                krb5_set_error_message(context, ret,
+                                       "PKINIT RSA key transport is disabled");
+                goto out;
+            }
+            cp->keyex = USE_RSA;
+        }
 
 	ret = hx509_peer_info_alloc(context->hx509ctx, &cp->peer);
 	if (ret) {
