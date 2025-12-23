@@ -305,5 +305,14 @@ EXPORTS
 	hx509_xfree
 	initialize_hx_error_table_r
 
+; JWT/JWS/JWK functions
+	hx509_jwk_to_json
+	hx509_jws_sign
+	hx509_jws_verify
+	hx509_jwt_sign
+	hx509_jwt_verify
+	hx509_pem_to_jwk
+	hx509_pem_to_jwk_json
+
 ; pkcs11 symbols
 	C_GetFunctionList
