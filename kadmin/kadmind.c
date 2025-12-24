@@ -411,6 +411,42 @@ fuzz_stdin(krb5_context contextp)
     if (ret)
 	krb5_err(contextp, 1, ret, "kadm5_s_init_with_password_ctx");
 
+    /*
+     * Pre-populate the HDB with test principals so fuzzing can exercise
+     * code paths beyond "principal not found" errors.
+     */
+    {
+	kadm5_principal_ent_rec ent;
+	krb5_principal testprinc;
+	const char *test_principals[] = {
+	    "test",
+	    "admin/admin",
+	    "user1",
+	    "user2",
+	    "host/localhost",
+	    "HTTP/www.example.com",
+	    "krbtgt/FUZZ.REALM",
+	    NULL
+	};
+	int i;
+
+	for (i = 0; test_principals[i] != NULL; i++) {
+	    memset(&ent, 0, sizeof(ent));
+	    ret = krb5_parse_name(contextp, test_principals[i], &testprinc);
+	    if (ret)
+		continue;
+	    ent.principal = testprinc;
+	    ent.max_life = 86400;
+	    ent.max_renewable_life = 604800;
+	    /* Create with a simple password - we don't care about security */
+	    (void)kadm5_create_principal(kadm_handlep, &ent,
+					 KADM5_PRINCIPAL | KADM5_MAX_LIFE |
+					 KADM5_MAX_RLIFE,
+					 "fuzzpass");
+	    krb5_free_principal(contextp, testprinc);
+	}
+    }
+
     /* Read-process-write loop */
     for (;;) {
 	/* Read 4-byte length prefix */
