@@ -453,8 +453,11 @@ kadmind_dispatch_int(void *kadm_handlep, krb5_boolean initial,
             goto fail;
         }
         ret = krb5_ret_principal(sp, &princ);
-        if (ret == 0)
-            ret = krb5_ret_int32(sp, &kvno);
+        if (ret) {
+            ret_sp = krb5_store_int32(rsp, KADM5_FAILURE);
+            goto fail;
+        }
+        ret = krb5_ret_int32(sp, &kvno);
         if (ret == HEIM_ERR_EOF) {
             kvno = 0;
         } else if (ret) {
@@ -528,12 +531,20 @@ kadmind_dispatch_int(void *kadm_handlep, krb5_boolean initial,
             goto fail;
         }
 	ret = krb5_ret_principal(sp, &princ);
-        if (ret == 0)
-            ret = krb5_ret_string(sp, &password);
-        if (ret == 0)
-            ret = krb5_ret_int32(sp, &keepold);
-        if (ret == HEIM_ERR_EOF)
+        if (ret) {
+            ret_sp = krb5_store_int32(rsp, KADM5_FAILURE);
+            goto fail;
+        }
+        ret = krb5_ret_string(sp, &password);
+        if (ret) {
+            ret_sp = krb5_store_int32(rsp, KADM5_FAILURE);
+            goto fail;
+        }
+        ret = krb5_ret_int32(sp, &keepold);
+        if (ret == HEIM_ERR_EOF) {
+            keepold = 0;
             ret = 0;
+        }
         if (ret == 0) {
             ret = krb5_unparse_name_fixed(contextp->context, princ, name, sizeof(name));
             if (ret == 0)
