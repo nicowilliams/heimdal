@@ -3207,7 +3207,7 @@ acert(struct acert_options *opt, int argc, char **argv)
 int
 help(void *opt, int argc, char **argv)
 {
-    sl_slc_help(commands, argc, argv);
+    sl_help_ext(commands, commands_info, argc, argv);
     return 0;
 }
 
