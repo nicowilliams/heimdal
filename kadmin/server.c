@@ -179,9 +179,9 @@ iter_cb(void *cbdata, const char *p)
 }
 
 static kadm5_ret_t
-kadmind_dispatch(void *kadm_handlep, krb5_boolean initial,
-		 krb5_data *in, krb5_auth_context ac, int fd,
-                 krb5_data *out, int readonly)
+kadmind_dispatch_int(void *kadm_handlep, krb5_boolean initial,
+		     krb5_data *in, krb5_auth_context ac, int fd,
+		     krb5_data *out, int readonly)
 {
     kadm5_ret_t ret = 0;
     kadm5_ret_t ret_sp = 0;
@@ -894,6 +894,18 @@ fail:
     return 0;
 }
 
+/*
+ * Public wrapper for fuzzing - doesn't require auth_context or fd.
+ * The online LIST protocol (which needs ac and fd) is disabled when fd < 0.
+ */
+kadm5_ret_t
+kadmind_dispatch(void *kadm_handlep, krb5_boolean initial,
+		 krb5_data *in, krb5_data *out, int readonly)
+{
+    return kadmind_dispatch_int(kadm_handlep, initial, in, NULL, -1, out,
+				readonly);
+}
+
 struct iter_aliases_ctx {
     HDB_Ext_Aliases aliases;
     krb5_tl_data *tl;
@@ -1033,8 +1045,8 @@ v5_loop (krb5_context contextp,
 	if(ret)
 	    krb5_err(contextp, 1, ret, "krb5_read_priv_message");
 	doing_useful_work = 1;
-        ret = kadmind_dispatch(kadm_handlep, initial, &in, ac, fd, &out,
-                               readonly);
+        ret = kadmind_dispatch_int(kadm_handlep, initial, &in, ac, fd, &out,
+				   readonly);
 	if (ret)
 	    krb5_err(contextp, 1, ret, "kadmind_dispatch");
 	krb5_data_free(&in);
