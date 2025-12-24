@@ -152,6 +152,9 @@ void start_server(krb5_context, const char*);
 krb5_error_code
 kadmind_loop (krb5_context, krb5_keytab, int, int);
 
+kadm5_ret_t
+kadmind_dispatch(void *, krb5_boolean, krb5_data *, krb5_data *, int);
+
 /* rpc.c */
 
 int
