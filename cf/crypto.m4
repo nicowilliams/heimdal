@@ -87,8 +87,38 @@ if test "$with_openssl" != "no"; then
 	fi
 	if test "$with_openssl_lib" != ""; then
 		LIB_openssl_crypto="-L${with_openssl_lib}"
-        elif test "${with_openssl}" != "/usr" -a -d "${with_openssl}/lib"; then
-                LIB_openssl_crypto="-L${with_openssl}/lib"
+		openssl_libdir="${with_openssl_lib}"
+	elif test "${with_openssl}" != "/usr"; then
+		dnl Detect lib vs lib64: prefer lib64 on 64-bit Linux if it exists
+		dnl and contains libcrypto, otherwise fall back to lib
+		openssl_libdir=""
+		if test -f "${with_openssl}/lib64/libcrypto.so" -o \
+		        -f "${with_openssl}/lib64/libcrypto.dylib"; then
+			openssl_libdir="${with_openssl}/lib64"
+		elif test -f "${with_openssl}/lib/libcrypto.so" -o \
+		          -f "${with_openssl}/lib/libcrypto.dylib"; then
+			openssl_libdir="${with_openssl}/lib"
+		elif test -d "${with_openssl}/lib64"; then
+			openssl_libdir="${with_openssl}/lib64"
+		elif test -d "${with_openssl}/lib"; then
+			openssl_libdir="${with_openssl}/lib"
+		fi
+		if test -n "$openssl_libdir"; then
+			LIB_openssl_crypto="-L${openssl_libdir}"
+		fi
+	fi
+	dnl Add rpath for non-system OpenSSL installations
+	if test -n "$openssl_libdir" -a "$openssl_libdir" != "/usr/lib" -a "$openssl_libdir" != "/usr/lib64"; then
+		case "$host_os" in
+		darwin*)
+			dnl macOS uses -rpath with @loader_path or absolute path
+			LIB_openssl_crypto="${LIB_openssl_crypto} -Wl,-rpath,${openssl_libdir}"
+			;;
+		*)
+			dnl Linux and other ELF systems
+			LIB_openssl_crypto="${LIB_openssl_crypto} -Wl,-rpath,${openssl_libdir}"
+			;;
+		esac
 	fi
 	CFLAGS="${INCLUDE_openssl_crypto} ${CFLAGS}"
         LDFLAGS="${LIB_openssl_crypto} ${LDFLAGS}"
@@ -147,10 +177,8 @@ dnl Check for OpenSSL PKCS#11 provider (pkcs11-provider project)
 dnl It installs into the OpenSSL modules directory
 openssl_pkcs11_provider=""
 if test "$openssl" = "yes"; then
-    if test "$with_openssl_lib" != ""; then
-        pkcs11_provider_path="${with_openssl_lib}/ossl-modules/pkcs11.so"
-    elif test "$with_openssl" != "" -a "$with_openssl" != "yes"; then
-        pkcs11_provider_path="${with_openssl}/lib/ossl-modules/pkcs11.so"
+    if test -n "$openssl_libdir"; then
+        pkcs11_provider_path="${openssl_libdir}/ossl-modules/pkcs11.so"
     else
         pkcs11_provider_path="/usr/lib/ossl-modules/pkcs11.so"
     fi
