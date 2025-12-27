@@ -38,6 +38,8 @@ HEIMDAL_ROKEN_2.0 {
 		rk_base32_encode;
 		rk_base64_decode;
 		rk_base64_encode;
+		rk_base64url_decode;
+		rk_base64url_encode;
 		rk_bswap16;
 		rk_bswap32;
 		rk_bswap64;
