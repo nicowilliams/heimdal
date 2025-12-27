@@ -301,17 +301,26 @@
 .Ar Op Ar command
 .Sh DESCRIPTION
 .Nm
-is a utility for making certificate signing requests (CSRs),
-displaying CSRs, signing certificates, etc.
+is a command-line utility for making certificate signing requests
+(CSRs), displaying CSRs, displaying certificates, signing
+certificates, validating certificates, managing certificate
+revocation lists (CRLs), etc.
 .Pp
-All sub-commands have their own help message, shown when invoked
+Every sub-command has its own help message, shown when invoked
 with the
 .Fl Fl help
 or
 .Fl h
 option.
 .Pp
-Supported commands:
+Many sub-commands' command-line options refer to certificate and
+private key stores, supporting DER, PEM, and PKCS#12 files, as
+well as PKCS#11 hard and soft tokens, and others certificate
+stores.
+See
+.Sx CERTIFICATE STORES
+below for how to refer to certificates and private keys.
+.Sh SUPPORTED COMMANDS
 .Bl -tag -width Ds -offset indent
 .It Ic list-oids
 List known OIDs.
