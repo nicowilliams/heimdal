@@ -139,6 +139,7 @@ int main(int argc, char **argv)
     int flag;
     char *p = NULL;
     const char *hb;
+    char *freeme = NULL;
 
     if (argc > 1 && strcmp(argv[1], "--version") == 0) {
 	printf("some version");
@@ -149,13 +150,12 @@ int main(int argc, char **argv)
 	hb = "__BITS_H__";
 	f = stdout;
     } else {
-	p = malloc(strlen(argv[1]) + 5);
+	p = freeme = malloc(strlen(argv[1]) + 5);
 	sprintf(p, "__%s__", argv[1]);
 	hb = p;
-	for(; *p; p++){
+	for(; *p; p++)
 	    if(!isalnum((unsigned char)*p))
 		*p = '_';
-	}
 	f = fopen(argv[1], "w");
     }
     fprintf(f, "#ifndef %s\n", hb);
@@ -325,5 +325,6 @@ int main(int argc, char **argv)
 
     if (f != stdout)
 	fclose(f);
+    free(freeme);
     return 0;
 }
