@@ -66,461 +66,60 @@
 
 #include "jwt_validator.h"
 
-/* JSON parsing - simple recursive descent parser for JWT claims */
-
-typedef struct json_value {
-    enum { JSON_NULL, JSON_BOOL, JSON_NUMBER, JSON_STRING, JSON_ARRAY, JSON_OBJECT } type;
-    union {
-        int boolean;
-        int64_t number;
-        char *string;
-        struct {
-            struct json_value **items;
-            size_t count;
-        } array;
-        struct {
-            char **keys;
-            struct json_value **values;
-            size_t count;
-        } object;
-    } u;
-} json_value;
-
-static void json_free(json_value *v);
-
-static void
-json_free(json_value *v)
-{
-    size_t i;
-
-    if (v == NULL)
-        return;
-
-    switch (v->type) {
-    case JSON_STRING:
-        free(v->u.string);
-        break;
-    case JSON_ARRAY:
-        for (i = 0; i < v->u.array.count; i++)
-            json_free(v->u.array.items[i]);
-        free(v->u.array.items);
-        break;
-    case JSON_OBJECT:
-        for (i = 0; i < v->u.object.count; i++) {
-            free(v->u.object.keys[i]);
-            json_free(v->u.object.values[i]);
-        }
-        free(v->u.object.keys);
-        free(v->u.object.values);
-        break;
-    default:
-        break;
-    }
-    free(v);
-}
-
+/*
+ * Get a string value from a heim_dict_t, returning NULL if not present
+ * or not a string.
+ */
 static const char *
-skip_ws(const char *p)
+heim_dict_get_string(heim_dict_t dict, const char *key)
 {
-    while (*p == ' ' || *p == '\t' || *p == '\n' || *p == '\r')
-        p++;
-    return p;
-}
+    heim_string_t hkey = heim_string_create(key);
+    heim_object_t val;
+    const char *result = NULL;
 
-static json_value *json_parse_value(const char **pp);
-
-static char *
-json_parse_string_content(const char **pp)
-{
-    const char *p = *pp;
-    char *result, *out;
-    size_t len = 0;
-    const char *start;
-
-    if (*p != '"')
+    if (hkey == NULL)
         return NULL;
-    p++;
-    start = p;
-
-    /* First pass: calculate length */
-    while (*p && *p != '"') {
-        if (*p == '\\') {
-            p++;
-            if (*p == 'u') {
-                p += 4;
-                len += 3; /* UTF-8 worst case */
-            } else {
-                len++;
-            }
-            p++;
-        } else {
-            len++;
-            p++;
-        }
-    }
-    if (*p != '"')
-        return NULL;
-
-    result = malloc(len + 1);
-    if (result == NULL)
-        return NULL;
-
-    /* Second pass: copy */
-    p = start;
-    out = result;
-    while (*p && *p != '"') {
-        if (*p == '\\') {
-            p++;
-            switch (*p) {
-            case '"': *out++ = '"'; break;
-            case '\\': *out++ = '\\'; break;
-            case '/': *out++ = '/'; break;
-            case 'b': *out++ = '\b'; break;
-            case 'f': *out++ = '\f'; break;
-            case 'n': *out++ = '\n'; break;
-            case 'r': *out++ = '\r'; break;
-            case 't': *out++ = '\t'; break;
-            case 'u':
-                /* Simplified: just skip unicode escapes for now */
-                p += 4;
-                *out++ = '?';
-                continue;
-            default:
-                *out++ = *p;
-                break;
-            }
-            p++;
-        } else {
-            *out++ = *p++;
-        }
-    }
-    *out = '\0';
-    p++; /* skip closing quote */
-    *pp = p;
+    val = heim_dict_get_value(dict, hkey);
+    heim_release(hkey);
+    if (val && heim_get_tid(val) == HEIM_TID_STRING)
+        result = heim_string_get_utf8((heim_string_t)val);
     return result;
 }
 
-static json_value *
-json_parse_string(const char **pp)
-{
-    json_value *v;
-    char *s;
-
-    s = json_parse_string_content(pp);
-    if (s == NULL)
-        return NULL;
-
-    v = calloc(1, sizeof(*v));
-    if (v == NULL) {
-        free(s);
-        return NULL;
-    }
-    v->type = JSON_STRING;
-    v->u.string = s;
-    return v;
-}
-
-static json_value *
-json_parse_number(const char **pp)
-{
-    const char *p = *pp;
-    json_value *v;
-    char *end;
-    int64_t num;
-
-    num = strtoll(p, &end, 10);
-    if (end == p)
-        return NULL;
-
-    v = calloc(1, sizeof(*v));
-    if (v == NULL)
-        return NULL;
-    v->type = JSON_NUMBER;
-    v->u.number = num;
-    *pp = end;
-    return v;
-}
-
-static json_value *
-json_parse_array(const char **pp)
-{
-    const char *p = *pp;
-    json_value *v;
-    json_value **items = NULL;
-    size_t count = 0;
-    size_t alloc = 0;
-
-    if (*p != '[')
-        return NULL;
-    p++;
-    p = skip_ws(p);
-
-    v = calloc(1, sizeof(*v));
-    if (v == NULL)
-        return NULL;
-    v->type = JSON_ARRAY;
-
-    if (*p == ']') {
-        p++;
-        *pp = p;
-        return v;
-    }
-
-    for (;;) {
-        json_value *item;
-
-        p = skip_ws(p);
-        item = json_parse_value(&p);
-        if (item == NULL)
-            goto fail;
-
-        if (count >= alloc) {
-            json_value **new_items;
-            alloc = alloc ? alloc * 2 : 4;
-            new_items = realloc(items, alloc * sizeof(*items));
-            if (new_items == NULL) {
-                json_free(item);
-                goto fail;
-            }
-            items = new_items;
-        }
-        items[count++] = item;
-
-        p = skip_ws(p);
-        if (*p == ']') {
-            p++;
-            break;
-        }
-        if (*p != ',')
-            goto fail;
-        p++;
-    }
-
-    v->u.array.items = items;
-    v->u.array.count = count;
-    *pp = p;
-    return v;
-
-fail:
-    for (size_t i = 0; i < count; i++)
-        json_free(items[i]);
-    free(items);
-    free(v);
-    return NULL;
-}
-
-static json_value *
-json_parse_object(const char **pp)
-{
-    const char *p = *pp;
-    json_value *v;
-    char **keys = NULL;
-    json_value **values = NULL;
-    size_t count = 0;
-    size_t alloc = 0;
-
-    if (*p != '{')
-        return NULL;
-    p++;
-    p = skip_ws(p);
-
-    v = calloc(1, sizeof(*v));
-    if (v == NULL)
-        return NULL;
-    v->type = JSON_OBJECT;
-
-    if (*p == '}') {
-        p++;
-        *pp = p;
-        return v;
-    }
-
-    for (;;) {
-        char *key;
-        json_value *val;
-
-        p = skip_ws(p);
-        key = json_parse_string_content(&p);
-        if (key == NULL)
-            goto fail;
-
-        p = skip_ws(p);
-        if (*p != ':') {
-            free(key);
-            goto fail;
-        }
-        p++;
-
-        p = skip_ws(p);
-        val = json_parse_value(&p);
-        if (val == NULL) {
-            free(key);
-            goto fail;
-        }
-
-        if (count >= alloc) {
-            char **new_keys;
-            json_value **new_values;
-            alloc = alloc ? alloc * 2 : 4;
-            new_keys = realloc(keys, alloc * sizeof(*keys));
-            new_values = realloc(values, alloc * sizeof(*values));
-            if (new_keys == NULL || new_values == NULL) {
-                free(key);
-                json_free(val);
-                free(new_keys);
-                free(new_values);
-                goto fail;
-            }
-            keys = new_keys;
-            values = new_values;
-        }
-        keys[count] = key;
-        values[count] = val;
-        count++;
-
-        p = skip_ws(p);
-        if (*p == '}') {
-            p++;
-            break;
-        }
-        if (*p != ',')
-            goto fail;
-        p++;
-    }
-
-    v->u.object.keys = keys;
-    v->u.object.values = values;
-    v->u.object.count = count;
-    *pp = p;
-    return v;
-
-fail:
-    for (size_t i = 0; i < count; i++) {
-        free(keys[i]);
-        json_free(values[i]);
-    }
-    free(keys);
-    free(values);
-    free(v);
-    return NULL;
-}
-
-static json_value *
-json_parse_value(const char **pp)
-{
-    const char *p = *pp;
-    json_value *v;
-
-    p = skip_ws(p);
-
-    if (*p == '"')
-        return json_parse_string(pp);
-    if (*p == '[')
-        return json_parse_array(pp);
-    if (*p == '{')
-        return json_parse_object(pp);
-    if (*p == '-' || (*p >= '0' && *p <= '9'))
-        return json_parse_number(pp);
-
-    if (strncmp(p, "true", 4) == 0) {
-        v = calloc(1, sizeof(*v));
-        if (v) {
-            v->type = JSON_BOOL;
-            v->u.boolean = 1;
-        }
-        *pp = p + 4;
-        return v;
-    }
-    if (strncmp(p, "false", 5) == 0) {
-        v = calloc(1, sizeof(*v));
-        if (v) {
-            v->type = JSON_BOOL;
-            v->u.boolean = 0;
-        }
-        *pp = p + 5;
-        return v;
-    }
-    if (strncmp(p, "null", 4) == 0) {
-        v = calloc(1, sizeof(*v));
-        if (v)
-            v->type = JSON_NULL;
-        *pp = p + 4;
-        return v;
-    }
-
-    return NULL;
-}
-
-static json_value *
-json_parse(const char *s)
-{
-    return json_parse_value(&s);
-}
-
-static json_value *
-json_get(json_value *obj, const char *key)
-{
-    size_t i;
-
-    if (obj == NULL || obj->type != JSON_OBJECT)
-        return NULL;
-    for (i = 0; i < obj->u.object.count; i++) {
-        if (strcmp(obj->u.object.keys[i], key) == 0)
-            return obj->u.object.values[i];
-    }
-    return NULL;
-}
-
-static const char *
-json_get_string(json_value *obj, const char *key)
-{
-    json_value *v = json_get(obj, key);
-    if (v && v->type == JSON_STRING)
-        return v->u.string;
-    return NULL;
-}
-
+/*
+ * Get a number value from a heim_dict_t, returning def if not present
+ * or not a number.
+ */
 static int64_t
-json_get_number(json_value *obj, const char *key, int64_t def)
+heim_dict_get_int(heim_dict_t dict, const char *key, int64_t def)
 {
-    json_value *v = json_get(obj, key);
-    if (v && v->type == JSON_NUMBER)
-        return v->u.number;
-    return def;
+    heim_string_t hkey = heim_string_create(key);
+    heim_object_t val;
+    int64_t result = def;
+
+    if (hkey == NULL)
+        return def;
+    val = heim_dict_get_value(dict, hkey);
+    heim_release(hkey);
+    if (val && heim_get_tid(val) == HEIM_TID_NUMBER)
+        result = heim_number_get_long((heim_number_t)val);
+    return result;
 }
 
-/* Base64URL decoding (JWT uses base64url without padding) */
-
-static ssize_t
-base64url_decode(const char *src, size_t src_len, unsigned char *dst, size_t dst_len)
+/*
+ * Get an object value from a heim_dict_t.
+ */
+static heim_object_t
+heim_dict_get_obj(heim_dict_t dict, const char *key)
 {
-    char *tmp;
-    size_t i, padding;
-    ssize_t ret;
+    heim_string_t hkey = heim_string_create(key);
+    heim_object_t val;
 
-    /* Convert base64url to base64 */
-    tmp = malloc(src_len + 4);
-    if (tmp == NULL)
-        return -1;
-
-    for (i = 0; i < src_len; i++) {
-        if (src[i] == '-')
-            tmp[i] = '+';
-        else if (src[i] == '_')
-            tmp[i] = '/';
-        else
-            tmp[i] = src[i];
-    }
-
-    /* Add padding */
-    padding = (4 - (src_len % 4)) % 4;
-    for (i = 0; i < padding; i++)
-        tmp[src_len + i] = '=';
-    tmp[src_len + padding] = '\0';
-
-    ret = rk_base64_decode(tmp, dst);
-    free(tmp);
-    return ret;
+    if (hkey == NULL)
+        return NULL;
+    val = heim_dict_get_value(dict, hkey);
+    heim_release(hkey);
+    return val;
 }
 
 /* JWT signature verification */
@@ -744,59 +343,61 @@ jwt_claims_free(jwt_claims *claims)
 }
 
 static int
-parse_jwt_claims(const char *payload_json, jwt_claims *claims)
+parse_jwt_claims(const char *payload_json, size_t payload_len, jwt_claims *claims)
 {
-    json_value *root = NULL;
-    json_value *aud;
+    heim_object_t root = NULL;
+    heim_object_t aud;
     const char *s;
     size_t i;
 
     memset(claims, 0, sizeof(*claims));
 
-    root = json_parse(payload_json);
-    if (root == NULL || root->type != JSON_OBJECT)
+    root = heim_json_create_with_bytes(payload_json, payload_len, 10, 0, NULL);
+    if (root == NULL || heim_get_tid(root) != HEIM_TID_DICT)
         goto fail;
 
     /* Required claims */
-    if ((s = json_get_string(root, "sub")) != NULL)
+    if ((s = heim_dict_get_string((heim_dict_t)root, "sub")) != NULL)
         claims->sub = strdup(s);
-    if ((s = json_get_string(root, "iss")) != NULL)
+    if ((s = heim_dict_get_string((heim_dict_t)root, "iss")) != NULL)
         claims->iss = strdup(s);
 
-    claims->exp = json_get_number(root, "exp", 0);
-    claims->nbf = json_get_number(root, "nbf", 0);
-    claims->iat = json_get_number(root, "iat", 0);
+    claims->exp = heim_dict_get_int((heim_dict_t)root, "exp", 0);
+    claims->nbf = heim_dict_get_int((heim_dict_t)root, "nbf", 0);
+    claims->iat = heim_dict_get_int((heim_dict_t)root, "iat", 0);
 
     /* Audience can be string or array of strings */
-    aud = json_get(root, "aud");
+    aud = heim_dict_get_obj((heim_dict_t)root, "aud");
     if (aud) {
-        if (aud->type == JSON_STRING) {
+        if (heim_get_tid(aud) == HEIM_TID_STRING) {
             claims->aud = malloc(sizeof(char *));
             if (claims->aud) {
-                claims->aud[0] = strdup(aud->u.string);
+                claims->aud[0] = strdup(heim_string_get_utf8((heim_string_t)aud));
                 claims->aud_count = 1;
             }
-        } else if (aud->type == JSON_ARRAY) {
-            claims->aud = calloc(aud->u.array.count, sizeof(char *));
+        } else if (heim_get_tid(aud) == HEIM_TID_ARRAY) {
+            size_t count = heim_array_get_length((heim_array_t)aud);
+            claims->aud = calloc(count, sizeof(char *));
             if (claims->aud) {
-                for (i = 0; i < aud->u.array.count; i++) {
-                    if (aud->u.array.items[i]->type == JSON_STRING)
-                        claims->aud[i] = strdup(aud->u.array.items[i]->u.string);
+                for (i = 0; i < count; i++) {
+                    heim_object_t item = heim_array_get_value((heim_array_t)aud, i);
+                    if (item && heim_get_tid(item) == HEIM_TID_STRING)
+                        claims->aud[i] = strdup(heim_string_get_utf8((heim_string_t)item));
                 }
-                claims->aud_count = aud->u.array.count;
+                claims->aud_count = count;
             }
         }
     }
 
     /* Private claims */
-    if ((s = json_get_string(root, "authz_sub")) != NULL)
+    if ((s = heim_dict_get_string((heim_dict_t)root, "authz_sub")) != NULL)
         claims->authz_sub = strdup(s);
 
-    json_free(root);
+    heim_release(root);
     return 0;
 
 fail:
-    json_free(root);
+    heim_release(root);
     jwt_claims_free(claims);
     return -1;
 }
@@ -826,8 +427,8 @@ validate_jwt_token(krb5_context context,
     char *header_json = NULL, *payload_json = NULL;
     unsigned char *sig = NULL;
     char *dot1, *dot2;
-    ssize_t header_len, payload_len, sig_len;
-    json_value *header = NULL;
+    int header_len, payload_len, sig_len;
+    heim_object_t header = NULL;
     const char *alg_str;
     jwt_alg_t alg;
     EVP_PKEY *pkey = NULL;
@@ -872,14 +473,13 @@ validate_jwt_token(krb5_context context,
     *dot2 = '\0';
     sig_b64 = dot2 + 1;
 
-    /* Decode header */
+    /* Decode header using rk_base64url_decode */
     header_json = malloc(strlen(header_b64) + 1);
     if (header_json == NULL) {
         ret = krb5_enomem(context);
         goto out;
     }
-    header_len = base64url_decode(header_b64, strlen(header_b64),
-                                   (unsigned char *)header_json, strlen(header_b64));
+    header_len = rk_base64url_decode(header_b64, header_json);
     if (header_len < 0) {
         ret = EINVAL;
         krb5_set_error_message(context, ret, "Invalid JWT: header base64 decode failed");
@@ -887,16 +487,16 @@ validate_jwt_token(krb5_context context,
     }
     header_json[header_len] = '\0';
 
-    /* Parse header JSON */
-    header = json_parse(header_json);
-    if (header == NULL || header->type != JSON_OBJECT) {
+    /* Parse header JSON using heimbase */
+    header = heim_json_create_with_bytes(header_json, header_len, 10, 0, NULL);
+    if (header == NULL || heim_get_tid(header) != HEIM_TID_DICT) {
         ret = EINVAL;
         krb5_set_error_message(context, ret, "Invalid JWT: header is not valid JSON");
         goto out;
     }
 
     /* Check algorithm */
-    alg_str = json_get_string(header, "alg");
+    alg_str = heim_dict_get_string((heim_dict_t)header, "alg");
     alg = parse_alg(alg_str);
     if (alg == JWT_ALG_UNKNOWN) {
         ret = EINVAL;
@@ -910,13 +510,13 @@ validate_jwt_token(krb5_context context,
         goto out;
     }
 
-    /* Decode signature */
+    /* Decode signature using rk_base64url_decode */
     sig = malloc(strlen(sig_b64) + 1);
     if (sig == NULL) {
         ret = krb5_enomem(context);
         goto out;
     }
-    sig_len = base64url_decode(sig_b64, strlen(sig_b64), sig, strlen(sig_b64));
+    sig_len = rk_base64url_decode(sig_b64, sig);
     if (sig_len < 0) {
         ret = EINVAL;
         krb5_set_error_message(context, ret, "Invalid JWT: signature base64 decode failed");
@@ -970,14 +570,13 @@ validate_jwt_token(krb5_context context,
         goto out;
     }
 
-    /* Decode payload */
+    /* Decode payload using rk_base64url_decode */
     payload_json = malloc(strlen(payload_b64) + 1);
     if (payload_json == NULL) {
         ret = krb5_enomem(context);
         goto out;
     }
-    payload_len = base64url_decode(payload_b64, strlen(payload_b64),
-                                    (unsigned char *)payload_json, strlen(payload_b64));
+    payload_len = rk_base64url_decode(payload_b64, payload_json);
     if (payload_len < 0) {
         ret = EINVAL;
         krb5_set_error_message(context, ret, "Invalid JWT: payload base64 decode failed");
@@ -985,8 +584,8 @@ validate_jwt_token(krb5_context context,
     }
     payload_json[payload_len] = '\0';
 
-    /* Parse claims */
-    if (parse_jwt_claims(payload_json, &claims) != 0) {
+    /* Parse claims using heimbase JSON */
+    if (parse_jwt_claims(payload_json, payload_len, &claims) != 0) {
         ret = EINVAL;
         krb5_set_error_message(context, ret, "Invalid JWT: could not parse claims");
         goto out;
@@ -1057,7 +656,7 @@ validate_jwt_token(krb5_context context,
 
 out:
     jwt_claims_free(&claims);
-    json_free(header);
+    heim_release(header);
     free(tokstr);
     free(header_json);
     free(payload_json);
