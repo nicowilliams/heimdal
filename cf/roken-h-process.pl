@@ -41,10 +41,23 @@ while (<IN>) {
 	    push @nesting, 1;
 	}
 	next;
+    } elsif (m/\s*#if\s/) {
+	# For config.h parsing, treat #if as unknown (false) to be safe
+	push @nesting, 0;
+	next;
+    } elsif (m/\s*#elif\s/) {
+	# Treat #elif same as #else for nesting purposes
+	my $var = pop @nesting;
+	$var = !$var;
+	push @nesting, $var;
+	next;
     } elsif (m/\s*#else/) {
 	my $var = pop @nesting;
 	$var = !$var;
 	push @nesting, $var;
+	next;
+    } elsif (m/\s*#endif/) {
+	pop @nesting;
 	next;
     } elsif ($nesting[$#nesting] and m/\s*#define\s+(\w+)\s+(\S+)/) {
 	my $res = $2;
