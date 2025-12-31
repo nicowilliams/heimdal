@@ -717,7 +717,7 @@ ROKEN_LIB_FUNCTION const char * ROKEN_LIB_CALL hstrerror(int);
 #endif
 #endif
 
-#if !HAVE_DECL_H_ERRNO
+#if !HAVE_DECL_H_ERRNO && !defined(HAVE_WINSOCK)
 extern int h_errno;
 #endif
 
@@ -1078,7 +1078,7 @@ rk_getnameinfo(const struct sockaddr *, socklen_t,
 ROKEN_LIB_FUNCTION void ROKEN_LIB_CALL
 rk_freeaddrinfo(struct addrinfo *);
 
-#ifndef HAVE_GAI_STRERROR
+#if !defined(HAVE_GAI_STRERROR) && !defined(HAVE_WINSOCK)
 #define gai_strerror rk_gai_strerror
 ROKEN_LIB_FUNCTION const char * ROKEN_LIB_CALL
 gai_strerror(int);
