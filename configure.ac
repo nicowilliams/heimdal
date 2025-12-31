@@ -110,6 +110,8 @@ if test "${cross_compiling}" = yes ; then
       dnl (compiler defines _WIN32, but we need both in config.h)
       AC_DEFINE([_WIN32], 1, [Define when targeting Windows])
       AC_DEFINE([WIN32], 1, [Define when targeting Windows])
+      dnl Tell AC_BROKEN we have getifaddrs (we provide getifaddrs_w32.c)
+      AC_DEFINE([HAVE_GETIFADDRS], 1, [Define to 1 because we provide getifaddrs_w32.c])
       do_win32=yes
       ;;
    esac

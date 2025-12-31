@@ -173,8 +173,6 @@ libroken_la_SOURCES =		\
 	secure_getenv.c		\
 	secure_getenv.h		\
 	setprogname.c		\
-	signal.c		\
-	simple_exec.c		\
 	snprintf.c		\
 	socket.c		\
 	strcollect.c		\
@@ -201,6 +199,12 @@ EXTRA_libroken_la_SOURCES =	\
 libroken_la_LIBADD = @LTLIBOBJS@ $(LIB_crypt) $(LIB_pidfile)
 if SUNOS
 libroken_la_LIBADD += -lnsl -lsocket
+endif
+
+if WIN32
+libroken_la_SOURCES += dlfcn_w32.c getifaddrs_w32.c simple_exec_w32.c sockstartup_w32.c
+else
+libroken_la_SOURCES += signal.c simple_exec.c
 endif
 
 $(LTLIBOBJS) $(libroken_la_OBJECTS): roken.h $(XHEADERS)
@@ -280,6 +284,8 @@ EXTRA_DIST = \
 	ndbm_wrap.c \
 	ndbm_wrap.h \
 	rename.c \
+	signal.c \
+	simple_exec.c \
 	simple_exec_w32.c \
 	sleep.c \
 	sockstartup_w32.c \
