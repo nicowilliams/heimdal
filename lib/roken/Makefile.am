@@ -203,17 +203,19 @@ endif
 
 if WIN32
 libroken_la_SOURCES += dlfcn_w32.c getifaddrs_w32.c simple_exec_w32.c sockstartup_w32.c
+win32_headers = dirent.h dlfcn.h syslog.h
 else
 libroken_la_SOURCES += signal.c simple_exec.c
+win32_headers =
 endif
 
 $(LTLIBOBJS) $(libroken_la_OBJECTS): roken.h $(XHEADERS)
 
-BUILT_SOURCES = roken.h $(err_h) $(fnmatch_h) $(ifaddrs_h) $(search_h) $(vis_h)
+BUILT_SOURCES = roken.h $(err_h) $(fnmatch_h) $(ifaddrs_h) $(search_h) $(vis_h) $(win32_headers)
 
 ## these are controlled by configure
-XHEADERS = $(err_h) $(fnmatch_h) $(ifaddrs_h) $(search_h) $(vis_h)
-CLEANFILES += err.h fnmatch.h ifaddrs.h search.h vis.h
+XHEADERS = $(err_h) $(fnmatch_h) $(ifaddrs_h) $(search_h) $(vis_h) $(win32_headers)
+CLEANFILES += err.h fnmatch.h ifaddrs.h search.h vis.h dirent.h dlfcn.h syslog.h
 
 dist_include_HEADERS = 				\
 	base32.h				\
