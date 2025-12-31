@@ -355,7 +355,6 @@ AC_BROKEN([					\
 	getopt					\
 	gettimeofday				\
 	getuid					\
-	getusershell				\
 	initgroups				\
 	innetgr					\
 	localtime_r				\
@@ -512,7 +511,6 @@ AC_NEED_PROTO([#include <stdlib.h>], setenv)
 AC_NEED_PROTO([#include <stdlib.h>], unsetenv)
 AC_NEED_PROTO([#include <unistd.h>], gethostname)
 AC_NEED_PROTO([#include <unistd.h>], mkstemp)
-AC_NEED_PROTO([#include <unistd.h>], getusershell)
 
 AC_NEED_PROTO([
 #ifdef HAVE_SYS_TYPES_H

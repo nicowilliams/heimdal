@@ -552,15 +552,6 @@ ROKEN_LIB_FUNCTION int ROKEN_LIB_CALL setenv(const char *, const char *, int);
 ROKEN_LIB_FUNCTION void ROKEN_LIB_CALL unsetenv(const char *);
 #endif
 
-#if !defined(HAVE_GETUSERSHELL) || defined(NEED_GETUSERSHELL_PROTO)
-#ifndef HAVE_GETUSERSHELL
-#define getusershell rk_getusershell
-#define endusershell rk_endusershell
-#endif
-ROKEN_LIB_FUNCTION char * ROKEN_LIB_CALL getusershell(void);
-ROKEN_LIB_FUNCTION void ROKEN_LIB_CALL endusershell(void);
-#endif
-
 #if !defined(HAVE_SNPRINTF) || defined(NEED_SNPRINTF_PROTO)
 #ifndef HAVE_SNPRINTF
 #define snprintf rk_snprintf
