@@ -106,10 +106,16 @@ if test "${cross_compiling}" = yes ; then
       if test -z "$WINE" -a -z "$with_cross_tools"; then
          AC_MSG_WARN([No wine found; build tools will not run without --with-cross-tools])
       fi
+      dnl Define _WIN32 and WIN32 for roken-h-process.pl and source code
+      dnl (compiler defines _WIN32, but we need both in config.h)
+      AC_DEFINE([_WIN32], 1, [Define when targeting Windows])
+      AC_DEFINE([WIN32], 1, [Define when targeting Windows])
+      do_win32=yes
       ;;
    esac
 fi
 AC_SUBST([WINE])
+AM_CONDITIONAL([WIN32], [test "$do_win32" = yes])
 
 if test "${cross_compiling}" != yes ; then
 
