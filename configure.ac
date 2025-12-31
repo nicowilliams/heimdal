@@ -411,6 +411,7 @@ if test "$enable_afs_string_to_key" = "yes"; then
 fi
 AC_SUBST(ENABLE_AFS_STRING_TO_KEY)dnl
 
+KRB_READLINE
 
 rk_CHECK_MAN
 
@@ -434,7 +435,9 @@ rk_TEST_PACKAGE(libedit,
 #endif
 ],-ledit,,, READLINE,, [readline.h readline/readline.h editline/readline.h])
 
-AC_CONFIG_SUBDIRS([lib/libedit])
+if test "$build_libedit" != no; then
+    AC_CONFIG_SUBDIRS([lib/libedit])
+fi
 
 KRB_C_BIGENDIAN
 AC_C_INLINE
@@ -731,8 +734,6 @@ AC_CHECK_TYPES([int8_t, int16_t, int32_t, int64_t,
 
 rk_FRAMEWORK_SECURITY
 rk_FRAMEWORK_COREFOUNDATION
-
-KRB_READLINE
 
 rk_TELNET
 
