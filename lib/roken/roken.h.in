@@ -663,6 +663,16 @@ ROKEN_LIB_FUNCTION char * ROKEN_LIB_CALL strsep(char**, const char*);
 ROKEN_LIB_FUNCTION ssize_t ROKEN_LIB_CALL strsep_copy(const char**, const char*, char*, size_t);
 #endif
 
+#ifndef HAVE_GETDELIM
+#define getdelim rk_getdelim
+ROKEN_LIB_FUNCTION ssize_t ROKEN_LIB_CALL getdelim(char**, size_t*, int, FILE*);
+#endif
+
+#ifndef HAVE_GETLINE
+#define getline rk_getline
+ROKEN_LIB_FUNCTION ssize_t ROKEN_LIB_CALL getline(char**, size_t*, FILE*);
+#endif
+
 #ifndef HAVE_STRCASECMP
 #define strcasecmp rk_strcasecmp
 ROKEN_LIB_FUNCTION int ROKEN_LIB_CALL strcasecmp(const char *, const char *);

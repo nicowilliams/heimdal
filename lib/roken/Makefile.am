@@ -276,7 +276,9 @@ EXTRA_DIST = \
 	dirent-test.c \
 	dlfcn.hin \
 	dlfcn_w32.c \
+	getdelim.c \
 	getifaddrs_w32.c \
+	getline.c \
 	ndbm_wrap.c \
 	ndbm_wrap.h \
 	rename.c \

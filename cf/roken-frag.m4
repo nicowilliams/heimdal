@@ -338,11 +338,13 @@ AC_BROKEN([					\
 	fnmatch					\
 	freehostent				\
 	getcwd					\
+	getdelim				\
 	getdtablesize				\
 	getegid					\
 	geteuid					\
 	getgid					\
 	gethostname				\
+	getline					\
 	getifaddrs				\
 	getipnodebyaddr				\
 	getipnodebyname				\
