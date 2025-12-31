@@ -89,7 +89,7 @@ print OUT "\n";
 @nesting = (1);
 
 while (<IN>) {
-    if (m/\s*#ifdef\s+(.*)/) {
+    if (m/\s*#ifdef\s+(\w+)/) {
 	my $var = $1;
 	if (defined $defines{$var}) {
 	    push @nesting, 1;
@@ -97,7 +97,7 @@ while (<IN>) {
 	    push @nesting, 0;
 	}
 	next;
-    } elsif (m/\s*#ifndef\s+(.*)/) {
+    } elsif (m/\s*#ifndef\s+(\w+)/) {
 	my $var = $1;
 	if (defined $defines{$var}) {
 	    push @nesting, 0;
@@ -115,7 +115,7 @@ while (<IN>) {
 	if ($res gt 0) {
 	    $res = -1;
 	} else {
-	    my $res = parse_if($1);
+	    $res = parse_if($1);
 	}
 	push @nesting, $res;
 	next;
@@ -163,10 +163,10 @@ sub parse_if
 	return ((parse_if($1) and parse_if($2)) or (parse_if($3) and parse_if($4)));
     } elsif (m/^([^&]+)\&\&(.*)$/) {
 	print "$1 and $2\n" if ($debug);
-	return parse_if($1) and parse_if($2);
+	return (parse_if($1) && parse_if($2));
     } elsif (m/^([^\|]+)\|\|(.*)$/) {
 	print "$1 or $2\n" if ($debug);
-	return (parse_if($1) or parse_if($2));
+	return (parse_if($1) || parse_if($2));
     } elsif (m/^\s*(\!)?\s*defined\((\w+)\)/) {
 	($neg, $var) = ($1, $2);
 	print "def: ${neg}-defined(${var})\n" if ($debug);
