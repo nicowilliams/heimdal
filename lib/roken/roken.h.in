@@ -1350,10 +1350,27 @@ rk_random(void);
 #define twalk(a,b) rk_twalk(a,b)
 #endif
 
+#ifndef HAVE_GETUID
+ROKEN_LIB_FUNCTION uid_t ROKEN_LIB_CALL getuid(void);
+#endif
+#ifndef HAVE_GETGID
+ROKEN_LIB_FUNCTION gid_t ROKEN_LIB_CALL getgid(void);
+#endif
+#ifndef HAVE_GETEUID
+ROKEN_LIB_FUNCTION uid_t ROKEN_LIB_CALL geteuid(void);
+#endif
+#ifndef HAVE_GETEGID
+ROKEN_LIB_FUNCTION gid_t ROKEN_LIB_CALL getegid(void);
+#endif
+
 #if defined(__linux__) && defined(SOCK_CLOEXEC) && !defined(SOCKET_WRAPPER_REPLACE) && !defined(__SOCKET_WRAPPER_H__)
 #undef socket
 #define socket(_fam,_type,_prot) rk_socket(_fam,_type,_prot)
 int ROKEN_LIB_FUNCTION rk_socket(int, int, int);
+#endif
+
+#ifndef HAVE_RECVMSG
+ROKEN_LIB_FUNCTION ssize_t ROKEN_LIB_CALL recvmsg(int, struct msghdr *, int);
 #endif
 
 /* Microsoft VC 2010 POSIX definitions */

@@ -226,6 +226,11 @@
 
 #endif /* EAI_NONAME */
 
+/* EAI_SYSTEM may not be defined even when EAI_NONAME is (e.g., Windows) */
+#ifndef EAI_SYSTEM
+#define EAI_SYSTEM     11	/* system error returned in errno */
+#endif
+
 /* flags for getaddrinfo() */
 
 #ifndef AI_PASSIVE

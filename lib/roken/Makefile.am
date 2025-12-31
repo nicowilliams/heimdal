@@ -21,9 +21,17 @@ AM_CPPFLAGS += -I$(DBHEADER)
 endif
 
 bin_PROGRAMS = rkvis rkbase32 rkbase64
-noinst_PROGRAMS = snprintf-test resolve-test rkpty test-detach test-auxval rtbl timeval
+noinst_PROGRAMS = snprintf-test resolve-test test-detach test-auxval rtbl timeval
+
+if !WIN32
+noinst_PROGRAMS += rkpty test-auxval
+endif
 
 CHECK_LOCAL = snprintf-test resolve-test rkpty make-roken
+
+if !WIN32
+CHECK_LOCAL += rkpty
+endif
 
 check_PROGRAMS = 				\
 		base32-test			\
@@ -31,7 +39,6 @@ check_PROGRAMS = 				\
 		getaddrinfo-test		\
 		getifaddrs-test			\
 		hex-test			\
-		test-auxval			\
 		test-getuserinfo		\
 		test-readenv			\
 		resolve-test			\
@@ -42,6 +49,10 @@ check_PROGRAMS = 				\
 		strpftime-test			\
 		timeval				\
 		tsearch-test
+
+if !WIN32
+check_PROGRAMS += test-auxval
+endif
 
 TESTS = $(check_PROGRAMS)
 
@@ -108,7 +119,9 @@ rtbl_CPPFLAGS = -DTEST
 
 test_detach_SOURCES = test-detach.c
 
+if !WIN32
 rkpty_LDADD = $(LIB_openpty) $(LDADD)
+endif
 
 parse_time_test_SOURCES = parse_time-test.c test-mem.c
 

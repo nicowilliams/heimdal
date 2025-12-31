@@ -111,7 +111,23 @@ if test "${cross_compiling}" = yes ; then
       AC_DEFINE([_WIN32], 1, [Define when targeting Windows])
       AC_DEFINE([WIN32], 1, [Define when targeting Windows])
       dnl Tell AC_BROKEN we have getifaddrs (we provide getifaddrs_w32.c)
+      dnl Set both the cache variable (so AC_BROKEN skips it) and AC_DEFINE
+      ac_cv_func_getifaddrs=yes
       AC_DEFINE([HAVE_GETIFADDRS], 1, [Define to 1 because we provide getifaddrs_w32.c])
+      dnl Windows provides these in ws2tcpip.h but configure can't find them
+      dnl due to missing -lws2_32 at check time. Set cache vars for AC_BROKEN.
+      ac_cv_func_freeaddrinfo=yes
+      ac_cv_func_gai_strerror=yes
+      ac_cv_func_getaddrinfo=yes
+      ac_cv_func_getnameinfo=yes
+      ac_cv_func_hstrerror=yes
+      AC_DEFINE([HAVE_FREEADDRINFO], 1, [Define to 1 because Windows provides freeaddrinfo])
+      AC_DEFINE([HAVE_GAI_STRERROR], 1, [Define to 1 because Windows provides gai_strerror])
+      AC_DEFINE([HAVE_GETADDRINFO], 1, [Define to 1 because Windows provides getaddrinfo])
+      AC_DEFINE([HAVE_GETNAMEINFO], 1, [Define to 1 because Windows provides getnameinfo])
+      AC_DEFINE([HAVE_HSTRERROR], 1, [Define to 1 because Windows provides hstrerror])
+      dnl Windows socket libraries
+      LIBS="$LIBS -lws2_32 -liphlpapi"
       do_win32=yes
       ;;
    esac
