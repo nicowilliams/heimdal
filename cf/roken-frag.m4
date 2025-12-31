@@ -98,6 +98,11 @@ AC_CHECK_HEADERS([\
 	util.h					\
 ])
 
+dnl Define HAVE_WINSOCK when winsock2.h is available (for roken.h.in)
+if test "$ac_cv_header_winsock2_h" = yes; then
+    AC_DEFINE([HAVE_WINSOCK], 1, [Define if you have winsock])
+fi
+
 AC_HAVE_TYPE([auxv_t],[#ifdef HAVE_AUXV_H
 #include <auxv.h>
 #endif
