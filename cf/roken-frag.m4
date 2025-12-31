@@ -325,7 +325,6 @@ case "$host_os" in
 	darwin*)
 		;;
 	*)
-		AC_BROKEN([daemon]) ;;
 esac
 
 AC_BROKEN([					\
@@ -514,7 +513,6 @@ AC_NEED_PROTO([#include <stdlib.h>], unsetenv)
 AC_NEED_PROTO([#include <unistd.h>], gethostname)
 AC_NEED_PROTO([#include <unistd.h>], mkstemp)
 AC_NEED_PROTO([#include <unistd.h>], getusershell)
-AC_NEED_PROTO([#include <unistd.h>], daemon)
 
 AC_NEED_PROTO([
 #ifdef HAVE_SYS_TYPES_H
