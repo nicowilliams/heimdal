@@ -255,12 +255,14 @@ int main(int argc, char **argv)
     fprintf(f, "#include <unistd.h>\n");
 #endif
     fprintf(f, "typedef ssize_t krb5_ssize_t;\n");
+#elif defined(_WIN64) || defined(TARGET_WIN64)
+    fprintf(f, "typedef int64_t krb5_ssize_t;\n");
 #else
     fprintf(f, "typedef int krb5_ssize_t;\n");
 #endif
     fprintf(f, "\n");
 
-#if defined(_WIN32)
+#if defined(_WIN32) || defined(TARGET_WINDOWS)
     fprintf(f, "typedef SOCKET krb5_socket_t;\n");
 #else
     fprintf(f, "typedef int krb5_socket_t;\n");
