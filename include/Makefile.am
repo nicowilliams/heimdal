@@ -15,17 +15,8 @@ noinst_HEADERS = heimqueue.h heim_threads.h crypto-headers.h
 
 EXTRA_DIST = NTMakefile krb5-types.cross config.h.w32
 
-if !CROSS_COMPILE
-
 krb5-types.h: bits$(EXEEXT)
-	./bits$(EXEEXT) krb5-types.h
-
-else
-
-krb5-types.h: krb5-types.cross
-	cp $(srcdir)/krb5-types.cross krb5-types.h
-
-endif
+	$(WINE) ./bits$(EXEEXT) krb5-types.h
 
 CLEANFILES =			\
 	an2ln_plugin.h		\

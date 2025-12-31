@@ -97,22 +97,42 @@ AC_ARG_WITH(cross-tools,
 	with_cross_tools="${with_cross_tools}/"
 	])
 
+dnl Check for WINE when cross-compiling for Windows
+WINE=""
+if test "${cross_compiling}" = yes ; then
+   case "$host" in
+   *-mingw*|*-windows*)
+      AC_CHECK_PROGS([WINE], [wine64 wine], [])
+      if test -z "$WINE" -a -z "$with_cross_tools"; then
+         AC_MSG_WARN([No wine found; build tools will not run without --with-cross-tools])
+      fi
+      ;;
+   esac
+fi
+AC_SUBST([WINE])
+
 if test "${cross_compiling}" != yes ; then
 
    ASN1_COMPILE="\$(top_builddir)/lib/asn1/asn1_compile\$(EXEEXT)"
-   SLC="\$(top_builddir)/lib/sl/slc"
+   SLC="\$(top_builddir)/lib/sl/slc\$(EXEEXT)"
 
    ASN1_COMPILE_DEP="\$(ASN1_COMPILE)"
    SLC_DEP="\$(SLC)"
 else
-   ASN1_COMPILE="${with_cross_tools}asn1_compile"
-   SLC="${with_cross_tools}slc"
-
-   ASN1_COMPILE_DEP=
-   SLC_DEP=
-
-   ac_cv_prog_COMPILE_ET=${with_cross_tools}compile_et
-
+   if test -n "$with_cross_tools"; then
+      dnl Use pre-built native tools
+      ASN1_COMPILE="${with_cross_tools}asn1_compile"
+      SLC="${with_cross_tools}slc"
+      ASN1_COMPILE_DEP=
+      SLC_DEP=
+      ac_cv_prog_COMPILE_ET=${with_cross_tools}compile_et
+   else
+      dnl Build tools for target and run with WINE
+      ASN1_COMPILE="\$(WINE) \$(top_builddir)/lib/asn1/asn1_compile\$(EXEEXT)"
+      SLC="\$(WINE) \$(top_builddir)/lib/sl/slc\$(EXEEXT)"
+      ASN1_COMPILE_DEP="\$(top_builddir)/lib/asn1/asn1_compile\$(EXEEXT)"
+      SLC_DEP="\$(top_builddir)/lib/sl/slc\$(EXEEXT)"
+   fi
 fi
 
 AX_CHECK_COMPILE_FLAG([-Wno-error=enum-conversion],
