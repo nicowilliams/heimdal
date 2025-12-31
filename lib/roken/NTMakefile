@@ -60,6 +60,8 @@ libroken_la_OBJS =			\
 	$(OBJ)\fseeko.obj		\
 	$(OBJ)\ftello.obj		\
 	$(OBJ)\getauxval.obj		\
+	$(OBJ)\getdelim.obj		\
+	$(OBJ)\getline.obj		\
 	$(OBJ)\getaddrinfo_hostspec.obj	\
 	$(OBJ)\get_window_size.obj	\
 	$(OBJ)\getarg.obj		\
