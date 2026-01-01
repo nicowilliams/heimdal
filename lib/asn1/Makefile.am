@@ -7,6 +7,9 @@ WFLAGS += $(WFLAGS_ENUM_CONV)
 AM_YFLAGS = -d -o asn1parse.c -t
 
 AM_CPPFLAGS += $(ROKEN_RENAME) -I$(top_builddir)/include -I$(top_srcdir)/lib/base
+if WIN32
+AM_CPPFLAGS += -DASN1_LIB
+endif
 
 man_MANS = asn1_print.1 asn1_compile.1
 
@@ -105,13 +108,14 @@ AM_TESTS_ENVIRONMENT = HEIM_TOP_SRCDIR='$(top_srcdir)'; export HEIM_TOP_SRCDIR; 
 asn1_gen_SOURCES = asn1_gen.c
 asn1_print_SOURCES = asn1_print.c
 asn1_print_SOURCES += $(gen_files_x690sample_template)
-asn1_print_CPPFLAGS = -DASN1_PRINT_SUPPORTED
+asn1_print_CPPFLAGS = -DASN1_PRINT_SUPPORTED -DASN1_LIB
+
 check_der_SOURCES = check-der.c check-common.c check-common.h
 
 check_template_SOURCES = check-template.c check-common.c check-common.h
 nodist_check_template_SOURCES = $(gen_files_test_template)
 
-check_gen_template_CPPFLAGS = -DASN1_IOS_SUPPORTED
+check_gen_template_CPPFLAGS = -DASN1_IOS_SUPPORTED -DASN1_LIB
 dist_check_gen_template_SOURCES = check-gen.c check-common.c check-common.h
 nodist_check_gen_template_SOURCES =	$(gen_files_test_template) \
 					$(gen_files_x690sample_template)
