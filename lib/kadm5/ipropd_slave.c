@@ -1197,7 +1197,7 @@ main(int argc, char **argv)
     }
 
     if (0);
-#ifndef NO_SIGXCPU
+#if defined(SIGXCPU) && !defined(NO_SIGXCPU)
     else if(exit_flag == SIGXCPU)
 	krb5_warnx(context, "%s CPU time limit exceeded", getprogname());
 #endif

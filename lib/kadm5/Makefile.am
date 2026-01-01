@@ -37,10 +37,8 @@ libkadm5srv_la_LIBADD = \
 libkadm5clnt_la_LIBADD = \
 	$(LIB_com_err) ../krb5/libkrb5.la $(LIBADD_roken)
 
-# ipropd daemons use Unix domain sockets - not available on Windows
-if !WIN32
+# ipropd daemons - now supported on Windows via named pipes
 libexec_PROGRAMS = ipropd-master ipropd-slave
-endif
 
 default_keys_SOURCES = default_keys.c
 default_keys_CPPFLAGS = -I$(srcdir)/../krb5
