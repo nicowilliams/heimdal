@@ -48,7 +48,9 @@
 
 #include "hdb_locl.h"
 #include <sys/types.h>
+#ifdef HAVE_FORK
 #include <sys/wait.h>
+#endif
 #include <pthread.h>
 #include <getarg.h>
 
@@ -149,6 +151,7 @@ threaded_reader(void *d)
     return 0;
 }
 
+#ifdef HAVE_FORK
 static void
 forked_reader(struct tsync *s)
 {
@@ -246,6 +249,7 @@ forked_reader(struct tsync *s)
     printf("Reader process exiting\n");
     _exit(0);
 }
+#endif
 
 static krb5_error_code
 make_entry(krb5_context context, hdb_entry *entry, const char *name)
@@ -287,6 +291,7 @@ readers_turn(struct tsync *s, pid_t child, int threaded)
         s->writer_go = 0;
         (void) pthread_mutex_unlock(&s->lock);
     } else {
+#ifdef HAVE_FORK
         ssize_t bytes;
         char b[1];
 
@@ -314,6 +319,7 @@ readers_turn(struct tsync *s, pid_t child, int threaded)
             errx(1, "Child errored");
         }
         s->writer_go = 0;
+#endif
     }
 }
 
@@ -329,7 +335,9 @@ test_hdb_concurrency(char *name, const char *ext, int threaded)
     hdb_entry entw;
     pid_t child = getpid();
     HDB *dbw = NULL;
+#ifdef HAVE_FORK
     int status;
+#endif
     int fd;
 
     memset(&ts, 0, sizeof(ts));
@@ -364,6 +372,7 @@ test_hdb_concurrency(char *name, const char *ext, int threaded)
             (void) pthread_cond_wait(&ts.wcv, &ts.lock);
         (void) pthread_mutex_unlock(&ts.lock);
     } else {
+#ifdef HAVE_FORK
         printf("Starting reader process\n");
         if (pipe(ts.writer_go_pipe) == -1)
             err(1, "Could not create a pipe");
@@ -376,6 +385,7 @@ test_hdb_concurrency(char *name, const char *ext, int threaded)
         }
         (void) close(ts.writer_go_pipe[1]);
         ts.writer_go_pipe[1] = -1;
+#endif
     }
 
     printf("Writing two entries into HDB\n");
@@ -423,6 +433,7 @@ test_hdb_concurrency(char *name, const char *ext, int threaded)
     if (threaded) {
         (void) pthread_join(reader_thread, NULL);
     } else {
+#ifdef HAVE_FORK
         (void) close(ts.writer_go_pipe[1]);
         (void) close(ts.reader_go_pipe[0]);
         (void) close(ts.reader_go_pipe[1]);
@@ -433,6 +444,7 @@ test_hdb_concurrency(char *name, const char *ext, int threaded)
             errx(1, "Child reader died");
         if (WEXITSTATUS(status) != 0)
             errx(1, "Child reader errored");
+#endif
     }
     (void) unlink(fname_ext);
     krb5_free_context(context);
@@ -474,8 +486,15 @@ main(int argc, char **argv)
 	return 0;
     }
 
+#ifndef HAVE_FORK
+    if (use_fork)
+        errx(1, "forked mode not supported on Windows");
+    if (!use_fork && !use_threads)
+        use_threads = 1;
+#else
     if (!use_fork && !use_threads)
         use_threads = use_fork = 1;
+#endif
 
 #ifdef HAVE_FORK
     if (use_fork) {

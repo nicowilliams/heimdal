@@ -9,7 +9,11 @@ AM_CPPFLAGS += $(INCLUDE_openldap) -DHDB_DB_DIR=\"$(DIR_hdbdir)\"
 AM_CPPFLAGS += -I$(srcdir)/../krb5
 AM_CPPFLAGS += $(INCLUDE_sqlite3)
 AM_CPPFLAGS += $(INCLUDE_libintl)
+AM_CPPFLAGS += $(INCLUDE_openssl_crypto)
 AM_CPPFLAGS += -DHDB_DEFAULT_DB_TYPE=\"$(db_type):\"
+if WIN32
+AM_CPPFLAGS += -DASN1_LIB
+endif
 if HAVE_DBHEADER
 AM_CPPFLAGS += -I$(DBHEADER)
 endif
@@ -142,6 +146,9 @@ ALL_OBJECTS += $(test_concurrency_OBJECTS)
 $(ALL_OBJECTS): $(HDB_PROTOS) hdb_asn1.h hdb_asn1-priv.h hdb_err.h
 
 test_namespace_LDADD = $(LDADD) $(test_hdbkeys_LIBS) $(LIB_heimbase)
+
+# test_concurrency uses pthreads for threaded mode
+test_concurrency_LDADD = $(LDADD) -lpthread
 
 $(srcdir)/hdb-protos.h: $(dist_libhdb_la_SOURCES)
 	cd $(srcdir); perl ../../cf/make-proto.pl -q -P comment -o hdb-protos.h $(dist_libhdb_la_SOURCES) || rm -f hdb-protos.h
