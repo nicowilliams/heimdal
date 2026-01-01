@@ -51,13 +51,13 @@
 #ifdef HAVE_FORK
 #include <sys/wait.h>
 #endif
-#include <pthread.h>
+#include <heim_threads.h>
 #include <getarg.h>
 
 struct tsync {
-    pthread_mutex_t lock;
-    pthread_cond_t rcv;
-    pthread_cond_t wcv;
+    HEIMDAL_COND_MUTEX lock;
+    HEIMDAL_COND rcv;
+    HEIMDAL_COND wcv;
     const char *hdb_name;
     const char *fname;
     volatile int writer_go;
@@ -81,13 +81,13 @@ threaded_reader(void *d)
 	errx(1, "krb5_init_context failed");
 
     printf("Reader thread waiting for writer to create the HDB\n");
-    (void) pthread_mutex_lock(&s->lock);
+    (void) HEIMDAL_COND_MUTEX_lock(&s->lock);
     s->writer_go = 1;
-    (void) pthread_cond_signal(&s->wcv);
+    (void) HEIMDAL_COND_signal(&s->wcv);
     while (!s->reader_go)
-        (void) pthread_cond_wait(&s->rcv, &s->lock);
+        (void) HEIMDAL_COND_wait(&s->rcv, &s->lock);
     s->reader_go = 0;
-    (void) pthread_mutex_unlock(&s->lock);
+    (void) HEIMDAL_COND_MUTEX_unlock(&s->lock);
 
     /* Open a new HDB handle to read */
     if ((ret = hdb_create(context, &dbr, s->hdb_name))) {
@@ -108,15 +108,15 @@ threaded_reader(void *d)
     /* Tell the writer to go ahead and write */
     printf("Reader thread iterated one entry; telling writer to write more\n");
     s->writer_go = 1;
-    (void) pthread_mutex_lock(&s->lock);
-    (void) pthread_cond_signal(&s->wcv);
+    (void) HEIMDAL_COND_MUTEX_lock(&s->lock);
+    (void) HEIMDAL_COND_signal(&s->wcv);
 
     /* Wait for the writer to have written one more entry to the HDB */
     printf("Reader thread waiting for writer\n");
     while (!s->reader_go)
-        (void) pthread_cond_wait(&s->rcv, &s->lock);
+        (void) HEIMDAL_COND_wait(&s->rcv, &s->lock);
     s->reader_go = 0;
-    (void) pthread_mutex_unlock(&s->lock);
+    (void) HEIMDAL_COND_MUTEX_unlock(&s->lock);
 
     /* Iterate the rest */
     printf("Reader thread iterating another entry\n");
@@ -141,8 +141,8 @@ threaded_reader(void *d)
     /* Tell the writer we're done */
     printf("Reader thread telling writer to go\n");
     s->writer_go = 1;
-    (void) pthread_cond_signal(&s->wcv);
-    (void) pthread_mutex_unlock(&s->lock);
+    (void) HEIMDAL_COND_signal(&s->wcv);
+    (void) HEIMDAL_COND_MUTEX_unlock(&s->lock);
 
     dbr->hdb_close(context, dbr);
     dbr->hdb_destroy(context, dbr);
@@ -282,14 +282,14 @@ static void
 readers_turn(struct tsync *s, pid_t child, int threaded)
 {
     if (threaded) {
-        (void) pthread_mutex_lock(&s->lock);
+        (void) HEIMDAL_COND_MUTEX_lock(&s->lock);
         s->reader_go = 1;
-        (void) pthread_cond_signal(&s->rcv);
+        (void) HEIMDAL_COND_signal(&s->rcv);
 
         while (!s->writer_go)
-            (void) pthread_cond_wait(&s->wcv, &s->lock);
+            (void) HEIMDAL_COND_wait(&s->wcv, &s->lock);
         s->writer_go = 0;
-        (void) pthread_mutex_unlock(&s->lock);
+        (void) HEIMDAL_COND_MUTEX_unlock(&s->lock);
     } else {
 #ifdef HAVE_FORK
         ssize_t bytes;
@@ -330,7 +330,7 @@ test_hdb_concurrency(char *name, const char *ext, int threaded)
     krb5_context context;
     char *fname = strchr(name, ':') + 1;
     char *fname_ext = NULL;
-    pthread_t reader_thread;
+    HEIMDAL_THREAD_ID reader_thread;
     struct tsync ts;
     hdb_entry entw;
     pid_t child = getpid();
@@ -341,9 +341,9 @@ test_hdb_concurrency(char *name, const char *ext, int threaded)
     int fd;
 
     memset(&ts, 0, sizeof(ts));
-    (void) pthread_cond_init(&ts.rcv, NULL);
-    (void) pthread_cond_init(&ts.wcv, NULL);
-    (void) pthread_mutex_init(&ts.lock, NULL);
+    (void) HEIMDAL_COND_init(&ts.rcv);
+    (void) HEIMDAL_COND_init(&ts.wcv);
+    (void) HEIMDAL_COND_MUTEX_init(&ts.lock);
 
     if ((krb5_init_context(&context)))
 	errx(1, "krb5_init_context failed");
@@ -361,16 +361,16 @@ test_hdb_concurrency(char *name, const char *ext, int threaded)
 
     if (threaded) {
         printf("Starting reader thread\n");
-        (void) pthread_mutex_lock(&ts.lock);
-        if ((errno = pthread_create(&reader_thread, NULL, threaded_reader, &ts))) {
+        (void) HEIMDAL_COND_MUTEX_lock(&ts.lock);
+        if ((errno = HEIMDAL_THREAD_create(&reader_thread, threaded_reader, &ts))) {
             (void) unlink(fname_ext);
             krb5_err(context, 1, errno, "Could not create a thread to read HDB");
         }
 
         /* Wait for reader */
         while (!ts.writer_go)
-            (void) pthread_cond_wait(&ts.wcv, &ts.lock);
-        (void) pthread_mutex_unlock(&ts.lock);
+            (void) HEIMDAL_COND_wait(&ts.wcv, &ts.lock);
+        (void) HEIMDAL_COND_MUTEX_unlock(&ts.lock);
     } else {
 #ifdef HAVE_FORK
         printf("Starting reader process\n");
@@ -431,7 +431,7 @@ test_hdb_concurrency(char *name, const char *ext, int threaded)
     dbw->hdb_close(context, dbw);
     dbw->hdb_destroy(context, dbw);
     if (threaded) {
-        (void) pthread_join(reader_thread, NULL);
+        (void) HEIMDAL_THREAD_join(reader_thread, NULL);
     } else {
 #ifdef HAVE_FORK
         (void) close(ts.writer_go_pipe[1]);

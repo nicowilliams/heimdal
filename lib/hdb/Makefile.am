@@ -147,8 +147,14 @@ $(ALL_OBJECTS): $(HDB_PROTOS) hdb_asn1.h hdb_asn1-priv.h hdb_err.h
 
 test_namespace_LDADD = $(LDADD) $(test_hdbkeys_LIBS) $(LIB_heimbase)
 
-# test_concurrency uses pthreads for threaded mode
+# test_concurrency uses pthreads (via heim_threads.h) for threaded mode
+if WIN32
+# On Windows, heim_threads.h uses native Windows threads
+test_concurrency_LDADD = $(LDADD)
+else
+# On Unix, heim_threads.h uses pthreads
 test_concurrency_LDADD = $(LDADD) -lpthread
+endif
 
 $(srcdir)/hdb-protos.h: $(dist_libhdb_la_SOURCES)
 	cd $(srcdir); perl ../../cf/make-proto.pl -q -P comment -o hdb-protos.h $(dist_libhdb_la_SOURCES) || rm -f hdb-protos.h
