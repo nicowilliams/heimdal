@@ -126,8 +126,8 @@ if test "${cross_compiling}" = yes ; then
       AC_DEFINE([HAVE_GETADDRINFO], 1, [Define to 1 because Windows provides getaddrinfo])
       AC_DEFINE([HAVE_GETNAMEINFO], 1, [Define to 1 because Windows provides getnameinfo])
       AC_DEFINE([HAVE_HSTRERROR], 1, [Define to 1 because Windows provides hstrerror])
-      dnl Windows socket libraries
-      LIBS="$LIBS -lws2_32 -liphlpapi"
+      dnl Windows libraries
+      LIBS="$LIBS -lws2_32 -liphlpapi -lshlwapi -lsecur32"
       dnl Require Vista or later for SRWLock and other APIs
       CPPFLAGS="$CPPFLAGS -D_WIN32_WINNT=0x0600"
       CFLAGS="$CFLAGS -Wno-format"
@@ -136,6 +136,14 @@ if test "${cross_compiling}" = yes ; then
       AC_DEFINE([__USE_MINGW_ANSI_STDIO], 1, [Use MinGW ANSI stdio for %zu support])
       dnl gethostname is declared in winsock2.h, not unistd.h
       ac_cv_func_gethostname_noproto=no
+      dnl MinGW has conio.h for console I/O (password prompts, etc)
+      AC_DEFINE([HAVE_CONIO_H], 1, [Define to 1 because MinGW has conio.h])
+      dnl Define __MINGW32__ in config.h for roken-h-process.pl to include MinGW blocks
+      AC_DEFINE([__MINGW32__], 1, [Defined when cross-compiling for MinGW])
+      dnl We provide our own syslog.h for Windows
+      AC_DEFINE([HAVE_SYSLOG_H], 1, [Define to 1 because we provide syslog.h for Windows])
+      dnl Disable readline for MinGW (we don't have it, use built-in fallback)
+      ac_cv_lib_readline_readline=no
       do_win32=yes
       ;;
    esac
