@@ -128,6 +128,15 @@ if test "${cross_compiling}" = yes ; then
       AC_DEFINE([HAVE_HSTRERROR], 1, [Define to 1 because Windows provides hstrerror])
       dnl Windows socket libraries
       LIBS="$LIBS -lws2_32 -liphlpapi"
+      dnl Require Vista or later for SRWLock and other APIs
+      dnl Use MinGW's C99-compliant printf for %zu support
+      CPPFLAGS="$CPPFLAGS -D_WIN32_WINNT=0x0600"
+      CFLAGS="$CFLAGS -Wno-format"
+      dnl For now until we revamp how we set attributes on printf-like functions
+      dnl so we can use __gnu_printf__ when building with MinGW
+      AC_DEFINE([__USE_MINGW_ANSI_STDIO], 1, [Use MinGW ANSI stdio for %zu support])
+      dnl gethostname is declared in winsock2.h, not unistd.h
+      ac_cv_func_gethostname_noproto=no
       do_win32=yes
       ;;
    esac
@@ -156,6 +165,8 @@ else
       SLC="\$(WINE) \$(top_builddir)/lib/sl/slc\$(EXEEXT)"
       ASN1_COMPILE_DEP="\$(top_builddir)/lib/asn1/asn1_compile\$(EXEEXT)"
       SLC_DEP="\$(top_builddir)/lib/sl/slc\$(EXEEXT)"
+      dnl Tell CHECK_COMPILE_ET to use our own compile_et with WINE
+      ac_cv_prog_COMPILE_ET=no
    fi
 fi
 
