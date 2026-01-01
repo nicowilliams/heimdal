@@ -2,11 +2,19 @@
 
 include $(top_srcdir)/Makefile.am.common
 
-AM_CPPFLAGS += $(INCLUDE_libintl) $(INCLUDE_readline) -I$(srcdir)/../lib/krb5 -I$(top_builddir)/include/gssapi
+AM_CPPFLAGS += $(INCLUDE_libintl) $(INCLUDE_readline) $(INCLUDE_openssl_crypto) -I$(srcdir)/../lib/krb5 -I$(top_builddir)/include/gssapi
+if WIN32
+AM_CPPFLAGS += -DASN1_LIB -DNO_UNIX_SOCKETS -DNO_POSIX_LINKS
+endif
 
 bin_PROGRAMS = kadmin
 
+# kadmind uses fork/waitpid/signals not available on Windows
+if !WIN32
 libexec_PROGRAMS = kadmind
+else
+libexec_PROGRAMS =
+endif
 
 man_MANS = kadmin.1 kadmind.8
 

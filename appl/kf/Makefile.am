@@ -4,7 +4,12 @@ include $(top_srcdir)/Makefile.am.common
 
 bin_PROGRAMS = kf
 
+# kfd uses getpwnam/setuid/setgid which don't exist on Windows
+if !WIN32
 libexec_PROGRAMS = kfd
+else
+libexec_PROGRAMS =
+endif
 
 man_MANS = kf.1 kfd.8
 

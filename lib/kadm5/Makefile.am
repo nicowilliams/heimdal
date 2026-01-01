@@ -2,8 +2,13 @@
 
 include $(top_srcdir)/Makefile.am.common
 
-libkadm5srv_la_CPPFLAGS = -I$(srcdir)/../krb5
-libkadm5clnt_la_CPPFLAGS = -I$(srcdir)/../krb5
+AM_CPPFLAGS += $(INCLUDE_openssl_crypto)
+if WIN32
+AM_CPPFLAGS += -DASN1_LIB -DNO_UNIX_SOCKETS
+endif
+
+libkadm5srv_la_CPPFLAGS = -I$(srcdir)/../krb5 $(AM_CPPFLAGS)
+libkadm5clnt_la_CPPFLAGS = -I$(srcdir)/../krb5 $(AM_CPPFLAGS)
 
 lib_LTLIBRARIES = libkadm5srv.la libkadm5clnt.la
 libkadm5srv_la_LDFLAGS = -version-info 8:1:0
@@ -32,7 +37,10 @@ libkadm5srv_la_LIBADD = \
 libkadm5clnt_la_LIBADD = \
 	$(LIB_com_err) ../krb5/libkrb5.la $(LIBADD_roken)
 
+# ipropd daemons use Unix domain sockets - not available on Windows
+if !WIN32
 libexec_PROGRAMS = ipropd-master ipropd-slave
+endif
 
 default_keys_SOURCES = default_keys.c
 default_keys_CPPFLAGS = -I$(srcdir)/../krb5
@@ -135,10 +143,10 @@ dist_iprop_log_SOURCES = iprop-log.c
 nodist_iprop_log_SOURCES = iprop-commands.c
 
 ipropd_master_SOURCES = ipropd_master.c ipropd_common.c iprop.h kadm5_locl.h
-ipropd_master_CPPFLAGS = -I$(srcdir)/../krb5
+ipropd_master_CPPFLAGS = -I$(srcdir)/../krb5 $(AM_CPPFLAGS)
 
 ipropd_slave_SOURCES = ipropd_slave.c ipropd_common.c iprop.h kadm5_locl.h
-ipropd_slave_CPPFLAGS = -I$(srcdir)/../krb5
+ipropd_slave_CPPFLAGS = -I$(srcdir)/../krb5 $(AM_CPPFLAGS)
 
 man_MANS = kadm5_pwcheck.3 iprop.8 iprop-log.8
 
@@ -165,7 +173,7 @@ iprop_log_LDADD = \
 	$(LIB_dlopen) \
 	$(LIB_pidfile)
 
-iprop_log_CPPFLAGS = -I$(srcdir)/../krb5
+iprop_log_CPPFLAGS = -I$(srcdir)/../krb5 $(AM_CPPFLAGS)
 
 iprop-commands.c iprop-commands.h: iprop-commands.in
 	$(SLC) $(srcdir)/iprop-commands.in

@@ -9,7 +9,12 @@ endif
 AM_CPPFLAGS += -I$(srcdir)/../lib/krb5 \
 	-I$(srcdir)/../lib/gssapi \
 	$(INCLUDE_libintl) \
+	$(INCLUDE_openssl_crypto) \
 	-DHEIMDAL_LOCALEDIR='"$(localedir)"'
+
+if WIN32
+AM_CPPFLAGS += -DASN1_LIB
+endif
 
 man_MANS = \
 	kinit.1 \
@@ -26,11 +31,13 @@ libexec_PROGRAMS = kimpersonate
 noinst_PROGRAMS = kverify kdecode_ticket generate-requests
 
 # sync with kinit_auditdns_LDADD in appl/test/Makefile.am
+# Note: libgss_preauth depends on libgssapi, so gssapi must come after gss_preauth
+# for static linking to work correctly
 kinit_LDADD = \
 	$(afs_lib) \
 	$(top_builddir)/lib/krb5/libkrb5.la \
-	$(top_builddir)/lib/gssapi/libgssapi.la \
 	$(top_builddir)/lib/gss_preauth/libgss_preauth.la \
+	$(top_builddir)/lib/gssapi/libgssapi.la \
 	$(top_builddir)/lib/asn1/libasn1.la \
 	$(LIB_libintl) \
 	$(LIB_roken)

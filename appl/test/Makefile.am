@@ -6,9 +6,16 @@ WFLAGS += $(WFLAGS_LITE)
 
 AUTOMAKE_OPTIONS = subdir-objects
 
-noinst_PROGRAMS = tcp_client tcp_server gssapi_server gssapi_client \
-	uu_server uu_client nt_gss_server nt_gss_client http_client \
-	kinit_auditdns
+AM_CPPFLAGS += $(INCLUDE_openssl_crypto)
+if WIN32
+AM_CPPFLAGS += -DASN1_LIB
+endif
+
+# gssapi_server/client and kinit_auditdns use fork/pipe or Unix-specific headers
+noinst_PROGRAMS = tcp_client tcp_server uu_server uu_client nt_gss_server nt_gss_client http_client
+if !WIN32
+noinst_PROGRAMS += gssapi_server gssapi_client kinit_auditdns
+endif
 
 tcp_client_SOURCES = tcp_client.c common.c test_locl.h
 

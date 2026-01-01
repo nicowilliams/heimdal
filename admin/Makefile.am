@@ -2,13 +2,16 @@
 
 include $(top_srcdir)/Makefile.am.common
 
-AM_CPPFLAGS += $(INCLUDE_readline) -I$(srcdir)/../lib/krb5
+AM_CPPFLAGS += $(INCLUDE_readline) $(INCLUDE_openssl_crypto) -I$(srcdir)/../lib/krb5
+if WIN32
+AM_CPPFLAGS += -DASN1_LIB
+endif
 
 man_MANS = ktutil.1
 
 bin_PROGRAMS = ktutil
 
-ktutil_CPPFLAGS = -I$(srcdir)/../lib/krb5
+ktutil_CPPFLAGS = -I$(srcdir)/../lib/krb5 $(AM_CPPFLAGS)
 
 dist_ktutil_SOURCES =				\
 	add.c					\

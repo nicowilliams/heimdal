@@ -5,9 +5,15 @@ include $(top_srcdir)/Makefile.am.common
 WFLAGS += $(WFLAGS_ENUM_CONV)
 
 AM_CPPFLAGS += $(INCLUDE_libintl) $(INCLUDE_openssl_crypto) -I$(srcdir)/../lib/krb5
+if WIN32
+AM_CPPFLAGS += -DASN1_LIB -DNO_POSIX_LINKS
+endif
 
-lib_LTLIBRARIES = ipc_csr_authorizer.la \
-		  libkdc.la
+lib_LTLIBRARIES = libkdc.la
+if !WIN32
+# ipc_csr_authorizer uses lib/ipc which requires Unix domain sockets
+lib_LTLIBRARIES += ipc_csr_authorizer.la
+endif
 if OPENLDAP
 lib_LTLIBRARIES += altsecid_gss_preauth_authorizer.la
 endif
@@ -18,8 +24,12 @@ bin_PROGRAMS = string2key
 sbin_PROGRAMS = kstash
 
 libexec_PROGRAMS = hprop hpropd kdc \
-		   test_token_validator test_csr_authorizer test_kdc_ca \
+		   test_token_validator test_kdc_ca \
 		   test_jwt_validator
+if !WIN32
+# test_csr_authorizer uses lib/ipc which requires Unix domain sockets
+libexec_PROGRAMS += test_csr_authorizer
+endif
 
 noinst_PROGRAMS = kdc-replay kdc-tester
 
@@ -32,7 +42,9 @@ kstash_SOURCES = kstash.c headers.h
 
 string2key_SOURCES = string2key.c headers.h
 
+# bx509d and httpkadmind are HTTP servers that require Unix sockets
 if HAVE_MICROHTTPD
+if !WIN32
 bx509d_SOURCES = bx509d.c
 bx509d_CPPFLAGS = $(AM_CPPFLAGS) $(MICROHTTPD_CFLAGS)
 bx509d_LDADD =	-ldl \
@@ -66,6 +78,7 @@ httpkadmind_LDADD =	-ldl \
 		 $(top_builddir)/lib/hx509/libhx509.la \
 		 $(top_builddir)/lib/gssapi/libgssapi.la
 libexec_PROGRAMS += httpkadmind
+endif
 endif
 
 kdc_SOURCES = connect.c	\

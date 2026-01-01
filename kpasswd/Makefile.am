@@ -2,7 +2,10 @@
 
 include $(top_srcdir)/Makefile.am.common
 
-AM_CPPFLAGS += -I$(srcdir)/../lib/krb5
+AM_CPPFLAGS += -I$(srcdir)/../lib/krb5 $(INCLUDE_openssl_crypto)
+if WIN32
+AM_CPPFLAGS += -DASN1_LIB
+endif
 
 man_MANS = kpasswd.1 kpasswdd.8
 
@@ -10,9 +13,14 @@ bin_PROGRAMS = kpasswd
 
 kpasswd_SOURCES = kpasswd.c kpasswd_locl.h
 
-kpasswd_CPPFLAGS = -I$(srcdir)/../lib/krb5
+kpasswd_CPPFLAGS = -I$(srcdir)/../lib/krb5 $(AM_CPPFLAGS)
 
+# kpasswdd is a daemon that uses Unix-specific socket handling
+if !WIN32
 libexec_PROGRAMS = kpasswdd
+else
+libexec_PROGRAMS =
+endif
 
 noinst_PROGRAMS = kpasswd-generator
 
