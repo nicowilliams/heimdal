@@ -351,7 +351,7 @@ sl_help (SL_cmd *cmds, int argc, char **argv)
     }
 }
 
-#ifdef HAVE_READLINE
+#if defined(HAVE_READLINE) && !defined(_WIN32)
 
 char *readline(char *prompt);
 void add_history(char *p);
