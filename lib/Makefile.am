@@ -15,6 +15,9 @@ endif
 if MAINTAINER_MODE
 dir_sqlite = sqlite
 endif
+if !WIN32
+dir_ipc = ipc
+endif
 
 SUBDIRS = \
 	roken \
@@ -26,7 +29,7 @@ SUBDIRS = \
 	wind \
 	asn1 \
 	$(dir_sqlite) \
-	ipc \
+	$(dir_ipc) \
 	hx509 \
 	krb5 \
 	gssapi \
