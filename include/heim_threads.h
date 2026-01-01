@@ -408,12 +408,43 @@ typedef struct heim_thread {
     DWORD id;
 } heim_thread_t;
 
-static inline int
-heim_thread_create(heim_thread_t *t, LPTHREAD_START_ROUTINE f, void *a)
+/*
+ * Thread function wrapper to convert pthreads-style signature to Windows.
+ * pthreads: void* func(void*)
+ * Windows:  DWORD WINAPI func(LPVOID)
+ */
+typedef void *(*heim_thread_func_t)(void *);
+
+struct heim_thread_wrapper_arg {
+    heim_thread_func_t func;
+    void *arg;
+};
+
+static DWORD WINAPI
+heim_thread_wrapper(LPVOID arg)
 {
-    t->handle = CreateThread(NULL, 0, f, a, 0, &t->id);
-    if (t->handle == NULL || t->handle == INVALID_HANDLE_VALUE)
+    struct heim_thread_wrapper_arg *wa = arg;
+    heim_thread_func_t func = wa->func;
+    void *real_arg = wa->arg;
+    free(wa);
+    (void)func(real_arg);
+    return 0;
+}
+
+static inline int
+heim_thread_create(heim_thread_t *t, heim_thread_func_t f, void *a)
+{
+    struct heim_thread_wrapper_arg *wa;
+    wa = malloc(sizeof(*wa));
+    if (wa == NULL)
+        return ENOMEM;
+    wa->func = f;
+    wa->arg = a;
+    t->handle = CreateThread(NULL, 0, heim_thread_wrapper, wa, 0, &t->id);
+    if (t->handle == NULL || t->handle == INVALID_HANDLE_VALUE) {
+        free(wa);
         return EINVAL;
+    }
     return 0;
 }
 
