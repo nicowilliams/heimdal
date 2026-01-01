@@ -42,6 +42,7 @@
 #include <stdarg.h>
 #include <vis.h>
 #include <base64.h>
+#include <syslog.h>
 
 struct heim_log_facility_internal {
     int min;
