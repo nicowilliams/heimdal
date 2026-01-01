@@ -15,7 +15,12 @@ AM_CPPFLAGS += \
 	-I$(srcdir)/krb5 \
 	-I$(srcdir)/spnego \
 	-I$(srcdir)/sanon \
-	$(INCLUDE_libintl)
+	$(INCLUDE_libintl) \
+	$(INCLUDE_openssl_crypto)
+
+if WIN32
+AM_CPPFLAGS += -DASN1_LIB
+endif
 
 lib_LTLIBRARIES = libgssapi.la test_negoex_mech.la
 
