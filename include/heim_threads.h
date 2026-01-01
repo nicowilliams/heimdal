@@ -147,6 +147,10 @@ typedef unsigned long HEIM_PRIV_thread_key;
 
 #elif defined(_WIN32)
 
+#if defined(__MINGW32__) || defined(__MINGW64__)
+#include <synchapi.h>
+#endif
+
 typedef struct heim_mutex {
     HANDLE	h;
 } heim_mutex_t;
