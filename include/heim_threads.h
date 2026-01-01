@@ -47,6 +47,7 @@
 #define HEIM_THREADS_H 1
 
 #include <errno.h>
+#include <stdlib.h>
 
 #ifdef _MSC_VER
 
@@ -144,6 +145,22 @@ typedef unsigned long HEIM_PRIV_thread_key;
 #define HEIMDAL_THREAD_ID pthread_t
 #define HEIMDAL_THREAD_create(t,f,a) pthread_create((t), 0, (f), (a))
 #define HEIMDAL_THREAD_join(t,r) pthread_join((t), (r))
+
+/* Condition variables for pthreads - use regular mutex with condvars */
+#define HEIMDAL_COND_MUTEX pthread_mutex_t
+#define HEIMDAL_COND_MUTEX_INITIALIZER PTHREAD_MUTEX_INITIALIZER
+#define HEIMDAL_COND_MUTEX_init(m) pthread_mutex_init((m), NULL)
+#define HEIMDAL_COND_MUTEX_lock(m) pthread_mutex_lock((m))
+#define HEIMDAL_COND_MUTEX_unlock(m) pthread_mutex_unlock((m))
+#define HEIMDAL_COND_MUTEX_destroy(m) pthread_mutex_destroy((m))
+
+#define HEIMDAL_COND pthread_cond_t
+#define HEIMDAL_COND_INITIALIZER PTHREAD_COND_INITIALIZER
+#define HEIMDAL_COND_init(c) pthread_cond_init((c), NULL)
+#define HEIMDAL_COND_wait(c,m) pthread_cond_wait((c), (m))
+#define HEIMDAL_COND_signal(c) pthread_cond_signal((c))
+#define HEIMDAL_COND_broadcast(c) pthread_cond_broadcast((c))
+#define HEIMDAL_COND_destroy(c) pthread_cond_destroy((c))
 
 #elif defined(_WIN32)
 
@@ -286,6 +303,98 @@ heim_rwlock_destroy(heim_rwlock_t *l)
 #define	HEIMDAL_RWLOCK_trywrlock(l) heim_rwlock_trywrlock((l))
 #define	HEIMDAL_RWLOCK_unlock(l) heim_rwlock_unlock((l))
 #define	HEIMDAL_RWLOCK_destroy(l) heim_rwlock_destroy((l))
+
+/*
+ * Condition variables for Windows.
+ * Note: Windows CONDITION_VARIABLE requires CRITICAL_SECTION or SRWLOCK,
+ * not the semaphore-based heim_mutex_t. So we provide a separate
+ * CRITICAL_SECTION-based mutex type for use with condition variables.
+ */
+typedef struct heim_cond_mutex {
+    CRITICAL_SECTION cs;
+} heim_cond_mutex_t;
+
+typedef CONDITION_VARIABLE heim_cond_t;
+
+static inline int
+heim_cond_mutex_init(heim_cond_mutex_t *m)
+{
+    InitializeCriticalSection(&m->cs);
+    return 0;
+}
+
+static inline int
+heim_cond_mutex_lock(heim_cond_mutex_t *m)
+{
+    EnterCriticalSection(&m->cs);
+    return 0;
+}
+
+static inline int
+heim_cond_mutex_unlock(heim_cond_mutex_t *m)
+{
+    LeaveCriticalSection(&m->cs);
+    return 0;
+}
+
+static inline int
+heim_cond_mutex_destroy(heim_cond_mutex_t *m)
+{
+    DeleteCriticalSection(&m->cs);
+    return 0;
+}
+
+static inline int
+heim_cond_init(heim_cond_t *c)
+{
+    InitializeConditionVariable(c);
+    return 0;
+}
+
+static inline int
+heim_cond_wait(heim_cond_t *c, heim_cond_mutex_t *m)
+{
+    if (SleepConditionVariableCS(c, &m->cs, INFINITE))
+        return 0;
+    return EINVAL;
+}
+
+static inline int
+heim_cond_signal(heim_cond_t *c)
+{
+    WakeConditionVariable(c);
+    return 0;
+}
+
+static inline int
+heim_cond_broadcast(heim_cond_t *c)
+{
+    WakeAllConditionVariable(c);
+    return 0;
+}
+
+static inline int
+heim_cond_destroy(heim_cond_t *c)
+{
+    /* Windows condition variables don't need explicit destruction */
+    (void)c;
+    return 0;
+}
+
+#define HEIMDAL_COND_MUTEX heim_cond_mutex_t
+#define HEIMDAL_COND_MUTEX_INITIALIZER { 0 }
+#define HEIMDAL_COND_MUTEX_init(m) heim_cond_mutex_init((m))
+#define HEIMDAL_COND_MUTEX_lock(m) heim_cond_mutex_lock((m))
+#define HEIMDAL_COND_MUTEX_unlock(m) heim_cond_mutex_unlock((m))
+#define HEIMDAL_COND_MUTEX_destroy(m) heim_cond_mutex_destroy((m))
+
+#define HEIMDAL_COND heim_cond_t
+#define HEIMDAL_COND_INITIALIZER CONDITION_VARIABLE_INIT
+#define HEIMDAL_COND_init(c) heim_cond_init((c))
+#define HEIMDAL_COND_wait(c,m) heim_cond_wait((c), (m))
+#define HEIMDAL_COND_signal(c) heim_cond_signal((c))
+#define HEIMDAL_COND_broadcast(c) heim_cond_broadcast((c))
+#define HEIMDAL_COND_destroy(c) heim_cond_destroy((c))
 
 #define HEIMDAL_thread_key unsigned long
 #define HEIM_PRIV_thread_key HEIMDAL_thread_key
