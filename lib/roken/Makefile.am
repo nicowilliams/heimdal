@@ -215,7 +215,8 @@ libroken_la_LIBADD += -lnsl -lsocket
 endif
 
 if WIN32
-libroken_la_SOURCES += dlfcn_w32.c getifaddrs_w32.c simple_exec_w32.c sockstartup_w32.c syslogc.c
+libroken_la_SOURCES += dlfcn_w32.c getifaddrs_w32.c simple_exec_w32.c sockstartup_w32.c syslogc.c win32_version.c
+libroken_la_LIBADD += -lversion -lpsapi
 win32_headers = dirent.h dlfcn.h syslog.h
 else
 libroken_la_SOURCES += signal.c simple_exec.c
@@ -314,4 +315,5 @@ EXTRA_DIST = \
 	test-mem.h \
 	test-mini_inetd.c \
 	win32_alloc.c \
+	win32_version.c \
 	version-script.map
