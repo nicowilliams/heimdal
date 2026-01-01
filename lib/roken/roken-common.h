@@ -285,8 +285,9 @@
 #define __attribute__(x)
 #endif
 
+#ifndef WIN32
 /*
- * for dlopen(3)
+ * For dlopen(3).  For WIN32 builds we get these from our dlfcn.h.
  */
 #ifndef RTLD_LAZY
 #define RTLD_LAZY 0
@@ -310,6 +311,7 @@
 
 #ifndef RTLD_NODELETE
 #define RTLD_NODELETE 0
+#endif
 #endif
 
 ROKEN_CPP_START
