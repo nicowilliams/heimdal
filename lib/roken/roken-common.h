@@ -94,26 +94,6 @@
 #define FALSE 0
 #endif
 
-#ifndef LOG_DAEMON
-#define openlog(id,option,facility) openlog((id),(option))
-#define	LOG_DAEMON	0
-#endif
-#ifndef LOG_ODELAY
-#define LOG_ODELAY 0
-#endif
-#ifndef LOG_NDELAY
-#define LOG_NDELAY 0x08
-#endif
-#ifndef LOG_CONS
-#define LOG_CONS 0
-#endif
-#ifndef LOG_AUTH
-#define LOG_AUTH 0
-#endif
-#ifndef LOG_AUTHPRIV
-#define LOG_AUTHPRIV LOG_AUTH
-#endif
-
 #ifndef F_OK
 #define F_OK 0
 #endif

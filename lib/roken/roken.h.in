@@ -395,6 +395,11 @@ ROKEN_CPP_START
 #define setsid _setsid
 #endif
 
+#if defined(__MINGW32__)
+/* Mingw provides most POSIX functions, but not fsync */
+#define fsync _commit
+#endif
+
 #ifdef _MSC_VER
 /* Additional macros for Visual C/C++ runtime */
 
