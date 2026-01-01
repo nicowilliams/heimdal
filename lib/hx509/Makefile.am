@@ -1,6 +1,9 @@
 include $(top_srcdir)/Makefile.am.common
 
 AM_CPPFLAGS += $(INCLUDE_openssl_crypto)
+if WIN32
+AM_CPPFLAGS += -DASN1_LIB
+endif
 
 lib_LTLIBRARIES = libhx509.la libhx509template.la
 libhx509_la_LDFLAGS = -version-info 5:0:0
@@ -114,7 +117,7 @@ $(srcdir)/hx509-private.h: $(dist_libhx509_la_SOURCES)
 
 bin_PROGRAMS = hxtool
 
-hxtool-commands.c hxtool-commands.h: hxtool-commands.in $(SLC)
+hxtool-commands.c hxtool-commands.h: hxtool-commands.in $(SLC_DEP)
 	$(heim_verbose)$(SLC) $(srcdir)/hxtool-commands.in
 
 dist_hxtool_SOURCES = hxtool.c
