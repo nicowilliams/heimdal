@@ -129,7 +129,6 @@ if test "${cross_compiling}" = yes ; then
       dnl Windows socket libraries
       LIBS="$LIBS -lws2_32 -liphlpapi"
       dnl Require Vista or later for SRWLock and other APIs
-      dnl Use MinGW's C99-compliant printf for %zu support
       CPPFLAGS="$CPPFLAGS -D_WIN32_WINNT=0x0600"
       CFLAGS="$CFLAGS -Wno-format"
       dnl For now until we revamp how we set attributes on printf-like functions
