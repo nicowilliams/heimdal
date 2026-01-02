@@ -105,6 +105,7 @@ typedef unsigned long HEIM_PRIV_thread_key;
 #define HEIMDAL_THREAD_ID thr_t
 #define HEIMDAL_THREAD_create(t,f,a) thr_create((t), 0, (f), (a))
 #define HEIMDAL_THREAD_join(t,r) thr_join((t), 0, (r))
+#define HEIMDAL_THREAD_detach(t) /* Solaris threads: already detached or ignore */
 
 #elif defined(ENABLE_PTHREAD_SUPPORT) && (!defined(__NetBSD__) || __NetBSD_Version__ >= 299001200)
 
@@ -145,6 +146,7 @@ typedef unsigned long HEIM_PRIV_thread_key;
 #define HEIMDAL_THREAD_ID pthread_t
 #define HEIMDAL_THREAD_create(t,f,a) pthread_create((t), 0, (f), (a))
 #define HEIMDAL_THREAD_join(t,r) pthread_join((t), (r))
+#define HEIMDAL_THREAD_detach(t) pthread_detach((t))
 
 /* Condition variables for pthreads - use regular mutex with condvars */
 #define HEIMDAL_COND_MUTEX pthread_mutex_t
@@ -472,6 +474,7 @@ heim_thread_join(heim_thread_t t, void **retval)
 #define HEIMDAL_THREAD_ID heim_thread_t
 #define HEIMDAL_THREAD_create(t,f,a) heim_thread_create((t), (f), (a))
 #define HEIMDAL_THREAD_join(t,r) heim_thread_join((t), (r))
+#define HEIMDAL_THREAD_detach(t) CloseHandle((t).handle)
 
 #elif defined(HEIMDAL_DEBUG_THREADS)
 
@@ -500,6 +503,7 @@ heim_thread_join(heim_thread_t t, void **retval)
 #define HEIMDAL_THREAD_ID int
 #define HEIMDAL_THREAD_create(t,f,a) abort()
 #define HEIMDAL_THREAD_join(t,r) abort()
+#define HEIMDAL_THREAD_detach(t) abort()
 
 #else /* no thread support, no debug case */
 
@@ -523,6 +527,7 @@ heim_thread_join(heim_thread_t t, void **retval)
 #define HEIMDAL_THREAD_ID int
 #define HEIMDAL_THREAD_create(t,f,a) abort()
 #define HEIMDAL_THREAD_join(t,r) abort()
+#define HEIMDAL_THREAD_detach(t) abort()
 
 #define HEIMDAL_internal_thread_key 1
 
