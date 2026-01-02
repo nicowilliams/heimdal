@@ -53,10 +53,11 @@ int async_flag;
 static int help_flag;
 static int version_flag;
 static int debug_flag;
-static int readonly_flag;
+int readonly_flag;
 static char *port_str;
 char *realm;
 int list_chunk_size = -1;
+krb5_keytab keytab;
 
 static int detach_from_console = -1;
 int daemon_child = -1;
@@ -138,7 +139,6 @@ main(int argc, char **argv)
     int optidx = 0;
     int i;
     krb5_log_facility *logfacility;
-    krb5_keytab keytab;
     krb5_socket_t sfd = rk_INVALID_SOCKET;
 
     setprogname(argv[0]);

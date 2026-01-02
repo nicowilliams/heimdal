@@ -9,12 +9,8 @@ endif
 
 bin_PROGRAMS = kadmin
 
-# kadmind uses fork/waitpid/signals not available on Windows
-if !WIN32
+# kadmind now works on Windows using threads instead of fork
 libexec_PROGRAMS = kadmind
-else
-libexec_PROGRAMS =
-endif
 
 man_MANS = kadmin.1 kadmind.8
 
