@@ -1092,8 +1092,15 @@ command = {
 		long = "private-key"
 		short = "k"
 		type = "string"
-		argument = "file"
-		help = "private key file (PEM format)"
+		argument = "keystore"
+		help = "private key (FILE:path, PKCS12:path, PKCS11:uri, or plain path)"
+	}
+	option = {
+		long = "pass"
+		short = "P"
+		type = "strings"
+		argument = "password-spec"
+		help = "password for keystore (same format as other hxtool commands)"
 	}
 	option = {
 		long = "issuer"
@@ -1144,6 +1151,13 @@ command = {
 		type = "strings"
 		argument = "file"
 		help = "public key file(s) (PEM format)"
+	}
+	option = {
+		long = "jwk"
+		short = "J"
+		type = "string"
+		argument = "jwk-or-file"
+		help = "JWK/JWKS JSON string or file path"
 	}
 	option = {
 		long = "audience"

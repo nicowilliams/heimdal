@@ -328,3 +328,11 @@ HEIMDAL_X509_1.4 {
 		hx509_pem_to_jwk_json;
 };
 
+HEIMDAL_X509_1.5 {
+	global:
+		hx509_jws_sign_key;
+		hx509_jws_verify_jwk;
+		hx509_jwt_sign_key;
+		hx509_jwt_verify_jwk;
+} HEIMDAL_X509_1.4;
+

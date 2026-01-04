@@ -3303,7 +3303,11 @@ read_file_to_string(const char *filename)
 int
 jwt_sign(struct jwt_sign_options *opt, int argc, char **argv)
 {
-    char *pem_key = NULL;
+    hx509_lock lock = NULL;
+    hx509_certs certs = NULL;
+    hx509_private_key *keys = NULL;
+    hx509_private_key signer = NULL;
+    char *store_name = NULL;
     char *token = NULL;
     FILE *out = stdout;
     int ret;
@@ -3311,20 +3315,44 @@ jwt_sign(struct jwt_sign_options *opt, int argc, char **argv)
     if (opt->private_key_string == NULL)
         errx(1, "--private-key is required");
 
-    pem_key = read_file_to_string(opt->private_key_string);
-    if (pem_key == NULL)
-        err(1, "Could not read private key from %s", opt->private_key_string);
+    /* Set up lock for password-protected keystores */
+    hx509_lock_init(context, &lock);
+    lock_strings(lock, &opt->pass_strings);
 
-    ret = hx509_jwt_sign(context,
-                         opt->algorithm_string,
-                         pem_key,
-                         opt->issuer_string,
-                         opt->subject_string,
-                         opt->audience_string,
-                         opt->lifetime_integer,
-                         NULL, /* extra_claims */
-                         &token);
-    free(pem_key);
+    /* Normalize store name (auto-detect FILE: for plain paths) */
+    store_name = fix_store_name(context, opt->private_key_string, "FILE");
+
+    /* Load keystore */
+    ret = hx509_certs_init(context, store_name, 0, lock, &certs);
+    if (ret)
+        hx509_err(context, 1, ret, "Failed to open keystore: %s", store_name);
+
+    /* Extract private keys */
+    ret = _hx509_certs_keys_get(context, certs, &keys);
+    if (ret)
+        hx509_err(context, 1, ret, "Failed to get keys from keystore: %s", store_name);
+
+    if (keys[0] == NULL)
+        errx(1, "No private key found in keystore: %s", store_name);
+
+    signer = _hx509_private_key_ref(keys[0]);
+
+    /* Sign JWT */
+    ret = hx509_jwt_sign_key(context,
+                             opt->algorithm_string,
+                             signer,
+                             opt->issuer_string,
+                             opt->subject_string,
+                             opt->audience_string,
+                             opt->lifetime_integer,
+                             NULL, /* extra_claims */
+                             &token);
+
+    _hx509_certs_keys_free(context, keys);
+    hx509_private_key_free(&signer);
+    hx509_certs_free(&certs);
+    hx509_lock_free(lock);
+    free(store_name);
 
     if (ret)
         hx509_err(context, 1, ret, "Failed to sign JWT");
@@ -3349,27 +3377,18 @@ jwt_verify(struct jwt_verify_options *opt, int argc, char **argv)
 {
     char **pem_keys = NULL;
     char *token = NULL;
+    char *jwk_json = NULL;
     heim_dict_t claims = NULL;
     heim_string_t claims_json = NULL;
     size_t num_keys = 0;
     int ret;
     size_t i;
 
-    if (opt->public_key_strings.num_strings == 0)
-        errx(1, "--public-key is required");
+    if (opt->public_key_strings.num_strings == 0 && opt->jwk_string == NULL)
+        errx(1, "--public-key or --jwk is required");
 
-    /* Load all public keys */
-    num_keys = opt->public_key_strings.num_strings;
-    pem_keys = calloc(num_keys, sizeof(char *));
-    if (pem_keys == NULL)
-        err(1, "Out of memory");
-
-    for (i = 0; i < num_keys; i++) {
-        pem_keys[i] = read_file_to_string(opt->public_key_strings.strings[i]);
-        if (pem_keys[i] == NULL)
-            err(1, "Could not read public key from %s",
-                opt->public_key_strings.strings[i]);
-    }
+    if (opt->public_key_strings.num_strings > 0 && opt->jwk_string != NULL)
+        errx(1, "--public-key and --jwk are mutually exclusive");
 
     /* Get token */
     if (opt->token_string) {
@@ -3386,18 +3405,53 @@ jwt_verify(struct jwt_verify_options *opt, int argc, char **argv)
     if (token == NULL)
         err(1, "Out of memory");
 
-    /* Verify */
-    ret = hx509_jwt_verify(context,
-                           token,
-                           (const char **)pem_keys,
-                           num_keys,
-                           opt->audience_string,
-                           0, /* use current time */
-                           &claims);
+    if (opt->jwk_string) {
+        /* JWK/JWKS mode */
+        const char *jwk_arg = opt->jwk_string;
 
-    for (i = 0; i < num_keys; i++)
-        free(pem_keys[i]);
-    free(pem_keys);
+        /* If it starts with { or [, it's inline JSON; otherwise read from file */
+        if (jwk_arg[0] == '{' || jwk_arg[0] == '[') {
+            jwk_json = strdup(jwk_arg);
+        } else {
+            jwk_json = read_file_to_string(jwk_arg);
+            if (jwk_json == NULL)
+                err(1, "Could not read JWK from %s", jwk_arg);
+        }
+
+        ret = hx509_jwt_verify_jwk(context,
+                                   token,
+                                   jwk_json,
+                                   opt->audience_string,
+                                   0, /* use current time */
+                                   &claims);
+        free(jwk_json);
+    } else {
+        /* PEM public key mode */
+        num_keys = opt->public_key_strings.num_strings;
+        pem_keys = calloc(num_keys, sizeof(char *));
+        if (pem_keys == NULL)
+            err(1, "Out of memory");
+
+        for (i = 0; i < num_keys; i++) {
+            pem_keys[i] = read_file_to_string(opt->public_key_strings.strings[i]);
+            if (pem_keys[i] == NULL)
+                err(1, "Could not read public key from %s",
+                    opt->public_key_strings.strings[i]);
+        }
+
+        ret = hx509_jwt_verify(context,
+                               token,
+                               (const char **)pem_keys,
+                               num_keys,
+                               opt->audience_string,
+                               0, /* use current time */
+                               &claims);
+
+        for (i = 0; i < num_keys; i++)
+            free(pem_keys[i]);
+        free(pem_keys);
+    }
+
     free(token);
 
     if (ret)
