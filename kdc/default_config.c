@@ -312,9 +312,6 @@ krb5_kdc_get_config(krb5_context context, krb5_kdc_configuration **config)
 	krb5_config_get_int_default(context, NULL,
 				    0,
 				    "kdc", "pkinit_dh_min_bits", NULL);
-    c->pkinit_kdc_key_algorithms =
-	krb5_config_get_strings(context, NULL,
-				"kdc", "pkinit_kdc_key_algorithms", NULL);
 
     c->pkinit_max_life_from_cert_extension =
         krb5_config_get_bool_default(context, NULL,

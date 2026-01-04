@@ -87,45 +87,31 @@ static struct {
  */
 
 /*
- * Convert key algorithm name to OID
- */
-static const heim_oid *
-key_algorithm_name_to_oid(const char *name)
-{
-    if (strcasecmp(name, "ed25519") == 0)
-        return ASN1_OID_ID_ED25519;
-    else if (strcasecmp(name, "ed448") == 0)
-        return ASN1_OID_ID_ED448;
-    else if (strcasecmp(name, "rsa") == 0 ||
-             strcasecmp(name, "rsa-sha256") == 0)
-        return &asn1_oid_id_pkcs1_rsaEncryption;
-    else if (strcasecmp(name, "ecdsa-p256") == 0 ||
-             strcasecmp(name, "secp256r1") == 0 ||
-             strcasecmp(name, "prime256v1") == 0)
-        return &asn1_oid_id_ecPublicKey;
-    else if (strcasecmp(name, "ecdsa-p384") == 0 ||
-             strcasecmp(name, "secp384r1") == 0)
-        return &asn1_oid_id_ecPublicKey;
-    else if (strcasecmp(name, "ecdsa-p521") == 0 ||
-             strcasecmp(name, "secp521r1") == 0)
-        return &asn1_oid_id_ecPublicKey;
-    return NULL;
-}
-
-/*
- * Find a KDC certificate, preferring key algorithms in the order
- * specified by pkinit_kdc_key_algorithms configuration.
+ * Find a KDC certificate.
+ *
+ * If the client has a certificate then prefer a KDC certificate whose SPKI
+ * algorithm matches the client's.  This allows automatic algorithm selection:
+ * as clients get new certificates with better SPKI algorithms, they will work
+ * automatically provided the KDC has matching certificates.  Administrators
+ * then need only provision all their KDCs with certificates with SPKI
+ * algorithms for all currently-in-use client certificates that the KDCs must
+ * accept.
+ *
+ * In all other cases pick the first available KDC certificate.
  */
 static int
 find_kdc_cert(krb5_context context,
               krb5_kdc_configuration *config,
+              pk_client_params *cp,
               hx509_cert *certp)
 {
+    AlgorithmIdentifier client_alg;
     hx509_query *q;
     int ret;
-    size_t i;
+    int have_client_alg = 0;
 
     *certp = NULL;
+    memset(&client_alg, 0, sizeof(client_alg));
 
     ret = hx509_query_alloc(context->hx509ctx, &q);
     if (ret)
@@ -136,18 +122,19 @@ find_kdc_cert(krb5_context context,
         hx509_query_match_friendly_name(q, config->pkinit_kdc_friendly_name);
 
     /*
-     * Try each preferred algorithm in order
+     * If the client has a certificate, try to find a KDC certificate
+     * with a matching SPKI algorithm first.
      */
-    if (config->pkinit_kdc_key_algorithms) {
-        for (i = 0; config->pkinit_kdc_key_algorithms[i]; i++) {
-            const heim_oid *alg_oid;
+    if (cp->cert) {
+        ret = hx509_cert_get_SPKI_AlgorithmIdentifier(context->hx509ctx,
+                                                       cp->cert,
+                                                       &client_alg);
+        if (ret == 0) {
+            have_client_alg = 1;
 
-            alg_oid = key_algorithm_name_to_oid(config->pkinit_kdc_key_algorithms[i]);
-            if (alg_oid == NULL)
-                continue;
-
-            ret = hx509_query_match_key_algorithm(q, alg_oid);
+            ret = hx509_query_match_key_algorithm(q, &client_alg.algorithm);
             if (ret) {
+                free_AlgorithmIdentifier(&client_alg);
                 hx509_query_free(context->hx509ctx, q);
                 return ret;
             }
@@ -157,12 +144,13 @@ find_kdc_cert(krb5_context context,
                                    q,
                                    certp);
             if (ret == 0) {
-                /* Found a certificate with this key algorithm */
+                /* Found a certificate matching client's SPKI algorithm */
+                free_AlgorithmIdentifier(&client_alg);
                 hx509_query_free(context->hx509ctx, q);
                 return 0;
             }
 
-            /* Clear the key algorithm match for next iteration */
+            /* Clear the key algorithm match for fallback */
             hx509_query_match_key_algorithm(q, NULL);
         }
     }
@@ -174,6 +162,9 @@ find_kdc_cert(krb5_context context,
                            kdc_identity->certs,
                            q,
                            certp);
+
+    if (have_client_alg)
+        free_AlgorithmIdentifier(&client_alg);
     hx509_query_free(context->hx509ctx, q);
     return ret;
 }
@@ -1336,7 +1327,7 @@ pk_mk_pa_reply_enckey(krb5_context context,
     {
 	hx509_cert cert;
 
-	ret = find_kdc_cert(context, config, &cert);
+	ret = find_kdc_cert(context, config, cp, &cert);
 	if (ret)
 	    goto out;
 
@@ -1441,7 +1432,7 @@ pk_mk_pa_reply_dh(krb5_context context,
      * filled in above
      */
 
-    ret = find_kdc_cert(context, config, &cert);
+    ret = find_kdc_cert(context, config, cp, &cert);
     if (ret)
 	goto out;
 
