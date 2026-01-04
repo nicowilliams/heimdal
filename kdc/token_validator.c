@@ -124,7 +124,7 @@ validate_bearer(krb5_context context,
         free(defrealm);
         krb5_set_error_message(context, ENOENT,
                                "No JWK configured for realm %s in "
-                               "[bx509]->realms->%s->cjwt_jwk_{current,next,previous}",
+                               "[bx509]->realms->%s->jwk_{current,next,previous}",
                                realm, realm);
         return ENOENT;
     }

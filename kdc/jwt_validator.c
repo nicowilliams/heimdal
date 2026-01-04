@@ -40,9 +40,9 @@
  *      realms = {
  *          A.REALM.NAME = {
  *              # At least one of these must be set
- *              cjwt_jwk_current = PATH-TO-JWK-PEM-FILE
- *              cjwt_jwk_previous = PATH-TO-JWK-PEM-FILE
- *              cjwt_jwk_next = PATH-TO-JWK-PEM-FILE
+ *              jwk_current = PATH-TO-JWK-PEM-FILE
+ *              jwk_previous = PATH-TO-JWK-PEM-FILE
+ *              jwk_next = PATH-TO-JWK-PEM-FILE
  *          }
  *      }
  */

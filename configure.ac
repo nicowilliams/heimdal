@@ -230,38 +230,6 @@ AM_CONDITIONAL([HAVE_MICROHTTPD], [test "$with_microhttpd" != "no"])
 AC_SUBST([MICROHTTPD_CFLAGS])
 AC_SUBST([MICROHTTPD_LIBS])
 
-dnl libcjwt
-AC_ARG_WITH([cjwt],
-  AC_HELP_STRING([--with-cjwt], [(Experimental) use cjwt to validate JWT tokens @<:@default=check@:>@]),
-  [],
-  [with_cjwt=check])
-if test "$with_cjwt" != "no"; then
-  PKG_CHECK_MODULES([CJWT], [libcjwt >= 1.0.0],
-		    [with_cjwt=yes],[with_cjwt=no])
-fi
-if test "$with_cjwt" = "yes"; then
-  AC_DEFINE_UNQUOTED([HAVE_CJWT], 1, [whether libcjwt is available for KDC REST API])
-fi
-AM_CONDITIONAL([HAVE_CJWT], [test "$with_cjwt" != "no"])
-AC_SUBST([CJWT_CFLAGS])
-AC_SUBST([CJWT_LIBS])
-
-dnl libcjson
-AC_ARG_WITH([cjson],
-  AC_HELP_STRING([--with-cjson], [(Experimental) use cJSON to extract private claims from JWT tokens @<:@default=check@:>@]),
-  [],
-  [with_cjson=check])
-if test "$with_cjson" != "no"; then
-  PKG_CHECK_MODULES([CJSON], [libcjson >= 1.0.0],
-		    [with_cjson=yes],[with_cjson=no])
-fi
-if test "$with_cjson" = "yes"; then
-  AC_DEFINE_UNQUOTED([HAVE_CJSON], 1, [whether libcjson is available for KDC REST API])
-fi
-AM_CONDITIONAL([HAVE_CJSON], [test "$with_cjson" != "no"])
-AC_SUBST([CJSON_CFLAGS])
-AC_SUBST([CJSON_LIBS])
-
 dnl mitkrb5
 AC_ARG_WITH([mitkrb5],
   AC_HELP_STRING([--with-mitkrb5=PATH], [Path to MIT Kerberos for interop testing]),
