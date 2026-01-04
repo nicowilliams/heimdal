@@ -41,6 +41,8 @@
 .Nm
 .Oo Fl Fl version Oc
 .Oo Fl Fl help Oc
+.Oo Fl Fl openssl-cnf=file Oc
+.Oo Fl Fl openssl-propq=propq Oc
 .Op Ar sub-command
 .Nm
 .Ic list-oids
@@ -50,7 +52,9 @@
 .Op Fl s Ar signer-friendly-name | Fl Fl signer Ns = Ns Ar signer-friendly-name
 .Op Fl Fl anchors Ns = Ns Ar certificate-store
 .Op Fl Fl pool Ns = Ns Ar certificate-pool
-.Op Fl Fl pass Ns = Ns Ar password
+.Op Fl Fl pass Ns = Ns Ar PASS:password
+.Op Fl Fl pass Ns = Ns Ar FILE:path
+.Op Fl Fl pass Ns = Ns Ar PROMPT
 .Op Fl Fl peer-alg Ns = Ns Ar oid
 .Op Fl Fl content-type Ns = Ns Ar oid
 .Op Fl Fl content-info
@@ -65,7 +69,9 @@
 .Ic cms-verify-sd
 .Op Fl D Ar certificate-store | Fl Fl anchors Ns = Ns Ar certificate-store
 .Op Fl c Ar certificate-store | Fl Fl certificate Ns = Ns Ar certificate-store
-.Op Fl Fl pass Ns = Ns Ar password
+.Op Fl Fl pass Ns = Ns Ar PASS:password
+.Op Fl Fl pass Ns = Ns Ar FILE:path
+.Op Fl Fl pass Ns = Ns Ar PROMPT
 .Op Fl Fl missing-revoke
 .Op Fl Fl content-info
 .Op Fl Fl pem
@@ -77,14 +83,18 @@
 .Nm
 .Ic cms-unenvelope
 .Op Fl c Ar certificate-store | Fl Fl certificate Ns = Ns Ar certificate-store
-.Op Fl Fl pass Ns = Ns Ar password
+.Op Fl Fl pass Ns = Ns Ar PASS:password
+.Op Fl Fl pass Ns = Ns Ar FILE:path
+.Op Fl Fl pass Ns = Ns Ar PROMPT
 .Op Fl Fl content-info
 .Op Fl Fl allow-weak-crypto
 .Ar in-file out-file
 .Nm
 .Ic cms-envelope
 .Op Fl c Ar certificate-store | Fl Fl certificate Ns = Ns Ar certificate-store
-.Op Fl Fl pass Ns = Ns Ar password
+.Op Fl Fl pass Ns = Ns Ar PASS:password
+.Op Fl Fl pass Ns = Ns Ar FILE:path
+.Op Fl Fl pass Ns = Ns Ar PROMPT
 .Op Fl Fl encryption-type Ns = Ns Ar enctype
 .Op Fl Fl content-type Ns = Ns Ar oid
 .Op Fl Fl content-info
@@ -92,7 +102,9 @@
 .Ar in-file out-file
 .Nm
 .Ic verify
-.Op Fl Fl pass Ns = Ns Ar password
+.Op Fl Fl pass Ns = Ns Ar PASS:password
+.Op Fl Fl pass Ns = Ns Ar FILE:path
+.Op Fl Fl pass Ns = Ns Ar PROMPT
 .Op Fl Fl allow-proxy-certificate
 .Op Fl Fl missing-revoke
 .Op Fl Fl time Ns = Ns Ar value
@@ -102,7 +114,9 @@
 .Ar cert:foo chain:cert1 chain:cert2 anchor:anchor1 anchor:anchor2
 .Nm
 .Ic print
-.Op Fl Fl pass Ns = Ns Ar password
+.Op Fl Fl pass Ns = Ns Ar PASS:password
+.Op Fl Fl pass Ns = Ns Ar FILE:path
+.Op Fl Fl pass Ns = Ns Ar PROMPT
 .Op Fl Fl content
 .Op Fl Fl raw-json
 .Op Fl Fl never-fail
@@ -110,19 +124,27 @@
 .Ar certificate ...
 .Nm
 .Ic validate
-.Op Fl Fl pass Ns = Ns Ar password
+.Op Fl Fl pass Ns = Ns Ar PASS:password
+.Op Fl Fl pass Ns = Ns Ar FILE:path
+.Op Fl Fl pass Ns = Ns Ar PROMPT
 .Ar certificate ...
 .Nm
 .Ic certificate-copy
-.Op Fl Fl in-pass Ns = Ns Ar password
-.Op Fl Fl out-pass Ns = Ns Ar password
+.Op Fl Fl in-pass Ns = Ns Ar PASS:password
+.Op Fl Fl in-pass Ns = Ns Ar FILE:path
+.Op Fl Fl in-pass Ns = Ns Ar PROMPT
+.Op Fl Fl out-pass Ns = Ns Ar PASS:password
+.Op Fl Fl out-pass Ns = Ns Ar FILE:path
+.Op Fl Fl out-pass Ns = Ns Ar PROMPT
 .Op Fl Fl append
 .Op Fl Fl root-certs
 .Op Fl Fl private-keys
 .Ar in-certificates-1 ... out-certificate
 .Nm
 .Ic ocsp-fetch
-.Op Fl Fl pass Ns = Ns Ar password
+.Op Fl Fl pass Ns = Ns Ar PASS:password
+.Op Fl Fl pass Ns = Ns Ar FILE:path
+.Op Fl Fl pass Ns = Ns Ar PROMPT
 .Op Fl Fl sign Ns = Ns Ar certificate
 .Op Fl Fl url-path Ns = Ns Ar url
 .Op Fl Fl nonce
@@ -180,7 +202,9 @@
 .Op Fl Fl keyEncipherment
 .Op Fl Fl digitalSignature
 .Op Fl Fl print
-.Op Fl Fl pass Ns = Ns Ar password
+.Op Fl Fl pass Ns = Ns Ar PASS:password
+.Op Fl Fl pass Ns = Ns Ar FILE:path
+.Op Fl Fl pass Ns = Ns Ar PROMPT
 .Ar certificates ...
 .Nm
 .Ic info
@@ -237,7 +261,9 @@
 .Op Fl Fl template-fields Ns = Ns Ar value
 .Nm
 .Ic test-crypto
-.Op Fl Fl pass Ns = Ns Ar password
+.Op Fl Fl pass Ns = Ns Ar PASS:password
+.Op Fl Fl pass Ns = Ns Ar FILE:path
+.Op Fl Fl pass Ns = Ns Ar PROMPT
 .Op Fl Fl verbose
 .Ar certificates...
 .Nm
@@ -246,7 +272,9 @@
 .Nm
 .Ic crl-sign
 .Op Fl Fl signer Ns = Ns Ar value
-.Op Fl Fl pass Ns = Ns Ar password
+.Op Fl Fl pass Ns = Ns Ar PASS:password
+.Op Fl Fl pass Ns = Ns Ar FILE:path
+.Op Fl Fl pass Ns = Ns Ar PROMPT
 .Op Fl Fl crl-file Ns = Ns Ar value
 .Op Fl Fl lifetime Ns = Ns Ar value
 .Ar certificates...
@@ -320,6 +348,33 @@ stores.
 See
 .Sx CERTIFICATE STORES
 below for how to refer to certificates and private keys.
+.Pp
+The
+.Fl Fl pass Ns = Ns Ar PASS:password ,
+.Fl Fl pass Ns = Ns Ar FILE:path ,
+and
+.Fl Fl pass Ns = Ns Ar PROMPT
+options are for specifying passwords for PKCS#8 (PEM) and PKCS#12 stores, and
+if needed and not given, will be prompted for.
+Note that it's not secure to pass passwords as command-line
+arguments on multi-tenant systems.
+For PKCS#11 stores the details of how a PIN is provided varies by
+OpenSSL provider.
+See
+.Sx CERTIFICATE STORES
+for details of how to specify PINs for PKCS#11 tokens.
+.Pp
+The
+.Fl Fl openssl-cnf=file
+option is for specifying an alternative OpenSSL configuration
+file, which can be useful for enabling FIPS or PKCS#11 providers
+for this program but not by default for all programs.
+The
+.Fl Fl openssl-propq=propq
+option is for specifying OpenSSL property queries.
+See
+.Xr property 7 .
+.Pp
 .Sh SUPPORTED COMMANDS
 .Bl -tag -width Ds -offset indent
 .It Ic list-oids
@@ -423,8 +478,9 @@ Certificate to sign with.
 Trust anchors.
 .It Fl Fl pool Ns = Ns Ar certificate-pool
 Certificate store to pull certificates from.
-.It Fl Fl pass Ns = Ns Ar password
-Password, prompter, or environment.
+.It Fl Fl pass Ns = Ns Ar PASS:password
+.It Fl Fl pass Ns = Ns Ar FILE:path
+.It Fl Fl pass Ns = Ns Ar PROMPT
 .It Fl Fl peer-alg Ns = Ns Ar oid
 OID that the peer supports.
 .It Fl Fl content-type Ns = Ns Ar oid
@@ -454,8 +510,9 @@ Verify a file within a CMS SignedData object.
 Trust anchors.
 .It Fl c Ar certificate-store , Fl Fl certificate Ns = Ns Ar certificate-store
 Certificate store to pull certificates from.
-.It Fl Fl pass Ns = Ns Ar password
-Password, prompter, or environment.
+.Op Fl Fl pass Ns = Ns Ar PASS:password
+.Op Fl Fl pass Ns = Ns Ar FILE:path
+.Op Fl Fl pass Ns = Ns Ar PROMPT
 .It Fl Fl missing-revoke
 Missing CRL/OCSP is ok.
 .It Fl Fl content-info
@@ -479,8 +536,9 @@ Unenvelope a file containing an EnvelopedData object.
 .Bl -tag -width Ds -compact
 .It Fl c Ar certificate-store , Fl Fl certificate Ns = Ns Ar certificate-store
 Certificate used to decrypt the data.
-.It Fl Fl pass Ns = Ns Ar password
-Password, prompter, or environment.
+.Op Fl Fl pass Ns = Ns Ar PASS:password
+.Op Fl Fl pass Ns = Ns Ar FILE:path
+.Op Fl Fl pass Ns = Ns Ar PROMPT
 .It Fl Fl content-info
 Wrapped output data in a ContentInfo.
 .It Fl Fl allow-weak-crypto
@@ -494,8 +552,9 @@ Envelope a file as an EnvelopedData object.
 .Bl -tag -width Ds -compact
 .It Fl c Ar certificate-store , Fl Fl certificate Ns = Ns Ar certificate-store
 Certificates used to receive the data.
-.It Fl Fl pass Ns = Ns Ar password
-Password, prompter, or environment.
+.Op Fl Fl pass Ns = Ns Ar PASS:password
+.Op Fl Fl pass Ns = Ns Ar FILE:path
+.Op Fl Fl pass Ns = Ns Ar PROMPT
 .It Fl Fl encryption-type Ns = Ns Ar enctype
 Encryption type.
 .It Fl Fl content-type Ns = Ns Ar oid
@@ -511,8 +570,9 @@ Allow weak crypto.
 .Ss verify
 Verify certificate chain.
 .Bl -tag -width Ds -compact
-.It Fl Fl pass Ns = Ns Ar password
-Password, prompter, or environment.
+.Op Fl Fl pass Ns = Ns Ar PASS:password
+.Op Fl Fl pass Ns = Ns Ar PROMPT
+Password.
 .It Fl Fl allow-proxy-certificate
 Allow proxy certificates.
 .It Fl Fl missing-revoke
@@ -532,8 +592,10 @@ Match hostname to certificate.
 .Ss print
 Print certificates.
 .Bl -tag -width Ds -compact
-.It Fl Fl pass Ns = Ns Ar password
-Password, prompter, or environment.
+.Op Fl Fl pass Ns = Ns Ar PASS:password
+.Op Fl Fl pass Ns = Ns Ar FILE:path
+.Op Fl Fl pass Ns = Ns Ar PROMPT
+Password.
 .It Fl Fl content
 Print the content of the certificates.
 .It Fl Fl raw-json
@@ -543,13 +605,6 @@ Never fail with an error code.
 .It Fl Fl info
 Print information about the certificate store.
 .El
-.Pp
-The
-.Fl Fl pass Ns = Ns Ar password
-option is for PKCS#8 (PEM), PKCS#12 and PKCS#11 stores, and if
-needed and not given, will be prompted for.
-Note that it's not secure to pass passwords as command-line
-arguments on multi-tenant systems.
 .Pp
 The
 .Fl Fl raw-json
@@ -792,6 +847,9 @@ For example,
 .Fl Fl ca-private-key Ns = Ns Ar DER-FILE:/path/to/file ,
 .Fl Fl ca-private-key Ns = Ns Ar PKCS12:/path/to/file ,
 .Fl Fl ca-private-key Ns = Ns Ar PKCS11:<pkcs11 scheme URI> .
+See
+.Sx CERTIFICATE STORES
+for more details.
 .It Fl Fl req Ns = Ns Ar value
 A certificate signing request (CSR).
 For example,
@@ -1180,13 +1238,43 @@ OpenSSL-style hashed directory of trust anchors.
 On OS X this refers to the system's trust anchors.
 .It KEYCHAIN:FILE:/path
 On OS X this refers to an OS X keychain at the given path.
-.It PKCS11:/path/to/shared/object[,slot=NUMBER]
-Loads the given PKCS#11 provider object and uses the token at the
-given slot number, or else the first token found.
+.It PKCS11:<provider-specific>[,config=/path-to-openssl.cnf]
+Loads the given PKCS#11 object using the configured OpenSSL
+provider.
+When using the Latchset OpenSSL PKCS#11 provider then
+.Va <provider-specific>
+identifier is a PKCS#11 URI (see RFC 7512).
+Examples:
+.Bl -tag -width Ds -offset indent
+.It Va PKCS11:pkcs11:token=MyToken
+.It Va PKCS11:pkcs11:slot-id=0;object=MyCert
+.It Va PKCS11:pkcs11:token=SmartCard,config=/etc/op11.cnf
+.El
+The
+.Va config=PATH
+option is Heimdal-specific and not part of the PKCS#11 URI.
+Use the
+.Va config=PATH
+option to refer to an OpenSSL configuration other than the
+default, such as when you want to configure the PKCS#11 provider
+but not enable it by default.
+The OpenSSL configuration file path must not contain a comma.
+.Pp
+Note that
+.Nm
+will not itself prompt for PINs with which to unlock tokens,
+however OpenSSL providers that use PKCS#11 URIs can take the PIN
+from the
+.Dq pin-value
+attribute or obtain the PIN from the
+.Dq pin-source
+attribute (which allows one to specify a file or a program to
+execute which might then prompt).
+See RFC 7512.
 .It NULL:
 An empty store.
 .It MEMORY:name
-An in-memory only, ephemeral store, usually never used in
+An in-memory only, ephemeral store, usually not used in
 .Nm Ap s
 commands.
 The MEMORY store name exists primarily for internal
@@ -1292,4 +1380,5 @@ hxtool issue-certificate                            \\
 	--certificate=PEM-FILE:intermediate.pem
 .Ed
 .Sh SEE ALSO
-.Xr openssl 1
+.Xr openssl 1 ,
+.Xr property 7

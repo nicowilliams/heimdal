@@ -430,11 +430,47 @@ hx509_prompt_hidden(hx509_prompt_type type)
     }
 }
 
+static char *
+read_password_file(const char *fn)
+{
+    size_t n = 0;
+    char *s = NULL;
+    FILE *f;
+    int save_errno;
+
+    if ((f = fopen(fn, "r")) == NULL)
+        return NULL;
+
+    if (getline(&s, &n, f) > -1) {
+        char *nl = strchr(s, '\n');
+
+        if (nl) {
+            *nl = '\0';
+            if (nl > s && nl[-1] == '\r')
+                nl[-1] = '\0';
+        }
+    }
+    save_errno = errno;
+    (void) fclose(f);
+    errno = save_errno;
+    return s;
+}
+
 HX509_LIB_FUNCTION int HX509_LIB_CALL
 hx509_lock_command_string(hx509_lock lock, const char *string)
 {
     if (strncasecmp(string, "PASS:", 5) == 0) {
 	hx509_lock_add_password(lock, string + 5);
+    } else if (strncasecmp(string, "FILE:", 5) == 0) {
+        char *pass = read_password_file(string + sizeof("FILE:") - 1);
+
+        if (pass == NULL) {
+            warn("Could not read password from %s", string);
+            return errno;
+        }
+	hx509_lock_add_password(lock, pass);
+        memset(pass, 0, strlen(pass));
+        free(pass);
     } else if (strcasecmp(string, "PROMPT") == 0) {
 	hx509_lock_set_prompter(lock, default_prompter, NULL);
     } else

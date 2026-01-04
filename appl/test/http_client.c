@@ -85,13 +85,13 @@ fdprintf(int s, const char *fmt, ...)
     size_t len;
     ssize_t ret;
     va_list ap;
-    char *str, *buf;
+    char *str = NULL, *buf;
 
     va_start(ap, fmt);
-    vasprintf(&str, fmt, ap);
+    ret = vasprintf(&str, fmt, ap);
     va_end(ap);
 
-    if (str == NULL)
+    if (ret == -1 || str == NULL)
 	errx(1, "vasprintf");
 
     buf = str;
@@ -372,8 +372,11 @@ main(int argc, char **argv)
 		    printf("Negotiate found\n");
 
 		if (server == GSS_C_NO_NAME) {
-		    char *name;
-		    asprintf(&name, "%s@%s", gss_service, host);
+		    char *name = NULL;
+
+		    if (asprintf(&name, "%s@%s", gss_service, host) == -1 ||
+                        name == NULL)
+                        err(1, "asprintf");
 		    input_token.length = strlen(name);
 		    input_token.value = name;
 
@@ -483,8 +486,11 @@ main(int argc, char **argv)
 				     output_token.length,
 				     &neg_token);
 
-		    asprintf(&headers[num_headers++], "Authorization: Negotiate %s",
-			     neg_token);
+		    if (asprintf(&headers[num_headers],
+                                 "Authorization: Negotiate %s", neg_token) == -1 ||
+                        headers[num_headers] == NULL)
+                        err(1, "asprintf");
+                    num_headers++;
 
 		    free(neg_token);
 		    gss_release_buffer(&min_stat, &output_token);

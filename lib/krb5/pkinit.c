@@ -818,13 +818,8 @@ build_auth_pack(krb5_context context,
                 return ret;
 
             /*
-             * Before removing hcrypto and switching to OpenSSL 3.x we had the
-             * following comment which is no longer something we can do
-             * anything about because OpenSSL's i2d_PUBKEY() will include the q
-             * parameter IFF it was provided when generating the key, and we
-             * get no control over that other than to have provided it.  We do
-             * provide `q` though, unless we use an entry from the moduli file
-             * which doesn't.
+             * Prior to removing hcrypto and switching to OpenSSL 3.x we had
+             * this comment:
              *
              * |  The q parameter is required, but MSFT made it optional.
              * |  It's only required in order to verify the domain parameters
@@ -836,8 +831,20 @@ build_auth_pack(krb5_context context,
              * |  compute it on the fly like MIT Kerberos does, but we'd have
              * |  to implement BN_rshift1().
              *
-             * Now we get a choice though, as EVP_PKEY_DH and EVP_PKEY_DHX
-             * represent modp DH w/ and w/o the q parameter.
+             * We use X9.42 DH (EVP_PKEY_DHX) which produces the
+             * id-dhpublicnumber OID (1.2.840.10046.2.1) per RFC 3279 as
+             * referenced by RFC 4556.
+             *
+             * The q parameter is optional on the wire -- RFC 4556 requires it
+             * but Microsoft treats it as optional. We include q when available
+             * (OpenSSL includes it if provided at key generation time). When
+             * validating received params we don't care if q is missing because
+             * we only accept configured groups anyways, so we don't need to
+             * validate the peer's group.
+             *
+             * Note: the old comment about computing q = p>>1 for Sophie
+             * Germain primes only applies to Oakley Group 2 (RFC 2409). The
+             * RFC 3526 MODP groups are NOT Sophie Germain primes.
              */
 	} else {
             ret = _krb5_pkinit_make_ecdh_key(context, NULL, NULL,

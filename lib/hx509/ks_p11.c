@@ -32,10 +32,21 @@
  */
 
 /*
- * PKCS#11 keystore using OpenSSL's PKCS#11 provider and OSSL_STORE API.
+ * PKCS#11 keystore using OpenSSL provider (OSSL_STORE) API, and as a result we
+ * do no PKCS#11 calls here.
  *
- * This implementation uses PKCS#11 URIs (RFC 7512) to access tokens via
- * an OpenSSL provider rather than direct PKCS#11 C API calls.
+ * We test with the Latchset PKCS#11 OpenSSL 3.x provider, which allows us to
+ * refer to objects via PKCS#11 URIs [RFC 7512].
+ *
+ * Thus for hx509 a PKCS#11 object is referenced as
+ *
+ *      PKCS11:<pkcs11-uri>[,config=<openssl-config-path>]
+ *
+ * when using the Latchset provider.  Alternative providers might use other
+ * ways to reference PKCS#11 objects, though using anything other than PKCS#11
+ * URIs would not be user-friendly.
+ *
+ * The Latchset provider is at https://github.com/latchset/pkcs11-provider
  *
  * URI format: PKCS11:<pkcs11-uri>[,config=<openssl-config-path>]
  *
@@ -227,7 +238,7 @@ parse_options(const char *residue, char **uri, char **config)
         /* Parse config= option */
         comma++;
         while (*comma) {
-            if (strncasecmp(comma, "config=", 7) == 0) {
+            if (strncmp(comma, "config=", 7) == 0) {
                 const char *end;
                 comma += 7;
                 end = strchr(comma, ',');
@@ -291,8 +302,8 @@ p11_init(hx509_context context,
     p->libctx = OSSL_LIB_CTX_new();
     if (p->libctx == NULL) {
         ret = HX509_PKCS11_LOAD;
-        hx509_set_error_string(context, 0, ret,
-                               "Failed to create OpenSSL library context");
+        _hx509_set_error_string_openssl(context, 0, ret,
+                                        "Failed to create OpenSSL library context");
         goto out;
     }
 
@@ -300,8 +311,9 @@ p11_init(hx509_context context,
     if (config) {
         if (!OSSL_LIB_CTX_load_config(p->libctx, config)) {
             ret = HX509_PKCS11_LOAD;
-            hx509_set_error_string(context, 0, ret,
-                                   "Failed to load OpenSSL config: %s", config);
+            _hx509_set_error_string_openssl(context, 0, ret,
+                                            "Failed to load OpenSSL config: %s",
+                                            config);
             goto out;
         }
     }
@@ -310,17 +322,17 @@ p11_init(hx509_context context,
     p->defprov = OSSL_PROVIDER_load(p->libctx, "default");
     if (p->defprov == NULL) {
         ret = HX509_PKCS11_LOAD;
-        hx509_set_error_string(context, 0, ret,
-                               "Failed to load OpenSSL default provider");
+        _hx509_set_error_string_openssl(context, 0, ret,
+                                        "Failed to load OpenSSL default provider");
         goto out;
     }
 
     p->p11prov = OSSL_PROVIDER_load(p->libctx, "pkcs11");
     if (p->p11prov == NULL) {
         ret = HX509_PKCS11_LOAD;
-        hx509_set_error_string(context, 0, ret,
-                               "Failed to load OpenSSL pkcs11 provider. "
-                               "Ensure pkcs11-provider is installed.");
+        _hx509_set_error_string_openssl(context, 0, ret,
+                                        "Failed to load OpenSSL pkcs11 provider. "
+                                        "Ensure pkcs11-provider is installed.");
         goto out;
     }
 
@@ -351,8 +363,8 @@ p11_init(hx509_context context,
             if (OSSL_STORE_eof(store))
                 break;
             ret = HX509_PKCS11_TOKEN_CONFUSED;
-            hx509_set_error_string(context, 0, ret,
-                                   "Error loading from PKCS#11 store");
+            _hx509_set_error_string_openssl(context, 0, ret,
+                                            "Error loading from PKCS#11 store");
             goto out;
         }
 

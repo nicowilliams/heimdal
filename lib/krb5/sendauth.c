@@ -105,6 +105,7 @@ krb5_sendauth(krb5_context context,
     krb5_data ap_req, error_data;
     krb5_creds this_cred;
     krb5_principal this_client = NULL;
+    krb5_creds *freeme = NULL;
     krb5_creds *creds;
     ssize_t sret;
     krb5_boolean my_ccache = FALSE;
@@ -167,12 +168,13 @@ krb5_sendauth(krb5_context context,
 	in_creds = &this_cred;
     }
     if (in_creds->ticket.length == 0) {
-	ret = krb5_get_credentials (context, 0, ccache, in_creds, &creds);
+	ret = krb5_get_credentials (context, 0, ccache, in_creds, &freeme);
 	if (ret) {
 	    if(my_ccache)
 		krb5_cc_close(context, ccache);
 	    goto out;
 	}
+        creds = freeme;
     } else {
 	creds = in_creds;
     }
@@ -249,18 +251,7 @@ krb5_sendauth(krb5_context context,
         ret = krb5_copy_creds(context, creds, out_creds);
 
 out:
-    /*
-     * this_client is set only when in_creds == NULL and client == NULL,
-     * in which case this_cred.client == this_client.  When creds ==
-     * &this_cred, krb5_free_cred_contents() will free this_client via
-     * this_cred.client.  Otherwise we must free this_client here.
-     */
-    if (creds != &this_cred)
-        krb5_free_principal(context, this_client);
-    this_cred.server = NULL;
-    if (creds == &this_cred)
-        krb5_free_cred_contents(context, creds);
-    else if (creds)
-        krb5_free_creds(context, creds);
+    krb5_free_principal(context, this_client);
+    krb5_free_creds(context, freeme);
     return ret;
 }

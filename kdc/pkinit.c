@@ -252,8 +252,10 @@ gen_eph_for_peer_spki(astgs_request_t r, SubjectPublicKeyInfo *spki,
     case EVP_PKEY_DH:
     case EVP_PKEY_DHX:
         /*
-         * EVP_PKEY_DH is for DH with no q param.  EVP_PKEY_DHX is for DH with
-         * the q parameter
+         * RFC 4556 specifies X9.42 DH (id-dhpublicnumber, which OpenSSL calls
+         * EVP_PKEY_DHX), but a peer could send PKCS#3 DH (which OpenSSL calls
+         * EVP_PKEY_DH).  We accept either, and either way check that the
+         * parameters are acceptable.
          */
         bits = EVP_PKEY_get_bits(*peer);
         if (minbits > 0 && bits < minbits) {
@@ -2070,6 +2072,8 @@ _kdc_pk_check_client(astgs_request_t r,
     hx509_name name;
     size_t i;
 
+    *subject_name = NULL;
+
     if (cp->cert == NULL) {
 	if (!_kdc_is_anonymous(r->context, client->principal)
 	    && !config->historical_anon_realm)
@@ -2105,7 +2109,7 @@ _kdc_pk_check_client(astgs_request_t r,
 	return ret;
 
     kdc_log(r->context, config, 0,
-	    "Trying to authorize PKINIT subject DN %s",
+	    "Trying to authorize PKINIT subject DN \"%s\"",
 	    *subject_name);
 
     ret = hdb_entry_get_pkinit_cert(client, &pc);
@@ -2123,6 +2127,8 @@ _kdc_pk_check_client(astgs_request_t r,
 	    ret = hx509_cert_cmp(cert, cp->cert);
 	    hx509_cert_free(cert);
 	    if (ret == 0) {
+                kdc_audit_addkv((kdc_request_t)r, 0, "authorized_by",
+                                "exact_match_cert");
 		kdc_log(r->context, config, 5,
 			"Found matching PKINIT cert in hdb");
 		return 0;
@@ -2137,6 +2143,8 @@ _kdc_pk_check_client(astgs_request_t r,
 			    cp->cert,
 			    client->principal);
 	if (ret == 0) {
+            kdc_audit_addkv((kdc_request_t)r, 0, "authorized_by",
+                            "exact_match_PKINIT_SAN");
 	    kdc_log(r->context, config, 5,
 		    "Found matching PKINIT SAN in certificate");
 	    return 0;
@@ -2147,6 +2155,8 @@ _kdc_pk_check_client(astgs_request_t r,
 			       clientdb,
 			       client);
 	if (ret == 0) {
+            kdc_audit_addkv((kdc_request_t)r, 0, "authorized_by",
+                            "exact_match_UPN_SAN");
 	    kdc_log(r->context, config, 5,
 		    "Found matching MS UPN SAN in certificate");
 	    return 0;
@@ -2169,6 +2179,8 @@ _kdc_pk_check_client(astgs_request_t r,
 	    if (acl->val[0].anchor)
 		continue;
 
+            kdc_audit_addkv((kdc_request_t)r, 0, "authorized_by",
+                            "exact_match_cert_name");
 	    kdc_log(r->context, config, 5,
 		    "Found matching PKINIT database ACL");
 	    return 0;
@@ -2185,6 +2197,8 @@ _kdc_pk_check_client(astgs_request_t r,
 	    continue;
 	if (strcmp(principal_mappings.val[i].subject, *subject_name) != 0)
 	    continue;
+        kdc_audit_addkv((kdc_request_t)r, 0, "authorized_by",
+                        "pkinit_mappings_file");
 	kdc_log(r->context, config, 5,
 		"Found matching PKINIT FILE ACL");
 	return 0;
@@ -2195,6 +2209,8 @@ _kdc_pk_check_client(astgs_request_t r,
 			  "PKINIT no matching principals for %s",
 			  *subject_name);
 
+    kdc_audit_addkv((kdc_request_t)r, 0, "authorized_by",
+                    "denied");
     kdc_log(r->context, config, 5,
 	    "PKINIT no matching principals for %s",
 	    *subject_name);

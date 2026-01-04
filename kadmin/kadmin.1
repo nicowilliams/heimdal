@@ -729,11 +729,12 @@ This command has the following alias:
 .Nm quit .
 .Ed
 .Sh ENVIRONMENT
-.Ev KADMIN_USE_GET_PRINCIPALS
+.Ev KADMIN_USE_GET_PRINCIPALS ,
 if set to any non-empty value then it uses a slower RPC to list
 principals when talking to a remote
 .Nm kadmind
 server.
+This is useful when the server is an older version of Heimdal.
 .\".Sh FILES
 .\".Sh EXAMPLES
 .\".Sh DIAGNOSTICS
