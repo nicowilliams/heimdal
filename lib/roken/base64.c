@@ -292,6 +292,7 @@ rk_base64url_decode(const char *str, void *data)
 
 #ifdef TEST
 static int decode_flag;
+static int url_safe_flag;
 static int help_flag;
 
 /*
@@ -300,6 +301,7 @@ static int help_flag;
  */
 static struct getargs args[] = {
     { "decode", 'd', arg_flag, &decode_flag, "Decode", NULL },
+    { "url-safe", 'u', arg_flag, &url_safe_flag, "Use URL-safe alphabet", NULL },
     { "help", 'h', arg_flag, &help_flag, "Print help message", NULL },
 };
 static size_t num_args = sizeof(args)/sizeof(args[0]);
@@ -371,16 +373,24 @@ main(int argc, char **argv)
         if ((d = malloc(buflen * 3 / 4 + 4)) == NULL)
             err(1, "Could not decode data");
 
-        if ((ret = rk_base64_decode((const char *)buf, d)) < 0)
+        if (url_safe_flag) {
+            if ((ret = rk_base64url_decode((const char *)buf, d)) < 0)
+                err(1, "Could not decode data");
+        } else if ((ret = rk_base64_decode((const char *)buf, d)) < 0) {
             err(1, "Could not decode data");
+        }
         if (fwrite(d, ret, 1, stdout) != 1)
             err(1, "Could not write decoded data");
         free(d);
     } else if (buf) { /* buf can be NULL if we read from an empty file */
         char *e;
 
-        if ((ret = rk_base64_encode(buf, buflen, &e)) < 0)
+        if (url_safe_flag) {
+            if ((ret = rk_base64url_encode(buf, buflen, &e)) < 0)
+                err(1, "Could not encode data");
+        } else if ((ret = rk_base64_encode(buf, buflen, &e)) < 0) {
             err(1, "Could not encode data");
+        }
         if (fwrite(e, ret, 1, stdout) != 1)
             err(1, "Could not write decoded data");
         free(e);
