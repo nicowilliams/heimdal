@@ -71,7 +71,7 @@ _krb5_SP800_108_HMAC_KDF(krb5_context context,
 
     heim_assert(md != NULL, "SP800-108 KDF internal error");
 
-    mac = EVP_MAC_fetch(NULL, "HMAC", NULL); // can't be NULL
+    mac = EVP_MAC_fetch(context->ossl->libctx, "HMAC", context->ossl->propq);
     ctx = EVP_MAC_CTX_new(mac);
 
     n = L / h;

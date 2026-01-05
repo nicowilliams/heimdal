@@ -860,7 +860,7 @@ mk_kx509_req(krb5_context context,
         goto out;
 
     /* Add the the key and HMAC to the message */
-    mac = EVP_MAC_fetch(NULL, "HMAC", NULL); // can't be NULL
+    mac = EVP_MAC_fetch(context->ossl->libctx, "HMAC", context->ossl->propq);
     ctx = EVP_MAC_CTX_new(mac);
     if (EVP_MAC_init(ctx, kx509_ctx->hmac_key->keyvalue.data,
                      kx509_ctx->hmac_key->keyvalue.length,
@@ -1028,7 +1028,7 @@ rd_kx509_resp(krb5_context context,
         return ret;
     }
 
-    mac = EVP_MAC_fetch(NULL, "HMAC", NULL); // can't be NULL
+    mac = EVP_MAC_fetch(context->ossl->libctx, "HMAC", context->ossl->propq);
     ctx = EVP_MAC_CTX_new(mac);
     if (EVP_MAC_init(ctx, kx509_ctx->hmac_key->keyvalue.data,
                      kx509_ctx->hmac_key->keyvalue.length,

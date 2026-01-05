@@ -341,7 +341,8 @@ krb5_hmac(krb5_context context,
 }
 
 KRB5_LIB_FUNCTION krb5_error_code KRB5_LIB_CALL
-_krb5_hmac_start_ossl(const unsigned char *key, size_t keylen,
+_krb5_hmac_start_ossl(krb5_context context,
+                      const unsigned char *key, size_t keylen,
                       const EVP_MD *md, EVP_MAC_CTX **ctx)
 {
     const char *mdname = EVP_MD_get0_name(md); // can't be NULL can it
@@ -352,7 +353,7 @@ _krb5_hmac_start_ossl(const unsigned char *key, size_t keylen,
     EVP_MAC *mac;
 
     *ctx = NULL;
-    mac = EVP_MAC_fetch(NULL, "HMAC", NULL); // can't be NULL
+    mac = EVP_MAC_fetch(context->ossl->libctx, "HMAC", context->ossl->propq);
     if ((*ctx = EVP_MAC_CTX_new(mac)) == NULL ||
         EVP_MAC_init(*ctx, key, keylen, params) != 1) {
         EVP_MAC_free(mac);
@@ -363,7 +364,8 @@ _krb5_hmac_start_ossl(const unsigned char *key, size_t keylen,
 }
 
 KRB5_LIB_FUNCTION krb5_error_code KRB5_LIB_CALL
-_krb5_hmac_ossl(const unsigned char *key, size_t keylen,
+_krb5_hmac_ossl(krb5_context context,
+                const unsigned char *key, size_t keylen,
                 const unsigned char *in, unsigned int inlen,
                 unsigned char *out, size_t *outlen,
                 const EVP_MD *md)
@@ -371,7 +373,7 @@ _krb5_hmac_ossl(const unsigned char *key, size_t keylen,
     EVP_MAC_CTX *ctx;
     int ret;
 
-    ret = _krb5_hmac_start_ossl(key, keylen, md, &ctx);
+    ret = _krb5_hmac_start_ossl(context, key, keylen, md, &ctx);
     if (ret)
         return ret;
 

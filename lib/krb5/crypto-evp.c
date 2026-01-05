@@ -175,13 +175,14 @@ _krb5_evp_hmac_iov(krb5_context context,
 
     if (crypto != NULL) {
         if (crypto->mac == NULL)
-            crypto->mac = EVP_MAC_fetch(NULL, "HMAC", NULL); // can't be NULL
+            crypto->mac = EVP_MAC_fetch(context->ossl->libctx, "HMAC",
+                                        context->ossl->propq);
 	if (crypto->hmacctx == NULL)
 	    crypto->hmacctx = EVP_MAC_CTX_new(crypto->mac);
 	ctx = crypto->hmacctx;
         mac = crypto->mac;
     } else {
-        mac = EVP_MAC_fetch(NULL, "HMAC", NULL); // can't be NULL
+        mac = EVP_MAC_fetch(context->ossl->libctx, "HMAC", context->ossl->propq);
 	ctx = EVP_MAC_CTX_new(mac);
     }
     if (ctx == NULL) {
