@@ -842,6 +842,8 @@ _krb5_fast_free(krb5_context context, struct krb5_fast_state *state)
 	krb5_crypto_destroy(context, state->armor_crypto);
     if (state->strengthen_key)
 	krb5_free_keyblock(context, state->strengthen_key);
+    if (state->reply_key)
+	krb5_free_keyblock(context, state->reply_key);
     krb5_free_keyblock_contents(context, &state->armor_key);
     if (state->armor_data) {
 	free_KrbFastArmor(state->armor_data);
