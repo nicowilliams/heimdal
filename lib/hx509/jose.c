@@ -766,8 +766,12 @@ hx509_jws_sign(hx509_context context,
         goto out;
     }
 
-    heim_dict_set_value(header, HSTR("alg"), heim_string_create(alg_name));
-    heim_dict_set_value(header, HSTR("typ"), heim_string_create("JWT"));
+    {
+        heim_string_t s = heim_string_create(alg_name);
+        heim_dict_set_value(header, HSTR("alg"), s);
+        heim_release(s);
+    }
+    heim_dict_set_value(header, HSTR("typ"), HSTR("JWT"));
 
     /* Serialize header to JSON */
     header_json_str = heim_json_copy_serialize(header, HEIM_JSON_F_ONE_LINE, NULL);
@@ -901,8 +905,12 @@ hx509_jws_sign_key(hx509_context context,
         goto out;
     }
 
-    heim_dict_set_value(header, HSTR("alg"), heim_string_create(alg_name));
-    heim_dict_set_value(header, HSTR("typ"), heim_string_create("JWT"));
+    {
+        heim_string_t s = heim_string_create(alg_name);
+        heim_dict_set_value(header, HSTR("alg"), s);
+        heim_release(s);
+    }
+    heim_dict_set_value(header, HSTR("typ"), HSTR("JWT"));
 
     /* Serialize header to JSON */
     header_json_str = heim_json_copy_serialize(header, HEIM_JSON_F_ONE_LINE, NULL);
@@ -1007,15 +1015,30 @@ hx509_jwt_sign_key(hx509_context context,
     if (claims == NULL)
         return ENOMEM;
 
-    if (issuer)
-        heim_dict_set_value(claims, HSTR("iss"), heim_string_create(issuer));
-    if (subject)
-        heim_dict_set_value(claims, HSTR("sub"), heim_string_create(subject));
-    if (audience)
-        heim_dict_set_value(claims, HSTR("aud"), heim_string_create(audience));
+    if (issuer) {
+        heim_string_t s = heim_string_create(issuer);
+        heim_dict_set_value(claims, HSTR("iss"), s);
+        heim_release(s);
+    }
+    if (subject) {
+        heim_string_t s = heim_string_create(subject);
+        heim_dict_set_value(claims, HSTR("sub"), s);
+        heim_release(s);
+    }
+    if (audience) {
+        heim_string_t s = heim_string_create(audience);
+        heim_dict_set_value(claims, HSTR("aud"), s);
+        heim_release(s);
+    }
 
-    heim_dict_set_value(claims, HSTR("iat"), heim_number_create(now));
-    heim_dict_set_value(claims, HSTR("exp"), heim_number_create(now + lifetime));
+    {
+        heim_number_t n = heim_number_create(now);
+        heim_dict_set_value(claims, HSTR("iat"), n);
+        heim_release(n);
+        n = heim_number_create(now + lifetime);
+        heim_dict_set_value(claims, HSTR("exp"), n);
+        heim_release(n);
+    }
 
     /* Merge extra claims */
     if (extra_claims) {
@@ -1209,15 +1232,30 @@ hx509_jwt_sign(hx509_context context,
     if (claims == NULL)
         return ENOMEM;
 
-    if (issuer)
-        heim_dict_set_value(claims, HSTR("iss"), heim_string_create(issuer));
-    if (subject)
-        heim_dict_set_value(claims, HSTR("sub"), heim_string_create(subject));
-    if (audience)
-        heim_dict_set_value(claims, HSTR("aud"), heim_string_create(audience));
+    if (issuer) {
+        heim_string_t s = heim_string_create(issuer);
+        heim_dict_set_value(claims, HSTR("iss"), s);
+        heim_release(s);
+    }
+    if (subject) {
+        heim_string_t s = heim_string_create(subject);
+        heim_dict_set_value(claims, HSTR("sub"), s);
+        heim_release(s);
+    }
+    if (audience) {
+        heim_string_t s = heim_string_create(audience);
+        heim_dict_set_value(claims, HSTR("aud"), s);
+        heim_release(s);
+    }
 
-    heim_dict_set_value(claims, HSTR("iat"), heim_number_create(now));
-    heim_dict_set_value(claims, HSTR("exp"), heim_number_create(now + lifetime));
+    {
+        heim_number_t n = heim_number_create(now);
+        heim_dict_set_value(claims, HSTR("iat"), n);
+        heim_release(n);
+        n = heim_number_create(now + lifetime);
+        heim_dict_set_value(claims, HSTR("exp"), n);
+        heim_release(n);
+    }
 
     /* Merge extra claims */
     if (extra_claims) {
@@ -1291,7 +1329,7 @@ hx509_pem_to_jwk(hx509_context context,
         char *n_b64, *e_b64;
         int n_len, e_len;
 
-        heim_dict_set_value(jwk, HSTR("kty"), heim_string_create("RSA"));
+        heim_dict_set_value(jwk, HSTR("kty"), HSTR("RSA"));
 
         if (EVP_PKEY_get_bn_param(pkey, OSSL_PKEY_PARAM_RSA_N, &n) != 1 ||
             EVP_PKEY_get_bn_param(pkey, OSSL_PKEY_PARAM_RSA_E, &e) != 1) {
@@ -1321,8 +1359,12 @@ hx509_pem_to_jwk(hx509_context context,
         e_b64 = base64url_encode(e_bin, e_len);
 
         if (n_b64 && e_b64) {
-            heim_dict_set_value(jwk, HSTR("n"), heim_string_create(n_b64));
-            heim_dict_set_value(jwk, HSTR("e"), heim_string_create(e_b64));
+            heim_string_t s = heim_string_create(n_b64);
+            heim_dict_set_value(jwk, HSTR("n"), s);
+            heim_release(s);
+            s = heim_string_create(e_b64);
+            heim_dict_set_value(jwk, HSTR("e"), s);
+            heim_release(s);
             ret = 0;
         }
 
@@ -1341,7 +1383,7 @@ hx509_pem_to_jwk(hx509_context context,
         const char *crv = NULL;
         int coord_size = 0;
 
-        heim_dict_set_value(jwk, HSTR("kty"), heim_string_create("EC"));
+        heim_dict_set_value(jwk, HSTR("kty"), HSTR("EC"));
 
         if (EVP_PKEY_get_utf8_string_param(pkey, OSSL_PKEY_PARAM_GROUP_NAME,
                                            crv_name, sizeof(crv_name),
@@ -1367,7 +1409,11 @@ hx509_pem_to_jwk(hx509_context context,
             goto out_key;
         }
 
-        heim_dict_set_value(jwk, HSTR("crv"), heim_string_create(crv));
+        {
+            heim_string_t s = heim_string_create(crv);
+            heim_dict_set_value(jwk, HSTR("crv"), s);
+            heim_release(s);
+        }
 
         if (EVP_PKEY_get_bn_param(pkey, OSSL_PKEY_PARAM_EC_PUB_X, &x) != 1 ||
             EVP_PKEY_get_bn_param(pkey, OSSL_PKEY_PARAM_EC_PUB_Y, &y) != 1) {
@@ -1394,8 +1440,12 @@ hx509_pem_to_jwk(hx509_context context,
         y_b64 = base64url_encode(y_bin, coord_size);
 
         if (x_b64 && y_b64) {
-            heim_dict_set_value(jwk, HSTR("x"), heim_string_create(x_b64));
-            heim_dict_set_value(jwk, HSTR("y"), heim_string_create(y_b64));
+            heim_string_t s = heim_string_create(x_b64);
+            heim_dict_set_value(jwk, HSTR("x"), s);
+            heim_release(s);
+            s = heim_string_create(y_b64);
+            heim_dict_set_value(jwk, HSTR("y"), s);
+            heim_release(s);
             ret = 0;
         }
 
@@ -1410,15 +1460,17 @@ hx509_pem_to_jwk(hx509_context context,
         size_t pub_len = sizeof(pub_key);
         char *x_b64;
 
-        heim_dict_set_value(jwk, HSTR("kty"), heim_string_create("OKP"));
-        heim_dict_set_value(jwk, HSTR("crv"), heim_string_create("Ed25519"));
+        heim_dict_set_value(jwk, HSTR("kty"), HSTR("OKP"));
+        heim_dict_set_value(jwk, HSTR("crv"), HSTR("Ed25519"));
 
         if (EVP_PKEY_get_raw_public_key(pkey, pub_key, &pub_len) != 1)
             goto out_key;
 
         x_b64 = base64url_encode(pub_key, pub_len);
         if (x_b64) {
-            heim_dict_set_value(jwk, HSTR("x"), heim_string_create(x_b64));
+            heim_string_t s = heim_string_create(x_b64);
+            heim_dict_set_value(jwk, HSTR("x"), s);
+            heim_release(s);
             free(x_b64);
             ret = 0;
         }
@@ -1427,15 +1479,17 @@ hx509_pem_to_jwk(hx509_context context,
         size_t pub_len = sizeof(pub_key);
         char *x_b64;
 
-        heim_dict_set_value(jwk, HSTR("kty"), heim_string_create("OKP"));
-        heim_dict_set_value(jwk, HSTR("crv"), heim_string_create("Ed448"));
+        heim_dict_set_value(jwk, HSTR("kty"), HSTR("OKP"));
+        heim_dict_set_value(jwk, HSTR("crv"), HSTR("Ed448"));
 
         if (EVP_PKEY_get_raw_public_key(pkey, pub_key, &pub_len) != 1)
             goto out_key;
 
         x_b64 = base64url_encode(pub_key, pub_len);
         if (x_b64) {
-            heim_dict_set_value(jwk, HSTR("x"), heim_string_create(x_b64));
+            heim_string_t s = heim_string_create(x_b64);
+            heim_dict_set_value(jwk, HSTR("x"), s);
+            heim_release(s);
             free(x_b64);
             ret = 0;
         }
