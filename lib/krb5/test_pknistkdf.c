@@ -44,14 +44,7 @@ struct testcase {
     const char *client;
     const char *server;
     krb5_enctype enctype;
-<<<<<<< HEAD
-    krb5_data as_req;
-    krb5_data pk_as_rep;
-
-    krb5_data key;
-=======
-    struct { size_t length; const void *data; } as_req, pk_as_rep, ticket, key;
->>>>>>> b978542785d (Sprinkle const and rk_UNCONST throughout the tests.)
+    struct { size_t length; const void *data; } as_req, pk_as_rep, key;
 } tests[] = {
     /* 0 */
     {
@@ -79,10 +72,12 @@ struct testcase {
 	"krbtgt/SU.SE@SU.SE", /* server, partyVInfo */
 	ETYPE_AES256_CTS_HMAC_SHA1_96, /* enctype */
 	{ /* as_req */
-	    10, "\xAA\xAA\xAA\xAA\xAA\xAA\xAA\xAA\xAA\xAA"
+	    10,
+	    "\xAA\xAA\xAA\xAA\xAA\xAA\xAA\xAA\xAA\xAA"
 	},
 	{ /* pk_as_rep */
-	    9, "\xBB\xBB\xBB\xBB\xBB\xBB\xBB\xBB\xBB"
+	    9,
+	    "\xBB\xBB\xBB\xBB\xBB\xBB\xBB\xBB\xBB"
 	},
 	{ /* key */
 	    32,
@@ -116,10 +111,12 @@ struct testcase {
 	"krbtgt/SU.SE@SU.SE", /* server, partyVInfo */
 	ETYPE_AES256_CTS_HMAC_SHA1_96, /* enctype */
 	{ /* as_req */
-	    10, "\xAA\xAA\xAA\xAA\xAA\xAA\xAA\xAA\xAA\xAA"
+	    10,
+	    "\xAA\xAA\xAA\xAA\xAA\xAA\xAA\xAA\xAA\xAA"
 	},
 	{ /* pk_as_rep */
-	    9, "\xBB\xBB\xBB\xBB\xBB\xBB\xBB\xBB\xBB"
+	    9,
+	    "\xBB\xBB\xBB\xBB\xBB\xBB\xBB\xBB\xBB"
 	},
 	{ /* key */
 	    32,
@@ -192,10 +189,12 @@ struct testcase {
 	"krbtgt/SU.SE@SU.SE", /* server, partyVInfo */
 	ETYPE_AES256_CTS_HMAC_SHA1_96, /* enctype */
 	{ /* as_req */
-	    10, "\xAA\xAA\xAA\xAA\xAA\xAA\xAA\xAA\xAA\xAA"
+	    10,
+	    "\xAA\xAA\xAA\xAA\xAA\xAA\xAA\xAA\xAA\xAA"
 	},
 	{ /* pk_as_rep */
-	    9, "\xBB\xBB\xBB\xBB\xBB\xBB\xBB\xBB\xBB"
+	    9,
+	    "\xBB\xBB\xBB\xBB\xBB\xBB\xBB\xBB\xBB"
 	},
 	{ /* key */
 	    32,
@@ -237,28 +236,9 @@ fooTicket(void)
 static void
 test_dh2key(krb5_context context, int i, struct testcase *c)
 {
-    krb5_data as_req = { c->as_req.length, rk_UNCONST(c->as_req.data) };
-    krb5_data pk_as_rep =
-	{ c->pk_as_rep.length, rk_UNCONST(c->pk_as_rep.data) };
-    krb5_data ticketdata = { c->ticket.length, rk_UNCONST(c->ticket.data) };
     krb5_error_code ret;
     krb5_principal client, server;
-<<<<<<< HEAD
     krb5_data key;
-=======
-    Ticket ticket;
-    AlgorithmIdentifier ai;
-    size_t size;
-
-    memset(&ticket, 0, sizeof(ticket));
-
-    ai.algorithm = *c->oid;
-    ai.parameters = NULL;
-
-    ret = decode_Ticket(ticketdata.data, ticketdata.length, &ticket, &size);
-    if (ret)
-	krb5_errx(context, 1, "decode ticket: %d", ret);
->>>>>>> b978542785d (Sprinkle const and rk_UNCONST throughout the tests.)
 
     ret = krb5_parse_name(context, c->client, &client);
     if (ret)
@@ -299,17 +279,10 @@ test_dh2key(krb5_context context, int i, struct testcase *c)
 		       client,
 		       server,
 		       c->enctype,
-<<<<<<< HEAD
                        NULL, NULL, /* We lack test vectors for RFC 4556 */
-		       &c->as_req,
-		       &c->pk_as_rep,
+		       (krb5_data *)&c->as_req,
+		       (krb5_data *)&c->pk_as_rep,
 		       &key, NULL);
-=======
-		       &as_req,
-		       &pk_as_rep,
-		       &ticket,
-		       &key);
->>>>>>> b978542785d (Sprinkle const and rk_UNCONST throughout the tests.)
     krb5_free_principal(context, client);
     krb5_free_principal(context, server);
     if (ret)
