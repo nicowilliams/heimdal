@@ -221,15 +221,24 @@ OM_uint32
 _gss_sanon_curve25519_base(OM_uint32 *minor, sanon_ctx sc)
 {
     OM_uint32 maj = GSS_S_FAILURE;
+    krb5_context context;
     EVP_PKEY_CTX *kctx = NULL;
     EVP_PKEY *pkey = NULL;
     size_t pklen = X25519_LEN, sklen = X25519_LEN;
 
+    if (krb5_init_context(&context)) {
+        *minor = ENOMEM;
+        return GSS_S_FAILURE;
+    }
+
     /* Create an X25519 keypair */
-    if ((kctx = EVP_PKEY_CTX_new_from_name(NULL, "X25519", NULL)) == NULL ||
+    kctx = EVP_PKEY_CTX_new_from_name(context->ossl->libctx, "X25519",
+                                      context->ossl->propq);
+    if (kctx == NULL ||
         EVP_PKEY_keygen_init(kctx) <= 0 ||
         EVP_PKEY_keygen(kctx, &pkey) <= 0) {
         EVP_PKEY_CTX_free(kctx);
+        krb5_free_context(context);
         *minor = ENOMEM; // XXX
         return GSS_S_FAILURE;
     }
@@ -247,6 +256,7 @@ _gss_sanon_curve25519_base(OM_uint32 *minor, sanon_ctx sc)
 
     EVP_PKEY_free(pkey);
     EVP_PKEY_CTX_free(kctx);
+    krb5_free_context(context);
     return maj;
 }
 
@@ -276,18 +286,29 @@ _gss_sanon_curve25519(OM_uint32 *minor,
     if (pk == GSS_C_NO_BUFFER || pk->length != X25519_LEN)
 	return GSS_S_DEFECTIVE_TOKEN;
 
-    sk = EVP_PKEY_new_raw_private_key_ex(NULL, "X25519", NULL, sc->sk,
+    ret = krb5_init_context(&context);
+    if (ret != 0) {
+	*minor = ret;
+	return GSS_S_FAILURE;
+    }
+
+    sk = EVP_PKEY_new_raw_private_key_ex(context->ossl->libctx, "X25519",
+                                         context->ossl->propq, sc->sk,
                                          X25519_LEN);
-    peer = EVP_PKEY_new_raw_public_key_ex(NULL,  "X25519", NULL,
+    peer = EVP_PKEY_new_raw_public_key_ex(context->ossl->libctx, "X25519",
+                                          context->ossl->propq,
                                           (const unsigned char *)pk->value,
                                           X25519_LEN);
     if (sk == NULL || peer == NULL) {
         *minor = EINVAL;
         EVP_PKEY_free(sk);
+        krb5_free_context(context);
         return GSS_S_FAILURE;
     }
 
-    if ((dctx = EVP_PKEY_CTX_new_from_pkey(NULL, sk, NULL)) == NULL ||
+    dctx = EVP_PKEY_CTX_new_from_pkey(context->ossl->libctx, sk,
+                                      context->ossl->propq);
+    if (dctx == NULL ||
         EVP_PKEY_derive_init(dctx) != 1 ||
         EVP_PKEY_derive_set_peer(dctx, peer) != 1 ||
         EVP_PKEY_derive(dctx, shared, &shlen) != 1 ||
@@ -297,18 +318,13 @@ _gss_sanon_curve25519(OM_uint32 *minor,
         EVP_PKEY_CTX_free(dctx);
         EVP_PKEY_free(peer);
         EVP_PKEY_free(sk);
+        krb5_free_context(context);
         return GSS_S_FAILURE;
     }
 
     EVP_PKEY_CTX_free(dctx);
     EVP_PKEY_free(peer);
     EVP_PKEY_free(sk);
-
-    ret = krb5_init_context(&context);
-    if (ret != 0) {
-	*minor = ret;
-	return GSS_S_FAILURE;
-    }
 
     kdf_K1.data = shared;
     kdf_K1.length = sizeof(shared);
