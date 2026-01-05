@@ -2359,7 +2359,7 @@ mac_csrf_token(struct bx509_request_desc *r, krb5_storage *sp)
 
     ret = krb5_storage_to_data(sp, &data);
     if (ret == 0)
-        ret = _krb5_hmac_start_ossl(csrf_key, sizeof(csrf_key),
+        ret = _krb5_hmac_start_ossl(r->context, csrf_key, sizeof(csrf_key),
                                     EVP_sha256(), &ctx);
     if (ret == ENOMEM)
         ret = krb5_enomem(r->context);
