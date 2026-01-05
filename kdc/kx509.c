@@ -158,7 +158,7 @@ verify_req_hash(krb5_context context,
         return KRB5KDC_ERR_PREAUTH_FAILED;
     }
 
-    ret = _krb5_hmac_start_ossl(key->keyvalue.data, key->keyvalue.length,
+    ret = _krb5_hmac_start_ossl(context, key->keyvalue.data, key->keyvalue.length,
                                 EVP_sha1(), &ctx);
     if (ret == 0 &&
         EVP_MAC_update(ctx, version_2_0, sizeof(version_2_0)) != 1) {
@@ -202,7 +202,7 @@ calculate_reply_hash(krb5_context context,
     EVP_MAC_CTX *ctx = NULL;
     size_t maclen = SHA_DIGEST_LENGTH;
 
-    ret = _krb5_hmac_start_ossl(key->keyvalue.data, key->keyvalue.length,
+    ret = _krb5_hmac_start_ossl(context, key->keyvalue.data, key->keyvalue.length,
                                 EVP_sha1(), &ctx);
     if (ret)
         ret = krb5_enomem(context);
