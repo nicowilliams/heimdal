@@ -46,7 +46,7 @@ int
 main(int argc, char **argv)
 {
     krb5_error_code ret;
-    krb5_context context;
+    krb5_context context = NULL;
     krb5_ccache src_cc = NULL;
     krb5_ccache dst_cc = NULL;
     krb5_cc_cursor cursor;
@@ -177,6 +177,8 @@ err:
 	fprintf(stderr, "Failed while doing %s (%d)\n", during, ret);
 	ret = 1;
     }
+    if (context)
+        krb5_free_context(context);
     return (ret);
 }
 
