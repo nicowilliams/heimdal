@@ -290,6 +290,9 @@ arg_printusage_i18n (struct getargs *args,
 		strlcat(buf, "...", sizeof(buf));
 	    col = check_column(stderr, col, strlen(buf) + 1, columns);
 	    col += fprintf(stderr, " %s", buf);
+	} else if (args[i].short_name) {
+	    /* Flags: count the "-X" even though we don't print it in synopsis */
+	    len += 2;
 	}
 	if (args[i].long_name && args[i].short_name)
 	    len += 2; /* ", " */
