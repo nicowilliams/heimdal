@@ -1130,6 +1130,7 @@ handle_v5(krb5_context contextp,
             return;
         }
 	ret = _kadm5_unmarshal_params(contextp, &params, &realm_params);
+	krb5_data_free(&params);
         if (ret) {
 	    krb5_err(contextp, 1, ret,
                       "Could not read or parse kadm5 parameters");
