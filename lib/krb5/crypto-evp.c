@@ -145,7 +145,7 @@ _krb5_evp_hmac_iov(krb5_context context,
     const char *mdname = EVP_MD_get0_name(md); // can't be NULL can it
     krb5_data current = {0, NULL};
     OSSL_PARAM params[] = {
-        OSSL_PARAM_construct_utf8_string(OSSL_MAC_PARAM_DIGEST, (char *)mdname, 0),
+        OSSL_PARAM_construct_utf8_string(OSSL_MAC_PARAM_DIGEST, rk_UNCONST(mdname), 0),
         OSSL_PARAM_END
     };
     size_t outlen = 0;

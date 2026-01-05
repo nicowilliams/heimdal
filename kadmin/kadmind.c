@@ -390,7 +390,7 @@ fuzz_stdin(krb5_context contextp)
     memset(&realm_params, 0, sizeof(realm_params));
     realm_params.mask = KADM5_CONFIG_REALM | KADM5_CONFIG_DBNAME |
 			KADM5_CONFIG_ACL_FILE | KADM5_CONFIG_STASH_FILE;
-    realm_params.realm = realm ? realm : "FUZZ.REALM";
+    realm_params.realm = realm ? realm : rk_UNCONST("FUZZ.REALM");
     realm_params.dbname = dbname;
     realm_params.acl_file = acl_file;
     realm_params.stash_file = stash_file;

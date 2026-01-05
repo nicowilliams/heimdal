@@ -282,7 +282,7 @@ init_openssl_with_propq(krb5_context context,
         krb5_context_ossl old = first;
 
         /* Try to publish */
-        if ((old = heim_base_cas_pointer((void *)&cached_ossl,
+        if ((old = heim_base_cas_pointer((void * _Atomic *)&cached_ossl,
                                          first, ossl)) == first) {
             /*
              * Published!  Take one more ref for the reference from the global
