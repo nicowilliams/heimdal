@@ -1553,7 +1553,8 @@ jwk_rsa_to_pkey(hx509_context context, heim_dict_t jwk)
     if (params == NULL)
         goto out;
 
-    pctx = EVP_PKEY_CTX_new_from_name(NULL, "RSA", NULL);
+    pctx = EVP_PKEY_CTX_new_from_name(context->ossl->libctx, "RSA",
+                                       context->ossl->propq);
     if (pctx == NULL)
         goto out;
     if (EVP_PKEY_fromdata_init(pctx) <= 0)
@@ -1647,7 +1648,8 @@ jwk_ec_to_pkey(hx509_context context, heim_dict_t jwk)
     if (params == NULL)
         goto out;
 
-    pctx = EVP_PKEY_CTX_new_from_name(NULL, "EC", NULL);
+    pctx = EVP_PKEY_CTX_new_from_name(context->ossl->libctx, "EC",
+                                       context->ossl->propq);
     if (pctx == NULL)
         goto out;
     if (EVP_PKEY_fromdata_init(pctx) <= 0)
@@ -1673,7 +1675,6 @@ jwk_okp_to_pkey(hx509_context context, heim_dict_t jwk)
     const char *crv;
     unsigned char *x_bin = NULL;
     size_t x_len = 0;
-    int pkey_type;
 
     crv_str = heim_dict_get_value(jwk, HSTR("crv"));
     x_str = heim_dict_get_value(jwk, HSTR("x"));
@@ -1684,18 +1685,16 @@ jwk_okp_to_pkey(hx509_context context, heim_dict_t jwk)
 
     crv = heim_string_get_utf8(crv_str);
 
-    if (strcmp(crv, "Ed25519") == 0)
-        pkey_type = EVP_PKEY_ED25519;
-    else if (strcmp(crv, "Ed448") == 0)
-        pkey_type = EVP_PKEY_ED448;
-    else
+    /* crv is "Ed25519" or "Ed448", which OpenSSL accepts as key type names */
+    if (strcmp(crv, "Ed25519") != 0 && strcmp(crv, "Ed448") != 0)
         return NULL;
 
     x_bin = base64url_decode(heim_string_get_utf8(x_str), &x_len);
     if (x_bin == NULL)
         return NULL;
 
-    pkey = EVP_PKEY_new_raw_public_key(pkey_type, NULL, x_bin, x_len);
+    pkey = EVP_PKEY_new_raw_public_key_ex(context->ossl->libctx, crv,
+                                          context->ossl->propq, x_bin, x_len);
     free(x_bin);
     return pkey;
 }

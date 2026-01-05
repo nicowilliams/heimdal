@@ -1182,7 +1182,8 @@ _hx509_public_encrypt(hx509_context context,
 	return HX509_CRYPTO_INTERNAL_ERROR;
     }
 
-    pctx = EVP_PKEY_CTX_new_from_pkey(NULL, pkey, NULL);
+    pctx = EVP_PKEY_CTX_new_from_pkey(context->ossl->libctx, pkey,
+                                       context->ossl->propq);
     if (pctx == NULL ||
         // XXX Want OEAP instead pls
         EVP_PKEY_encrypt_init(pctx) != 1 ||
@@ -1252,7 +1253,8 @@ hx509_private_key_private_decrypt(hx509_context context,
 	return HX509_PRIVATE_KEY_MISSING;
     }
 
-    pctx = EVP_PKEY_CTX_new_from_pkey(NULL, p->private_key.pkey, NULL);
+    pctx = EVP_PKEY_CTX_new_from_pkey(context->ossl->libctx, p->private_key.pkey,
+                                       context->ossl->propq);
     if (pctx == NULL ||
         EVP_PKEY_decrypt_init(pctx) != 1 ||
         EVP_PKEY_decrypt(pctx,

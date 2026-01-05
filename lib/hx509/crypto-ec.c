@@ -229,7 +229,8 @@ ecdsa_verify_signature(hx509_context context,
                                                      curve_sn_dup, 0);
         params[1] = OSSL_PARAM_construct_end();
 
-        if ((pctx = EVP_PKEY_CTX_new_from_name(NULL, "EC", NULL)) == NULL)
+        if ((pctx = EVP_PKEY_CTX_new_from_name(context->ossl->libctx, "EC",
+                                               context->ossl->propq)) == NULL)
             ret = hx509_enomem(context);
     }
     if (ret == 0 && EVP_PKEY_fromdata_init(pctx) != 1)
@@ -874,9 +875,11 @@ eddsa_verify_signature(hx509_context context,
     len = spi->subjectPublicKey.length / 8;
 
     if (der_heim_oid_cmp(sig_alg->key_oid, ASN1_OID_ID_ED25519) == 0)
-        public = EVP_PKEY_new_raw_public_key(EVP_PKEY_ED25519, NULL, p, len);
+        public = EVP_PKEY_new_raw_public_key_ex(context->ossl->libctx, "ED25519",
+                                                context->ossl->propq, p, len);
     else if (der_heim_oid_cmp(sig_alg->key_oid, ASN1_OID_ID_ED448) == 0)
-        public = EVP_PKEY_new_raw_public_key(EVP_PKEY_ED448, NULL, p, len);
+        public = EVP_PKEY_new_raw_public_key_ex(context->ossl->libctx, "ED448",
+                                                context->ossl->propq, p, len);
 
     if (public == NULL) {
         _hx509_set_error_string_openssl(context, 0, HX509_CRYPTO_SIG_INVALID_FORMAT,
