@@ -1958,7 +1958,8 @@ mac_csrf_token(kadmin_request_desc r, krb5_storage *sp)
 
     /* HMAC the token body and the client principal name */
     if (ret == 0)
-        ret = _krb5_hmac_start_ossl(princ.key_data[i].key_data_contents[0],
+        ret = _krb5_hmac_start_ossl(r->context,
+                                    princ.key_data[i].key_data_contents[0],
                                     princ.key_data[i].key_data_length[0],
                                     EVP_sha256(), &ctx);
     if (ret == 0)
