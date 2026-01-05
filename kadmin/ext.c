@@ -144,7 +144,7 @@ do_ext_keytab(krb5_principal principal, void *data)
     kadm5_free_principal_ent(e->kadm_handle, &princ);
     if (k) {
         for (i = 0; i < n_k; i++)
-            memset(k[i].keyvalue.data, 0, k[i].keyvalue.length);
+            krb5_free_keyblock_contents(context, &k[i]);
 	free(k);
     }
     free(unparsed);
