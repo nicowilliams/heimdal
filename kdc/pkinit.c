@@ -181,12 +181,7 @@ gen_eph_for_peer_spki(astgs_request_t r, SubjectPublicKeyInfo *spki,
     EVP_PKEY_CTX *kctx = NULL;
     krb5_error_code ret = 0;
     const char *sn;
-    char curve[128];
     size_t clen = 0;
-    int minbits = krb5_config_get_int_default(r->context, NULL, 0,
-                                              "kdc", "pkinit_dh_min_bits",
-                                              NULL);
-    int bits;
 
     *peer = *eph = NULL;
 
@@ -208,7 +203,7 @@ gen_eph_for_peer_spki(astgs_request_t r, SubjectPublicKeyInfo *spki,
     case EVP_PKEY_X25519:
         kdc_audit_addkv((kdc_request_t)r, 0, "keyagreement", "x25519");
         if (!krb5_config_get_bool_default(r->context, NULL, 1, "kdc",
-                                          "pkinit_allow_ecdh" "x25519",
+                                          "pkinit_allow_ecdh", "x25519",
                                           NULL)) {
             _kdc_set_e_text(r, "PKINIT: X25519 not allowed");
             ret = KRB5_KDC_ERR_DH_KEY_PARAMETERS_NOT_ACCEPTED;
@@ -224,7 +219,8 @@ gen_eph_for_peer_spki(astgs_request_t r, SubjectPublicKeyInfo *spki,
             goto out;
         }
         break;
-    case EVP_PKEY_EC:
+    case EVP_PKEY_EC: {
+        char curve[128];
         if (EVP_PKEY_get_utf8_string_param(*peer, OSSL_PKEY_PARAM_GROUP_NAME,
                                            curve, sizeof(curve), &clen) != 1) {
             _kdc_set_e_text(r, "PKINIT: unknown ECDH curve");
@@ -240,8 +236,14 @@ gen_eph_for_peer_spki(astgs_request_t r, SubjectPublicKeyInfo *spki,
             goto out;
         }
         break;
+        }
     case EVP_PKEY_DH:
-    case EVP_PKEY_DHX:
+    case EVP_PKEY_DHX: {
+        int minbits = krb5_config_get_int_default(r->context, NULL, 0,
+                                                  "kdc", "pkinit_dh_min_bits",
+                                                  NULL);
+        int bits;
+
         /*
          * RFC 4556 specifies X9.42 DH (id-dhpublicnumber, which OpenSSL calls
          * EVP_PKEY_DHX), but a peer could send PKCS#3 DH (which OpenSSL calls
@@ -250,7 +252,7 @@ gen_eph_for_peer_spki(astgs_request_t r, SubjectPublicKeyInfo *spki,
          */
         bits = EVP_PKEY_get_bits(*peer);
         if (minbits > 0 && bits < minbits) {
-            _kdc_set_e_text(r, "PKINIT: DH curve too small: %s", curve);
+            _kdc_set_e_text(r, "PKINIT: DH group too small (%d)", bits);
             ret = KRB5_KDC_ERR_DH_KEY_PARAMETERS_NOT_ACCEPTED;
             goto out;
         }
@@ -262,6 +264,7 @@ gen_eph_for_peer_spki(astgs_request_t r, SubjectPublicKeyInfo *spki,
         kdc_audit_addkv((kdc_request_t)r, 0, "keyagreement", "%s",
                         cp->dh_group_name ? cp->dh_group_name : "unknown");
         break;
+        }
     default:
         /* Unknown (to us) key agreement algorithm */
         kdc_audit_addkv((kdc_request_t)r, 0, "keyagreement", "unknown");
@@ -346,6 +349,8 @@ generate_key_agreement_keyblock(astgs_request_t r,
                                "(EVP_PKEY_derive)");
 
     if (ret) {
+        if (p)
+            memset_s(p, size, 0, size);
         free(p);
         p = NULL;
         size = 0;
@@ -636,9 +641,11 @@ select_kdf(krb5_context context,
     size_t accepted = 0;
     size_t i;
 
-    if (ap->supportedKDFs == NULL && rfc4556_kdf) {
-        /* Client is or is configured to act like a pre-RFC 8636 client */
+    if (ap->supportedKDFs == NULL) {
         cp->kdf = NULL;
+        if (!rfc4556_kdf)
+            return KRB5_KDC_ERR_NO_ACCEPTABLE_KDF;
+        /* Client is or is configured to act like a pre-RFC 8636 client */
         return 0;
     }
 
@@ -1103,22 +1110,24 @@ _kdc_pk_rd_padata(astgs_request_t priv,
             const heim_oid *offered = &ap.clientPublicValue->algorithm.algorithm;
 
             ret = 0;
-            if (der_heim_oid_cmp(offered, &asn1_oid_id_dhpublicnumber) == 0)
+            if (der_heim_oid_cmp(offered, &asn1_oid_id_dhpublicnumber) == 0) {
                 cp->keyex = USE_DH;
-            else if (der_heim_oid_cmp(offered, &asn1_oid_id_X25519) == 0)
+            } else if (der_heim_oid_cmp(offered, &asn1_oid_id_X25519) == 0) {
                 cp->keyex = USE_ECDH;
-            else if (der_heim_oid_cmp(offered, &asn1_oid_id_X448) == 0)
+            } else if (der_heim_oid_cmp(offered, &asn1_oid_id_X448) == 0) {
                 cp->keyex = USE_ECDH;
-            else if (der_heim_oid_cmp(offered, &asn1_oid_id_ecPublicKey) == 0)
+            } else if (der_heim_oid_cmp(offered, &asn1_oid_id_ecPublicKey) == 0) {
                 cp->keyex = USE_ECDH;
-            else if (der_heim_oid_cmp(offered, &asn1_oid_id_ec_group_secp256r1) == 0)
+            } else if (der_heim_oid_cmp(offered, &asn1_oid_id_ec_group_secp256r1) == 0) {
                 cp->keyex = USE_ECDH;
-            else if (der_heim_oid_cmp(offered, &asn1_oid_id_ec_group_secp384r1) == 0)
+            } else if (der_heim_oid_cmp(offered, &asn1_oid_id_ec_group_secp384r1) == 0) {
                 cp->keyex = USE_ECDH;
-            else if (der_heim_oid_cmp(offered, &asn1_oid_id_ec_group_secp521r1) == 0)
+            } else if (der_heim_oid_cmp(offered, &asn1_oid_id_ec_group_secp521r1) == 0) {
                 cp->keyex = USE_ECDH;
-            else
+            } else {
                 ret = KRB5_KDC_ERR_DH_KEY_PARAMETERS_NOT_ACCEPTED;
+                goto out;
+            }
             
             /*
              * Parsing the client's key share SPKI and generating an ephemeral
