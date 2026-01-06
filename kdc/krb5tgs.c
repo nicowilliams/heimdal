@@ -1386,7 +1386,7 @@ tgs_build_reply(astgs_request_t priv,
     krb5_principal user2user_princ = NULL;
     char *spn = NULL, *cpn = NULL, *krbtgt_out_n = NULL;
     char *user2user_name = NULL;
-    HDB *user2user_krbtgtdb;
+    HDB *user2user_krbtgtdb = NULL;
     hdb_entry *user2user_krbtgt = NULL;
     HDB *clientdb = NULL;
     HDB *serverdb = NULL;
@@ -1405,7 +1405,7 @@ tgs_build_reply(astgs_request_t priv,
     char **capath = NULL;
     size_t num_capath = 0;
 
-    HDB *krbtgt_outdb;
+    HDB *krbtgt_outdb = NULL;
     hdb_entry *krbtgt_out = NULL;
 
     PrincipalName *s;
