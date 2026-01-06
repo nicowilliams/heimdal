@@ -109,7 +109,7 @@ validate_protocol_transition(astgs_request_t r)
     KDC_REQ_BODY *b = &r->req.req_body;
     EncTicketPart *ticket = &r->ticket->ticket;
     hdb_entry *s4u_client = NULL;
-    HDB *s4u_clientdb;
+    HDB *s4u_clientdb = NULL;
     int flags = HDB_F_FOR_TGS_REQ;
     krb5_principal s4u_client_name = NULL, s4u_canon_client_name = NULL;
     krb5_pac s4u_pac = NULL;
@@ -349,7 +349,7 @@ validate_constrained_delegation(astgs_request_t r)
     uint64_t s4u_pac_attributes;
     char *s4ucname = NULL, *s4usname = NULL;
     EncTicketPart evidence_tkt;
-    HDB *s4u_clientdb;
+    HDB *s4u_clientdb = NULL;
     hdb_entry *s4u_client = NULL;
     krb5_boolean ad_kdc_issued = FALSE;
     Key *clientkey;
