@@ -147,6 +147,8 @@ typedef unsigned long HEIM_PRIV_thread_key;
 
 #elif defined(_WIN32)
 
+#define _Atomic
+
 typedef struct heim_mutex {
     HANDLE	h;
 } heim_mutex_t;
