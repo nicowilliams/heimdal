@@ -547,16 +547,13 @@ dnl Deal with switch fallthrough warnings
 AH_TOP([
 #if defined(DISPATCH_FALLTHROUGH)
 # define HEIM_FALLTHROUGH DISPATCH_FALLTHROUGH
+#elif defined(__clang__)
+  /* Clang sets __GNUC__ to 4 for compat, but supports fallthrough attr */
+# define HEIM_FALLTHROUGH __attribute__((fallthrough))
+#elif defined(__GNUC__) && __GNUC__ >= 7
+# define HEIM_FALLTHROUGH __attribute__((fallthrough))
 #else
-# if defined(__GNUC__)
-#  if __GNUC__ >= 7
-#   define HEIM_FALLTHROUGH __attribute__((fallthrough))
-#  else
-#   define HEIM_FALLTHROUGH do {} while (0) /* fallthrough */
-#  endif
-# else
-#  define HEIM_FALLTHROUGH do {} while (0) /* fallthrough */
-# endif
+# define HEIM_FALLTHROUGH do {} while (0) /* fallthrough */
 #endif
 ])
 
