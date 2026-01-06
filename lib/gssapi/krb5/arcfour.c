@@ -399,7 +399,7 @@ _gssapi_verify_mic_arcfour(OM_uint32 * minor_status,
         }
 	EVP_CIPHER_CTX_free(rc4_key);
 
-	memset(k6_data, 0, sizeof(k6_data));
+	memset_s(k6_data, sizeof(k6_data), 0, sizeof(k6_data));
     }
 
     _gss_mg_decode_be_uint32(SND_SEQ, &seq_number);
@@ -561,7 +561,7 @@ _gssapi_wrap_arcfour(OM_uint32 * minor_status,
         }
 	EVP_CIPHER_CTX_free(rc4_key);
     }
-    memset(k6_data, 0, sizeof(k6_data));
+    memset_s(k6_data, sizeof(k6_data), 0, sizeof(k6_data));
 
     ret = arcfour_mic_key(context, key,
 			  p0 + 16, 8, /* SGN_CKSUM */
@@ -761,7 +761,7 @@ OM_uint32 _gssapi_unwrap_arcfour(OM_uint32 *minor_status,
 	       p0 + GSS_ARCFOUR_WRAP_TOKEN_SIZE,
 	       datalen);
     }
-    memset(k6_data, 0, sizeof(k6_data));
+    memset_s(k6_data, sizeof(k6_data), 0, sizeof(k6_data));
 
     if (!IS_DCE_STYLE(context_handle)) {
 	ret = _gssapi_verify_pad(output_message_buffer, datalen, &padlen);
@@ -1186,7 +1186,7 @@ _gssapi_wrap_iov_arcfour(OM_uint32 *minor_status,
 
         EVP_CIPHER_CTX_free(rc4_key);
     }
-    memset(k6_data, 0, sizeof(k6_data));
+    memset_s(k6_data, sizeof(k6_data), 0, sizeof(k6_data));
 
     kret = arcfour_mic_key(context, key,
 			   p0 + 16, 8, /* SGN_CKSUM */
@@ -1214,7 +1214,7 @@ _gssapi_wrap_iov_arcfour(OM_uint32 *minor_status,
         }
 	EVP_CIPHER_CTX_free(rc4_key);
 
-	memset(k6_data, 0, sizeof(k6_data));
+        memset_s(k6_data, sizeof(k6_data), 0, sizeof(k6_data));
     }
 
     if (conf_state)
@@ -1365,7 +1365,7 @@ _gssapi_unwrap_iov_arcfour(OM_uint32 *minor_status,
         }
         EVP_CIPHER_CTX_free(rc4_key);
 
-	memset(k6_data, 0, sizeof(k6_data));
+        memset_s(k6_data, sizeof(k6_data), 0, sizeof(k6_data));
     }
 
     _gss_mg_decode_be_uint32(snd_seq, &seq_number);
@@ -1450,7 +1450,7 @@ _gssapi_unwrap_iov_arcfour(OM_uint32 *minor_status,
 	/* Confounder */
 	memcpy(Confounder, p0 + 24, 8);
     }
-    memset(k6_data, 0, sizeof(k6_data));
+    memset_s(k6_data, sizeof(k6_data), 0, sizeof(k6_data));
 
     /* Prepare the buffer for signing */
     kret = arcfour_mic_cksum_iov(context,
