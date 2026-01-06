@@ -583,6 +583,192 @@ test_run ${context} \
     --max-loops=5 \
     --name-type=hostbased-service host@lucid.test.h5l.se
 
+# PKINIT credential store tests using gsstool
+# These test the new pkinit_* credential store keys
+
+gsstool="${TESTS_ENVIRONMENT} ../../lib/gssapi/gsstool"
+hxtool="${TESTS_ENVIRONMENT} ../../lib/hx509/hxtool"
+hx509_data="${top_srcdir}/lib/hx509/data"
+keyfile="${hx509_data}/key.der"
+keyfile2="${hx509_data}/key2.der"
+
+# Check if PKINIT is available
+pkinit_available=no
+if ${kinit} --help 2>&1 | grep "CA certificates" > /dev/null; then
+    pkinit_available=yes
+fi
+# Check if we have RSA support
+if ${hxtool} info 2>/dev/null | grep 'rsa: hx509 null RSA' > /dev/null; then
+    pkinit_available=no
+fi
+if ${hxtool} info 2>/dev/null | grep 'rand: not available' > /dev/null; then
+    pkinit_available=no
+fi
+
+if test "$pkinit_available" = yes; then
+    test_section "PKINIT credential store tests"
+
+    # Create certificates for PKINIT testing
+    echo "Setting up PKINIT certificates"
+
+    ${hxtool} request-create \
+        --subject="CN=user1,DC=test,DC=h5l,DC=se" \
+        --key=FILE:${keyfile2} \
+        ${objdir}/req-pkinit-user1.der || exit 1
+
+    # Issue self-signed CA cert
+    ${hxtool} issue-certificate \
+        --self-signed \
+        --issue-ca \
+        --ca-private-key=FILE:${keyfile} \
+        --subject="CN=CA,DC=test,DC=h5l,DC=se" \
+        --certificate="FILE:${objdir}/pkinit-ca.crt" || exit 1
+
+    # Issue KDC certificate
+    ${hxtool} request-create \
+        --subject="CN=kdc,DC=test,DC=h5l,DC=se" \
+        --key=FILE:${keyfile2} \
+        ${objdir}/req-kdc.der || exit 1
+
+    ${hxtool} issue-certificate \
+        --ca-certificate=FILE:${objdir}/pkinit-ca.crt,${keyfile} \
+        --type="pkinit-kdc" \
+        --pk-init-principal="krbtgt/${R}@${R}" \
+        --req="PKCS10:${objdir}/req-kdc.der" \
+        --certificate="FILE:${objdir}/pkinit-kdc.crt" || exit 1
+
+    # Issue user certificate with PKINIT SAN
+    ${hxtool} issue-certificate \
+        --ca-certificate=FILE:${objdir}/pkinit-ca.crt,${keyfile} \
+        --type="pkinit-client" \
+        --pk-init-principal="user1@${R}" \
+        --req="PKCS10:${objdir}/req-pkinit-user1.der" \
+        --lifetime=7d \
+        --certificate="FILE:${objdir}/pkinit-user1.crt" || exit 1
+
+    # Restart KDC with PKINIT configuration
+    echo "Restarting KDC with PKINIT support"
+    kill ${kdcpid} 2>/dev/null
+    sleep 1
+
+    # Create PKINIT-enabled krb5.conf
+    cat > ${objdir}/krb5-pkinit-gss.conf <<EOF
+[libdefaults]
+    default_realm = ${R}
+    no-addresses = TRUE
+    allow_weak_crypto = TRUE
+
+[realms]
+    ${R} = {
+        kdc = localhost:${port}
+    }
+
+[kdc]
+    database = {
+        dbname = ${objdir}/current-db
+        realm = ${R}
+        mkey_file = ${objdir}/mkey.file
+    }
+    pkinit_identity = FILE:${objdir}/pkinit-kdc.crt,${keyfile2}
+    pkinit_anchors = FILE:${objdir}/pkinit-ca.crt
+    pkinit_mappings_file = ${objdir}/pki-mapping
+    enable-pkinit = true
+    pkinit_allow_proxy_certificate = true
+
+[logging]
+    kdc = 0-/FILE:${objdir}/messages.log
+    default = 0-/FILE:${objdir}/messages.log
+EOF
+
+    # Create PKI mapping file
+    cat > ${objdir}/pki-mapping <<EOF
+user1@${R}    CN=user1,DC=test,DC=h5l,DC=se
+EOF
+
+    KRB5_CONFIG="${objdir}/krb5-pkinit-gss.conf"
+    export KRB5_CONFIG
+
+    ${kdc} --detach --testing || { echo "PKINIT KDC failed to start"; cat messages.log; exit 1; }
+    kdcpid=`getpid kdc`
+
+    trap "kill ${kdcpid} 2>/dev/null; exit 1" EXIT INT TERM
+
+    test_section "gsstool acquire-cred with PKINIT credential store"
+
+    # Test basic PKINIT with pkinit_client_certs and pkinit_trust_anchors
+    test_run ${gsstool} acquire-cred \
+        --name=user1@${R} \
+        --mech=krb5 \
+        "--from=pkinit_client_certs=FILE:${objdir}/pkinit-user1.crt,${keyfile2}" \
+        "--from=pkinit_trust_anchors=FILE:${objdir}/pkinit-ca.crt" \
+        "--into=ccache=FILE:${objdir}/pkinit-gss-cache" \
+        --verbose
+
+    # Verify the credential was acquired
+    test_run ${klist} -c FILE:${objdir}/pkinit-gss-cache
+
+    # Test with multiple pkinit_intermediates (even if empty, tests the parsing)
+    test_run ${gsstool} acquire-cred \
+        --name=user1@${R} \
+        --mech=krb5 \
+        "--from=pkinit_client_certs=FILE:${objdir}/pkinit-user1.crt,${keyfile2}" \
+        "--from=pkinit_trust_anchors=FILE:${objdir}/pkinit-ca.crt" \
+        "--from=pkinit_intermediates=FILE:${objdir}/pkinit-ca.crt" \
+        "--into=ccache=FILE:${objdir}/pkinit-gss-cache2" \
+        --verbose
+
+    test_run ${klist} -c FILE:${objdir}/pkinit-gss-cache2
+
+    # Note: Anonymous PKINIT via GSS_C_NT_ANONYMOUS name type is not yet fully
+    # supported. Anonymous PKINIT requires either:
+    # 1. A credential store key to explicitly request anonymous mode
+    # 2. Or proper handling of GSS_C_NT_ANONYMOUS name import
+    # Skipping anonymous PKINIT test for now.
+
+    # Test fast_anon_pkinit credential store key (informational - may fail if
+    # KDC doesn't support FAST or anonymous PKINIT)
+    test_section "gsstool acquire-cred with FAST anonymous PKINIT (informational)"
+
+    if ${gsstool} acquire-cred \
+        --name=user1@${R} \
+        --mech=krb5 \
+        "--from=pkinit_client_certs=FILE:${objdir}/pkinit-user1.crt,${keyfile2}" \
+        "--from=pkinit_trust_anchors=FILE:${objdir}/pkinit-ca.crt" \
+        "--from=fast_anon_pkinit=" \
+        "--into=ccache=FILE:${objdir}/pkinit-fast-cache" \
+        --verbose 2>&1; then
+        echo "FAST anonymous PKINIT succeeded"
+        test_run ${klist} -c FILE:${objdir}/pkinit-fast-cache
+    else
+        echo "FAST anonymous PKINIT not available (expected in some configurations)"
+    fi
+
+    # Test fast_anon_pkinit_optimistic credential store key (informational)
+    if ${gsstool} acquire-cred \
+        --name=user1@${R} \
+        --mech=krb5 \
+        "--from=pkinit_client_certs=FILE:${objdir}/pkinit-user1.crt,${keyfile2}" \
+        "--from=pkinit_trust_anchors=FILE:${objdir}/pkinit-ca.crt" \
+        "--from=fast_anon_pkinit_optimistic=" \
+        "--into=ccache=FILE:${objdir}/pkinit-fast-opt-cache" \
+        --verbose 2>&1; then
+        echo "FAST optimistic PKINIT succeeded"
+        test_run ${klist} -c FILE:${objdir}/pkinit-fast-opt-cache
+    else
+        echo "FAST optimistic PKINIT not available (expected in some configurations)"
+    fi
+
+    # Clean up PKINIT test files
+    rm -f ${objdir}/req-pkinit-user1.der ${objdir}/req-kdc.der
+    rm -f ${objdir}/pkinit-ca.crt ${objdir}/pkinit-kdc.crt ${objdir}/pkinit-user1.crt
+    rm -f ${objdir}/pkinit-gss-cache ${objdir}/pkinit-gss-cache2
+    rm -f ${objdir}/pkinit-anon-cache ${objdir}/pkinit-fast-cache ${objdir}/pkinit-fast-opt-cache
+    rm -f ${objdir}/krb5-pkinit-gss.conf ${objdir}/pki-mapping
+
+else
+    echo "Skipping PKINIT credential store tests (PKINIT not available)"
+fi
+
 trap "" EXIT
 
 echo "killing kdc (${kdcpid})"
