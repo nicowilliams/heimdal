@@ -70,39 +70,15 @@ typedef enum hx509_jws_alg {
 } hx509_jws_alg;
 
 /*
- * Base64URL encoding/decoding (RFC 4648 Section 5)
+ * Base64URL decoding helper - allocates and returns decoded data.
+ * rk_base64url_decode() requires pre-allocated buffer, so this wrapper
+ * is convenient for callers.
  */
-
-static char *
-base64url_encode(const void *data, size_t len)
-{
-    char *b64, *p;
-    int b64len;
-
-    b64len = rk_base64_encode(data, (int)len, &b64);
-    if (b64len < 0)
-        return NULL;
-
-    /* Convert to base64url: replace + with -, / with _, remove padding */
-    for (p = b64; *p; p++) {
-        if (*p == '+')
-            *p = '-';
-        else if (*p == '/')
-            *p = '_';
-        else if (*p == '=') {
-            *p = '\0';
-            break;
-        }
-    }
-    return b64;
-}
-
 static unsigned char *
 base64url_decode(const char *str, size_t *out_len)
 {
-    char *b64;
     unsigned char *data;
-    size_t len, i, padding;
+    size_t len;
     int decoded_len;
 
     if (str == NULL)
@@ -110,33 +86,12 @@ base64url_decode(const char *str, size_t *out_len)
 
     len = strlen(str);
 
-    /* Convert from base64url to base64 */
-    padding = (4 - (len % 4)) % 4;
-    b64 = malloc(len + padding + 1);
-    if (b64 == NULL)
-        return NULL;
-
-    for (i = 0; i < len; i++) {
-        if (str[i] == '-')
-            b64[i] = '+';
-        else if (str[i] == '_')
-            b64[i] = '/';
-        else
-            b64[i] = str[i];
-    }
-    for (i = 0; i < padding; i++)
-        b64[len + i] = '=';
-    b64[len + padding] = '\0';
-
+    /* Decoded data is at most 3/4 of encoded length */
     data = malloc(len + 1);
-    if (data == NULL) {
-        free(b64);
+    if (data == NULL)
         return NULL;
-    }
 
-    decoded_len = rk_base64_decode(b64, data);
-    free(b64);
-
+    decoded_len = rk_base64url_decode(str, data);
     if (decoded_len < 0) {
         free(data);
         return NULL;
@@ -267,8 +222,12 @@ ecdsa_der_to_jws(const unsigned char *der_sig, size_t der_len,
     }
 
     /* Pad r and s to fixed size, big-endian */
-    BN_bn2binpad(r, jws_sig, coord_size);
-    BN_bn2binpad(s, jws_sig + coord_size, coord_size);
+    if (BN_bn2binpad(r, jws_sig, coord_size) < 0 ||
+        BN_bn2binpad(s, jws_sig + coord_size, coord_size) < 0) {
+        ECDSA_SIG_free(sig);
+        free(jws_sig);
+        return NULL;
+    }
 
     ECDSA_SIG_free(sig);
     *out_len = sig_size;
@@ -781,11 +740,10 @@ hx509_jws_sign(hx509_context context,
     }
 
     /* Base64URL encode header and payload */
-    header_b64 = base64url_encode(heim_string_get_utf8(header_json_str),
-                                  strlen(heim_string_get_utf8(header_json_str)));
-    payload_b64 = base64url_encode(payload, payload_len);
-
-    if (header_b64 == NULL || payload_b64 == NULL) {
+    if (rk_base64url_encode(heim_string_get_utf8(header_json_str),
+                            strlen(heim_string_get_utf8(header_json_str)),
+                            &header_b64) < 0 ||
+        rk_base64url_encode(payload, payload_len, &payload_b64) < 0) {
         ret = ENOMEM;
         goto out;
     }
@@ -808,8 +766,7 @@ hx509_jws_sign(hx509_context context,
     }
 
     /* Base64URL encode signature */
-    sig_b64 = base64url_encode(sig, sig_len);
-    if (sig_b64 == NULL) {
+    if (rk_base64url_encode(sig, sig_len, &sig_b64) < 0) {
         ret = ENOMEM;
         goto out;
     }
@@ -920,11 +877,10 @@ hx509_jws_sign_key(hx509_context context,
     }
 
     /* Base64URL encode header and payload */
-    header_b64 = base64url_encode(heim_string_get_utf8(header_json_str),
-                                  strlen(heim_string_get_utf8(header_json_str)));
-    payload_b64 = base64url_encode(payload, payload_len);
-
-    if (header_b64 == NULL || payload_b64 == NULL) {
+    if (rk_base64url_encode(heim_string_get_utf8(header_json_str),
+                            strlen(heim_string_get_utf8(header_json_str)),
+                            &header_b64) < 0 ||
+        rk_base64url_encode(payload, payload_len, &payload_b64) < 0) {
         ret = ENOMEM;
         goto out;
     }
@@ -947,8 +903,7 @@ hx509_jws_sign_key(hx509_context context,
     }
 
     /* Base64URL encode signature */
-    sig_b64 = base64url_encode(sig, sig_len);
-    if (sig_b64 == NULL) {
+    if (rk_base64url_encode(sig, sig_len, &sig_b64) < 0) {
         ret = ENOMEM;
         goto out;
     }
@@ -1355,10 +1310,8 @@ hx509_pem_to_jwk(hx509_context context,
         BN_bn2bin(n, n_bin);
         BN_bn2bin(e, e_bin);
 
-        n_b64 = base64url_encode(n_bin, n_len);
-        e_b64 = base64url_encode(e_bin, e_len);
-
-        if (n_b64 && e_b64) {
+        if (rk_base64url_encode(n_bin, n_len, &n_b64) >= 0 &&
+            rk_base64url_encode(e_bin, e_len, &e_b64) >= 0) {
             heim_string_t s = heim_string_create(n_b64);
             heim_dict_set_value(jwk, HSTR("n"), s);
             heim_release(s);
@@ -1433,13 +1386,17 @@ hx509_pem_to_jwk(hx509_context context,
             goto out_key;
         }
 
-        BN_bn2binpad(x, x_bin, coord_size);
-        BN_bn2binpad(y, y_bin, coord_size);
+        if (BN_bn2binpad(x, x_bin, coord_size) < 0 ||
+            BN_bn2binpad(y, y_bin, coord_size) < 0) {
+            free(x_bin);
+            free(y_bin);
+            BN_free(x);
+            BN_free(y);
+            goto out_key;
+        }
 
-        x_b64 = base64url_encode(x_bin, coord_size);
-        y_b64 = base64url_encode(y_bin, coord_size);
-
-        if (x_b64 && y_b64) {
+        if (rk_base64url_encode(x_bin, coord_size, &x_b64) >= 0 &&
+            rk_base64url_encode(y_bin, coord_size, &y_b64) >= 0) {
             heim_string_t s = heim_string_create(x_b64);
             heim_dict_set_value(jwk, HSTR("x"), s);
             heim_release(s);
@@ -1458,7 +1415,7 @@ hx509_pem_to_jwk(hx509_context context,
     } else if (key_type == EVP_PKEY_ED25519) {
         unsigned char pub_key[32];
         size_t pub_len = sizeof(pub_key);
-        char *x_b64;
+        char *x_b64 = NULL;
 
         heim_dict_set_value(jwk, HSTR("kty"), HSTR("OKP"));
         heim_dict_set_value(jwk, HSTR("crv"), HSTR("Ed25519"));
@@ -1466,8 +1423,7 @@ hx509_pem_to_jwk(hx509_context context,
         if (EVP_PKEY_get_raw_public_key(pkey, pub_key, &pub_len) != 1)
             goto out_key;
 
-        x_b64 = base64url_encode(pub_key, pub_len);
-        if (x_b64) {
+        if (rk_base64url_encode(pub_key, pub_len, &x_b64) >= 0) {
             heim_string_t s = heim_string_create(x_b64);
             heim_dict_set_value(jwk, HSTR("x"), s);
             heim_release(s);
@@ -1477,7 +1433,7 @@ hx509_pem_to_jwk(hx509_context context,
     } else if (key_type == EVP_PKEY_ED448) {
         unsigned char pub_key[57];
         size_t pub_len = sizeof(pub_key);
-        char *x_b64;
+        char *x_b64 = NULL;
 
         heim_dict_set_value(jwk, HSTR("kty"), HSTR("OKP"));
         heim_dict_set_value(jwk, HSTR("crv"), HSTR("Ed448"));
@@ -1485,8 +1441,7 @@ hx509_pem_to_jwk(hx509_context context,
         if (EVP_PKEY_get_raw_public_key(pkey, pub_key, &pub_len) != 1)
             goto out_key;
 
-        x_b64 = base64url_encode(pub_key, pub_len);
-        if (x_b64) {
+        if (rk_base64url_encode(pub_key, pub_len, &x_b64) >= 0) {
             heim_string_t s = heim_string_create(x_b64);
             heim_dict_set_value(jwk, HSTR("x"), s);
             heim_release(s);

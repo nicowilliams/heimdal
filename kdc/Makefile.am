@@ -215,7 +215,7 @@ test_csr_authorizer_LDADD = libkdc.la \
 			    $(LIB_heimbase) \
 			    $(top_builddir)/lib/ipc/libheim-ipcs.la
 test_kdc_ca_LDADD = libkdc.la $(top_builddir)/lib/hx509/libhx509.la $(LDADD) $(LIB_pidfile) $(LIB_heimbase)
-test_jwt_validator_LDADD = libkdc.la $(LDADD) $(LIB_pidfile) $(LIB_heimbase) $(LIB_openssl_crypto)
+test_jwt_validator_LDADD = libkdc.la $(top_builddir)/lib/hx509/libhx509.la $(LDADD) $(LIB_pidfile) $(LIB_heimbase)
 
 include_HEADERS = kdc.h $(srcdir)/kdc-protos.h
 
