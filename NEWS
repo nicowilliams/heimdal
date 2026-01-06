@@ -43,7 +43,7 @@ Features:
  - KDC: allow anonymous AS requests with long-term keys.
  - KDC: Do not include PAC for anonymous AS requests.
  - KDC: Enable keepalive mode on incoming sockets.
- - KDC: Greatly improved logging, with one structure log message per-request,
+ - KDC: Greatly improved logging, with one structured log message per-request,
         with all details as key/value pairs.
  - KDC: Remove KRB5SignedPath, to be replaced with PAC.
  - PKIX: Add bx509d -- an online certification authority (CA) with an HTTP API.
@@ -100,6 +100,7 @@ Features:
  - GSS: Support client keytab.
  - GSS: Add NegoEx support.
  - GSS: Import gss-token(1) command.
+ - GSS: Improve gsstoool(1) command.
  - hxtool: Add "acert" (assert cert contents) command
  - hxtool: add cert type: https-negotiate-server
  - hxtool: add generate-key command
@@ -117,6 +118,7 @@ Features removed:
  - "digest" server functionality in KDC (for NTLM).
  - OTP.
  - 1DES and 3DES enctypes.
+ - libhcrypto
 
 Release Notes - Heimdal - Version Heimdal 7.8
 
