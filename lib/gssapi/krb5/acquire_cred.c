@@ -71,6 +71,58 @@ __gsskrb5_cred_store_find(OM_uint32 *minor_status,
     return GSS_S_COMPLETE;
 }
 
+/*
+ * Find all elements matching a key in a cred store. Returns a NULL-terminated
+ * array of strings. Caller must free the array (but not the strings, which
+ * point into the cred_store). Returns NULL if no matches or on allocation
+ * failure.
+ *
+ * Note: returns char ** (not const char **) for compatibility with
+ * krb5_get_init_creds_opt_set_pkinit() which takes char * const *.
+ */
+static char **
+cred_store_find_all(gss_const_key_value_set_t cred_store,
+		    const char *key,
+		    size_t *count_out)
+{
+    char **values = NULL;
+    size_t count = 0;
+    size_t i;
+
+    if (count_out)
+	*count_out = 0;
+
+    if (cred_store == GSS_C_NO_CRED_STORE || cred_store->count == 0)
+	return NULL;
+
+    /* Count matches */
+    for (i = 0; i < cred_store->count; i++) {
+	if (strcmp(key, cred_store->elements[i].key) == 0)
+	    count++;
+    }
+
+    if (count == 0)
+	return NULL;
+
+    /* Allocate array (count + 1 for NULL terminator) */
+    values = calloc(count + 1, sizeof(*values));
+    if (values == NULL)
+	return NULL;
+
+    /* Fill array - cast away const for API compatibility */
+    count = 0;
+    for (i = 0; i < cred_store->count; i++) {
+	if (strcmp(key, cred_store->elements[i].key) == 0)
+	    values[count++] = rk_UNCONST(cred_store->elements[i].value);
+    }
+    values[count] = NULL;
+
+    if (count_out)
+	*count_out = count;
+
+    return values;
+}
+
 OM_uint32
 __gsskrb5_ccache_lifetime(OM_uint32 *minor_status,
 			  krb5_context context,
@@ -185,6 +237,185 @@ is_valid_password_cred_store(gss_const_key_value_set_t cred_store)
     }
 
     return TRUE;
+}
+
+/*
+ * Check if the cred store contains PKINIT-related keys or if an anonymous
+ * principal should trigger anonymous PKINIT.
+ */
+static krb5_boolean
+is_pkinit_cred_store(krb5_context context,
+		     krb5_const_principal principal,
+		     gss_const_key_value_set_t cred_store,
+		     const char **user_id,
+		     const char **x509_anchors,
+		     krb5_boolean *anonymous,
+		     krb5_boolean *fast_anon_pkinit,
+		     krb5_boolean *fast_optimistic)
+{
+    size_t i;
+
+    *user_id = NULL;
+    *x509_anchors = NULL;
+    *anonymous = FALSE;
+    *fast_anon_pkinit = FALSE;
+    *fast_optimistic = FALSE;
+
+    /* Check if principal is anonymous - triggers anonymous PKINIT */
+    if (principal != NULL &&
+	krb5_principal_is_anonymous(context, principal, KRB5_ANON_MATCH_ANY))
+	*anonymous = TRUE;
+
+    if (cred_store != GSS_C_NO_CRED_STORE) {
+	for (i = 0; i < cred_store->count; i++) {
+	    if (strcmp(cred_store->elements[i].key, "pkinit_client_certs") == 0)
+		*user_id = cred_store->elements[i].value;
+	    else if (strcmp(cred_store->elements[i].key, "pkinit_trust_anchors") == 0)
+		*x509_anchors = cred_store->elements[i].value;
+	    else if (strcmp(cred_store->elements[i].key, "fast_anon_pkinit") == 0)
+		*fast_anon_pkinit = TRUE;
+	    else if (strcmp(cred_store->elements[i].key, "fast_anon_pkinit_optimistic") == 0)
+		*fast_optimistic = TRUE;
+	}
+    }
+
+    /* PKINIT if we have client certs or if anonymous */
+    return *user_id != NULL || *anonymous;
+}
+
+/*
+ * This function produces a cred with a MEMORY ccache containing a TGT
+ * acquired using PKINIT.
+ */
+static OM_uint32
+acquire_cred_with_pkinit(OM_uint32 *minor_status,
+			 krb5_context context,
+			 const char *user_id,
+			 const char *x509_anchors,
+			 krb5_boolean anonymous,
+			 krb5_boolean fast_anon_pkinit,
+			 krb5_boolean fast_optimistic,
+			 gss_const_key_value_set_t cred_store,
+			 OM_uint32 time_req,
+			 gss_OID_set desired_mechs,
+			 gss_cred_usage_t cred_usage,
+			 gsskrb5_cred handle)
+{
+    OM_uint32 ret = GSS_S_FAILURE;
+    krb5_creds cred;
+    krb5_init_creds_context ctx = NULL;
+    krb5_get_init_creds_opt *opt = NULL;
+    krb5_ccache ccache = NULL;
+    krb5_error_code kret;
+    time_t now;
+    OM_uint32 left;
+    const char *realm;
+    char **pool = NULL;
+    char **pki_revoke = NULL;
+    int pkinit_flags = 0;
+
+    if (cred_usage == GSS_C_ACCEPT) {
+	*minor_status = ENOTSUP;
+	return GSS_S_FAILURE;
+    }
+
+    memset(&cred, 0, sizeof(cred));
+
+    /* Collect pool (intermediates) and revocation values */
+    pool = cred_store_find_all(cred_store, "pkinit_intermediates", NULL);
+    pki_revoke = cred_store_find_all(cred_store, "pkinit_revocation", NULL);
+
+    if (handle->principal == NULL) {
+	kret = krb5_get_default_principal(context, &handle->principal);
+	if (kret)
+	    goto end;
+    }
+    realm = krb5_principal_get_realm(context, handle->principal);
+
+    kret = krb5_get_init_creds_opt_alloc(context, &opt);
+    if (kret)
+	goto end;
+
+    krb5_get_init_creds_opt_set_default_flags(context, "gss_krb5", realm, opt);
+
+    if (anonymous)
+	pkinit_flags |= KRB5_GIC_OPT_PKINIT_ANONYMOUS;
+
+    kret = krb5_get_init_creds_opt_set_pkinit(context, opt, handle->principal,
+					      user_id, x509_anchors,
+					      pool, pki_revoke,
+					      pkinit_flags,
+					      NULL, NULL, NULL);
+    if (kret)
+	goto end;
+
+    kret = krb5_init_creds_init(context, handle->principal, NULL, NULL, 0,
+				opt, &ctx);
+    if (kret)
+	goto end;
+
+    /* Set FAST anonymous PKINIT options after init_creds_init */
+    if (fast_optimistic) {
+	kret = _krb5_init_creds_set_fast_anon_pkinit_optimistic(context, ctx);
+	if (kret)
+	    goto end;
+    } else if (fast_anon_pkinit) {
+	kret = krb5_init_creds_set_fast_anon_pkinit(context, ctx);
+	if (kret)
+	    goto end;
+    }
+
+    krb5_timeofday(context, &now);
+
+    kret = krb5_init_creds_get(context, ctx);
+    if (kret)
+	goto end;
+
+    kret = krb5_init_creds_get_creds(context, ctx, &cred);
+    if (kret)
+	goto end;
+
+    kret = krb5_cc_new_unique(context, krb5_cc_type_memory, NULL, &ccache);
+    if (kret)
+	goto end;
+
+    kret = krb5_cc_initialize(context, ccache, cred.client);
+    if (kret)
+	goto end;
+
+    kret = krb5_init_creds_store(context, ctx, ccache);
+    if (kret)
+	goto end;
+
+    kret = krb5_cc_store_cred(context, ccache, &cred);
+    if (kret)
+	goto end;
+
+    handle->cred_flags |= GSS_CF_DESTROY_CRED_ON_RELEASE;
+
+    ret = __gsskrb5_ccache_lifetime(minor_status, context, ccache,
+				    handle->principal, &left);
+    if (ret != GSS_S_COMPLETE)
+	goto end;
+
+    handle->endtime = now + left;
+    handle->ccache = ccache;
+    ccache = NULL;
+    ret = GSS_S_COMPLETE;
+
+end:
+    free(pool);
+    free(pki_revoke);
+    krb5_get_init_creds_opt_free(context, opt);
+    if (ctx)
+	krb5_init_creds_free(context, ctx);
+    if (ccache != NULL)
+	krb5_cc_destroy(context, ccache);
+    if (cred.client != NULL)
+	krb5_free_cred_contents(context, &cred);
+    if (ret != GSS_S_COMPLETE)
+	*minor_status = kret;
+    return ret;
 }
 
 /*
@@ -577,6 +808,11 @@ OM_uint32 GSSAPI_CALLCONV _gsskrb5_acquire_cred_from
     gsskrb5_cred handle;
     OM_uint32 ret;
     const char *password = NULL;
+    const char *pkinit_user_id = NULL;
+    const char *pkinit_anchors = NULL;
+    krb5_boolean pkinit_anonymous = FALSE;
+    krb5_boolean pkinit_fast_anon = FALSE;
+    krb5_boolean pkinit_fast_optimistic = FALSE;
 
     if (desired_mechs) {
 	int present = 0;
@@ -627,7 +863,23 @@ OM_uint32 GSSAPI_CALLCONV _gsskrb5_acquire_cred_from
 	}
     }
 
-    if (password) {
+    if (is_pkinit_cred_store(context, handle->principal, cred_store,
+			     &pkinit_user_id, &pkinit_anchors,
+			     &pkinit_anonymous, &pkinit_fast_anon,
+			     &pkinit_fast_optimistic)) {
+	ret = acquire_cred_with_pkinit(minor_status, context,
+				       pkinit_user_id, pkinit_anchors,
+				       pkinit_anonymous, pkinit_fast_anon,
+				       pkinit_fast_optimistic,
+				       cred_store, time_req, desired_mechs,
+				       cred_usage, handle);
+	if (ret != GSS_S_COMPLETE) {
+	    HEIMDAL_MUTEX_destroy(&handle->cred_id_mutex);
+	    krb5_free_principal(context, handle->principal);
+	    free(handle);
+	    return ret;
+	}
+    } else if (password) {
         ret = acquire_cred_with_password(minor_status, context, password, time_req,
                                          desired_mechs, cred_usage, cred_store, handle);
         if (ret != GSS_S_COMPLETE) {
