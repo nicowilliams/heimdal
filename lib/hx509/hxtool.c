@@ -3261,6 +3261,8 @@ acert(struct acert_options *opt, int argc, char **argv)
         hx509_err(context, 1, ret, "Matching certificate did not meet "
                   "requirements");
     hx509_cert_free(cert);
+    hx509_query_free(context, q);
+    hx509_certs_free(&certs);
     free(sn);
     return 0;
 }
