@@ -184,7 +184,7 @@
 
 struct asn1_template {
     uint32_t tt;
-    uint32_t offset;
+    int32_t  offset;
     const void *ptr;
 };
 
