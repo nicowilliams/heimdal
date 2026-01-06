@@ -991,14 +991,13 @@ main(int argc, char **argv)
 	    krb5_data out;
 	    krb5_storage *sp;
 	    uint32_t tmp;
-            int max_fd;
+            int max_fd = max(restarter_fd, master_fd);
 
 #ifndef NO_LIMIT_FD_SETSIZE
 	    if (master_fd >= FD_SETSIZE)
                 krb5_errx(context, IPROPD_RESTART, "fd too large");
             if (restarter_fd >= FD_SETSIZE)
                 krb5_errx(context, IPROPD_RESTART, "fd too large");
-            max_fd = max(restarter_fd, master_fd);
 #endif
 
 	    FD_ZERO(&readset);
