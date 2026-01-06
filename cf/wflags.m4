@@ -18,7 +18,24 @@ if test -z "$WFLAGS" -a "$GCC" = "yes"; then
   #   -Wmissing-prototypes -Wpointer-arith -Wbad-function-cast
   #   -Wmissing-declarations -Wnested-externs
   #   -Wstrict-overflow=5
-  WFLAGS="ifelse($#, 0,-Wall, $1) $dwflags"
+
+  # Check if this is Clang (which also sets GCC=yes for compatibility)
+  if $CC --version 2>&1 | grep -qi clang; then
+    rk_CLANG=yes
+  else
+    rk_CLANG=no
+  fi
+
+  wflags="ifelse($#, 0,-Wall, $1)"
+
+  # Replace GCC-specific warning flags with Clang equivalents
+  if test "$rk_CLANG" = yes; then
+    wflags=`echo "$wflags" | sed -e 's/-Wdiscarded-qualifiers/-Wignored-qualifiers/g' \
+                                  -e 's/ -Wunused-but-set-variable//g' \
+                                  -e 's/ -Wunused-const-variable//g'`
+  fi
+
+  WFLAGS="$wflags $dwflags"
 
   #
   # WFLAGS_LITE can be appended to WFLAGS to turn off a host of warnings
