@@ -108,7 +108,7 @@ get_fastuser_crypto(astgs_request_t r,
 		    krb5_crypto *crypto)
 {
     krb5_principal fast_princ;
-    HDB *fast_db;
+    HDB *fast_db = NULL;
     hdb_entry *fast_user = NULL;
     Key *cookie_key = NULL;
     krb5_crypto fast_crypto = NULL;
@@ -851,7 +851,7 @@ _kdc_fast_check_armor_pac(astgs_request_t r, int flags)
     krb5_boolean ad_kdc_issued = FALSE;
     krb5_pac mspac = NULL;
     krb5_principal armor_client_principal = NULL;
-    HDB *armor_db;
+    HDB *armor_db = NULL;
     hdb_entry *armor_client = NULL;
     char *armor_client_principal_name = NULL;
 
