@@ -30,9 +30,11 @@ if test -z "$WFLAGS" -a "$GCC" = "yes"; then
 
   # Replace GCC-specific warning flags with Clang equivalents
   if test "$rk_CLANG" = yes; then
+    # -Wimplicit-fallthrough removed: flex-generated code triggers it and can't be fixed
     wflags=`echo "$wflags" | sed -e 's/-Wdiscarded-qualifiers/-Wignored-qualifiers/g' \
                                   -e 's/ -Wunused-but-set-variable//g' \
-                                  -e 's/ -Wunused-const-variable//g'`
+                                  -e 's/ -Wunused-const-variable//g' \
+                                  -e 's/ -Wimplicit-fallthrough//g'`
   fi
 
   WFLAGS="$wflags $dwflags"
