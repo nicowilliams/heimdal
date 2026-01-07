@@ -78,8 +78,8 @@
 %token <string> STRING
 %token <string> IDENTIFIER
 
-%destructor { _hx509_expr_free($$); } <expr>
-%destructor { free($$); } <string>
+%destructor { _hx509_expr_free($$); } expr comp word words number string function variable variables
+%destructor { free($$); } NUMBER STRING IDENTIFIER
 
 %left '!'
 %left kw_AND
