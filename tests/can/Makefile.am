@@ -11,11 +11,11 @@ TESTS = $(SCRIPT_TESTS)
 
 port = 49188
 
-do_subst = sed -e 's,[@]srcdir[@],$(srcdir),g' \
+do_subst = sed -e 's,[@]srcdir[@],$(abs_srcdir),g' \
 	-e 's,[@]port[@],$(port),g' \
-	-e 's,[@]objdir[@],$(top_builddir)/tests/can,g' \
+	-e 's,[@]objdir[@],$(abs_top_builddir)/tests/can,g' \
 	-e 's,[@]EGREP[@],$(EGREP),g' \
-	-e 's,[@]env_setup[@],$(top_builddir)/tests/bin/setup-env,g'
+	-e 's,[@]env_setup[@],$(abs_top_builddir)/tests/bin/setup-env,g'
 
 test_can: test_can.in Makefile
 	$(do_subst) < $(srcdir)/test_can.in > test_can.tmp
