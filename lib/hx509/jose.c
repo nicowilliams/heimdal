@@ -1281,7 +1281,7 @@ hx509_pem_to_jwk(hx509_context context,
     if (key_type == EVP_PKEY_RSA || key_type == EVP_PKEY_RSA_PSS) {
         BIGNUM *n = NULL, *e = NULL;
         unsigned char *n_bin = NULL, *e_bin = NULL;
-        char *n_b64, *e_b64;
+        char *n_b64 = NULL, *e_b64 = NULL;
         int n_len, e_len;
 
         heim_dict_set_value(jwk, HSTR("kty"), HSTR("RSA"));
@@ -1330,7 +1330,7 @@ hx509_pem_to_jwk(hx509_context context,
     } else if (key_type == EVP_PKEY_EC) {
         BIGNUM *x = NULL, *y = NULL;
         unsigned char *x_bin = NULL, *y_bin = NULL;
-        char *x_b64, *y_b64;
+        char *x_b64 = NULL, *y_b64 = NULL;
         char crv_name[64];
         size_t crv_len;
         const char *crv = NULL;
