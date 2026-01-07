@@ -89,19 +89,23 @@ echo "  OK: Heimdal read PBES2 AES-128-CBC PKCS#12"
 
 #
 # Test 3: Heimdal reads OpenSSL-created legacy PKCS#12 (3DES/RC2)
+# Note: This test is optional - LibreSSL and some OpenSSL 3.x builds
+# don't support the -legacy flag or legacy algorithms
 #
 echo "Test 3: Create legacy PKCS#12 with OpenSSL (3DES), read with Heimdal"
-openssl pkcs12 -export \
+if openssl pkcs12 -export \
     -in $srcdir/data/test.crt \
     -inkey $srcdir/data/test.key \
     -out legacy-3des.p12 \
     -passout pass:$PASS \
     -legacy \
-    2>/dev/null || { echo "OpenSSL pkcs12 legacy export failed"; exit 1; }
-
-${hxtool} print --pass=PASS:$PASS PKCS12:legacy-3des.p12 > /dev/null || \
-    { echo "Failed to read OpenSSL legacy 3DES PKCS#12"; exit 1; }
-echo "  OK: Heimdal read legacy 3DES PKCS#12"
+    2>/dev/null; then
+    ${hxtool} print --pass=PASS:$PASS PKCS12:legacy-3des.p12 > /dev/null || \
+        { echo "Failed to read OpenSSL legacy 3DES PKCS#12"; exit 1; }
+    echo "  OK: Heimdal read legacy 3DES PKCS#12"
+else
+    echo "  SKIP: OpenSSL does not support -legacy flag (LibreSSL or no legacy provider)"
+fi
 
 #
 # Test 4: Heimdal creates PKCS#12, OpenSSL reads it
