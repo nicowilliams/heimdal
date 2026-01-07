@@ -197,7 +197,7 @@ ARCFOUR_subencrypt(krb5_context context,
 
     EVP_CIPHER_CTX_init(ctx);
 
-    EVP_CipherInit_ex(ctx, EVP_rc4(), NULL, k3_c.checksum.data, NULL, 1);
+    EVP_CipherInit_ex(ctx, heim_EVP_rc4(context), NULL, k3_c.checksum.data, NULL, 1);
     EVP_Cipher(ctx, cdata + 16, cdata + 16, len - 16);
     EVP_CIPHER_CTX_free(ctx);
 
@@ -258,7 +258,7 @@ ARCFOUR_subdecrypt(krb5_context context,
 	krb5_abortx(context, "hmac failed");
 
     EVP_CIPHER_CTX_init(ctx);
-    EVP_CipherInit_ex(ctx, EVP_rc4(), NULL, k3_c.checksum.data, NULL, 0);
+    EVP_CipherInit_ex(ctx, heim_EVP_rc4(context), NULL, k3_c.checksum.data, NULL, 0);
     EVP_Cipher(ctx, cdata + 16, cdata + 16, len - 16);
     EVP_CIPHER_CTX_free(ctx);
 
