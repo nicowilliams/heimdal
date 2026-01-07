@@ -224,7 +224,6 @@ _krb5_internal_hmac_iov(krb5_context context,
     size_t key_len;
     size_t i;
 
-    // XXX Switch to using OpenSSL 3.x APIs!
     ipad = malloc(cm->blocksize);
     if (ipad == NULL)
 	return ENOMEM;
