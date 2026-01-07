@@ -71,7 +71,8 @@ read_string(const char *preprompt, const char *prompt,
     char *p;
     void (*oldsigintr)(int);
 
-    _cprintf("%s%s", preprompt, prompt);
+    printf("%s%s", preprompt, prompt);
+    fflush(stdout);
 
     oldsigintr = signal(SIGINT, intr);
 
