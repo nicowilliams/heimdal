@@ -65,9 +65,9 @@ do_dlopen = -e 's,[@]DLOPEN[@],false,g'
 endif
 
 do_subst = $(heim_verbose)sed $(do_dlopen) \
-	-e 's,[@]env_setup[@],$(top_builddir)/tests/bin/setup-env,g' \
-	-e 's,[@]top_srcdir[@],$(top_srcdir),g' \
-	-e 's,[@]srcdir[@],$(srcdir),g' \
+	-e 's,[@]env_setup[@],$(abs_top_builddir)/tests/bin/setup-env,g' \
+	-e 's,[@]top_srcdir[@],$(abs_top_srcdir),g' \
+	-e 's,[@]srcdir[@],$(abs_srcdir),g' \
 	-e 's,[@]port[@],$(port),g' \
 	-e 's,[@]admport[@],$(admport),g' \
 	-e 's,[@]admport2[@],$(admport2),g' \
@@ -77,8 +77,8 @@ do_subst = $(heim_verbose)sed $(do_dlopen) \
 	-e 's,[@]pwport[@],$(pwport),g' \
 	-e 's,[@]ipropport[@],$(ipropport),g' \
 	-e 's,[@]ipropport2[@],$(ipropport2),g' \
-	-e 's,[@]objdir[@],$(top_builddir)/tests/kdc,g' \
-	-e 's,[@]top_builddir[@],$(top_builddir),g' \
+	-e 's,[@]objdir[@],$(abs_top_builddir)/tests/kdc,g' \
+	-e 's,[@]top_builddir[@],$(abs_top_builddir),g' \
 	-e 's,[@]db_type[@],$(db_type),g' \
 	-e 's,[@]max_life_from_cert[@],$(pkinit_ticket_max_life_from_cert),g' \
         -e 's,[@]ENABLE_AFS_STRING_TO_KEY[@],$(ENABLE_AFS_STRING_TO_KEY),' \
