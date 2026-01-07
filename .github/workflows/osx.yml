@@ -87,7 +87,7 @@ jobs:
                 /bin/sh ./autogen.sh
                 mkdir build
                 cd build
-                ../configure --srcdir=`dirname "$PWD"` --disable-heimdal-documentation --disable-afs-support --enable-maintainer-mode --enable-developer $CONFIGURE_OPTS --prefix=$HOME/inst --with-openssl=/opt/homebrew/opt/openssl@3/ CFLAGS="-O0 -g -ggdb3 -Wno-error=shadow -Wno-error=bad-function-cast -Wno-error=unused-function -Wno-error=unused-result -Wno-error=deprecated-declarations"
+                ../configure --srcdir=`dirname "$PWD"` --disable-heimdal-documentation --enable-maintainer-mode --enable-developer $CONFIGURE_OPTS --prefix=$HOME/inst --with-openssl=/opt/homebrew/opt/openssl@3/ CFLAGS="-O0 -g -ggdb3 -Wno-error=shadow -Wno-error=bad-function-cast -Wno-error=unused-function -Wno-error=unused-result -Wno-error=deprecated-declarations"
                 ulimit -c unlimited
                 PATH=/usr/local/opt/texinfo/bin:$PATH
                 export PATH
