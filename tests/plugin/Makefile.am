@@ -12,10 +12,10 @@ TESTS = $(SCRIPT_TESTS)
 
 port = 49188
 
-do_subst = sed -e 's,[@]srcdir[@],$(srcdir),g' \
-	-e 's,[@]env_setup[@],$(top_builddir)/tests/bin/setup-env,g' \
+do_subst = sed -e 's,[@]srcdir[@],$(abs_srcdir),g' \
+	-e 's,[@]env_setup[@],$(abs_top_builddir)/tests/bin/setup-env,g' \
 	-e 's,[@]port[@],$(port),g' \
-	-e 's,[@]objdir[@],$(top_builddir)/tests/plugin,g' \
+	-e 's,[@]objdir[@],$(abs_top_builddir)/tests/plugin,g' \
 	-e 's,[@]EGREP[@],$(EGREP),g' 
 
 LDADD = ../../lib/krb5/libkrb5.la $(LIB_roken)
