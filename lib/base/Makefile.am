@@ -82,6 +82,12 @@ libheimbase_la_DEPENDENCIES = version-script.map
 
 test_base_LDADD = libheimbase.la $(LIB_roken)
 
+# Fuzzer for JSON parser (build with: make fuzz_json CFLAGS="-fsanitize=fuzzer,address")
+noinst_PROGRAMS = fuzz_json
+fuzz_json_SOURCES = fuzz_json.c
+fuzz_json_LDADD = libheimbase.la $(LIB_roken)
+fuzz_json.$(OBJEXT): $(srcdir)/heimbase-protos.h heim_err.h
+
 CLEANFILES = base64.c test_db.json heim_err.c heim_err.h
 
 EXTRA_DIST = NTMakefile version-script.map config_reg.c heim_err.et
