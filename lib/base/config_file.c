@@ -253,7 +253,7 @@ cfstring2cstring(CFStringRef string)
     CFIndex len;
     char *str;
 
-    str = (char *) CFStringGetCStringPtr(string, kCFStringEncodingUTF8);
+    str = (char *)(uintptr_t)CFStringGetCStringPtr(string, kCFStringEncodingUTF8);
     if (str)
         return strdup(str);
 
@@ -302,7 +302,7 @@ parse_plist_config(heim_context context, const char *path, heim_config_section *
     CFDictionaryRef d;
     CFURLRef url;
 
-    url = CFURLCreateFromFileSystemRepresentation(kCFAllocatorDefault, (UInt8 *)path, strlen(path), 0);
+    url = CFURLCreateFromFileSystemRepresentation(kCFAllocatorDefault, (const UInt8 *)path, strlen(path), 0);
     if (url == NULL) {
         heim_clear_error_message(context);
         return ENOMEM;
