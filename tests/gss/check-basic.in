@@ -221,7 +221,6 @@ ${acquire_cred2} \
     --mech=krb5 \
     --name=user \
     --from=password=upw \
-    --from=ccache=${cache} \
     --into=unique_ccache_type=MEMORY || exit 1
 
 trap "" EXIT
