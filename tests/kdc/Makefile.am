@@ -257,7 +257,7 @@ krb5-hdb-mitdb.conf: krb5-hdb-mitdb.conf.in Makefile
 krb5-weak.conf: krb5.conf.in Makefile
 	$(do_subst) \
 	   -e 's,[@]WEAK[@],true,g' \
-           -e 's,[@]dk[@],default_keys = aes256-cts-hmac-sha1-96:pw-salt aes256-cts-hmac-sha384-192:pw-salt arcfour-hmac-md5:pw-salt,g' \
+           -e 's,[@]dk[@],default_keys = aes256-cts-hmac-sha1-96:pw-salt aes256-cts-hmac-sha384-192:pw-salt,g' \
 	   -e 's,[@]messages[@],messages,g' \
 	   -e 's,[@]signalsocket[@],signal,g' \
 	   -e 's,[@]ipropstats[@],iprop-stats,g' \
