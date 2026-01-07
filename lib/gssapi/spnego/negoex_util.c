@@ -923,8 +923,7 @@ _gss_negoex_add_auth_mech(OM_uint32 *minor,
 	return GSS_S_FAILURE;
     }
 
-    /* XXX gss_duplicate_oid should take gss_const_OID */
-    major = gss_duplicate_oid(minor, (gss_OID)rk_UNCONST(oid), &mech->oid);
+    major = gss_duplicate_oid(minor, oid, &mech->oid);
     if (major != GSS_S_COMPLETE) {
 	free(mech);
 	return major;

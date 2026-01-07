@@ -58,8 +58,7 @@ _gsskrb5_authorize_localname(OM_uint32 *minor_status,
     user[user_name->length] = '\0';
 
     *minor_status = 0;
-    /* XXX krb5_kuserok should take krb5_const_principal */
-    user_ok = krb5_kuserok(context, rk_UNCONST(princ), user);
+    user_ok = krb5_kuserok(context, princ, user);
 
     free(user);
 
