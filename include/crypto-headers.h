@@ -24,6 +24,7 @@
 #include <openssl/provider.h>
 #include <openssl/encoder.h>
 #include <openssl/core_names.h>
+#include <openssl/param_build.h>
 #include <openssl/x509.h>
 
 #endif /* __crypto_header__ */
