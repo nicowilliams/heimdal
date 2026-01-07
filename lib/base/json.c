@@ -120,6 +120,10 @@ dict2json(heim_object_t key, heim_object_t value, void *ctx)
     j->ret = base2json(key, j, 0);
     if (j->ret)
 	return;
+    if (value == NULL) {
+	j->out(j->ctx, ": null\n");
+	return;
+    }
     switch (heim_get_tid(value)) {
     case HEIM_TID_ARRAY:
     case HEIM_TID_DICT:
