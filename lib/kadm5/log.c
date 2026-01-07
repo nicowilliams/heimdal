@@ -2624,7 +2624,10 @@ kadm5_log_truncate(kadm5_server_context *context, size_t keep, size_t maxbytes)
 
     if (ret) {
         krb5_warn(context->context, ret, "Unable to keep entries");
-        (void) ftruncate(context->log_context.log_fd, LOG_UBER_SZ);
+        if (ftruncate(context->log_context.log_fd, LOG_UBER_SZ) == -1) {
+            krb5_warn(context->context, ret, "Unable to truncate log");
+            return errno;
+        }
         (void) lseek(context->log_context.log_fd, 0, SEEK_SET);
         return ret;
     }
