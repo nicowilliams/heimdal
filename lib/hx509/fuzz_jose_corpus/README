@@ -1,0 +1,3 @@
+Seed corpus for fuzz_jose
+
+These files contain various JWS/JWT tokens to seed the fuzzer.

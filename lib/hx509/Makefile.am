@@ -162,6 +162,12 @@ LDADD = libhx509.la
 test_soft_pkcs11_LDADD = libhx509.la $(top_builddir)/lib/asn1/libasn1.la
 
 test_name_LDADD = libhx509.la $(LIB_roken) $(top_builddir)/lib/asn1/libasn1.la
+
+# Fuzzer for JWS/JWT parsing (build with: make fuzz_jose CFLAGS="-fsanitize=fuzzer,address")
+noinst_PROGRAMS = fuzz_jose
+fuzz_jose_SOURCES = fuzz_jose.c
+fuzz_jose_LDADD = libhx509.la $(LIB_roken) $(top_builddir)/lib/base/libheimbase.la
+fuzz_jose.$(OBJEXT): $(HX509_PROTOS) $(nodist_include_HEADERS)
 test_expr_LDADD = libhx509.la $(LIB_roken) $(top_builddir)/lib/asn1/libasn1.la
 
 TESTS = $(SCRIPT_TESTS) $(PROGRAM_TESTS)
