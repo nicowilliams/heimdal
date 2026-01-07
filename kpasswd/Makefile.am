@@ -10,7 +10,7 @@ bin_PROGRAMS = kpasswd
 
 kpasswd_SOURCES = kpasswd.c kpasswd_locl.h
 
-kpasswd_CPPFLAGS = -I$(srcdir)/../lib/krb5
+kpasswd_CPPFLAGS = $(AM_CPPFLAGS) -I$(srcdir)/../lib/krb5
 
 libexec_PROGRAMS = kpasswdd
 

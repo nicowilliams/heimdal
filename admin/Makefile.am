@@ -8,7 +8,7 @@ man_MANS = ktutil.1
 
 bin_PROGRAMS = ktutil
 
-ktutil_CPPFLAGS = -I$(srcdir)/../lib/krb5
+ktutil_CPPFLAGS = $(AM_CPPFLAGS) -I$(srcdir)/../lib/krb5
 
 dist_ktutil_SOURCES =				\
 	add.c					\
