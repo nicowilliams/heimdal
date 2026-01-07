@@ -13,9 +13,9 @@ TESTS = check-test-lib
 intr_LDADD = $(LIB_roken)
 
 do_subst = $(heim_verbose)sed \
-	-e 's,[@]top_srcdir[@],$(top_srcdir),g' \
-	-e 's,[@]top_builddir[@],$(top_builddir),g' \
-	-e 's,[@]objdir[@],$(top_builddir)/tests/bin,g' \
+	-e 's,[@]top_srcdir[@],$(abs_top_srcdir),g' \
+	-e 's,[@]top_builddir[@],$(abs_top_builddir),g' \
+	-e 's,[@]objdir[@],$(abs_top_builddir)/tests/bin,g' \
 	-e 's,[@]EGREP[@],$(EGREP),g' \
 	-e 's,[@]NO_AFS[@],$(NO_AFS),g' \
 	-e 's,[@]MITKRB5[@],$(MITKRB5),g'
