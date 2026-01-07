@@ -280,7 +280,7 @@ check_name_attrs(void)
 
     assert_attr(n, GSS_KRB5_NAME_ATTRIBUTE_BASE_URN "ticket-authz-data",
                 GSS_S_COMPLETE, &v, NULL, 0, 1, 0);
-    free(v.value);		/* XXX !!! ??? */
+    free(v.value);
 
     attr_set.count = 7;
     assert_attr_set(n, &attr_set);
