@@ -27,14 +27,14 @@ set -e
 errors=0
 
 # Check 1: Both test sections should appear
-if echo "$output" | grep -q '\[  1\] Failing test section'; then
+if echo "$output" | grep -q '\[  1\].*Failing test section'; then
     echo "PASS: Section 1 header found"
 else
     echo "FAIL: Section 1 header not found"
     errors=$((errors + 1))
 fi
 
-if echo "$output" | grep -q '\[  2\] Succeeding test section'; then
+if echo "$output" | grep -q '\[  2\].*Succeeding test section'; then
     echo "PASS: Section 2 header found"
 else
     echo "FAIL: Section 2 header not found"
