@@ -2450,8 +2450,7 @@ try_pbes2_decrypt(hx509_context context,
 		  hx509_lock lock,
 		  const AlgorithmIdentifier *ai,
 		  const heim_octet_string *econtent,
-		  heim_octet_string *content,
-		  int *result)
+		  heim_octet_string *content)
 {
     const struct _hx509_password *pw;
     PBES2_params pbes2;
@@ -2464,7 +2463,6 @@ try_pbes2_decrypt(hx509_context context,
     int ret;
     size_t i;
 
-    *result = 0;
     memset(&pbes2, 0, sizeof(pbes2));
     memset(&pbkdf2, 0, sizeof(pbkdf2));
     memset(&key, 0, sizeof(key));
@@ -2474,13 +2472,12 @@ try_pbes2_decrypt(hx509_context context,
 
     /* Check if this is PBES2 */
     if (der_heim_oid_cmp(&ai->algorithm, ASN1_OID_ID_PBES2) != 0)
-	return 0;  /* Not PBES2, caller should try legacy PBE */
+	return -1;  /* Not PBES2, caller should try legacy PBE */
 
     if (ai->parameters == NULL) {
 	hx509_set_error_string(context, 0, HX509_ALG_NOT_SUPP,
 			       "PBES2 missing parameters");
-	*result = HX509_ALG_NOT_SUPP;
-	return 1;
+	return HX509_ALG_NOT_SUPP;
     }
 
     ret = decode_PBES2_params(ai->parameters->data, ai->parameters->length,
@@ -2488,8 +2485,7 @@ try_pbes2_decrypt(hx509_context context,
     if (ret) {
 	hx509_set_error_string(context, 0, ret,
 			       "Failed to decode PBES2 parameters");
-	*result = ret;
-	return 1;
+	return ret;
     }
 
     /* Check that the KDF is PBKDF2 */
@@ -2677,8 +2673,7 @@ out:
 	der_free_octet_string(&key);
     if (iv.data)
 	der_free_octet_string(&iv);
-    *result = ret;
-    return 1;  /* Was PBES2, result contains status */
+    return ret;
 }
 
 /*
@@ -2702,8 +2697,9 @@ _hx509_pbe_decrypt(hx509_context context,
     size_t i;
 
     /* First try PBES2 (modern PKCS#12) */
-    if (try_pbes2_decrypt(context, lock, ai, econtent, content, &ret))
-	return ret;
+    ret = try_pbes2_decrypt(context, lock, ai, econtent, content);
+    if (ret != -1)
+        return ret; /* PBES2, either error or success */
 
     /* Fall back to legacy PKCS#12 PBE */
     memset(&key, 0, sizeof(key));
