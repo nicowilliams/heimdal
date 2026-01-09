@@ -15,7 +15,9 @@ AM_CPPFLAGS += \
 	-I$(srcdir)/krb5 \
 	-I$(srcdir)/spnego \
 	-I$(srcdir)/sanon \
-	$(INCLUDE_libintl)
+	-I$(srcdir)/tls \
+	$(INCLUDE_libintl) \
+	$(INCLUDE_s2n)
 
 lib_LTLIBRARIES = libgssapi.la test_negoex_mech.la
 
@@ -219,11 +221,35 @@ sanonsrc = \
 	sanon/sanon_locl.h \
 	sanon/sanon-private.h
 
+tlssrc = \
+	tls/accept_sec_context.c \
+	tls/context.c \
+	tls/cred.c \
+	tls/external.c \
+	tls/init_sec_context.c \
+	tls/name.c \
+	tls/unwrap.c \
+	tls/wrap.c \
+	tls/tls_backend.h \
+	tls/tls_locl.h \
+	tls/tls-private.h
+
+# TLS backend sources (only one backend is compiled based on configure)
+if GSS_TLS_S2N
+tlsbackendsrc = tls/tls_s2n.c
+endif
+
+if GSS_TLS_OPENSSL
+tlsbackendsrc = tls/tls_openssl.c
+endif
+
 dist_libgssapi_la_SOURCES  = \
 	$(krb5src) \
 	$(mechsrc) \
 	$(spnegosrc) \
-	$(sanonsrc)
+	$(sanonsrc) \
+	$(tlssrc) \
+	$(tlsbackendsrc)
 
 nodist_libgssapi_la_SOURCES  = \
 	$(BUILT_SOURCES)
@@ -238,9 +264,19 @@ endif
 
 libgssapi_la_LIBADD = \
 	$(top_builddir)/lib/krb5/libkrb5.la \
+	$(top_builddir)/lib/hx509/libhx509.la \
 	$(top_builddir)/lib/asn1/libasn1.la \
 	$(LIB_com_err) \
 	$(LIBADD_roken)
+
+# TLS backend libraries
+if GSS_TLS_S2N
+libgssapi_la_LIBADD += $(LIB_s2n)
+endif
+if GSS_TLS_OPENSSL
+# OpenSSL backend needs libssl (libcrypto is already linked via libhx509)
+libgssapi_la_LIBADD += $(LIB_openssl_ssl)
+endif
 
 man_MANS = gssapi.3 gss_acquire_cred.3 mech/mech.5 gss-token.1
 
@@ -250,7 +286,8 @@ noinst_HEADERS = \
 	gssapi_mech.h \
 	$(srcdir)/spnego/spnego-private.h \
 	$(srcdir)/sanon/sanon-private.h \
-	$(srcdir)/krb5/gsskrb5-private.h
+	$(srcdir)/krb5/gsskrb5-private.h \
+	$(srcdir)/tls/tls-private.h
 
 nobase_include_HEADERS = \
 	gssapi/gssapi.h \
@@ -279,7 +316,8 @@ spnego_files =					\
 BUILTHEADERS = \
 	$(srcdir)/krb5/gsskrb5-private.h \
 	$(srcdir)/spnego/spnego-private.h \
-	$(srcdir)/sanon/sanon-private.h
+	$(srcdir)/sanon/sanon-private.h \
+	$(srcdir)/tls/tls-private.h
 
 $(libgssapi_la_OBJECTS): $(BUILTHEADERS)
 $(test_context_OBJECTS): $(BUILTHEADERS)
@@ -333,6 +371,9 @@ $(srcdir)/spnego/spnego-private.h:
 $(srcdir)/sanon/sanon-private.h:
 	cd $(srcdir) && perl ../../cf/make-proto.pl -q -P comment -p sanon/sanon-private.h $(sanonsrc) || rm -f sanon/sanon-private.h
 
+$(srcdir)/tls/tls-private.h:
+	cd $(srcdir) && perl ../../cf/make-proto.pl -q -P comment -p tls/tls-private.h $(tlssrc) || rm -f tls/tls-private.h
+
 TESTS = test_oid test_names test_cfx
 # test_sequence
 
@@ -340,7 +381,7 @@ test_cfx_SOURCES = krb5/test_cfx.c
 
 check_PROGRAMS = test_acquire_cred test_acquire_cred_auditdns $(TESTS)
 
-bin_PROGRAMS = gsstool gss-token
+bin_PROGRAMS = gsstool gss-token gss
 noinst_PROGRAMS = test_cred test_kcred test_context test_add_store_cred
 
 test_context_SOURCES = test_context.c test_common.c test_common.h
@@ -372,6 +413,12 @@ gsstool_LDADD = libgssapi.la \
 	$(LIB_roken)
 
 gss_token_LDADD = libgssapi.la \
+	$(top_builddir)/lib/krb5/libkrb5.la \
+	$(LIB_roken)
+
+dist_gss_SOURCES = gss.c
+
+gss_LDADD = libgssapi.la \
 	$(top_builddir)/lib/krb5/libkrb5.la \
 	$(LIB_roken)
 
