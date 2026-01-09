@@ -160,12 +160,12 @@ test_integer_more (void)
 
     n2 = 0;
     for (i = 0; i < (sizeof(int) * 8); i++) {
-	n1 = 0x01 << i;
+	n1 = 1LL << i;
 	n2 = n2 | n1;
 	n3 = ~n1;
 	n4 = ~n2;
-	n5 = (-1) & ~(0x3f << i);
-	n6 = (-1) & ~(0x7f << i);
+	n5 = (-1LL) & ~(0x3fLL << i);
+	n6 = (-1LL) & ~(0x7fLL << i);
 
 	test_one_int(n1);
 	test_one_int(n2);
