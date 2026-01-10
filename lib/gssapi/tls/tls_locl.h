@@ -49,6 +49,9 @@
  * - Private key (optional for anonymous clients)
  * - Trust anchors for peer validation
  * - Revocation information
+ *
+ * Configuration is done via gss_acquire_cred_from() cred_store keys.
+ * See cred.c for the list of supported keys.
  */
 typedef struct gss_tls_cred_desc {
     hx509_context hx509ctx;        /* hx509 context */
@@ -63,6 +66,19 @@ typedef struct gss_tls_cred_desc {
 
     /* Usage */
     gss_cred_usage_t usage;        /* INITIATE, ACCEPT, or BOTH */
+
+    /*
+     * TODO: Add ALPN/NPN protocol negotiation support
+     *
+     * char **alpn_protocols;      // NULL-terminated list of ALPN protocols
+     * size_t alpn_count;          // Number of ALPN protocols
+     * char **npn_protocols;       // NULL-terminated list of NPN protocols (legacy)
+     * size_t npn_count;           // Number of NPN protocols
+     *
+     * For initiator: these are offered to the server
+     * For acceptor: these are the protocols the server supports
+     * After handshake, the negotiated protocol is available via context inquiry
+     */
 } *gss_tls_cred;
 
 /*
@@ -94,8 +110,8 @@ typedef struct gss_tls_ctx_desc {
     gss_name_t peer_name;
     hx509_cert peer_cert;          /* Peer's leaf certificate */
 
-    /* Our credential */
-    gss_tls_cred cred;
+    /* Our credential (borrowed, not owned) */
+    const struct gss_tls_cred_desc *cred;
 
     /* Time context was established */
     time_t established_time;
@@ -106,30 +122,73 @@ typedef struct gss_tls_ctx_desc {
  *
  * Can represent:
  * - Hostname (for SNI / server identity)
- * - X.509 Distinguished Name
+ * - X.509 Distinguished Name (Subject DN)
+ * - X.509 Subject Alternative Name (various types)
  * - Anonymous identity
+ *
+ * For certificate SANs, we support:
+ * - OtherName: PKINIT (Kerberos), MS UPN, XMPP, etc.
+ * - rfc822Name: email address
+ * - dNSName: DNS hostname
+ * - directoryName: X.500 DN
+ * - uniformResourceIdentifier: URI
+ * - iPAddress: IPv4 or IPv6 address
+ * - registeredID: OID
  */
 typedef struct gss_tls_name_desc {
     enum {
         GSS_TLS_NAME_ANONYMOUS,
         GSS_TLS_NAME_HOSTBASED,
-        GSS_TLS_NAME_X509_DN
+        GSS_TLS_NAME_X509_DN,          /* Subject DN */
+        GSS_TLS_NAME_X509_SAN          /* Subject Alternative Name */
     } type;
 
     union {
         struct {
-            char *service;         /* Service name (may be NULL) */
-            char *hostname;        /* Hostname */
+            char *service;             /* Service name (may be NULL) */
+            char *hostname;            /* Hostname */
         } hostbased;
-        hx509_name x509_name;      /* X.509 Distinguished Name */
+        hx509_name x509_dn;            /* X.509 Distinguished Name */
+        struct {
+            gss_OID_desc san_type;     /* SAN type OID (for OtherName or our allocated OIDs) */
+            union {
+                char *string;          /* rfc822Name, dNSName, URI, xmppAddr, UPN */
+                hx509_name dirname;    /* directoryName */
+                struct {
+                    uint8_t *data;     /* iPAddress: 4 bytes (v4) or 16 bytes (v6) */
+                    size_t len;
+                } ipaddr;
+                struct {
+                    uint8_t *data;     /* PKINIT SAN: DER-encoded KRB5PrincipalName */
+                    size_t len;        /* or registeredID: DER-encoded OID */
+                } der;
+            } value;
+        } san;
     } u;
 } *gss_tls_name;
 
 /* Well-known names */
 extern gss_name_t _gss_tls_anonymous_identity;
 
-/* Mechanism OID - TODO: get a real OID assigned */
+/* Mechanism OID */
 extern gss_OID GSS_TLS_MECHANISM;
+
+/* Name type OIDs for X.509 SANs */
+
+/* OtherName type-id OIDs (used directly) */
+extern gss_OID GSS_C_NT_PKINIT_SAN;       /* 1.3.6.1.5.2.2 - PKINIT (KRB5PrincipalName) */
+extern gss_OID GSS_C_NT_MS_UPN_SAN;       /* 1.3.6.1.4.1.311.20.2.3 - Microsoft UPN */
+extern gss_OID GSS_C_NT_XMPP_SAN;         /* 1.3.6.1.5.5.7.8.5 - XMPP address */
+extern gss_OID GSS_C_NT_DNSSRV_SAN;       /* 1.3.6.1.5.5.7.8.7 - DNS SRV */
+extern gss_OID GSS_C_NT_SMTP_SAN;         /* 1.3.6.1.5.5.7.8.9 - SMTP UTF8 mailbox */
+
+/* Allocated name type OIDs for non-OtherName SANs */
+extern gss_OID GSS_C_NT_X509_RFC822NAME;  /* 1.3.6.1.4.1.40402.1.3.1 - email */
+extern gss_OID GSS_C_NT_X509_DNSNAME;     /* 1.3.6.1.4.1.40402.1.3.2 - DNS */
+extern gss_OID GSS_C_NT_X509_DIRNAME;     /* 1.3.6.1.4.1.40402.1.3.4 - directoryName */
+extern gss_OID GSS_C_NT_X509_URI;         /* 1.3.6.1.4.1.40402.1.3.6 - URI */
+extern gss_OID GSS_C_NT_X509_IPADDRESS;   /* 1.3.6.1.4.1.40402.1.3.7 - IP address */
+extern gss_OID GSS_C_NT_X509_REGID;       /* 1.3.6.1.4.1.40402.1.3.8 - registered OID */
 
 /* Default send buffer capacity */
 #define GSS_TLS_SEND_BUF_INITIAL_CAPACITY 4096

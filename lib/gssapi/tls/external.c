@@ -78,6 +78,84 @@ static gss_OID_desc gss_c_ma_self_framed_desc = {
 };
 
 /*
+ * GSS Name Type OIDs for X.509 SANs
+ *
+ * For OtherName SANs, use the OtherName type-id OID directly.
+ * For non-OtherName SANs, we allocate OIDs under 1.3.6.1.4.1.40402.1.3
+ * with sub-arc matching the GeneralName CHOICE tag number.
+ */
+
+/* OtherName type-id OIDs (not allocated by us) */
+
+/* id-pkinit-san: 1.3.6.1.5.2.2 - PKINIT SAN (KRB5PrincipalName) */
+gss_OID_desc GSS_C_NT_PKINIT_SAN_desc = {
+    6, rk_UNCONST("\x2b\x06\x01\x05\x02\x02")
+};
+gss_OID GSS_C_NT_PKINIT_SAN = &GSS_C_NT_PKINIT_SAN_desc;
+
+/* id-ms-san-upn: 1.3.6.1.4.1.311.20.2.3 - Microsoft UPN SAN */
+gss_OID_desc GSS_C_NT_MS_UPN_SAN_desc = {
+    10, rk_UNCONST("\x2b\x06\x01\x04\x01\x82\x37\x14\x02\x03")
+};
+gss_OID GSS_C_NT_MS_UPN_SAN = &GSS_C_NT_MS_UPN_SAN_desc;
+
+/* id-on-xmppAddr: 1.3.6.1.5.5.7.8.5 - XMPP address */
+gss_OID_desc GSS_C_NT_XMPP_SAN_desc = {
+    8, rk_UNCONST("\x2b\x06\x01\x05\x05\x07\x08\x05")
+};
+gss_OID GSS_C_NT_XMPP_SAN = &GSS_C_NT_XMPP_SAN_desc;
+
+/* id-on-dnsSRV: 1.3.6.1.5.5.7.8.7 - DNS SRV name */
+gss_OID_desc GSS_C_NT_DNSSRV_SAN_desc = {
+    8, rk_UNCONST("\x2b\x06\x01\x05\x05\x07\x08\x07")
+};
+gss_OID GSS_C_NT_DNSSRV_SAN = &GSS_C_NT_DNSSRV_SAN_desc;
+
+/* id-on-SmtpUTF8Mailbox: 1.3.6.1.5.5.7.8.9 - SMTP UTF8 mailbox */
+gss_OID_desc GSS_C_NT_SMTP_SAN_desc = {
+    8, rk_UNCONST("\x2b\x06\x01\x05\x05\x07\x08\x09")
+};
+gss_OID GSS_C_NT_SMTP_SAN = &GSS_C_NT_SMTP_SAN_desc;
+
+/* Non-OtherName SAN type OIDs (allocated under 1.3.6.1.4.1.40402.1.3) */
+
+/* GSS_C_NT_X509_RFC822NAME: 1.3.6.1.4.1.40402.1.3.1 - rfc822Name (email) */
+gss_OID_desc GSS_C_NT_X509_RFC822NAME_desc = {
+    11, rk_UNCONST("\x2b\x06\x01\x04\x01\x82\xbb\x52\x01\x03\x01")
+};
+gss_OID GSS_C_NT_X509_RFC822NAME = &GSS_C_NT_X509_RFC822NAME_desc;
+
+/* GSS_C_NT_X509_DNSNAME: 1.3.6.1.4.1.40402.1.3.2 - dNSName */
+gss_OID_desc GSS_C_NT_X509_DNSNAME_desc = {
+    11, rk_UNCONST("\x2b\x06\x01\x04\x01\x82\xbb\x52\x01\x03\x02")
+};
+gss_OID GSS_C_NT_X509_DNSNAME = &GSS_C_NT_X509_DNSNAME_desc;
+
+/* GSS_C_NT_X509_DIRNAME: 1.3.6.1.4.1.40402.1.3.4 - directoryName */
+gss_OID_desc GSS_C_NT_X509_DIRNAME_desc = {
+    11, rk_UNCONST("\x2b\x06\x01\x04\x01\x82\xbb\x52\x01\x03\x04")
+};
+gss_OID GSS_C_NT_X509_DIRNAME = &GSS_C_NT_X509_DIRNAME_desc;
+
+/* GSS_C_NT_X509_URI: 1.3.6.1.4.1.40402.1.3.6 - uniformResourceIdentifier */
+gss_OID_desc GSS_C_NT_X509_URI_desc = {
+    11, rk_UNCONST("\x2b\x06\x01\x04\x01\x82\xbb\x52\x01\x03\x06")
+};
+gss_OID GSS_C_NT_X509_URI = &GSS_C_NT_X509_URI_desc;
+
+/* GSS_C_NT_X509_IPADDRESS: 1.3.6.1.4.1.40402.1.3.7 - iPAddress */
+gss_OID_desc GSS_C_NT_X509_IPADDRESS_desc = {
+    11, rk_UNCONST("\x2b\x06\x01\x04\x01\x82\xbb\x52\x01\x03\x07")
+};
+gss_OID GSS_C_NT_X509_IPADDRESS = &GSS_C_NT_X509_IPADDRESS_desc;
+
+/* GSS_C_NT_X509_REGID: 1.3.6.1.4.1.40402.1.3.8 - registeredID */
+gss_OID_desc GSS_C_NT_X509_REGID_desc = {
+    11, rk_UNCONST("\x2b\x06\x01\x04\x01\x82\xbb\x52\x01\x03\x08")
+};
+gss_OID GSS_C_NT_X509_REGID = &GSS_C_NT_X509_REGID_desc;
+
+/*
  * Mechanism attributes (gss_mo_desc)
  */
 static gss_mo_desc tls_mo[] = {
@@ -225,11 +303,23 @@ static gssapi_mech_interface_desc tls_mech = {
     _gss_tls_inquire_mechs_for_name,
     _gss_tls_canonicalize_name,
     _gss_tls_duplicate_name,
+    /*
+     * TODO: Implement gm_inquire_sec_context_by_oid for TLS-specific attributes
+     * Needed OIDs to define and implement:
+     *   - GSS_C_INQ_TLS_CIPHER        -> cipher suite name (e.g., "TLS_AES_256_GCM_SHA384")
+     *   - GSS_C_INQ_TLS_VERSION       -> protocol version ("TLSv1.2", "TLSv1.3")
+     *   - GSS_C_INQ_TLS_ALPN          -> negotiated ALPN protocol (if any)
+     *   - GSS_C_INQ_TLS_PEER_CERT     -> peer certificate (DER-encoded)
+     *   - GSS_C_INQ_TLS_PEER_CERT_CHAIN -> full cert chain (DER, concatenated)
+     *   - GSS_C_INQ_TLS_SNI           -> SNI hostname used
+     * These are needed for the gss tool's command execution mode to populate
+     * environment variables like GSS_TLS_CIPHER, GSS_TLS_VERSION, etc.
+     */
     NULL,                              /* gm_inquire_sec_context_by_oid */
     NULL,                              /* gm_inquire_cred_by_oid */
     NULL,                              /* gm_set_sec_context_option */
     NULL,                              /* gm_set_cred_option */
-    NULL,                              /* gm_pseudo_random - TODO: use TLS exporter */
+    NULL,                              /* gm_pseudo_random - TODO: use TLS key exporter */
     NULL,                              /* gm_wrap_iov */
     NULL,                              /* gm_unwrap_iov */
     NULL,                              /* gm_wrap_iov_length */

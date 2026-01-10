@@ -34,10 +34,6 @@
 
 #include <errno.h>
 
-#ifdef HAVE_S2N
-#include <s2n.h>
-#endif
-
 /*
  * GSS-API unwrap for TLS mechanism
  *
@@ -52,13 +48,13 @@ _gss_tls_unwrap(OM_uint32 *minor,
                 int *conf_state,
                 gss_qop_t *qop_state)
 {
-#ifdef HAVE_S2N
-    gss_tls_ctx ctx = (gss_tls_ctx)context_handle;
-    s2n_blocked_status blocked;
+    /* Cast away const - we need to modify recv_buf */
+    gss_tls_ctx ctx = (gss_tls_ctx)(uintptr_t)context_handle;
+    tls_backend_status status;
     uint8_t *out_buf = NULL;
     size_t out_capacity = 0;
     size_t out_len = 0;
-    ssize_t received;
+    size_t received;
 
     *minor = 0;
     output->length = 0;
@@ -81,10 +77,12 @@ _gss_tls_unwrap(OM_uint32 *minor,
         return GSS_S_DEFECTIVE_TOKEN;
     }
 
-    /* Provide input token to recv callback */
-    ctx->recv_buf.data = input->value;
-    ctx->recv_buf.len = input->length;
-    ctx->recv_buf.pos = 0;
+    /* Provide input token to recv buffer */
+    tls_iobuf_reset(&ctx->recv_buf);
+    if (tls_iobuf_append(&ctx->recv_buf, input->value, input->length) != 0) {
+        *minor = ENOMEM;
+        return GSS_S_FAILURE;
+    }
 
     /* Initial output buffer - will grow as needed */
     out_capacity = input->length; /* Plaintext is smaller than ciphertext */
@@ -109,33 +107,30 @@ _gss_tls_unwrap(OM_uint32 *minor,
             out_capacity = new_cap;
         }
 
-        received = s2n_recv(ctx->conn,
-                           out_buf + out_len,
-                           out_capacity - out_len,
-                           &blocked);
+        received = out_capacity - out_len;
+        status = tls_backend_decrypt(ctx->backend,
+                                     out_buf + out_len,
+                                     &received);
 
-        if (received > 0) {
+        if (status == TLS_BACKEND_OK && received > 0) {
             out_len += received;
-        } else if (received == 0) {
+        } else if (status == TLS_BACKEND_CLOSED || status == TLS_BACKEND_EOF) {
             /* Connection closed */
             ctx->closed = 1;
             break;
-        } else {
-            if (s2n_error_get_type(s2n_errno) == S2N_ERR_T_BLOCKED) {
-                /* Would block - no more data available */
-                break;
-            }
-            /* Check for close_notify */
-            if (s2n_error_get_type(s2n_errno) == S2N_ERR_T_CLOSED) {
-                ctx->closed = 1;
-                break;
-            }
+        } else if (status == TLS_BACKEND_WANT_READ) {
+            /* No more data available */
+            break;
+        } else if (status == TLS_BACKEND_ERROR) {
             /* Other error */
             free(out_buf);
-            *minor = s2n_errno;
+            *minor = EPROTO;
             return GSS_S_FAILURE;
+        } else {
+            /* No data this round */
+            break;
         }
-    } while (ctx->recv_buf.pos < ctx->recv_buf.len);
+    } while (tls_iobuf_available(&ctx->recv_buf) > 0);
 
     if (out_len > 0) {
         output->value = out_buf;
@@ -149,17 +144,6 @@ _gss_tls_unwrap(OM_uint32 *minor,
     }
 
     return GSS_S_COMPLETE;
-
-#else /* !HAVE_S2N */
-    (void)context_handle;
-    (void)input;
-    (void)output;
-    (void)conf_state;
-    (void)qop_state;
-
-    *minor = ENOTSUP;
-    return GSS_S_UNAVAILABLE;
-#endif /* HAVE_S2N */
 }
 
 /*

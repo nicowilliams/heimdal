@@ -34,73 +34,50 @@
 
 #include <errno.h>
 
-#ifdef HAVE_S2N
-#include <s2n.h>
-
 /*
- * Configure s2n-tls for server mode
+ * Configure TLS backend for server mode
  */
 static OM_uint32
-configure_server(OM_uint32 *minor, gss_tls_ctx ctx, gss_tls_cred cred)
+configure_server(OM_uint32 *minor, gss_tls_ctx ctx,
+                 const struct gss_tls_cred_desc *cred)
 {
-    int rc;
+    tls_backend_config config;
+    tls_backend_status status;
 
-    ctx->config = s2n_config_new();
-    if (ctx->config == NULL) {
+    memset(&config, 0, sizeof(config));
+    config.hx509ctx = ctx->hx509ctx;
+    config.mode = TLS_BACKEND_SERVER;
+    config.verify_peer = 1;
+
+    if (cred) {
+        config.certs = cred->certs;
+        config.key = cred->key;
+        config.trust_anchors = cred->trust_anchors;
+        config.revoke = cred->revoke;
+        config.require_client_cert = cred->require_client_cert;
+    }
+
+    /* Initialize I/O buffers */
+    if (tls_iobuf_init(&ctx->recv_buf, GSS_TLS_SEND_BUF_INITIAL_CAPACITY) != 0) {
         *minor = ENOMEM;
         return GSS_S_FAILURE;
     }
 
-    /* Set up connection in server mode */
-    ctx->conn = s2n_connection_new(S2N_SERVER);
-    if (ctx->conn == NULL) {
+    if (tls_iobuf_init(&ctx->send_buf, GSS_TLS_SEND_BUF_INITIAL_CAPACITY) != 0) {
+        tls_iobuf_free(&ctx->recv_buf);
         *minor = ENOMEM;
-        s2n_config_free(ctx->config);
-        ctx->config = NULL;
         return GSS_S_FAILURE;
     }
 
-    rc = s2n_connection_set_config(ctx->conn, ctx->config);
-    if (rc != S2N_SUCCESS) {
-        *minor = s2n_errno;
+    /* Initialize TLS backend */
+    status = tls_backend_init(&ctx->backend, &config,
+                              &ctx->recv_buf, &ctx->send_buf);
+    if (status != TLS_BACKEND_OK) {
+        tls_iobuf_free(&ctx->recv_buf);
+        tls_iobuf_free(&ctx->send_buf);
+        *minor = EINVAL;
         return GSS_S_FAILURE;
     }
-
-    /* Set up custom I/O callbacks */
-    rc = s2n_connection_set_send_cb(ctx->conn, _gss_tls_send_cb);
-    if (rc != S2N_SUCCESS) {
-        *minor = s2n_errno;
-        return GSS_S_FAILURE;
-    }
-
-    rc = s2n_connection_set_send_ctx(ctx->conn, ctx);
-    if (rc != S2N_SUCCESS) {
-        *minor = s2n_errno;
-        return GSS_S_FAILURE;
-    }
-
-    rc = s2n_connection_set_recv_cb(ctx->conn, _gss_tls_recv_cb);
-    if (rc != S2N_SUCCESS) {
-        *minor = s2n_errno;
-        return GSS_S_FAILURE;
-    }
-
-    rc = s2n_connection_set_recv_ctx(ctx->conn, ctx);
-    if (rc != S2N_SUCCESS) {
-        *minor = s2n_errno;
-        return GSS_S_FAILURE;
-    }
-
-    /* Configure client certificate requirements */
-    if (cred && cred->require_client_cert) {
-        s2n_config_set_client_auth_type(ctx->config, S2N_CERT_AUTH_REQUIRED);
-    } else {
-        s2n_config_set_client_auth_type(ctx->config, S2N_CERT_AUTH_OPTIONAL);
-    }
-
-    /* TODO: Load server certificate and key from cred */
-    /* TODO: Set up certificate validation callback */
-    /* TODO: Set up async private key callback */
 
     return GSS_S_COMPLETE;
 }
@@ -111,58 +88,27 @@ configure_server(OM_uint32 *minor, gss_tls_ctx ctx, gss_tls_cred cred)
 static void
 extract_client_identity(gss_tls_ctx ctx, gss_name_t *src_name)
 {
-    struct s2n_cert_chain_and_key *client_chain;
-    uint32_t cert_count;
+    tls_backend_status status;
+    hx509_cert peer_cert = NULL;
 
     if (src_name)
         *src_name = GSS_C_NO_NAME;
 
-    client_chain = s2n_cert_chain_and_key_new();
-    if (client_chain == NULL)
-        return;
-
-    if (s2n_connection_get_peer_cert_chain(ctx->conn, client_chain) != S2N_SUCCESS)
-        goto out;
-
-    if (s2n_cert_chain_get_length(client_chain, &cert_count) != S2N_SUCCESS)
-        goto out;
-
-    if (cert_count > 0) {
-        struct s2n_cert *leaf;
-        const uint8_t *der_data;
-        uint32_t der_length;
-
-        if (s2n_cert_chain_get_cert(client_chain, &leaf, 0) != S2N_SUCCESS)
-            goto out;
-
-        if (s2n_cert_get_der(leaf, &der_data, &der_length) != S2N_SUCCESS)
-            goto out;
-
-        /* Parse with hx509 and create GSS name */
-        if (ctx->hx509ctx) {
-            hx509_cert hxcert;
-            if (hx509_cert_init_data(ctx->hx509ctx, der_data, der_length,
-                                     &hxcert) == 0) {
-                ctx->peer_cert = hxcert;
-                /* TODO: Create gss_tls_name from certificate subject */
-                /* ctx->peer_name = ... */
-            }
-        }
-
-        if (src_name && ctx->peer_name)
-            *src_name = ctx->peer_name;
+    /* Get peer certificate from backend */
+    status = tls_backend_get_peer_cert(ctx->backend, ctx->hx509ctx, &peer_cert);
+    if (status == TLS_BACKEND_OK && peer_cert != NULL) {
+        ctx->peer_cert = peer_cert;
+        /* TODO: Create gss_tls_name from certificate subject/SANs */
+        /* For now, just mark as authenticated */
+        if (src_name)
+            *src_name = GSS_C_NO_NAME; /* TODO: extract name */
     } else {
         /* Anonymous client (no client certificate) */
         ctx->peer_name = _gss_tls_anonymous_identity;
         if (src_name)
             *src_name = _gss_tls_anonymous_identity;
     }
-
-out:
-    s2n_cert_chain_and_key_free(client_chain);
 }
-
-#endif /* HAVE_S2N */
 
 /*
  * GSS-API accept_sec_context for TLS mechanism
@@ -183,12 +129,13 @@ _gss_tls_accept_sec_context(OM_uint32 *minor,
                             OM_uint32 *time_rec,
                             gss_cred_id_t *delegated_cred_handle)
 {
-#ifdef HAVE_S2N
-    gss_tls_ctx ctx = (gss_tls_ctx)*context_handle;
-    gss_tls_cred cred = (gss_tls_cred)verifier_cred_handle;
+    gss_tls_ctx ctx;
+    const struct gss_tls_cred_desc *cred =
+        (const struct gss_tls_cred_desc *)verifier_cred_handle;
     OM_uint32 major = GSS_S_COMPLETE;
-    s2n_blocked_status blocked;
-    int rc;
+    tls_backend_status status;
+
+    (void)input_chan_bindings; /* TODO: TLS channel bindings */
 
     *minor = 0;
 
@@ -208,7 +155,9 @@ _gss_tls_accept_sec_context(OM_uint32 *minor,
         return GSS_S_DEFECTIVE_TOKEN;
     }
 
-    /* First call: allocate context and configure s2n-tls */
+    ctx = (gss_tls_ctx)*context_handle;
+
+    /* First call: allocate context and configure TLS backend */
     if (ctx == NULL) {
         ctx = calloc(1, sizeof(*ctx));
         if (ctx == NULL) {
@@ -226,7 +175,7 @@ _gss_tls_accept_sec_context(OM_uint32 *minor,
             return GSS_S_FAILURE;
         }
 
-        /* Configure s2n-tls for server mode */
+        /* Configure TLS backend for server mode */
         major = configure_server(minor, ctx, cred);
         if (major != GSS_S_COMPLETE) {
             hx509_context_free(&ctx->hx509ctx);
@@ -237,16 +186,19 @@ _gss_tls_accept_sec_context(OM_uint32 *minor,
         *context_handle = (gss_ctx_id_t)ctx;
     }
 
-    /* Provide input token data to recv callback */
-    ctx->recv_buf.data = input_token->value;
-    ctx->recv_buf.len = input_token->length;
-    ctx->recv_buf.pos = 0;
+    /* Provide input token data to recv buffer */
+    tls_iobuf_reset(&ctx->recv_buf);
+    if (tls_iobuf_append(&ctx->recv_buf, input_token->value,
+                         input_token->length) != 0) {
+        *minor = ENOMEM;
+        return GSS_S_FAILURE;
+    }
 
     /* Clear output buffer for this round */
-    ctx->send_buf.len = 0;
+    tls_iobuf_reset(&ctx->send_buf);
 
     /* Drive TLS handshake */
-    rc = s2n_negotiate(ctx->conn, &blocked);
+    status = tls_backend_handshake(ctx->backend);
 
     /* Return any TLS records that were generated */
     if (ctx->send_buf.len > 0 && output_token != GSS_C_NO_BUFFER) {
@@ -259,7 +211,7 @@ _gss_tls_accept_sec_context(OM_uint32 *minor,
         output_token->length = ctx->send_buf.len;
     }
 
-    if (rc == S2N_SUCCESS) {
+    if (status == TLS_BACKEND_OK) {
         /* Handshake complete */
         ctx->handshake_done = 1;
         ctx->open = 1;
@@ -284,7 +236,8 @@ _gss_tls_accept_sec_context(OM_uint32 *minor,
             *time_rec = GSS_C_INDEFINITE;
 
         major = GSS_S_COMPLETE;
-    } else if (s2n_error_get_type(s2n_errno) == S2N_ERR_T_BLOCKED) {
+    } else if (status == TLS_BACKEND_WANT_READ ||
+               status == TLS_BACKEND_WANT_WRITE) {
         /* Need more data - continue handshake */
         if (ret_flags)
             *ret_flags = 0;
@@ -294,7 +247,7 @@ _gss_tls_accept_sec_context(OM_uint32 *minor,
         major = GSS_S_CONTINUE_NEEDED;
     } else {
         /* Error */
-        *minor = s2n_errno;
+        *minor = EPROTO;
         major = GSS_S_FAILURE;
     }
 
@@ -302,20 +255,4 @@ _gss_tls_accept_sec_context(OM_uint32 *minor,
         *mech_type = GSS_TLS_MECHANISM;
 
     return major;
-
-#else /* !HAVE_S2N */
-    (void)context_handle;
-    (void)verifier_cred_handle;
-    (void)input_token;
-    (void)input_chan_bindings;
-    (void)src_name;
-    (void)mech_type;
-    (void)output_token;
-    (void)ret_flags;
-    (void)time_rec;
-    (void)delegated_cred_handle;
-
-    *minor = ENOTSUP;
-    return GSS_S_UNAVAILABLE;
-#endif /* HAVE_S2N */
 }

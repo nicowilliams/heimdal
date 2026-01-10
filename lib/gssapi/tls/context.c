@@ -34,10 +34,6 @@
 
 #include <errno.h>
 
-#ifdef HAVE_S2N
-#include <s2n.h>
-#endif
-
 /*
  * GSS-API delete_sec_context for TLS mechanism
  *
@@ -49,9 +45,7 @@ _gss_tls_delete_sec_context(OM_uint32 *minor,
                             gss_ctx_id_t *context_handle,
                             gss_buffer_t output_token)
 {
-#ifdef HAVE_S2N
     gss_tls_ctx ctx;
-    s2n_blocked_status blocked;
 
     *minor = 0;
 
@@ -66,12 +60,12 @@ _gss_tls_delete_sec_context(OM_uint32 *minor,
     ctx = (gss_tls_ctx)*context_handle;
 
     /* Generate close_notify if output token requested and connection is open */
-    if (output_token != GSS_C_NO_BUFFER && ctx->conn && ctx->open && !ctx->closed) {
+    if (output_token != GSS_C_NO_BUFFER && ctx->backend && ctx->open && !ctx->closed) {
         /* Clear output buffer */
-        ctx->send_buf.len = 0;
+        tls_iobuf_reset(&ctx->send_buf);
 
         /* Send TLS close_notify */
-        s2n_shutdown(ctx->conn, &blocked);
+        tls_backend_close(ctx->backend);
 
         /* Return any generated TLS records */
         if (ctx->send_buf.len > 0) {
@@ -83,19 +77,15 @@ _gss_tls_delete_sec_context(OM_uint32 *minor,
         }
     }
 
-    /* Clean up s2n-tls resources */
-    if (ctx->conn) {
-        s2n_connection_free(ctx->conn);
-        ctx->conn = NULL;
-    }
-    if (ctx->config) {
-        s2n_config_free(ctx->config);
-        ctx->config = NULL;
+    /* Clean up TLS backend */
+    if (ctx->backend) {
+        tls_backend_destroy(ctx->backend);
+        ctx->backend = NULL;
     }
 
     /* Clean up I/O buffers */
-    free(ctx->send_buf.data);
-    /* recv_buf.data is borrowed from input tokens, don't free */
+    tls_iobuf_free(&ctx->send_buf);
+    tls_iobuf_free(&ctx->recv_buf);
 
     /* Clean up hx509 resources */
     if (ctx->peer_cert)
@@ -115,41 +105,6 @@ _gss_tls_delete_sec_context(OM_uint32 *minor,
     *context_handle = GSS_C_NO_CONTEXT;
 
     return GSS_S_COMPLETE;
-
-#else /* !HAVE_S2N */
-    gss_tls_ctx ctx;
-
-    *minor = 0;
-
-    if (output_token != GSS_C_NO_BUFFER) {
-        output_token->length = 0;
-        output_token->value = NULL;
-    }
-
-    if (context_handle == NULL || *context_handle == GSS_C_NO_CONTEXT)
-        return GSS_S_COMPLETE;
-
-    ctx = (gss_tls_ctx)*context_handle;
-
-    /* Clean up I/O buffers */
-    free(ctx->send_buf.data);
-
-    /* Clean up hx509 resources */
-    if (ctx->peer_cert)
-        hx509_cert_free(ctx->peer_cert);
-    if (ctx->hx509ctx)
-        hx509_context_free(&ctx->hx509ctx);
-
-    if (ctx->peer_name && ctx->peer_name != _gss_tls_anonymous_identity) {
-        gss_release_name(minor, &ctx->peer_name);
-    }
-
-    memset(ctx, 0, sizeof(*ctx));
-    free(ctx);
-    *context_handle = GSS_C_NO_CONTEXT;
-
-    return GSS_S_COMPLETE;
-#endif /* HAVE_S2N */
 }
 
 /*
@@ -162,46 +117,42 @@ _gss_tls_process_context_token(OM_uint32 *minor,
                                gss_const_ctx_id_t context_handle,
                                const gss_buffer_t token)
 {
-#ifdef HAVE_S2N
-    gss_tls_ctx ctx = (gss_tls_ctx)context_handle;
-    s2n_blocked_status blocked;
+    gss_tls_ctx ctx;
+    tls_backend_status status;
     uint8_t buf[1];
+    size_t len = sizeof(buf);
 
     *minor = 0;
 
-    if (ctx == NULL) {
+    if (context_handle == GSS_C_NO_CONTEXT) {
         *minor = EINVAL;
         return GSS_S_NO_CONTEXT;
     }
+
+    /* Cast away const - we need to modify state */
+    ctx = (gss_tls_ctx)(uintptr_t)context_handle;
 
     if (token == GSS_C_NO_BUFFER || token->length == 0) {
         *minor = EINVAL;
         return GSS_S_DEFECTIVE_TOKEN;
     }
 
-    /* Provide token to recv callback */
-    ctx->recv_buf.data = token->value;
-    ctx->recv_buf.len = token->length;
-    ctx->recv_buf.pos = 0;
+    /* Provide token to recv buffer */
+    tls_iobuf_reset(&ctx->recv_buf);
+    if (tls_iobuf_append(&ctx->recv_buf, token->value, token->length) != 0) {
+        *minor = ENOMEM;
+        return GSS_S_FAILURE;
+    }
 
     /* Try to read - this will process any TLS records including alerts */
-    s2n_recv(ctx->conn, buf, sizeof(buf), &blocked);
+    status = tls_backend_decrypt(ctx->backend, buf, &len);
 
     /* Check if connection was closed */
-    if (s2n_error_get_type(s2n_errno) == S2N_ERR_T_CLOSED) {
+    if (status == TLS_BACKEND_CLOSED || status == TLS_BACKEND_EOF) {
         ctx->closed = 1;
-        return GSS_S_COMPLETE;
     }
 
     return GSS_S_COMPLETE;
-
-#else /* !HAVE_S2N */
-    (void)context_handle;
-    (void)token;
-
-    *minor = ENOTSUP;
-    return GSS_S_UNAVAILABLE;
-#endif /* HAVE_S2N */
 }
 
 /*
@@ -215,7 +166,8 @@ _gss_tls_context_time(OM_uint32 *minor,
                       gss_const_ctx_id_t context_handle,
                       OM_uint32 *time_rec)
 {
-    gss_tls_ctx ctx = (gss_tls_ctx)context_handle;
+    const struct gss_tls_ctx_desc *ctx =
+        (const struct gss_tls_ctx_desc *)context_handle;
 
     *minor = 0;
 
@@ -252,7 +204,8 @@ _gss_tls_inquire_context(OM_uint32 *minor,
                          int *locally_initiated,
                          int *open)
 {
-    gss_tls_ctx ctx = (gss_tls_ctx)context_handle;
+    const struct gss_tls_ctx_desc *ctx =
+        (const struct gss_tls_ctx_desc *)context_handle;
     OM_uint32 major;
 
     *minor = 0;
@@ -341,8 +294,7 @@ _gss_tls_display_status(OM_uint32 *minor,
                         OM_uint32 *message_context,
                         gss_buffer_t status_string)
 {
-#ifdef HAVE_S2N
-    const char *msg = NULL;
+    const char *msg;
 
     (void)mech_type;
 
@@ -358,20 +310,8 @@ _gss_tls_display_status(OM_uint32 *minor,
         return GSS_S_UNAVAILABLE;
     }
 
-    /* Minor status is s2n_errno */
-    msg = s2n_strerror(status_value, "EN");
-    if (msg) {
-        status_string->value = strdup(msg);
-        if (status_string->value == NULL) {
-            *minor = ENOMEM;
-            return GSS_S_FAILURE;
-        }
-        status_string->length = strlen(msg);
-        return GSS_S_COMPLETE;
-    }
-
-    /* Fall back to strerror for system errors */
-    msg = strerror(status_value);
+    /* Minor status - try strerror for system errors */
+    msg = strerror((int)status_value);
     if (msg) {
         status_string->value = strdup(msg);
         if (status_string->value == NULL) {
@@ -383,33 +323,4 @@ _gss_tls_display_status(OM_uint32 *minor,
     }
 
     return GSS_S_UNAVAILABLE;
-
-#else /* !HAVE_S2N */
-    const char *msg;
-
-    (void)mech_type;
-
-    *minor = 0;
-    status_string->length = 0;
-    status_string->value = NULL;
-
-    if (message_context)
-        *message_context = 0;
-
-    if (status_type == GSS_C_GSS_CODE)
-        return GSS_S_UNAVAILABLE;
-
-    msg = strerror(status_value);
-    if (msg) {
-        status_string->value = strdup(msg);
-        if (status_string->value == NULL) {
-            *minor = ENOMEM;
-            return GSS_S_FAILURE;
-        }
-        status_string->length = strlen(msg);
-        return GSS_S_COMPLETE;
-    }
-
-    return GSS_S_UNAVAILABLE;
-#endif /* HAVE_S2N */
 }

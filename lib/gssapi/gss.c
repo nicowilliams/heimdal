@@ -172,7 +172,7 @@ list_mechanisms(void)
  * OID: 1.3.6.1.4.1.40402.1.1 (PEN 40402, arc 1 = heimdal)
  */
 static gss_OID_desc tls_mech_oid = {
-    10, "\x2b\x06\x01\x04\x01\x82\xbb\x52\x01\x01"
+    10, rk_UNCONST("\x2b\x06\x01\x04\x01\x82\xbb\x52\x01\x01")
 };
 
 /*
@@ -184,7 +184,7 @@ static gss_OID_desc tls_mech_oid = {
  * (like length-prefix) is needed.
  */
 static gss_OID_desc gss_c_ma_self_framed_oid = {
-    10, "\x2b\x06\x01\x04\x01\x82\xbb\x52\x01\x02"
+    10, rk_UNCONST("\x2b\x06\x01\x04\x01\x82\xbb\x52\x01\x02")
 };
 
 /*
@@ -913,6 +913,44 @@ out:
 
 /*
  * Run TLS server
+ *
+ * TODO: Add command execution mode (like CGI/stunnel)
+ *
+ * When a command is specified (e.g., gss -s -m tls [...] 4433 -- /path/to/handler args...):
+ *   1. After successful handshake, execute the command using lib/roken's
+ *      simple_execve() or simple_execvp() API (portable to Windows!)
+ *   2. Set environment variables with connection metadata:
+ *      - GSS_CLIENT_NAME       - Display name of authenticated client
+ *      - GSS_CLIENT_DN         - X.509 Subject DN (for TLS)
+ *      - GSS_CLIENT_SANS       - Comma-separated list of SANs (for TLS)
+ *      - GSS_CLIENT_CERT_DER   - Path to temp file with DER-encoded certificate
+ *      - GSS_CLIENT_CERT_PEM   - Path to temp file with PEM-encoded certificate
+ *      - GSS_CLIENT_CERT_JSON  - Path to temp file with certificate as JSON
+ *      - GSS_MECH_OID          - Mechanism OID used
+ *      - GSS_TLS_CIPHER        - TLS cipher suite negotiated
+ *      - GSS_TLS_VERSION       - TLS version (TLSv1.2, TLSv1.3)
+ *      - GSS_TLS_ALPN          - Negotiated ALPN protocol (if any)
+ *      - GSS_CONF_STATE        - "1" if confidentiality is available
+ *      - GSS_INTEG_STATE       - "1" if integrity is available
+ *   3. Connect stdin/stdout of command to the unwrapped data stream
+ *   4. Data from client -> unwrap -> command stdin
+ *      Command stdout -> wrap -> send to client
+ *
+ * When no command is given (current behavior or new header mode):
+ *   Option A (current): Echo mode - just echo back wrapped data
+ *   Option B (new): Header mode - output metadata header, then sentinel, then client data
+ *      Header format (one KEY=VALUE per line):
+ *        GSS_CLIENT_NAME=...
+ *        GSS_CLIENT_DN=...
+ *        ...
+ *        ---BEGIN DATA---
+ *        <unwrapped client data follows>
+ *
+ * Additional options needed:
+ *   --exec / -e              Enable command execution mode
+ *   --header-mode            Output header + sentinel + data instead of echo
+ *   --sentinel STRING        Custom sentinel (default: "---BEGIN DATA---")
+ *   --cert-dir PATH          Directory for temp certificate files
  */
 static int
 run_server(const char *port)

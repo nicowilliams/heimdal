@@ -34,10 +34,6 @@
 
 #include <errno.h>
 
-#ifdef HAVE_S2N
-#include <s2n.h>
-#endif
-
 /*
  * GSS-API wrap for TLS mechanism
  *
@@ -53,11 +49,11 @@ _gss_tls_wrap(OM_uint32 *minor,
               int *conf_state,
               gss_buffer_t output)
 {
-#ifdef HAVE_S2N
-    gss_tls_ctx ctx = (gss_tls_ctx)context_handle;
-    s2n_blocked_status blocked;
-    ssize_t written;
-    size_t total_written = 0;
+    /* Cast away const - we need to modify I/O buffers */
+    gss_tls_ctx ctx = (gss_tls_ctx)(uintptr_t)context_handle;
+    tls_backend_status status;
+
+    (void)conf_req; /* TLS always encrypts */
 
     *minor = 0;
     output->length = 0;
@@ -79,24 +75,13 @@ _gss_tls_wrap(OM_uint32 *minor,
     }
 
     /* Clear output buffer for this operation */
-    ctx->send_buf.len = 0;
+    tls_iobuf_reset(&ctx->send_buf);
 
     /* Send data through TLS - this will encrypt and buffer records */
-    while (total_written < input->length) {
-        written = s2n_send(ctx->conn,
-                          (uint8_t *)input->value + total_written,
-                          input->length - total_written,
-                          &blocked);
-        if (written < 0) {
-            if (s2n_error_get_type(s2n_errno) == S2N_ERR_T_BLOCKED) {
-                /* Would block - but we're using memory I/O, so this
-                 * means output buffer is full. Return what we have. */
-                break;
-            }
-            *minor = s2n_errno;
-            return GSS_S_FAILURE;
-        }
-        total_written += written;
+    status = tls_backend_encrypt(ctx->backend, input->value, input->length);
+    if (status != TLS_BACKEND_OK) {
+        *minor = EPROTO;
+        return GSS_S_FAILURE;
     }
 
     /* Copy buffered TLS records to output token */
@@ -111,18 +96,6 @@ _gss_tls_wrap(OM_uint32 *minor,
     }
 
     return GSS_S_COMPLETE;
-
-#else /* !HAVE_S2N */
-    (void)context_handle;
-    (void)conf_req;
-    (void)qop;
-    (void)input;
-    (void)conf_state;
-    (void)output;
-
-    *minor = ENOTSUP;
-    return GSS_S_UNAVAILABLE;
-#endif /* HAVE_S2N */
 }
 
 /*
@@ -162,7 +135,8 @@ _gss_tls_wrap_size_limit(OM_uint32 *minor,
                          OM_uint32 req_output_size,
                          OM_uint32 *max_input_size)
 {
-    gss_tls_ctx ctx = (gss_tls_ctx)context_handle;
+    const struct gss_tls_ctx_desc *ctx =
+        (const struct gss_tls_ctx_desc *)context_handle;
 
     (void)conf_req;
     (void)qop_req;

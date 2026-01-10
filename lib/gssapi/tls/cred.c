@@ -37,12 +37,28 @@
 /*
  * Key names for gss_acquire_cred_from() cred_store parameter
  *
- * "certificate"    - hx509 certificate store URI (FILE:, PKCS12:, PKCS11:, etc.)
- * "private-key"    - hx509 private key store URI
- * "anchors"        - hx509 trust anchor store URI
- * "revoke"         - hx509 revocation info URI (CRL, OCSP)
- * "anonymous"      - "true" to allow anonymous client (no client cert)
- * "require-client-cert" - "true" to require client certificates (acceptor)
+ * Common keys:
+ *   "certificate"    - hx509 certificate store URI (FILE:, PKCS12:, PKCS11:, etc.)
+ *   "private-key"    - hx509 private key store URI
+ *   "anchors"        - hx509 trust anchor store URI for peer validation
+ *   "revoke"         - hx509 revocation info URI (CRL, OCSP)
+ *
+ * Initiator (client) keys:
+ *   "anonymous"      - "true" to allow anonymous client (no client cert)
+ *
+ * Acceptor (server) keys:
+ *   "require-client-cert" - "true" to require client certificates
+ *
+ * TODO: Add ALPN/NPN support for protocol negotiation
+ *   "alpn"           - Comma-separated list of ALPN protocols (initiator offers these)
+ *   "npn"            - Comma-separated list of NPN protocols (legacy, initiator)
+ *   For acceptor, these would specify which protocols the server supports.
+ *
+ * NOTE: The acceptor uses the same cred store mechanism to configure:
+ *   - Server certificate and private key ("certificate", "private-key")
+ *   - Trust anchors for client certificate validation ("anchors")
+ *   - Whether to require/request client certificates ("require-client-cert")
+ *   - Revocation checking for client certs ("revoke")
  */
 #define GSS_TLS_CRED_CERTIFICATE        "certificate"
 #define GSS_TLS_CRED_PRIVATE_KEY        "private-key"
@@ -50,6 +66,9 @@
 #define GSS_TLS_CRED_REVOKE             "revoke"
 #define GSS_TLS_CRED_ANONYMOUS          "anonymous"
 #define GSS_TLS_CRED_REQUIRE_CLIENT     "require-client-cert"
+/* TODO: Implement these for ALPN/NPN support */
+#define GSS_TLS_CRED_ALPN               "alpn"
+#define GSS_TLS_CRED_NPN                "npn"
 
 /*
  * Find a value in the credential store key-value set
@@ -275,7 +294,8 @@ _gss_tls_inquire_cred(OM_uint32 *minor,
                       gss_cred_usage_t *cred_usage,
                       gss_OID_set *mechanisms)
 {
-    gss_tls_cred cred = (gss_tls_cred)cred_handle;
+    const struct gss_tls_cred_desc *cred =
+        (const struct gss_tls_cred_desc *)cred_handle;
     OM_uint32 major;
 
     *minor = 0;

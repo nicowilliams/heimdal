@@ -704,14 +704,54 @@ GSS names for TLS could be:
 - **GSS_C_NT_USER_NAME**: Distinguished Name from certificate
 - **GSS_TLS_NT_X509_NAME**: Raw X.509 subject DN
 
-### 6. Mechanism OID
+### 6. OID Allocations
 
 OID arc: `1.3.6.1.4.1.40402.1` (PEN 40402, arc 1 = heimdal)
 
 ```
-GSS-TLS mechanism:      1.3.6.1.4.1.40402.1.1
-GSS_C_MA_SELF_FRAMED:   1.3.6.1.4.1.40402.1.2
+1.3.6.1.4.1.40402.1.1    GSS-TLS mechanism OID
+1.3.6.1.4.1.40402.1.2    GSS_C_MA_SELF_FRAMED (mechanism attribute)
+1.3.6.1.4.1.40402.1.3    GSS name types arc (for X.509 SAN types)
 ```
+
+#### GSS Name Types for X.509 SANs
+
+For **OtherName SANs**, the OID is embedded in the SAN, so use the OtherName type-id directly:
+
+| Name Type | OID | Description |
+|-----------|-----|-------------|
+| GSS_KRB5_NT_PRINCIPAL_NAME | 1.2.840.113554.1.2.2.1 | Kerberos principal (existing) |
+| id-pkinit-san | 1.3.6.1.5.2.2 | PKINIT SAN (KRB5PrincipalName) |
+| id-ms-san-upn | 1.3.6.1.4.1.311.20.2.3 | Microsoft UPN SAN |
+| id-on-xmppAddr | 1.3.6.1.5.5.7.8.5 | XMPP address |
+| id-on-dnsSRV | 1.3.6.1.5.5.7.8.7 | DNS SRV name |
+| id-on-SmtpUTF8Mailbox | 1.3.6.1.5.5.7.8.9 | SMTP UTF8 mailbox |
+
+For **non-OtherName SANs** (GeneralName choices without embedded OIDs), allocate under `.3`:
+
+| Name Type | OID | GeneralName | Description |
+|-----------|-----|-------------|-------------|
+| GSS_C_NT_X509_RFC822NAME | 1.3.6.1.4.1.40402.1.3.1 | [1] rfc822Name | Email address |
+| GSS_C_NT_X509_DNSNAME | 1.3.6.1.4.1.40402.1.3.2 | [2] dNSName | DNS hostname |
+| GSS_C_NT_X509_DIRNAME | 1.3.6.1.4.1.40402.1.3.4 | [4] directoryName | X.500 DN |
+| GSS_C_NT_X509_URI | 1.3.6.1.4.1.40402.1.3.6 | [6] URI | Uniform Resource Identifier |
+| GSS_C_NT_X509_IPADDRESS | 1.3.6.1.4.1.40402.1.3.7 | [7] iPAddress | IP address |
+| GSS_C_NT_X509_REGID | 1.3.6.1.4.1.40402.1.3.8 | [8] registeredID | Registered OID |
+
+Note: The `.3.N` values match the GeneralName CHOICE tag numbers for easy mapping.
+
+#### Name Import/Export
+
+For `gss_import_name()`:
+- OtherName types: Import the OtherName value (e.g., KRB5PrincipalName encoding)
+- rfc822Name: Import as UTF-8 string (e.g., "user@example.com")
+- dNSName: Import as UTF-8 string (e.g., "host.example.com")
+- directoryName: Import as DER-encoded Name or RFC 4514 string
+- URI: Import as UTF-8 string
+- iPAddress: Import as 4 bytes (IPv4) or 16 bytes (IPv6)
+
+For `gss_export_name()`:
+- Canonical export includes name type OID + value
 
 ### 7. Token Format
 
