@@ -37,6 +37,8 @@
 
 #include "krb5_locl.h"
 
+#ifdef HEIM_ARCFOUR
+
 static EVP_CIPHER *
 heim_EVP_rc4(krb5_context context)
 {
@@ -372,3 +374,5 @@ struct _krb5_encryption_type _krb5_enctype_arcfour_hmac_md5 = {
     0,
     ARCFOUR_prf
 };
+
+#endif /* HEIM_ARCFOUR */

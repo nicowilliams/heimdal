@@ -52,7 +52,7 @@ _krb5_xor8(unsigned char *a, const unsigned char *b)
     a[7] ^= b[7];
 }
 
-#if defined(DES3_OLD_ENCTYPE) || defined(HEIM_WEAK_CRYPTO)
+#if defined(HEIM_DES3) || defined(HEIM_WEAK_CRYPTO)
 KRB5_LIB_FUNCTION krb5_error_code KRB5_LIB_CALL
 _krb5_des_checksum(krb5_context context,
 		   const EVP_MD *evp_md,
@@ -73,19 +73,27 @@ _krb5_des_checksum(krb5_context context,
     if (m == NULL)
 	return krb5_enomem(context);
 
-    EVP_DigestInit_ex(m, evp_md, NULL);
-    EVP_DigestUpdate(m, p, 8);
+    if (EVP_DigestInit_ex(m, evp_md, NULL) != 1 ||
+	EVP_DigestUpdate(m, p, 8) != 1)
+	goto digest_fail;
     for (i = 0; i < niov; i++) {
 	if (_krb5_crypto_iov_should_sign(&iov[i]))
-	    EVP_DigestUpdate(m, iov[i].data.data, iov[i].data.length);
+	    if (EVP_DigestUpdate(m, iov[i].data.data, iov[i].data.length) != 1)
+		goto digest_fail;
     }
-    EVP_DigestFinal_ex (m, p + 8, NULL);
+    if (EVP_DigestFinal_ex(m, p + 8, NULL) != 1)
+	goto digest_fail;
     EVP_MD_CTX_free(m);
     memset_s(&ivec, sizeof(ivec), 0, sizeof(ivec));
-    EVP_CipherInit_ex(ctx->ectx, NULL, NULL, NULL, (void *)&ivec, -1);
-    EVP_Cipher(ctx->ectx, p, p, 24);
+    if (EVP_CipherInit_ex(ctx->ectx, NULL, NULL, NULL, (void *)&ivec, -1) != 1 ||
+	EVP_Cipher(ctx->ectx, p, p, 24) < 0)
+	return KRB5_CRYPTO_INTERNAL;
 
     return 0;
+
+digest_fail:
+    EVP_MD_CTX_free(m);
+    return KRB5_CRYPTO_INTERNAL;
 }
 
 KRB5_LIB_FUNCTION krb5_error_code KRB5_LIB_CALL
@@ -109,16 +117,22 @@ _krb5_des_verify(krb5_context context,
 	return krb5_enomem(context);
 
     memset_s(&ivec, sizeof(ivec), 0, sizeof(ivec));
-    EVP_CipherInit_ex(ctx->dctx, NULL, NULL, NULL, (void *)&ivec, -1);
-    EVP_Cipher(ctx->dctx, tmp, C->checksum.data, 24);
+    if (EVP_CipherInit_ex(ctx->dctx, NULL, NULL, NULL, (void *)&ivec, -1) != 1 ||
+	EVP_Cipher(ctx->dctx, tmp, C->checksum.data, 24) < 0) {
+	EVP_MD_CTX_free(m);
+	return KRB5_CRYPTO_INTERNAL;
+    }
 
-    EVP_DigestInit_ex(m, evp_md, NULL);
-    EVP_DigestUpdate(m, tmp, 8); /* confounder */
+    if (EVP_DigestInit_ex(m, evp_md, NULL) != 1 ||
+	EVP_DigestUpdate(m, tmp, 8) != 1) /* confounder */
+	goto digest_fail;
     for (i = 0; i < niov; i++) {
 	if (_krb5_crypto_iov_should_sign(&iov[i]))
-	    EVP_DigestUpdate(m, iov[i].data.data, iov[i].data.length);
+	    if (EVP_DigestUpdate(m, iov[i].data.data, iov[i].data.length) != 1)
+		goto digest_fail;
     }
-    EVP_DigestFinal_ex (m, res, NULL);
+    if (EVP_DigestFinal_ex(m, res, NULL) != 1)
+	goto digest_fail;
     EVP_MD_CTX_free(m);
     if(ct_memcmp(res, tmp + 8, sizeof(res)) != 0) {
 	krb5_clear_error_message (context);
@@ -127,6 +141,11 @@ _krb5_des_verify(krb5_context context,
     memset_s(tmp, sizeof(tmp), 0, sizeof(tmp));
     memset_s(res, sizeof(res), 0, sizeof(res));
     return ret;
+
+digest_fail:
+    EVP_MD_CTX_free(m);
+    memset_s(tmp, sizeof(tmp), 0, sizeof(tmp));
+    return KRB5_CRYPTO_INTERNAL;
 }
 
 #endif

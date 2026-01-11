@@ -33,10 +33,6 @@
 
 #include "krb5_locl.h"
 
-#ifndef HEIMDAL_SMALLER
-#define DES3_OLD_ENCTYPE 1
-#endif
-
 /* coverity[+alloc : arg-*3] */
 KRB5_LIB_FUNCTION krb5_error_code KRB5_LIB_CALL
 krb5_salttype_to_string (krb5_context context,
@@ -313,7 +309,7 @@ krb5_string_to_key_derived(krb5_context context,
 			   krb5_enctype etype,
 			   krb5_keyblock *key)
 {
-#if defined(DES3_OLD_ENCTYPE) || defined(HEIM_WEAK_CRYPTO)
+#if defined(HEIM_DES3) || defined(HEIM_WEAK_CRYPTO)
     struct _krb5_encryption_type *et = _krb5_find_enctype(etype);
     krb5_error_code ret;
     struct _krb5_key_data kd;

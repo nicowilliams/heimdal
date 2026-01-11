@@ -199,4 +199,51 @@ fi
 
 AC_SUBST(INCLUDE_openssl_crypto)
 AC_SUBST(LIB_openssl_crypto)
+
+dnl
+dnl Legacy/weak encryption type options
+dnl
+
+dnl Single DES (weak crypto) - disabled by default for security
+AC_ARG_WITH([1des],
+    AS_HELP_STRING([--with-1des], [enable single DES encryption (weak, for legacy compatibility)]),
+    [with_1des=$withval],
+    [with_1des=no])
+AC_MSG_CHECKING([whether to enable single DES encryption])
+if test "$with_1des" = "yes"; then
+    AC_DEFINE([HEIM_WEAK_CRYPTO], 1, [Define to enable single DES encryption support])
+    AC_MSG_RESULT([yes])
+else
+    AC_MSG_RESULT([no])
+fi
+AM_CONDITIONAL([HEIM_WEAK_CRYPTO], [test "$with_1des" = "yes"])
+
+dnl Triple DES - enabled by default for legacy compatibility
+AC_ARG_WITH([3des],
+    AS_HELP_STRING([--with-3des], [enable triple DES encryption (default: yes)]),
+    [with_3des=$withval],
+    [with_3des=yes])
+AC_MSG_CHECKING([whether to enable triple DES encryption])
+if test "$with_3des" = "yes"; then
+    AC_DEFINE([HEIM_DES3], 1, [Define to enable triple DES encryption support])
+    AC_MSG_RESULT([yes])
+else
+    AC_MSG_RESULT([no])
+fi
+AM_CONDITIONAL([HEIM_DES3], [test "$with_3des" = "yes"])
+
+dnl ARCFOUR/RC4 - enabled by default (still used by some Windows systems)
+AC_ARG_WITH([arcfour],
+    AS_HELP_STRING([--with-arcfour], [enable ARCFOUR/RC4 encryption (default: yes)]),
+    [with_arcfour=$withval],
+    [with_arcfour=yes])
+AC_MSG_CHECKING([whether to enable ARCFOUR encryption])
+if test "$with_arcfour" = "yes"; then
+    AC_DEFINE([HEIM_ARCFOUR], 1, [Define to enable ARCFOUR/RC4 encryption support])
+    AC_MSG_RESULT([yes])
+else
+    AC_MSG_RESULT([no])
+fi
+AM_CONDITIONAL([HEIM_ARCFOUR], [test "$with_arcfour" = "yes"])
+
 ])

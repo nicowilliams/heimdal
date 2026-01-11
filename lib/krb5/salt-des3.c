@@ -39,11 +39,7 @@
 
 #include "krb5_locl.h"
 
-#ifndef HEIMDAL_SMALLER
-#define DES3_OLD_ENCTYPE 1
-#endif
-
-#ifdef DES3_OLD_ENCTYPE
+#ifdef HEIM_DES3
 static krb5_error_code
 DES3_string_to_key(krb5_context context,
 		   krb5_enctype enctype,
@@ -136,7 +132,7 @@ DES3_string_to_key_derived(krb5_context context,
 }
 
 
-#ifdef DES3_OLD_ENCTYPE
+#ifdef HEIM_DES3
 struct salt_type _krb5_des3_salt[] = {
     {
 	KRB5_PW_SALT,

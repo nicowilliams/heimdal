@@ -39,10 +39,6 @@ struct _krb5_key_usage {
 };
 
 
-#ifndef HEIMDAL_SMALLER
-#define DES3_OLD_ENCTYPE 1
-#endif
-
 static krb5_error_code _get_derived_key(krb5_context, krb5_crypto,
 					unsigned, struct _krb5_key_data**);
 static struct _krb5_key_data *_new_derived_key(krb5_crypto crypto, unsigned usage);

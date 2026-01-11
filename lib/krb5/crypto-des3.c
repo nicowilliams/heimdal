@@ -39,6 +39,8 @@
 
 #include "krb5_locl.h"
 
+#if defined(HEIM_DES3) || defined(HEIM_WEAK_CRYPTO)
+
 /*
  *
  */
@@ -110,9 +112,15 @@ DES3_prf(krb5_context context,
 	    krb5_free_keyblock(context, derived);
 	    return krb5_enomem(context);
 	}
-	EVP_CipherInit_ex(ctx, c, NULL, derived->keyvalue.data, zero_ivec, 1);
-	EVP_Cipher(ctx, out->data, result.checksum.data,
-		   crypto->et->prf_length);
+	if (EVP_CipherInit_ex(ctx, c, NULL, derived->keyvalue.data, zero_ivec, 1) != 1 ||
+	    EVP_Cipher(ctx, out->data, result.checksum.data,
+		       crypto->et->prf_length) < 0) {
+	    EVP_CIPHER_CTX_free(ctx);
+	    krb5_data_free(out);
+	    krb5_data_free(&result.checksum);
+	    krb5_free_keyblock(context, derived);
+	    return KRB5_CRYPTO_INTERNAL;
+	}
 	EVP_CIPHER_CTX_free(ctx);
     }
 
@@ -127,8 +135,9 @@ _krb5_evp_des_ede3_cbc(krb5_context context)
 {
     return context->ossl->des_ede3_cbc;
 }
+#endif /* HEIM_DES3 || HEIM_WEAK_CRYPTO */
 
-#ifdef DES3_OLD_ENCTYPE
+#ifdef HEIM_DES3
 static struct _krb5_key_type keytype_des3 = {
     ETYPE_OLD_DES3_CBC_SHA1,
     "des3",
@@ -144,6 +153,7 @@ static struct _krb5_key_type keytype_des3 = {
 };
 #endif
 
+#if defined(HEIM_DES3) || defined(HEIM_WEAK_CRYPTO)
 static struct _krb5_key_type keytype_des3_derived = {
     ETYPE_OLD_DES3_CBC_SHA1,
     "des3",
@@ -157,8 +167,9 @@ static struct _krb5_key_type keytype_des3_derived = {
     _krb5_evp_cleanup,
     _krb5_evp_des_ede3_cbc
 };
+#endif
 
-#ifdef DES3_OLD_ENCTYPE
+#ifdef HEIM_DES3
 static krb5_error_code
 RSA_MD5_DES3_checksum(krb5_context context,
 		      krb5_crypto crypto,
@@ -194,6 +205,7 @@ struct _krb5_checksum_type _krb5_checksum_rsa_md5_des3 = {
 };
 #endif
 
+#if defined(HEIM_DES3) || defined(HEIM_WEAK_CRYPTO)
 struct _krb5_checksum_type _krb5_checksum_hmac_sha1_des3 = {
     CKSUMTYPE_HMAC_SHA1_DES3,
     "hmac-sha1-des3",
@@ -203,8 +215,9 @@ struct _krb5_checksum_type _krb5_checksum_hmac_sha1_des3 = {
     _krb5_SP_HMAC_SHA1_checksum,
     NULL
 };
+#endif
 
-#ifdef DES3_OLD_ENCTYPE
+#ifdef HEIM_DES3
 struct _krb5_encryption_type _krb5_enctype_des3_cbc_md5 = {
     ETYPE_DES3_CBC_MD5,
     "des3-cbc-md5",
@@ -223,6 +236,7 @@ struct _krb5_encryption_type _krb5_enctype_des3_cbc_md5 = {
 };
 #endif
 
+#if defined(HEIM_DES3) || defined(HEIM_WEAK_CRYPTO)
 struct _krb5_encryption_type _krb5_enctype_des3_cbc_sha1 = {
     ETYPE_DES3_CBC_SHA1,
     "des3-cbc-sha1",
@@ -239,8 +253,9 @@ struct _krb5_encryption_type _krb5_enctype_des3_cbc_sha1 = {
     16,
     DES3_prf
 };
+#endif
 
-#ifdef DES3_OLD_ENCTYPE
+#ifdef HEIM_DES3
 struct _krb5_encryption_type _krb5_enctype_old_des3_cbc_sha1 = {
     ETYPE_OLD_DES3_CBC_SHA1,
     "old-des3-cbc-sha1",
@@ -259,6 +274,7 @@ struct _krb5_encryption_type _krb5_enctype_old_des3_cbc_sha1 = {
 };
 #endif
 
+#if defined(HEIM_DES3) || defined(HEIM_WEAK_CRYPTO)
 struct _krb5_encryption_type _krb5_enctype_des3_cbc_none = {
     ETYPE_DES3_CBC_NONE,
     "des3-cbc-none",
@@ -275,7 +291,9 @@ struct _krb5_encryption_type _krb5_enctype_des3_cbc_none = {
     0,
     NULL
 };
+#endif
 
+#if defined(HEIM_DES3) || defined(HEIM_WEAK_CRYPTO)
 void
 _krb5_DES3_random_to_key(krb5_context context,
 			 krb5_keyblock *key,
@@ -309,3 +327,4 @@ _krb5_DES3_random_to_key(krb5_context context,
 	    _krb5_xor8(k[i], (const unsigned char*)"\0\0\0\0\0\0\0\xf0");
     }
 }
+#endif /* HEIM_DES3 || HEIM_WEAK_CRYPTO */

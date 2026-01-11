@@ -130,7 +130,7 @@ AC_SUBST([SLC_DEP])
 
 dnl ---
 
-AC_DEFINE(HEIM_WEAK_CRYPTO, 1, [Define if you want support for weak crypto])
+dnl HEIM_WEAK_CRYPTO is now controlled by --with-1des in cf/crypto.m4
 
 rk_TEST_PACKAGE(openldap,
 [#include <lber.h>
