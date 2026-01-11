@@ -298,7 +298,10 @@ struct krb5_context_ossl_data {
     EVP_CIPHER *aes128_cts;
     EVP_CIPHER *aes192_cts;
     EVP_CIPHER *aes256_cts;
+    EVP_CIPHER *des_cbc;
+    EVP_CIPHER *des_ede3_cbc;
     EVP_MAC *hmac;
+    EVP_MD *md4;
     EVP_MD *md5;
     EVP_MD *sha1;
     EVP_MD *sha256;

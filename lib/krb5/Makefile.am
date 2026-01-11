@@ -144,6 +144,7 @@ dist_libkrb5_la_SOURCES =			\
 	creds.c					\
 	crypto-des-common.c			\
 	crypto-des.c				\
+	crypto-des3.c				\
 	crypto.c				\
 	crypto.h				\
 	crypto-aes-sha1.c			\
@@ -230,6 +231,8 @@ dist_libkrb5_la_SOURCES =			\
 	salt-aes-sha1.c				\
 	salt-aes-sha2.c				\
 	salt-arcfour.c				\
+	salt-des.c				\
+	salt-des3.c				\
 	sp800-108-kdf.c				\
 	scache.c				\
 	send_to_kdc.c				\
@@ -291,6 +294,7 @@ librfc3961_la_SOURCES =				\
 	crc.c					\
 	crypto-des-common.c			\
 	crypto-des.c				\
+	crypto-des3.c				\
 	crypto.c				\
 	crypto.h				\
 	crypto-aes-sha1.c			\
@@ -311,6 +315,8 @@ librfc3961_la_SOURCES =				\
 	salt-aes-sha1.c				\
 	salt-aes-sha2.c				\
 	salt-arcfour.c				\
+	salt-des.c				\
+	salt-des3.c				\
 	sp800-108-kdf.c				\
 	store-int.c				\
 	warn.c

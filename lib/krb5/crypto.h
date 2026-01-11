@@ -140,7 +140,12 @@ struct _krb5_encryption_type {
 
 extern struct _krb5_checksum_type _krb5_checksum_none;
 extern struct _krb5_checksum_type _krb5_checksum_crc32;
+extern struct _krb5_checksum_type _krb5_checksum_rsa_md4;
+extern struct _krb5_checksum_type _krb5_checksum_rsa_md4_des;
 extern struct _krb5_checksum_type _krb5_checksum_rsa_md5;
+extern struct _krb5_checksum_type _krb5_checksum_rsa_md5_des;
+extern struct _krb5_checksum_type _krb5_checksum_rsa_md5_des3;
+extern struct _krb5_checksum_type _krb5_checksum_hmac_sha1_des3;
 extern struct _krb5_checksum_type _krb5_checksum_hmac_sha1_aes128;
 extern struct _krb5_checksum_type _krb5_checksum_hmac_sha1_aes256;
 extern struct _krb5_checksum_type _krb5_checksum_hmac_sha256_128_aes128;
@@ -159,6 +164,13 @@ extern int _krb5_num_checksums;
 extern struct salt_type _krb5_AES_SHA1_salt[];
 extern struct salt_type _krb5_AES_SHA2_salt[];
 extern struct salt_type _krb5_arcfour_salt[];
+#ifdef HEIM_WEAK_CRYPTO
+extern struct salt_type _krb5_des_salt[];
+#endif
+#if defined(DES3_OLD_ENCTYPE) || defined(HEIM_WEAK_CRYPTO)
+extern struct salt_type _krb5_des3_salt[];
+extern struct salt_type _krb5_des3_salt_derived[];
+#endif
 
 /* Encryption types */
 
@@ -167,6 +179,22 @@ extern struct _krb5_encryption_type _krb5_enctype_aes128_cts_hmac_sha1;
 extern struct _krb5_encryption_type _krb5_enctype_aes128_cts_hmac_sha256_128;
 extern struct _krb5_encryption_type _krb5_enctype_aes256_cts_hmac_sha384_192;
 extern struct _krb5_encryption_type _krb5_enctype_arcfour_hmac_md5;
+#if defined(DES3_OLD_ENCTYPE) || defined(HEIM_WEAK_CRYPTO)
+extern struct _krb5_encryption_type _krb5_enctype_des3_cbc_sha1;
+extern struct _krb5_encryption_type _krb5_enctype_des3_cbc_none;
+#endif
+#ifdef DES3_OLD_ENCTYPE
+extern struct _krb5_encryption_type _krb5_enctype_des3_cbc_md5;
+extern struct _krb5_encryption_type _krb5_enctype_old_des3_cbc_sha1;
+#endif
+#ifdef HEIM_WEAK_CRYPTO
+extern struct _krb5_encryption_type _krb5_enctype_des_cbc_crc;
+extern struct _krb5_encryption_type _krb5_enctype_des_cbc_md4;
+extern struct _krb5_encryption_type _krb5_enctype_des_cbc_md5;
+extern struct _krb5_encryption_type _krb5_enctype_des_cbc_none;
+extern struct _krb5_encryption_type _krb5_enctype_des_cfb64_none;
+extern struct _krb5_encryption_type _krb5_enctype_des_pcbc_none;
+#endif
 extern struct _krb5_encryption_type _krb5_enctype_null;
 
 extern struct _krb5_encryption_type *_krb5_etypes[];
@@ -207,3 +235,17 @@ struct krb5_crypto_data {
  * key material is available.
  */
 #define KRB5_CRYPTO_FLAG_ALLOW_UNKEYED_CHECKSUM		    0x01
+
+/* DES/3DES helper functions */
+#if defined(DES3_OLD_ENCTYPE) || defined(HEIM_WEAK_CRYPTO)
+krb5_error_code _krb5_des_checksum(krb5_context, const EVP_MD *,
+				   struct _krb5_key_data *,
+				   const struct krb5_crypto_iov *, int,
+				   Checksum *);
+krb5_error_code _krb5_des_verify(krb5_context, const EVP_MD *,
+				 struct _krb5_key_data *,
+				 const struct krb5_crypto_iov *, int,
+				 Checksum *);
+void _krb5_DES3_random_to_key(krb5_context, krb5_keyblock *,
+			      const void *, size_t);
+#endif

@@ -374,6 +374,211 @@ static struct rfc2202 rfc2202_vectors[] =
     }
 };
 
+/* RFC 3961 A.2: DES string-to-key test vectors */
+struct des_s2k_test {
+    const char *password;
+    size_t password_len;
+    const char *salt;
+    size_t salt_len;
+    unsigned char expected_key[8];
+};
+
+static struct des_s2k_test rfc3961_des_vectors[] = {
+    {
+        "password", 8,
+        "ATHENA.MIT.EDUraeburn", 21,
+        {0xcb, 0xc2, 0x2f, 0xae, 0x23, 0x52, 0x98, 0xe3}
+    },
+    {
+        "potatoe", 7,
+        "WHITEHOUSE.GOVdanny", 19,
+        {0xdf, 0x3d, 0x32, 0xa7, 0x4f, 0xd9, 0x2a, 0x01}
+    },
+    {
+        /* password: g-clef U+1011E encoded as UTF-8 */
+        "\xf0\x9d\x84\x9e", 4,
+        "EXAMPLE.COMpianist", 18,
+        {0x4f, 0xfb, 0x26, 0xba, 0xb0, 0xcd, 0x94, 0x13}
+    },
+    {
+        /* password: eszett U+00DF encoded as UTF-8 */
+        "\xc3\x9f", 2,
+        /* salt: "ATHENA.MIT.EDUJuri" + s-caron(U+0161) + "i" + c-acute(U+0107) */
+        "ATHENA.MIT.EDUJuri\xc5\xa1i\xc4\x87", 23,
+        {0x62, 0xc8, 0x1a, 0x52, 0x32, 0xb5, 0xe6, 0x9d}
+    },
+    {
+        /* Weak key fixup test case 1 */
+        "11119999", 8,
+        "AAAAAAAA", 8,
+        {0x98, 0x40, 0x54, 0xd0, 0xf1, 0xa7, 0x3e, 0x31}
+    },
+    {
+        /* Weak key fixup test case 2 */
+        "NNNN6666", 8,
+        "FFFFAAAA", 8,
+        {0xc4, 0xbf, 0x6b, 0x25, 0xad, 0xf7, 0xa4, 0xf8}
+    }
+};
+
+/* RFC 3961 A.4: DES3 string-to-key test vectors */
+struct des3_s2k_test {
+    const char *password;
+    size_t password_len;
+    const char *salt;
+    size_t salt_len;
+    unsigned char expected_key[24];
+};
+
+static struct des3_s2k_test rfc3961_des3_vectors[] = {
+    {
+        "password", 8,
+        "ATHENA.MIT.EDUraeburn", 21,
+        {0x85, 0x0b, 0xb5, 0x13, 0x58, 0x54, 0x8c, 0xd0,
+         0x5e, 0x86, 0x76, 0x8c, 0x31, 0x3e, 0x3b, 0xfe,
+         0xf7, 0x51, 0x19, 0x37, 0xdc, 0xf7, 0x2c, 0x3e}
+    },
+    {
+        "potatoe", 7,
+        "WHITEHOUSE.GOVdanny", 19,
+        {0xdf, 0xcd, 0x23, 0x3d, 0xd0, 0xa4, 0x32, 0x04,
+         0xea, 0x6d, 0xc4, 0x37, 0xfb, 0x15, 0xe0, 0x61,
+         0xb0, 0x29, 0x79, 0xc1, 0xf7, 0x4f, 0x37, 0x7a}
+    },
+    {
+        "penny", 5,
+        "EXAMPLE.COMbuckaroo", 19,
+        {0x6d, 0x2f, 0xcd, 0xf2, 0xd6, 0xfb, 0xbc, 0x3d,
+         0xdc, 0xad, 0xb5, 0xda, 0x57, 0x10, 0xa2, 0x34,
+         0x89, 0xb0, 0xd3, 0xb6, 0x9d, 0x5d, 0x9d, 0x4a}
+    },
+    {
+        /* password: eszett U+00DF encoded as UTF-8 */
+        "\xc3\x9f", 2,
+        /* salt: "ATHENA.MIT.EDUJuri" + s-caron(U+0161) + "i" + c-acute(U+0107) */
+        "ATHENA.MIT.EDUJuri\xc5\xa1i\xc4\x87", 23,
+        {0x16, 0xd5, 0xa4, 0x0e, 0x1c, 0xe3, 0xba, 0xcb,
+         0x61, 0xb9, 0xdc, 0xe0, 0x04, 0x70, 0x32, 0x4c,
+         0x83, 0x19, 0x73, 0xa7, 0xb9, 0x52, 0xfe, 0xb0}
+    },
+    {
+        /* password: g-clef U+1011E encoded as UTF-8 */
+        "\xf0\x9d\x84\x9e", 4,
+        "EXAMPLE.COMpianist", 18,
+        {0x85, 0x76, 0x37, 0x26, 0x58, 0x5d, 0xbc, 0x1c,
+         0xce, 0x6e, 0xc4, 0x3e, 0x1f, 0x75, 0x1f, 0x07,
+         0xf1, 0xc4, 0xcb, 0xb0, 0x98, 0xf4, 0x0b, 0x19}
+    }
+};
+
+/* RFC 3961 test for DES string-to-key */
+static void
+test_rfc3961_des_s2k(krb5_context context)
+{
+    size_t num_tests;
+    size_t i;
+    krb5_error_code ret;
+
+    num_tests = sizeof(rfc3961_des_vectors) / sizeof(rfc3961_des_vectors[0]);
+
+    printf("Running %zu RFC3961 DES string-to-key tests\n", num_tests);
+
+    krb5_enctype_enable(context, ETYPE_DES_CBC_CRC);
+
+    for (i = 0; i < num_tests; i++) {
+        krb5_keyblock key;
+        krb5_salt salt;
+        krb5_data opaque;
+
+        salt.salttype = KRB5_PW_SALT;
+        salt.saltvalue.data = rk_UNCONST(rfc3961_des_vectors[i].salt);
+        salt.saltvalue.length = rfc3961_des_vectors[i].salt_len;
+
+        opaque.data = NULL;
+        opaque.length = 0;
+
+        ret = krb5_string_to_key_salt_opaque(context,
+                                             ETYPE_DES_CBC_CRC,
+                                             rfc3961_des_vectors[i].password,
+                                             salt, opaque, &key);
+        if (ret)
+            errx(1, "DES string-to-key failed on test %zu: %d", i + 1, ret);
+
+        if (key.keyvalue.length != 8)
+            errx(1, "DES key length wrong on test %zu: got %zu, expected 8",
+                 i + 1, key.keyvalue.length);
+
+        if (memcmp(key.keyvalue.data, rfc3961_des_vectors[i].expected_key, 8) != 0) {
+            printf("DES test %zu FAILED\n", i + 1);
+            printf("  Expected: ");
+            for (size_t j = 0; j < 8; j++)
+                printf("%02x", rfc3961_des_vectors[i].expected_key[j]);
+            printf("\n  Got:      ");
+            for (size_t j = 0; j < 8; j++)
+                printf("%02x", ((unsigned char *)key.keyvalue.data)[j]);
+            printf("\n");
+            errx(1, "DES key mismatch on test %zu", i + 1);
+        }
+
+        krb5_free_keyblock_contents(context, &key);
+        printf("DES string-to-key test %zu okay\n", i + 1);
+    }
+}
+
+/* RFC 3961 test for DES3 string-to-key */
+static void
+test_rfc3961_des3_s2k(krb5_context context)
+{
+    size_t num_tests;
+    size_t i;
+    krb5_error_code ret;
+
+    num_tests = sizeof(rfc3961_des3_vectors) / sizeof(rfc3961_des3_vectors[0]);
+
+    printf("Running %zu RFC3961 DES3 string-to-key tests\n", num_tests);
+
+    krb5_enctype_enable(context, ETYPE_DES3_CBC_SHA1);
+
+    for (i = 0; i < num_tests; i++) {
+        krb5_keyblock key;
+        krb5_salt salt;
+        krb5_data opaque;
+
+        salt.salttype = KRB5_PW_SALT;
+        salt.saltvalue.data = rk_UNCONST(rfc3961_des3_vectors[i].salt);
+        salt.saltvalue.length = rfc3961_des3_vectors[i].salt_len;
+
+        opaque.data = NULL;
+        opaque.length = 0;
+
+        ret = krb5_string_to_key_salt_opaque(context,
+                                             ETYPE_DES3_CBC_SHA1,
+                                             rfc3961_des3_vectors[i].password,
+                                             salt, opaque, &key);
+        if (ret)
+            errx(1, "DES3 string-to-key failed on test %zu: %d", i + 1, ret);
+
+        if (key.keyvalue.length != 24)
+            errx(1, "DES3 key length wrong on test %zu: got %zu, expected 24",
+                 i + 1, key.keyvalue.length);
+
+        if (memcmp(key.keyvalue.data, rfc3961_des3_vectors[i].expected_key, 24) != 0) {
+            printf("DES3 test %zu FAILED\n", i + 1);
+            printf("  Expected: ");
+            for (size_t j = 0; j < 24; j++)
+                printf("%02x", rfc3961_des3_vectors[i].expected_key[j]);
+            printf("\n  Got:      ");
+            for (size_t j = 0; j < 24; j++)
+                printf("%02x", ((unsigned char *)key.keyvalue.data)[j]);
+            printf("\n");
+            errx(1, "DES3 key mismatch on test %zu", i + 1);
+        }
+
+        krb5_free_keyblock_contents(context, &key);
+        printf("DES3 string-to-key test %zu okay\n", i + 1);
+    }
+}
+
 /* RFC 2202 test vectors for HMAC-SHA1 */
 static void
 test_rfc2202(krb5_context context)
@@ -474,6 +679,8 @@ main(int argc, char **argv)
 	errx (1, "krb5_init_context failed: %d", ret);
 
     test_rfc2202(context);
+    test_rfc3961_des_s2k(context);
+    test_rfc3961_des3_s2k(context);
 
     enciter = 1000;
     hmaciter = 10000;

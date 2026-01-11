@@ -2408,7 +2408,20 @@ derive_key_rfc3961(krb5_context context,
 	}
     }
 
-    memcpy(key->key->keyvalue.data, k, key->key->keyvalue.length);
+    /*
+     * RFC 3961: DK(Key, Constant) = random-to-key(DR(Key, Constant))
+     *
+     * For keytypes where bits != size*8 (e.g., DES3: 168 bits, 24 bytes),
+     * we need to truncate the DR output to bits/8 bytes and apply
+     * random-to-key to convert to the final key.
+     */
+    if (kt->random_to_key) {
+        /* Truncate DR output to key-generation-seed-length and apply random-to-key */
+        (*kt->random_to_key)(context, key->key, k, kt->bits / 8);
+    } else {
+        /* For keytypes like AES where bits == size*8, just copy */
+        memcpy(key->key->keyvalue.data, k, key->key->keyvalue.length);
+    }
 
  out:
     if (k) {

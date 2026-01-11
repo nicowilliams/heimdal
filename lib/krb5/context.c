@@ -177,7 +177,10 @@ make_openssl_context(krb5_context context,
     ossl->aes128_cts    = EVP_CIPHER_fetch(ossl->libctx, "AES-128-CBC-CTS", ossl->propq);
     ossl->aes192_cts    = EVP_CIPHER_fetch(ossl->libctx, "AES-192-CBC-CTS", ossl->propq);
     ossl->aes256_cts    = EVP_CIPHER_fetch(ossl->libctx, "AES-256-CBC-CTS", ossl->propq);
+    ossl->des_cbc       = EVP_CIPHER_fetch(ossl->libctx, "DES-CBC", ossl->propq);
+    ossl->des_ede3_cbc  = EVP_CIPHER_fetch(ossl->libctx, "DES-EDE3-CBC", ossl->propq);
     ossl->hmac          = EVP_MAC_fetch(ossl->libctx, "HMAC", ossl->propq);
+    ossl->md4           = EVP_MD_fetch(ossl->libctx, "MD4", ossl->propq);
     ossl->md5           = EVP_MD_fetch(ossl->libctx, "MD5", ossl->propq);
     ossl->sha1          = EVP_MD_fetch(ossl->libctx, "SHA1", ossl->propq);
     ossl->sha256        = EVP_MD_fetch(ossl->libctx, "SHA256", ossl->propq);
@@ -204,7 +207,10 @@ free_openssl(krb5_context_ossl *osslp)
     EVP_CIPHER_free(p->aes128_cts);
     EVP_CIPHER_free(p->aes192_cts);
     EVP_CIPHER_free(p->aes256_cts);
+    EVP_CIPHER_free(p->des_cbc);
+    EVP_CIPHER_free(p->des_ede3_cbc);
     EVP_MAC_free(p->hmac);
+    EVP_MD_free(p->md4);
     EVP_MD_free(p->md5);
     EVP_MD_free(p->sha1);
     EVP_MD_free(p->sha256);
