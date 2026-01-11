@@ -1,0 +1,243 @@
+.\" Copyright (c) 2024 Kungliga Tekniska Högskolan
+.\" (Royal Institute of Technology, Stockholm, Sweden).
+.\" All rights reserved.
+.\"
+.\" Redistribution and use in source and binary forms, with or without
+.\" modification, are permitted provided that the following conditions
+.\" are met:
+.\"
+.\" 1. Redistributions of source code must retain the above copyright
+.\"    notice, this list of conditions and the following disclaimer.
+.\"
+.\" 2. Redistributions in binary form must reproduce the above copyright
+.\"    notice, this list of conditions and the following disclaimer in the
+.\"    documentation and/or other materials provided with the distribution.
+.\"
+.\" 3. Neither the name of the Institute nor the names of its contributors
+.\"    may be used to endorse or promote products derived from this software
+.\"    without specific prior written permission.
+.\"
+.\" THIS SOFTWARE IS PROVIDED BY THE INSTITUTE AND CONTRIBUTORS ``AS IS'' AND
+.\" ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+.\" IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+.\" ARE DISCLAIMED.  IN NO EVENT SHALL THE INSTITUTE OR CONTRIBUTORS BE LIABLE
+.\" FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+.\" DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
+.\" OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
+.\" HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
+.\" LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
+.\" OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
+.\" SUCH DAMAGE.
+.\"
+.\" $Id$
+.\"
+.Dd January 13, 2025
+.Dt GSS 1
+.Os HEIMDAL
+.Sh NAME
+.Nm gss
+.Nd GSS-API client/server tool
+.Sh SYNOPSIS
+.Nm
+.Fl c
+.Op Fl m Ar mechanism
+.Op options
+.Ar host:port
+.Op Ar command Op Ar args ...
+.Nm
+.Fl s
+.Op Fl m Ar mechanism
+.Op options
+.Ar port
+.Op Ar command Op Ar args ...
+.Sh DESCRIPTION
+.Nm
+is a generic GSS-API client and server for testing mechanisms and
+tunneling data through GSS-wrapped channels.
+It exchanges GSS tokens over TCP, using length-prefix framing for
+traditional mechanisms or native framing for self-framed mechanisms
+like TLS.
+.Pp
+After a successful GSS handshake, if a
+.Ar command
+is specified, it will be spawned with its standard input and output
+connected to the GSS-wrapped channel.
+Data received from the peer is unwrapped and written to the command's
+stdin; data read from the command's stdout is wrapped and sent to the
+peer.
+.Pp
+If no command is specified, client mode enters interactive mode
+(reading from stdin and writing to stdout), while server mode enters
+echo mode (echoing received data back to the client).
+.Sh OPTIONS
+The following options are available:
+.Bl -tag -width Ds
+.It Fl c , Fl Fl client
+Run in client mode.
+Connect to the specified
+.Ar host:port .
+.It Fl s , Fl Fl server
+Run in server mode.
+Listen on the specified
+.Ar port .
+.It Fl m Ar mechanism , Fl Fl mechanism Ns = Ns Ar mechanism
+GSS mechanism to use.
+Accepted values include:
+.Bl -tag -width Ds -offset indent
+.It Ar krb5
+Kerberos 5 mechanism.
+.It Ar spnego
+SPNEGO negotiation mechanism.
+.It Ar sanon
+Simple Anonymous mechanism (X25519-based).
+.It Ar tls
+TLS mechanism (Heimdal extension).
+.It Ar ?
+List all available mechanisms and exit.
+.It Any mechanism OID, such as 1.2.840.113554.1.2.2.
+.El
+.It Fl o Ar KEY=VALUE , Fl Fl option Ns = Ns Ar KEY=VALUE
+Credential store option.
+May be specified multiple times.
+See
+.Sx CREDENTIAL STORE OPTIONS
+for details.
+.It Fl C Ar URI , Fl Fl certificate Ns = Ns Ar URI
+Certificate store URI for TLS.
+Alias for
+.Fl o Ar certificate=URI .
+.It Fl K Ar URI , Fl Fl private-key Ns = Ns Ar URI
+Private key store URI for TLS.
+Alias for
+.Fl o Ar private-key=URI .
+.It Fl A Ar URI , Fl Fl anchors Ns = Ns Ar URI
+Trust anchor store URI for TLS certificate validation.
+Alias for
+.Fl o Ar anchors=URI .
+.It Fl R Ar URI , Fl Fl revoke Ns = Ns Ar URI
+Revocation information store URI for TLS.
+Alias for
+.Fl o Ar revoke=URI .
+.It Fl Fl resolve Ns = Ns Ar HOST:ADDRESS
+Override DNS resolution.
+Connect to
+.Ar ADDRESS
+instead of resolving
+.Ar HOST ,
+but use
+.Ar HOST
+for the GSS target name (and TLS SNI).
+The port is taken from the target specification.
+.It Fl a , Fl Fl anonymous
+Use anonymous mode (for mechanisms that support it).
+Alias for
+.Fl o Ar anonymous=true .
+.It Fl r , Fl Fl require-client-cert
+Require client certificate in server mode (TLS).
+Alias for
+.Fl o Ar require-client-cert=true .
+.It Fl v , Fl Fl verbose
+Enable verbose output.
+.It Fl h , Fl Fl help
+Print usage information and exit.
+.It Fl Fl version
+Print version information and exit.
+.El
+.Sh CREDENTIAL STORE OPTIONS
+The following credential store options are recognized by the TLS mechanism:
+.Bl -tag -width Ds
+.It Ar certificate Ns = Ns Ar URI
+Certificate store URI.
+See
+.Xr hxtool 1
+for URI formats (e.g.,
+.Dq FILE:/path/to/cert.pem ,
+.Dq PKCS11:/path/to/module.so ) .
+.It Ar private-key Ns = Ns Ar URI
+Private key store URI.
+If not specified, the private key is expected to be in the same
+store as the certificate.
+.It Ar anchors Ns = Ns Ar URI
+Trust anchor store for validating peer certificates.
+.It Ar revoke Ns = Ns Ar URI
+Revocation information (CRL or OCSP) store.
+.It Ar anonymous Ns = Ns Ar true
+Use anonymous client mode (no client certificate).
+.It Ar require-client-cert Ns = Ns Ar true
+Require client certificate (server mode only).
+.El
+.Pp
+For the Kerberos mechanism, see
+.Xr gsstool 1
+for credential store options.
+.Sh ENVIRONMENT
+.Bl -tag -width Ds
+.It Ev GSS_TLS_BACKEND
+When Heimdal is built with multiple TLS backends, this variable
+selects which one to use.
+Valid values are
+.Dq openssl
+and
+.Dq s2n .
+.It Ev GSS_TLS_TRACE
+Enable TLS mechanism tracing.
+The value is a log specification passed to
+.Fn heim_add_debug_dest ,
+such as
+.Dq STDERR
+or
+.Dq FILE:/tmp/tls-trace.log .
+.El
+.Sh EXAMPLES
+Start a TLS server on port 4433:
+.Bd -literal -offset indent
+gss -s -m tls -C FILE:server.pem -K FILE:server-key.pem 4433
+.Ed
+.Pp
+Connect to a TLS server:
+.Bd -literal -offset indent
+gss -c -m tls -A FILE:ca.pem server.example.com:4433
+.Ed
+.Pp
+TLS server that spawns a shell command for each connection:
+.Bd -literal -offset indent
+gss -s -m tls -C FILE:server.pem -K FILE:server-key.pem \\
+    4433 /usr/bin/cat
+.Ed
+.Pp
+TLS client that tunnels a local command:
+.Bd -literal -offset indent
+gss -c -m tls -A FILE:ca.pem server:4433 /bin/sh
+.Ed
+.Pp
+Connect using SNI override (connect to localhost but use hostname for SNI):
+.Bd -literal -offset indent
+gss -c -m tls -A FILE:ca.pem \\
+    --resolve=www.example.com:127.0.0.1 \\
+    www.example.com:4433
+.Ed
+.Pp
+Anonymous SAnon client:
+.Bd -literal -offset indent
+gss -c -m sanon server.example.com:8080
+.Ed
+.Pp
+Kerberos client with explicit credential cache:
+.Bd -literal -offset indent
+gss -c -m krb5 -o ccache=FILE:/tmp/krb5cc_test \\
+    host/server.example.com@REALM:8080
+.Ed
+.Pp
+List available GSS mechanisms:
+.Bd -literal -offset indent
+gss -c -m '?'
+.Ed
+.Sh SEE ALSO
+.Xr gsstool 1 ,
+.Xr gss-token 1 ,
+.Xr hxtool 1 ,
+.Xr kinit 1
+.Sh HISTORY
+The
+.Nm
+utility first appeared in Heimdal 8.0.

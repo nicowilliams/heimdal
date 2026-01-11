@@ -59,6 +59,8 @@ _gss_tls_delete_sec_context(OM_uint32 *minor,
 
     ctx = (gss_tls_ctx)*context_handle;
 
+    heim_debug(ctx->hctx, 5, "GSS-TLS: deleting context");
+
     /* Generate close_notify if output token requested and connection is open */
     if (output_token != GSS_C_NO_BUFFER && ctx->backend && ctx->open && !ctx->closed) {
         /* Clear output buffer */
@@ -99,6 +101,10 @@ _gss_tls_delete_sec_context(OM_uint32 *minor,
     }
 
     /* Don't free ctx->cred - it's borrowed */
+
+    /* Clean up tracing context */
+    if (ctx->hctx)
+        heim_context_free(&ctx->hctx);
 
     memset(ctx, 0, sizeof(*ctx));
     free(ctx);
@@ -323,4 +329,86 @@ _gss_tls_display_status(OM_uint32 *minor,
     }
 
     return GSS_S_UNAVAILABLE;
+}
+
+/*
+ * GSS-API inquire_sec_context_by_oid for TLS mechanism
+ *
+ * Supports channel binding extraction OIDs:
+ *   GSS_C_INQ_CB_TLS_SERVER_END_POINT - RFC 5929 tls-server-end-point
+ *   GSS_C_INQ_CB_TLS_UNIQUE           - RFC 5929 tls-unique (TLS 1.2 only)
+ *   GSS_C_INQ_CB_TLS_EXPORTER         - RFC 9266 tls-exporter
+ */
+OM_uint32 GSSAPI_CALLCONV
+_gss_tls_inquire_sec_context_by_oid(OM_uint32 *minor,
+                                    gss_const_ctx_id_t context_handle,
+                                    const gss_OID desired_object,
+                                    gss_buffer_set_t *data_set)
+{
+    const struct gss_tls_ctx_desc *ctx =
+        (const struct gss_tls_ctx_desc *)context_handle;
+    uint8_t cb_buf[64];  /* Max size: SHA-512 hash (64 bytes) */
+    size_t cb_len = sizeof(cb_buf);
+    tls_backend_status status;
+    gss_buffer_desc buf;
+    OM_uint32 major;
+
+    *minor = 0;
+    *data_set = GSS_C_NO_BUFFER_SET;
+
+    if (ctx == NULL) {
+        *minor = EINVAL;
+        return GSS_S_NO_CONTEXT;
+    }
+
+    if (!ctx->open) {
+        *minor = EINVAL;
+        return GSS_S_NO_CONTEXT;
+    }
+
+    if (desired_object == GSS_C_NO_OID) {
+        *minor = EINVAL;
+        return GSS_S_CALL_INACCESSIBLE_READ;
+    }
+
+    /* Check for channel binding extraction OIDs */
+    if (gss_oid_equal(desired_object, GSS_C_INQ_CB_TLS_SERVER_END_POINT)) {
+        heim_debug(ctx->hctx, 5, "GSS-TLS: inquire tls-server-end-point CB");
+        status = tls_backend_get_cb_server_end_point(ctx->backend,
+                                                     !ctx->is_initiator,
+                                                     cb_buf, &cb_len);
+    } else if (gss_oid_equal(desired_object, GSS_C_INQ_CB_TLS_UNIQUE)) {
+        heim_debug(ctx->hctx, 5, "GSS-TLS: inquire tls-unique CB");
+        status = tls_backend_get_cb_unique(ctx->backend, cb_buf, &cb_len);
+    } else if (gss_oid_equal(desired_object, GSS_C_INQ_CB_TLS_EXPORTER)) {
+        heim_debug(ctx->hctx, 5, "GSS-TLS: inquire tls-exporter CB");
+        status = tls_backend_get_cb_exporter(ctx->backend, cb_buf, &cb_len);
+    } else {
+        /* Unknown OID */
+        *minor = EINVAL;
+        return GSS_S_UNAVAILABLE;
+    }
+
+    if (status != TLS_BACKEND_OK) {
+        heim_debug(ctx->hctx, 1, "GSS-TLS: CB extraction failed: %s",
+                   tls_backend_get_error(ctx->backend));
+        *minor = ENOENT;
+        return GSS_S_UNAVAILABLE;
+    }
+
+    /* Create buffer set with single buffer containing the CB value */
+    major = gss_create_empty_buffer_set(minor, data_set);
+    if (major != GSS_S_COMPLETE)
+        return major;
+
+    buf.length = cb_len;
+    buf.value = cb_buf;
+
+    major = gss_add_buffer_set_member(minor, &buf, data_set);
+    if (major != GSS_S_COMPLETE) {
+        gss_release_buffer_set(minor, data_set);
+        return major;
+    }
+
+    return GSS_S_COMPLETE;
 }

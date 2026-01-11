@@ -45,9 +45,9 @@ configure_server(OM_uint32 *minor, gss_tls_ctx ctx,
     tls_backend_status status;
 
     memset(&config, 0, sizeof(config));
+    config.hctx = ctx->hctx;
     config.hx509ctx = ctx->hx509ctx;
     config.mode = TLS_BACKEND_SERVER;
-    config.verify_peer = 1;
 
     if (cred) {
         config.certs = cred->certs;
@@ -55,6 +55,8 @@ configure_server(OM_uint32 *minor, gss_tls_ctx ctx,
         config.trust_anchors = cred->trust_anchors;
         config.revoke = cred->revoke;
         config.require_client_cert = cred->require_client_cert;
+        /* Only verify peer if we want client certificates */
+        config.verify_peer = cred->require_client_cert;
     }
 
     /* Initialize I/O buffers */
@@ -90,6 +92,7 @@ extract_client_identity(gss_tls_ctx ctx, gss_name_t *src_name)
 {
     tls_backend_status status;
     hx509_cert peer_cert = NULL;
+    OM_uint32 minor;
 
     if (src_name)
         *src_name = GSS_C_NO_NAME;
@@ -98,10 +101,22 @@ extract_client_identity(gss_tls_ctx ctx, gss_name_t *src_name)
     status = tls_backend_get_peer_cert(ctx->backend, ctx->hx509ctx, &peer_cert);
     if (status == TLS_BACKEND_OK && peer_cert != NULL) {
         ctx->peer_cert = peer_cert;
-        /* TODO: Create gss_tls_name from certificate subject/SANs */
-        /* For now, just mark as authenticated */
-        if (src_name)
-            *src_name = GSS_C_NO_NAME; /* TODO: extract name */
+
+        /* Create name from certificate */
+        if (_gss_tls_name_from_cert(&minor, ctx->hx509ctx, peer_cert,
+                                     &ctx->peer_name) == GSS_S_COMPLETE) {
+            heim_debug(ctx->hctx, 5, "GSS-TLS: extracted client identity from certificate");
+            if (src_name) {
+                /* Duplicate for caller */
+                _gss_tls_duplicate_name(&minor, ctx->peer_name, src_name);
+            }
+        } else {
+            /* Failed to extract name, treat as anonymous */
+            heim_debug(ctx->hctx, 1, "GSS-TLS: failed to extract client identity");
+            ctx->peer_name = _gss_tls_anonymous_identity;
+            if (src_name)
+                *src_name = _gss_tls_anonymous_identity;
+        }
     } else {
         /* Anonymous client (no client certificate) */
         ctx->peer_name = _gss_tls_anonymous_identity;
@@ -168,6 +183,10 @@ _gss_tls_accept_sec_context(OM_uint32 *minor,
         ctx->is_initiator = 0; /* Server */
         ctx->cred = cred;
 
+        /* Initialize tracing context */
+        gss_tls_trace_init(&ctx->hctx);
+        heim_debug(ctx->hctx, 5, "GSS-TLS: accepting context (server)");
+
         /* Initialize hx509 context */
         if (hx509_context_init(&ctx->hx509ctx) != 0) {
             *minor = ENOMEM;
@@ -187,6 +206,7 @@ _gss_tls_accept_sec_context(OM_uint32 *minor,
     }
 
     /* Provide input token data to recv buffer */
+    heim_debug(ctx->hctx, 10, "GSS-TLS: received %zu bytes", input_token->length);
     tls_iobuf_reset(&ctx->recv_buf);
     if (tls_iobuf_append(&ctx->recv_buf, input_token->value,
                          input_token->length) != 0) {
@@ -202,6 +222,7 @@ _gss_tls_accept_sec_context(OM_uint32 *minor,
 
     /* Return any TLS records that were generated */
     if (ctx->send_buf.len > 0 && output_token != GSS_C_NO_BUFFER) {
+        heim_debug(ctx->hctx, 10, "GSS-TLS: sending %zu bytes", ctx->send_buf.len);
         output_token->value = malloc(ctx->send_buf.len);
         if (output_token->value == NULL) {
             *minor = ENOMEM;
@@ -213,6 +234,7 @@ _gss_tls_accept_sec_context(OM_uint32 *minor,
 
     if (status == TLS_BACKEND_OK) {
         /* Handshake complete */
+        heim_debug(ctx->hctx, 5, "GSS-TLS: handshake complete");
         ctx->handshake_done = 1;
         ctx->open = 1;
         ctx->established_time = time(NULL);
@@ -239,6 +261,8 @@ _gss_tls_accept_sec_context(OM_uint32 *minor,
     } else if (status == TLS_BACKEND_WANT_READ ||
                status == TLS_BACKEND_WANT_WRITE) {
         /* Need more data - continue handshake */
+        heim_debug(ctx->hctx, 10, "GSS-TLS: handshake continue needed (want %s)",
+                   status == TLS_BACKEND_WANT_READ ? "read" : "write");
         if (ret_flags)
             *ret_flags = 0;
         if (time_rec)
@@ -247,6 +271,8 @@ _gss_tls_accept_sec_context(OM_uint32 *minor,
         major = GSS_S_CONTINUE_NEEDED;
     } else {
         /* Error */
+        heim_debug(ctx->hctx, 1, "GSS-TLS: handshake error: %s",
+                   tls_backend_get_error(ctx->backend));
         *minor = EPROTO;
         major = GSS_S_FAILURE;
     }

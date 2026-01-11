@@ -156,6 +156,31 @@ gss_OID_desc GSS_C_NT_X509_REGID_desc = {
 gss_OID GSS_C_NT_X509_REGID = &GSS_C_NT_X509_REGID_desc;
 
 /*
+ * Channel Binding Extraction OIDs (1.3.6.1.4.1.40402.1.3.1.x)
+ *
+ * Used with gss_inquire_sec_context_by_oid() to extract channel binding
+ * values from an established GSS-TLS security context.
+ */
+
+/* GSS_C_INQ_CB_TLS_SERVER_END_POINT: 1.3.6.1.4.1.40402.1.3.1.1 */
+gss_OID_desc GSS_C_INQ_CB_TLS_SERVER_END_POINT_desc = {
+    12, rk_UNCONST("\x2b\x06\x01\x04\x01\x82\xbb\x52\x01\x03\x01\x01")
+};
+gss_OID GSS_C_INQ_CB_TLS_SERVER_END_POINT = &GSS_C_INQ_CB_TLS_SERVER_END_POINT_desc;
+
+/* GSS_C_INQ_CB_TLS_UNIQUE: 1.3.6.1.4.1.40402.1.3.1.2 */
+gss_OID_desc GSS_C_INQ_CB_TLS_UNIQUE_desc = {
+    12, rk_UNCONST("\x2b\x06\x01\x04\x01\x82\xbb\x52\x01\x03\x01\x02")
+};
+gss_OID GSS_C_INQ_CB_TLS_UNIQUE = &GSS_C_INQ_CB_TLS_UNIQUE_desc;
+
+/* GSS_C_INQ_CB_TLS_EXPORTER: 1.3.6.1.4.1.40402.1.3.1.3 */
+gss_OID_desc GSS_C_INQ_CB_TLS_EXPORTER_desc = {
+    12, rk_UNCONST("\x2b\x06\x01\x04\x01\x82\xbb\x52\x01\x03\x01\x03")
+};
+gss_OID GSS_C_INQ_CB_TLS_EXPORTER = &GSS_C_INQ_CB_TLS_EXPORTER_desc;
+
+/*
  * Mechanism attributes (gss_mo_desc)
  */
 static gss_mo_desc tls_mo[] = {
@@ -304,18 +329,20 @@ static gssapi_mech_interface_desc tls_mech = {
     _gss_tls_canonicalize_name,
     _gss_tls_duplicate_name,
     /*
-     * TODO: Implement gm_inquire_sec_context_by_oid for TLS-specific attributes
-     * Needed OIDs to define and implement:
+     * gm_inquire_sec_context_by_oid - currently supports channel binding extraction:
+     *   - GSS_C_INQ_CB_TLS_SERVER_END_POINT (RFC 5929 tls-server-end-point)
+     *   - GSS_C_INQ_CB_TLS_UNIQUE (RFC 5929 tls-unique, TLS 1.2 only)
+     *   - GSS_C_INQ_CB_TLS_EXPORTER (RFC 9266 tls-exporter)
+     *
+     * TODO: Add additional TLS-specific attributes:
      *   - GSS_C_INQ_TLS_CIPHER        -> cipher suite name (e.g., "TLS_AES_256_GCM_SHA384")
      *   - GSS_C_INQ_TLS_VERSION       -> protocol version ("TLSv1.2", "TLSv1.3")
      *   - GSS_C_INQ_TLS_ALPN          -> negotiated ALPN protocol (if any)
      *   - GSS_C_INQ_TLS_PEER_CERT     -> peer certificate (DER-encoded)
      *   - GSS_C_INQ_TLS_PEER_CERT_CHAIN -> full cert chain (DER, concatenated)
      *   - GSS_C_INQ_TLS_SNI           -> SNI hostname used
-     * These are needed for the gss tool's command execution mode to populate
-     * environment variables like GSS_TLS_CIPHER, GSS_TLS_VERSION, etc.
      */
-    NULL,                              /* gm_inquire_sec_context_by_oid */
+    _gss_tls_inquire_sec_context_by_oid,
     NULL,                              /* gm_inquire_cred_by_oid */
     NULL,                              /* gm_set_sec_context_option */
     NULL,                              /* gm_set_cred_option */
@@ -343,7 +370,7 @@ static gssapi_mech_interface_desc tls_mech = {
     NULL,                              /* gm_get_name_attribute */
     NULL,                              /* gm_set_name_attribute */
     NULL,                              /* gm_delete_name_attribute */
-    NULL,                              /* gm_export_name_composite */
+    _gss_tls_export_name_composite,
     NULL,                              /* gm_duplicate_cred */
     NULL,                              /* gm_add_cred_from */
     NULL,                              /* gm_store_cred_into */

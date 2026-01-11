@@ -34,6 +34,12 @@
 
 #include <errno.h>
 
+/* Forward declarations for hx509 private APIs we need */
+HX509_LIB_FUNCTION hx509_private_key HX509_LIB_CALL
+_hx509_cert_private_key(hx509_cert);
+HX509_LIB_FUNCTION void HX509_LIB_CALL
+_hx509_private_key_ref(hx509_private_key);
+
 /*
  * Key names for gss_acquire_cred_from() cred_store parameter
  *
@@ -141,6 +147,12 @@ _gss_tls_acquire_cred_from(OM_uint32 *minor,
 
     cred->usage = cred_usage;
 
+    /* Initialize tracing context */
+    gss_tls_trace_init(&cred->hctx);
+    heim_debug(cred->hctx, 5, "GSS-TLS: acquiring %s credential",
+               cred_usage == GSS_C_INITIATE ? "initiator" :
+               cred_usage == GSS_C_ACCEPT ? "acceptor" : "both");
+
     /* Initialize hx509 context */
     ret = hx509_context_init(&cred->hx509ctx);
     if (ret) {
@@ -165,8 +177,10 @@ _gss_tls_acquire_cred_from(OM_uint32 *minor,
 
     /* Load certificate chain if specified */
     if (cert_store) {
+        heim_debug(cred->hctx, 5, "GSS-TLS: loading certificate from %s", cert_store);
         ret = hx509_certs_init(cred->hx509ctx, cert_store, 0, NULL, &cred->certs);
         if (ret) {
+            heim_debug(cred->hctx, 1, "GSS-TLS: failed to load certificate: %d", ret);
             *minor = ret;
             goto fail;
         }
@@ -175,26 +189,49 @@ _gss_tls_acquire_cred_from(OM_uint32 *minor,
     /* Load private key if specified */
     if (key_store) {
         hx509_certs key_certs;
+        hx509_cursor cursor;
+        hx509_cert cert_with_key;
+
+        heim_debug(cred->hctx, 5, "GSS-TLS: loading private key from %s", key_store);
 
         /* hx509 loads keys via a certificate store interface */
         ret = hx509_certs_init(cred->hx509ctx, key_store, 0, NULL, &key_certs);
         if (ret) {
+            heim_debug(cred->hctx, 1, "GSS-TLS: failed to load private key: %d", ret);
             *minor = ret;
             goto fail;
         }
 
-        /* Extract the private key from the store */
-        /* TODO: hx509_certs_iter to find the key, or use combined store */
+        /* Find a certificate with a private key and extract it */
+        ret = hx509_certs_start_seq(cred->hx509ctx, key_certs, &cursor);
+        if (ret == 0) {
+            while (hx509_certs_next_cert(cred->hx509ctx, key_certs,
+                                         cursor, &cert_with_key) == 0 &&
+                   cert_with_key != NULL) {
+                if (hx509_cert_have_private_key(cert_with_key)) {
+                    /* Found a cert with private key - extract the key */
+                    cred->key = _hx509_cert_private_key(cert_with_key);
+                    if (cred->key) {
+                        _hx509_private_key_ref(cred->key);
+                        heim_debug(cred->hctx, 5, "GSS-TLS: extracted private key");
+                    }
+                    hx509_cert_free(cert_with_key);
+                    break;
+                }
+                hx509_cert_free(cert_with_key);
+            }
+            hx509_certs_end_seq(cred->hx509ctx, key_certs, cursor);
+        }
         hx509_certs_free(&key_certs);
-
-        /* For now, if cert and key are in same file (like PEM), hx509 handles it */
     }
 
     /* Load trust anchors if specified */
     if (anchor_store) {
+        heim_debug(cred->hctx, 5, "GSS-TLS: loading trust anchors from %s", anchor_store);
         ret = hx509_certs_init(cred->hx509ctx, anchor_store, 0, NULL,
                                &cred->trust_anchors);
         if (ret) {
+            heim_debug(cred->hctx, 1, "GSS-TLS: failed to load trust anchors: %d", ret);
             *minor = ret;
             goto fail;
         }
@@ -233,10 +270,15 @@ _gss_tls_acquire_cred_from(OM_uint32 *minor,
         }
     }
 
+    heim_debug(cred->hctx, 5, "GSS-TLS: credential acquired successfully");
+
     *output_cred = (gss_cred_id_t)cred;
     return GSS_S_COMPLETE;
 
 fail:
+    heim_debug(cred->hctx, 1, "GSS-TLS: credential acquisition failed");
+    if (cred->hctx)
+        heim_context_free(&cred->hctx);
     if (cred->revoke)
         hx509_revoke_free(&cred->revoke);
     if (cred->trust_anchors)
@@ -265,6 +307,10 @@ _gss_tls_release_cred(OM_uint32 *minor,
 
     cred = (gss_tls_cred)*cred_handle;
 
+    heim_debug(cred->hctx, 5, "GSS-TLS: releasing credential");
+
+    if (cred->hctx)
+        heim_context_free(&cred->hctx);
     if (cred->revoke)
         hx509_revoke_free(&cred->revoke);
     if (cred->trust_anchors)

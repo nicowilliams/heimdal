@@ -8,6 +8,16 @@ noinst_DATA = krb5.conf krb5-nodns.conf new_clients_k5.conf mech
 
 SCRIPT_TESTS = check-basic check-nodns check-gss check-gssmask check-context check-spnego check-negoex
 
+# When both TLS backends are compiled, test each separately
+# When only one backend is available, just run check-tls
+if GSS_TLS_BOTH
+SCRIPT_TESTS += check-tls-openssl check-tls-s2n
+else
+if GSS_TLS
+SCRIPT_TESTS += check-tls
+endif
+endif
+
 TESTS = $(SCRIPT_TESTS)
 
 check_SCRIPTS = $(SCRIPT_TESTS)
@@ -58,6 +68,21 @@ check-negoex: check-negoex.in Makefile
 	chmod +x check-negoex.tmp && \
 	mv check-negoex.tmp check-negoex
 
+check-tls: check-tls.in Makefile
+	$(do_subst) < $(srcdir)/check-tls.in > check-tls.tmp && \
+	chmod +x check-tls.tmp && \
+	mv check-tls.tmp check-tls
+
+check-tls-openssl: check-tls-openssl.in check-tls Makefile
+	$(do_subst) < $(srcdir)/check-tls-openssl.in > check-tls-openssl.tmp && \
+	chmod +x check-tls-openssl.tmp && \
+	mv check-tls-openssl.tmp check-tls-openssl
+
+check-tls-s2n: check-tls-s2n.in check-tls Makefile
+	$(do_subst) < $(srcdir)/check-tls-s2n.in > check-tls-s2n.tmp && \
+	chmod +x check-tls-s2n.tmp && \
+	mv check-tls-s2n.tmp check-tls-s2n
+
 krb5.conf: krb5.conf.in Makefile
 	$(do_subst) < $(srcdir)/krb5.conf.in > krb5.conf.tmp && \
 	mv krb5.conf.tmp krb5.conf
@@ -88,6 +113,7 @@ CLEANFILES= \
 	current-db* \
 	*.log \
 	*.pid \
+	*.pem \
 	tempfile \
 	check-basic.tmp \
 	check-nodns.tmp \
@@ -95,7 +121,10 @@ CLEANFILES= \
 	check-gssmask.tmp \
 	check-spnego.tmp \
 	check-context.tmp \
-	check-negoex.tmp
+	check-negoex.tmp \
+	check-tls.tmp \
+	check-tls-openssl.tmp \
+	check-tls-s2n.tmp
 
 EXTRA_DIST = \
 	NTMakefile \
@@ -106,6 +135,9 @@ EXTRA_DIST = \
 	check-spnego.in \
 	check-context.in \
 	check-negoex.in \
+	check-tls.in \
+	check-tls-openssl.in \
+	check-tls-s2n.in \
 	krb5.conf.in \
 	krb5-nodns.conf.in \
 	include-krb5.conf \

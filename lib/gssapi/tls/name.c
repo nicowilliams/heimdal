@@ -483,43 +483,50 @@ _gss_tls_display_name(OM_uint32 *minor,
         /* Display based on SAN type */
         if (is_string_san_type(&name->u.san.san_type)) {
             /* String-valued SANs */
+            int r = -1;
             if (gss_oid_equal(&name->u.san.san_type, GSS_C_NT_X509_RFC822NAME))
-                (void)asprintf(&str, "email:%s", name->u.san.value.string);
+                r = asprintf(&str, "email:%s", name->u.san.value.string);
             else if (gss_oid_equal(&name->u.san.san_type, GSS_C_NT_X509_DNSNAME))
-                (void)asprintf(&str, "DNS:%s", name->u.san.value.string);
+                r = asprintf(&str, "DNS:%s", name->u.san.value.string);
             else if (gss_oid_equal(&name->u.san.san_type, GSS_C_NT_X509_URI))
-                (void)asprintf(&str, "URI:%s", name->u.san.value.string);
+                r = asprintf(&str, "URI:%s", name->u.san.value.string);
             else if (gss_oid_equal(&name->u.san.san_type, GSS_C_NT_MS_UPN_SAN))
-                (void)asprintf(&str, "UPN:%s", name->u.san.value.string);
+                r = asprintf(&str, "UPN:%s", name->u.san.value.string);
             else if (gss_oid_equal(&name->u.san.san_type, GSS_C_NT_XMPP_SAN))
-                (void)asprintf(&str, "XMPP:%s", name->u.san.value.string);
+                r = asprintf(&str, "XMPP:%s", name->u.san.value.string);
             else if (gss_oid_equal(&name->u.san.san_type, GSS_C_NT_DNSSRV_SAN))
-                (void)asprintf(&str, "DNSSRV:%s", name->u.san.value.string);
+                r = asprintf(&str, "DNSSRV:%s", name->u.san.value.string);
             else if (gss_oid_equal(&name->u.san.san_type, GSS_C_NT_SMTP_SAN))
-                (void)asprintf(&str, "SMTP:%s", name->u.san.value.string);
+                r = asprintf(&str, "SMTP:%s", name->u.san.value.string);
             else
                 str = strdup(name->u.san.value.string);
+            if (r < 0)
+                str = NULL;
         } else if (gss_oid_equal(&name->u.san.san_type, GSS_C_NT_X509_IPADDRESS)) {
             /* IP address */
+            int r = -1;
             if (name->u.san.value.ipaddr.len == 4) {
                 const uint8_t *ip = name->u.san.value.ipaddr.data;
-                (void)asprintf(&str, "IP:%u.%u.%u.%u", ip[0], ip[1], ip[2], ip[3]);
+                r = asprintf(&str, "IP:%u.%u.%u.%u", ip[0], ip[1], ip[2], ip[3]);
             } else if (name->u.san.value.ipaddr.len == 16) {
                 const uint8_t *ip = name->u.san.value.ipaddr.data;
-                (void)asprintf(&str, "IP:%02x%02x:%02x%02x:%02x%02x:%02x%02x:"
-                              "%02x%02x:%02x%02x:%02x%02x:%02x%02x",
-                              ip[0], ip[1], ip[2], ip[3], ip[4], ip[5], ip[6], ip[7],
-                              ip[8], ip[9], ip[10], ip[11], ip[12], ip[13], ip[14], ip[15]);
+                r = asprintf(&str, "IP:%02x%02x:%02x%02x:%02x%02x:%02x%02x:"
+                             "%02x%02x:%02x%02x:%02x%02x:%02x%02x",
+                             ip[0], ip[1], ip[2], ip[3], ip[4], ip[5], ip[6], ip[7],
+                             ip[8], ip[9], ip[10], ip[11], ip[12], ip[13], ip[14], ip[15]);
             } else {
                 str = strdup("IP:<invalid>");
             }
+            if (r < 0)
+                str = NULL;
         } else if (gss_oid_equal(&name->u.san.san_type, GSS_C_NT_X509_DIRNAME)) {
             /* Directory name */
             if (name->u.san.value.dirname) {
                 char *dn = NULL;
                 int ret = hx509_name_to_string(name->u.san.value.dirname, &dn);
                 if (ret == 0 && dn) {
-                    (void)asprintf(&str, "dirName:%s", dn);
+                    if (asprintf(&str, "dirName:%s", dn) < 0)
+                        str = NULL;
                     free(dn);
                 } else {
                     str = strdup("dirName:<error>");
@@ -760,6 +767,10 @@ _gss_tls_release_name(OM_uint32 *minor,
         break;
     }
 
+    /* Free certificate if present */
+    if (n->cert != NULL)
+        hx509_cert_free(n->cert);
+
     free(n);
     *name = GSS_C_NO_NAME;
     return GSS_S_COMPLETE;
@@ -896,6 +907,11 @@ _gss_tls_duplicate_name(OM_uint32 *minor,
         break;
     }
 
+    /* Copy certificate if present */
+    if (src->cert != NULL) {
+        dst->cert = hx509_cert_ref(src->cert);
+    }
+
     *dest_name = (gss_name_t)dst;
     return GSS_S_COMPLETE;
 }
@@ -998,5 +1014,119 @@ _gss_tls_inquire_mechs_for_name(OM_uint32 *minor,
         return major;
     }
 
+    return GSS_S_COMPLETE;
+}
+
+/*
+ * Create a GSS name from a certificate's subject DN.
+ *
+ * The certificate is stored in the name for later composite export.
+ *
+ * TODO: Extract dNSName SAN if available and use that as the primary
+ * identity (falling back to subject DN if no dNSName SAN exists).
+ */
+OM_uint32
+_gss_tls_name_from_cert(OM_uint32 *minor,
+                        hx509_context hx509ctx,
+                        hx509_cert cert,
+                        gss_name_t *output_name)
+{
+    gss_tls_name name = NULL;
+    hx509_name subject = NULL;
+    int ret;
+
+    *minor = 0;
+    *output_name = GSS_C_NO_NAME;
+
+    if (cert == NULL) {
+        *minor = EINVAL;
+        return GSS_S_FAILURE;
+    }
+
+    name = calloc(1, sizeof(*name));
+    if (name == NULL) {
+        *minor = ENOMEM;
+        return GSS_S_FAILURE;
+    }
+
+    /* Use subject DN as the name */
+    ret = hx509_cert_get_subject(cert, &subject);
+    if (ret != 0) {
+        free(name);
+        *minor = ret;
+        return GSS_S_FAILURE;
+    }
+    name->type = GSS_TLS_NAME_X509_DN;
+    ret = hx509_name_copy(hx509ctx, subject, &name->u.x509_dn);
+    hx509_name_free(&subject);
+    if (ret != 0) {
+        free(name);
+        *minor = ret;
+        return GSS_S_FAILURE;
+    }
+
+    /* Store the certificate for composite export */
+    name->cert = hx509_cert_ref(cert);
+
+    *output_name = (gss_name_t)name;
+    return GSS_S_COMPLETE;
+}
+
+/*
+ * GSS-API export_name_composite for TLS mechanism
+ *
+ * Exports the name as a composite name. For names derived from
+ * certificates (peer names from TLS handshake), the exported
+ * composite name is the DER-encoded certificate.
+ */
+OM_uint32 GSSAPI_CALLCONV
+_gss_tls_export_name_composite(OM_uint32 *minor,
+                               gss_name_t input_name,
+                               gss_buffer_t exported_composite_name)
+{
+    const struct gss_tls_name_desc *name =
+        (const struct gss_tls_name_desc *)input_name;
+    heim_octet_string cert_der = { 0, NULL };
+    int ret;
+
+    *minor = 0;
+    exported_composite_name->length = 0;
+    exported_composite_name->value = NULL;
+
+    if (input_name == GSS_C_NO_NAME) {
+        *minor = EINVAL;
+        return GSS_S_BAD_NAME;
+    }
+
+    /* Anonymous names cannot be exported as composite */
+    if (input_name == _gss_tls_anonymous_identity) {
+        *minor = EINVAL;
+        return GSS_S_UNAVAILABLE;
+    }
+
+    /* Need a certificate to export as composite */
+    if (name->cert == NULL) {
+        *minor = EINVAL;
+        return GSS_S_UNAVAILABLE;
+    }
+
+    /* Get DER-encoded certificate */
+    ret = hx509_cert_binary(NULL, name->cert, &cert_der);
+    if (ret != 0) {
+        *minor = ret;
+        return GSS_S_FAILURE;
+    }
+
+    /* Copy to output buffer */
+    exported_composite_name->value = malloc(cert_der.length);
+    if (exported_composite_name->value == NULL) {
+        der_free_octet_string(&cert_der);
+        *minor = ENOMEM;
+        return GSS_S_FAILURE;
+    }
+    memcpy(exported_composite_name->value, cert_der.data, cert_der.length);
+    exported_composite_name->length = cert_der.length;
+
+    der_free_octet_string(&cert_der);
     return GSS_S_COMPLETE;
 }

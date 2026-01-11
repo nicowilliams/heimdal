@@ -69,12 +69,17 @@ static char *certificate_store = NULL;
 static char *private_key_store = NULL;
 static char *trust_anchors = NULL;
 static char *revocation_store = NULL;
-static char *connect_to_addr = NULL;  /* --connect-to: actual address to connect to */
+static char *resolve_spec = NULL;  /* --resolve: HOST:PORT:ADDRESS override */
 static int anonymous_client = 0;
 static int require_client_cert = 0;
 static int verbose = 0;
 static int help_flag = 0;
 static int version_flag = 0;
+static getarg_strings cred_store_options = { 0, NULL };  /* Generic cred store KEY=VALUE pairs */
+
+/* Command to spawn after handshake (extra positional arguments) */
+static char **exec_argv = NULL;
+static int exec_argc = 0;
 
 static struct getargs args[] = {
     { "client", 'c', arg_flag, &client_mode,
@@ -83,20 +88,22 @@ static struct getargs args[] = {
       "Run in server mode", NULL },
     { "mechanism", 'm', arg_string, &mechanism_name,
       "GSS mechanism (krb5, spnego, sanon, tls, or OID)", "MECH" },
+    { "option", 'o', arg_strings, &cred_store_options,
+      "Credential store option KEY=VALUE (repeatable)", "KEY=VALUE" },
     { "certificate", 'C', arg_string, &certificate_store,
-      "Certificate store URI for TLS (e.g., FILE:cert.pem)", "URI" },
+      "Certificate store URI (alias for -o certificate=URI)", "URI" },
     { "private-key", 'K', arg_string, &private_key_store,
-      "Private key store URI for TLS (e.g., FILE:key.pem)", "URI" },
+      "Private key store URI (alias for -o private-key=URI)", "URI" },
     { "anchors", 'A', arg_string, &trust_anchors,
-      "Trust anchor store URI for TLS peer validation", "URI" },
+      "Trust anchor store URI (alias for -o anchors=URI)", "URI" },
     { "revoke", 'R', arg_string, &revocation_store,
-      "Revocation info store URI for TLS (CRL)", "URI" },
-    { "connect-to", 'T', arg_string, &connect_to_addr,
-      "Connect to HOST:PORT instead of target (for SNI/name testing)", "HOST:PORT" },
+      "Revocation info store URI (alias for -o revoke=URI)", "URI" },
+    { "resolve", 0, arg_string, &resolve_spec,
+      "Resolve HOST to ADDRESS (use target port)", "HOST:ADDR" },
     { "anonymous", 'a', arg_flag, &anonymous_client,
-      "Use anonymous mode (no client certificate for TLS)", NULL },
+      "Use anonymous mode (alias for -o anonymous=true)", NULL },
     { "require-client-cert", 'r', arg_flag, &require_client_cert,
-      "Require client certificate (TLS server mode)", NULL },
+      "Require client certificate (alias for -o require-client-cert=true)", NULL },
     { "verbose", 'v', arg_flag, &verbose,
       "Verbose output", NULL },
     { "help", 'h', arg_flag, &help_flag,
@@ -114,7 +121,7 @@ static void
 usage(int exit_code)
 {
     arg_printusage(args, num_args, NULL,
-                   "[-c | -s] [-m mech] [options] host:port | port");
+                   "[-c | -s] [-m mech] [options] host:port | port [command [args...]]");
     fprintf(stderr, "\nMechanisms:\n");
     fprintf(stderr, "  krb5, spnego, sanon, tls, or OID (e.g., 1.2.840.113554.1.2.2)\n");
     fprintf(stderr, "  Use -m '?' to list available mechanisms\n");
@@ -128,10 +135,19 @@ usage(int exit_code)
     fprintf(stderr, "        -A FILE:ca.pem localhost:4433\n");
     fprintf(stderr, "\n  TLS server:\n");
     fprintf(stderr, "    gss -s -m tls -C FILE:server.pem -K FILE:server-key.pem 4433\n");
-    fprintf(stderr, "\n  TLS client with --connect-to (connect to 127.0.0.1 but use server.example.com for SNI):\n");
-    fprintf(stderr, "    gss -c -m tls -A FILE:ca.pem -T 127.0.0.1:4433 server.example.com:4433\n");
+    fprintf(stderr, "\n  TLS server spawning a command:\n");
+    fprintf(stderr, "    gss -s -m tls -C FILE:server.pem -K FILE:server-key.pem 4433 /bin/cat\n");
+    fprintf(stderr, "\n  TLS client with --resolve (connect to 127.0.0.1 but use www.test.h5l.se for SNI):\n");
+    fprintf(stderr, "    gss -c -m tls -A FILE:ca.pem --resolve=www.test.h5l.se:127.0.0.1 \\\n");
+    fprintf(stderr, "        www.test.h5l.se:4433\n");
     fprintf(stderr, "\n  SAnon client:\n");
     fprintf(stderr, "    gss -c -m sanon localhost:8080\n");
+    fprintf(stderr, "\n  Generic cred store options (works with any mechanism):\n");
+    fprintf(stderr, "    gss -c -m krb5 -o ccache=FILE:/tmp/krb5cc_test host@server:8080\n");
+    fprintf(stderr, "    gss -s -m tls -o certificate=FILE:cert.pem -o private-key=FILE:key.pem 4433\n");
+    fprintf(stderr, "\nCommand execution:\n");
+    fprintf(stderr, "  If a command is specified after the address, it will be spawned after\n");
+    fprintf(stderr, "  successful GSS handshake with stdin/stdout connected to the GSS channel.\n");
     exit(exit_code);
 }
 
@@ -311,7 +327,93 @@ gss_print_errors(const char *msg, OM_uint32 maj, OM_uint32 min)
 }
 
 /*
+ * Apply --resolve specification to get actual connection address
+ *
+ * The resolve_spec format is "HOST:ADDRESS".
+ * If the target hostname matches HOST, returns ADDRESS:PORT for connection.
+ * The port is taken from the target.
+ *
+ * Examples:
+ *   --resolve www.test.h5l.se:127.0.0.1  www.test.h5l.se:4433
+ *     -> connects to 127.0.0.1:4433
+ *
+ *   --resolve example.com:192.168.1.1  example.com:443
+ *     -> connects to 192.168.1.1:443
+ */
+static const char *
+apply_resolve(const char *target, char *resolved_buf, size_t buflen)
+{
+    char *spec_copy;
+    char *spec_host, *spec_addr;
+    char *target_copy;
+    char *target_host, *target_port;
+    const char *result = target;
+
+    if (resolve_spec == NULL)
+        return target;
+
+    /* Parse resolve spec: HOST:ADDRESS */
+    spec_copy = strdup(resolve_spec);
+    if (spec_copy == NULL)
+        err(1, "strdup");
+
+    spec_host = spec_copy;
+    spec_addr = strchr(spec_host, ':');
+    if (spec_addr == NULL) {
+        fprintf(stderr, "Invalid --resolve format '%s', expected HOST:ADDRESS\n",
+                resolve_spec);
+        free(spec_copy);
+        exit(1);
+    }
+    *spec_addr++ = '\0';
+
+    /* Parse target: host:port */
+    target_copy = strdup(target);
+    if (target_copy == NULL)
+        err(1, "strdup");
+
+    target_port = strrchr(target_copy, ':');
+    if (target_port == NULL) {
+        free(spec_copy);
+        free(target_copy);
+        return target;
+    }
+    *target_port++ = '\0';
+    target_host = target_copy;
+
+    /* Handle [IPv6] format in target */
+    if (target_host[0] == '[') {
+        target_host++;
+        char *bracket = strchr(target_host, ']');
+        if (bracket)
+            *bracket = '\0';
+    }
+
+    /* Check if target hostname matches resolve spec */
+    if (strcasecmp(target_host, spec_host) == 0) {
+        /* Match! Build resolved address using target port */
+        snprintf(resolved_buf, buflen, "%s:%s", spec_addr, target_port);
+        result = resolved_buf;
+
+        if (verbose)
+            fprintf(stderr, "Resolving %s to %s (port %s)\n",
+                    spec_host, spec_addr, target_port);
+    }
+
+    free(spec_copy);
+    free(target_copy);
+    return result;
+}
+
+/*
  * Build credential store key-value set from command line options
+ *
+ * Processes both convenience options (--certificate, --private-key, etc.)
+ * and generic KEY=VALUE pairs from -o/--option flags.
+ *
+ * Generic options are added after convenience options, so they can
+ * effectively override them if the same key is specified twice
+ * (mechanism implementations typically use the last value for a key).
  */
 static OM_uint32
 build_cred_store(OM_uint32 *minor, gss_key_value_set_desc *store,
@@ -320,14 +422,18 @@ build_cred_store(OM_uint32 *minor, gss_key_value_set_desc *store,
     gss_key_value_element_desc *elements = NULL;
     size_t count = 0;
     size_t i = 0;
+    size_t j;
 
-    /* Count how many elements we need */
+    /* Count how many elements we need from convenience options */
     if (certificate_store) count++;
     if (private_key_store) count++;
     if (trust_anchors) count++;
     if (revocation_store) count++;
     if (anonymous_client && usage == GSS_C_INITIATE) count++;
     if (require_client_cert && usage == GSS_C_ACCEPT) count++;
+
+    /* Add count for generic -o KEY=VALUE options */
+    count += cred_store_options.num_strings;
 
     if (count == 0) {
         store->count = 0;
@@ -341,6 +447,7 @@ build_cred_store(OM_uint32 *minor, gss_key_value_set_desc *store,
         return GSS_S_FAILURE;
     }
 
+    /* Add convenience options first */
     if (certificate_store) {
         elements[i].key = "certificate";
         elements[i].value = certificate_store;
@@ -374,6 +481,29 @@ build_cred_store(OM_uint32 *minor, gss_key_value_set_desc *store,
     if (require_client_cert && usage == GSS_C_ACCEPT) {
         elements[i].key = "require-client-cert";
         elements[i].value = "true";
+        i++;
+    }
+
+    /* Add generic KEY=VALUE options from -o flags */
+    for (j = 0; j < cred_store_options.num_strings; j++) {
+        char *opt = cred_store_options.strings[j];
+        char *eq = strchr(opt, '=');
+
+        if (eq == NULL) {
+            fprintf(stderr, "Invalid -o option '%s': expected KEY=VALUE format\n", opt);
+            free(elements);
+            *minor = EINVAL;
+            return GSS_S_FAILURE;
+        }
+
+        /*
+         * Split KEY=VALUE at the '=' sign.
+         * We modify the string in place since getarg owns it and
+         * it will be valid for the lifetime of the program.
+         */
+        *eq = '\0';
+        elements[i].key = opt;
+        elements[i].value = eq + 1;
         i++;
     }
 
@@ -671,6 +801,207 @@ recv_token(int fd, gss_buffer_t token)
 }
 
 /*
+ * Spawn a command and relay data between GSS context and child stdin/stdout
+ *
+ * Returns 0 on success, non-zero on error.
+ * If exec_argv is NULL, returns -1 (caller should use interactive mode).
+ */
+static int
+spawn_and_relay(int fd, gss_ctx_id_t ctx)
+{
+    OM_uint32 maj, min;
+    pid_t pid;
+    int child_stdin[2] = {-1, -1};
+    int child_stdout[2] = {-1, -1};
+    int ret = 1;
+
+    if (exec_argv == NULL || exec_argc == 0)
+        return -1;  /* No command specified */
+
+    /* Create pipes for child stdin/stdout */
+    if (pipe(child_stdin) < 0) {
+        perror("pipe");
+        return 1;
+    }
+    if (pipe(child_stdout) < 0) {
+        perror("pipe");
+        close(child_stdin[0]);
+        close(child_stdin[1]);
+        return 1;
+    }
+
+    pid = fork();
+    if (pid < 0) {
+        perror("fork");
+        close(child_stdin[0]);
+        close(child_stdin[1]);
+        close(child_stdout[0]);
+        close(child_stdout[1]);
+        return 1;
+    }
+
+    if (pid == 0) {
+        /* Child process */
+        close(child_stdin[1]);   /* Close write end of stdin pipe */
+        close(child_stdout[0]);  /* Close read end of stdout pipe */
+
+        /* Connect pipes to stdin/stdout */
+        if (dup2(child_stdin[0], STDIN_FILENO) < 0)
+            _exit(126);
+        if (dup2(child_stdout[1], STDOUT_FILENO) < 0)
+            _exit(126);
+
+        close(child_stdin[0]);
+        close(child_stdout[1]);
+        close(fd);  /* Don't need the socket in child */
+
+        /* Close all other file descriptors */
+        closefrom(3);
+
+        /* Execute the command */
+        execvp(exec_argv[0], exec_argv);
+        _exit((errno == ENOENT) ? 127 : 126);
+    }
+
+    /* Parent process */
+    close(child_stdin[0]);   /* Close read end of stdin pipe */
+    close(child_stdout[1]);  /* Close write end of stdout pipe */
+
+    if (verbose)
+        fprintf(stderr, "Spawned %s (pid %d)\n", exec_argv[0], (int)pid);
+
+    /*
+     * Relay data:
+     *   socket -> GSS unwrap -> child stdin
+     *   child stdout -> GSS wrap -> socket
+     */
+    {
+        struct pollfd fds[2];
+        int child_stdin_fd = child_stdin[1];
+        int child_stdout_fd = child_stdout[0];
+        int child_stdin_closed = 0;
+        int socket_eof = 0;
+
+        fds[0].fd = fd;
+        fds[0].events = POLLIN;
+        fds[1].fd = child_stdout_fd;
+        fds[1].events = POLLIN;
+
+        for (;;) {
+            int n;
+
+            /* Update poll events based on state */
+            fds[0].events = socket_eof ? 0 : POLLIN;
+
+            n = poll(fds, 2, -1);
+            if (n < 0) {
+                if (errno == EINTR)
+                    continue;
+                perror("poll");
+                break;
+            }
+
+            /* Data from socket -> unwrap -> child stdin */
+            if (fds[0].revents & POLLIN) {
+                gss_buffer_desc wrapped = GSS_C_EMPTY_BUFFER;
+                gss_buffer_desc unwrapped = GSS_C_EMPTY_BUFFER;
+                int conf_state;
+
+                if (recv_token(fd, &wrapped) < 0 || wrapped.length == 0) {
+                    /* EOF or error from network - close child stdin */
+                    if (!child_stdin_closed) {
+                        close(child_stdin_fd);
+                        child_stdin_closed = 1;
+                    }
+                    socket_eof = 1;
+                } else {
+                    maj = gss_unwrap(&min, ctx, &wrapped, &unwrapped,
+                                     &conf_state, NULL);
+                    free(wrapped.value);
+
+                    if (GSS_ERROR(maj)) {
+                        gss_print_errors("gss_unwrap", maj, min);
+                        break;
+                    }
+
+                    /* Write to child stdin */
+                    if (unwrapped.length > 0 && !child_stdin_closed) {
+                        ssize_t nw = write(child_stdin_fd, unwrapped.value,
+                                           unwrapped.length);
+                        if (nw < 0) {
+                            /* Child closed stdin - that's okay */
+                            close(child_stdin_fd);
+                            child_stdin_closed = 1;
+                        }
+                    }
+                    gss_release_buffer(&min, &unwrapped);
+                }
+            }
+
+            /* Data from child stdout -> wrap -> socket */
+            if (fds[1].revents & POLLIN) {
+                char buf[4096];
+                ssize_t len = read(child_stdout_fd, buf, sizeof(buf));
+
+                if (len <= 0) {
+                    /* Child closed stdout - done */
+                    break;
+                }
+
+                gss_buffer_desc msg = { .length = len, .value = buf };
+                gss_buffer_desc wrapped;
+                int conf_state;
+
+                maj = gss_wrap(&min, ctx, 1, GSS_C_QOP_DEFAULT,
+                               &msg, &conf_state, &wrapped);
+                if (GSS_ERROR(maj)) {
+                    gss_print_errors("gss_wrap", maj, min);
+                    break;
+                }
+
+                if (send_token(fd, &wrapped) < 0) {
+                    gss_release_buffer(&min, &wrapped);
+                    break;
+                }
+                gss_release_buffer(&min, &wrapped);
+            }
+
+            /* Check for HUP/ERR on child stdout */
+            if (fds[1].revents & (POLLHUP | POLLERR)) {
+                /* Child closed stdout */
+                break;
+            }
+
+            /* Check for HUP/ERR on socket (only matters if we haven't seen EOF) */
+            if (!socket_eof && (fds[0].revents & (POLLHUP | POLLERR))) {
+                if (!child_stdin_closed) {
+                    close(child_stdin_fd);
+                    child_stdin_closed = 1;
+                }
+                socket_eof = 1;
+            }
+        }
+
+        if (!child_stdin_closed)
+            close(child_stdin_fd);
+        close(child_stdout_fd);
+    }
+
+    /* Wait for child to exit */
+    ret = wait_for_process(pid);
+    if (verbose) {
+        if (ret >= 0 && ret < 128)
+            fprintf(stderr, "Child exited with status %d\n", ret);
+        else if (ret >= 128)
+            fprintf(stderr, "Child killed by signal %d\n", ret - 128);
+        else
+            fprintf(stderr, "wait_for_process failed: %d\n", ret);
+    }
+
+    return (ret == 0) ? 0 : 1;
+}
+
+/*
  * Run TLS client
  */
 static int
@@ -745,17 +1076,19 @@ run_client(const char *hostport)
     if (verbose)
         fprintf(stderr, "Credentials acquired\n");
 
-    /* Connect to server (use --connect-to address if specified) */
+    /* Connect to server (apply --resolve if specified) */
     {
-        const char *addr = connect_to_addr ? connect_to_addr : hostport;
+        char resolved_buf[256];
+        const char *addr = apply_resolve(hostport, resolved_buf, sizeof(resolved_buf));
+
         fd = connect_to_server(addr);
         if (fd < 0)
             goto out;
 
         if (verbose) {
-            if (connect_to_addr)
+            if (addr != hostport)
                 fprintf(stderr, "Connected to %s (target name: %s)\n",
-                        connect_to_addr, hostname);
+                        addr, hostname);
             else
                 fprintf(stderr, "Connected to %s\n", hostport);
         }
@@ -820,6 +1153,12 @@ run_client(const char *hostport)
         fprintf(stderr, "Flags: 0x%x\n", flags);
     }
 
+    /* If a command was specified, spawn it and relay data */
+    if (exec_argc > 0) {
+        ret = spawn_and_relay(fd, ctx);
+        goto out;
+    }
+
     /* Interactive mode: relay stdin/stdout through TLS */
     fprintf(stderr, "Enter text to send (Ctrl-D to quit):\n");
     {
@@ -880,7 +1219,17 @@ run_client(const char *hostport)
                     break;
                 }
 
-                write(STDOUT_FILENO, unwrapped.value, unwrapped.length);
+                {
+                    ssize_t nw = net_write(STDOUT_FILENO, unwrapped.value,
+                                           unwrapped.length);
+                    if (nw < 0 || (size_t)nw != unwrapped.length) {
+                        /* stdout write failed - close connection and exit */
+                        gss_release_buffer(&min, &unwrapped);
+                        fprintf(stderr, "Write to stdout failed: %s\n",
+                                nw < 0 ? strerror(errno) : "short write");
+                        break;
+                    }
+                }
                 gss_release_buffer(&min, &unwrapped);
             }
 
@@ -912,45 +1261,19 @@ out:
 }
 
 /*
- * Run TLS server
+ * Run GSS server
  *
- * TODO: Add command execution mode (like CGI/stunnel)
+ * If a command is specified after the port (e.g., gss -s -m tls [...] 4433 /bin/cat):
+ *   - After successful handshake, spawn the command with stdin/stdout
+ *     connected to the GSS-wrapped channel
+ *   - Data from client -> GSS unwrap -> command stdin
+ *   - Command stdout -> GSS wrap -> send to client
  *
- * When a command is specified (e.g., gss -s -m tls [...] 4433 -- /path/to/handler args...):
- *   1. After successful handshake, execute the command using lib/roken's
- *      simple_execve() or simple_execvp() API (portable to Windows!)
- *   2. Set environment variables with connection metadata:
- *      - GSS_CLIENT_NAME       - Display name of authenticated client
- *      - GSS_CLIENT_DN         - X.509 Subject DN (for TLS)
- *      - GSS_CLIENT_SANS       - Comma-separated list of SANs (for TLS)
- *      - GSS_CLIENT_CERT_DER   - Path to temp file with DER-encoded certificate
- *      - GSS_CLIENT_CERT_PEM   - Path to temp file with PEM-encoded certificate
- *      - GSS_CLIENT_CERT_JSON  - Path to temp file with certificate as JSON
- *      - GSS_MECH_OID          - Mechanism OID used
- *      - GSS_TLS_CIPHER        - TLS cipher suite negotiated
- *      - GSS_TLS_VERSION       - TLS version (TLSv1.2, TLSv1.3)
- *      - GSS_TLS_ALPN          - Negotiated ALPN protocol (if any)
- *      - GSS_CONF_STATE        - "1" if confidentiality is available
- *      - GSS_INTEG_STATE       - "1" if integrity is available
- *   3. Connect stdin/stdout of command to the unwrapped data stream
- *   4. Data from client -> unwrap -> command stdin
- *      Command stdout -> wrap -> send to client
+ * If no command is given:
+ *   - Echo mode: receive wrapped data, unwrap, re-wrap, send back
  *
- * When no command is given (current behavior or new header mode):
- *   Option A (current): Echo mode - just echo back wrapped data
- *   Option B (new): Header mode - output metadata header, then sentinel, then client data
- *      Header format (one KEY=VALUE per line):
- *        GSS_CLIENT_NAME=...
- *        GSS_CLIENT_DN=...
- *        ...
- *        ---BEGIN DATA---
- *        <unwrapped client data follows>
- *
- * Additional options needed:
- *   --exec / -e              Enable command execution mode
- *   --header-mode            Output header + sentinel + data instead of echo
- *   --sentinel STRING        Custom sentinel (default: "---BEGIN DATA---")
- *   --cert-dir PATH          Directory for temp certificate files
+ * TODO: Set environment variables with connection metadata (CGI-style):
+ *   - GSS_CLIENT_NAME, GSS_MECH_OID, GSS_TLS_CIPHER, etc.
  */
 static int
 run_server(const char *port)
@@ -1070,47 +1393,54 @@ run_server(const char *port)
             gss_release_name(&min, &client_name);
         }
 
-        /* Echo mode: relay data back */
-        fprintf(stderr, "Echoing data (Ctrl-C to quit)...\n");
-        for (;;) {
-            gss_buffer_desc wrapped, unwrapped;
-            int conf_state;
+        /* If a command was specified, spawn it and relay data */
+        if (exec_argc > 0) {
+            int spawn_ret = spawn_and_relay(client_fd, ctx);
+            gss_delete_sec_context(&min, &ctx, NULL);
+            close(client_fd);
+            ret = spawn_ret;
+        } else {
+            /* Echo mode: relay data back */
+            fprintf(stderr, "Echoing data (Ctrl-C to quit)...\n");
+            for (;;) {
+                gss_buffer_desc wrapped, unwrapped;
+                int conf_state;
 
-            if (recv_token(client_fd, &wrapped) < 0 || wrapped.length == 0)
-                break;
+                if (recv_token(client_fd, &wrapped) < 0 || wrapped.length == 0)
+                    break;
 
-            maj = gss_unwrap(&min, ctx, &wrapped, &unwrapped,
-                             &conf_state, NULL);
-            free(wrapped.value);
+                maj = gss_unwrap(&min, ctx, &wrapped, &unwrapped,
+                                 &conf_state, NULL);
+                free(wrapped.value);
 
-            if (GSS_ERROR(maj)) {
-                gss_print_errors("gss_unwrap", maj, min);
-                break;
-            }
+                if (GSS_ERROR(maj)) {
+                    gss_print_errors("gss_unwrap", maj, min);
+                    break;
+                }
 
-            /* Echo back */
-            gss_buffer_desc echo_wrapped;
-            maj = gss_wrap(&min, ctx, 1, GSS_C_QOP_DEFAULT,
-                           &unwrapped, &conf_state, &echo_wrapped);
-            gss_release_buffer(&min, &unwrapped);
+                /* Echo back */
+                gss_buffer_desc echo_wrapped;
+                maj = gss_wrap(&min, ctx, 1, GSS_C_QOP_DEFAULT,
+                               &unwrapped, &conf_state, &echo_wrapped);
+                gss_release_buffer(&min, &unwrapped);
 
-            if (GSS_ERROR(maj)) {
-                gss_print_errors("gss_wrap", maj, min);
-                break;
-            }
+                if (GSS_ERROR(maj)) {
+                    gss_print_errors("gss_wrap", maj, min);
+                    break;
+                }
 
-            if (send_token(client_fd, &echo_wrapped) < 0) {
+                if (send_token(client_fd, &echo_wrapped) < 0) {
+                    gss_release_buffer(&min, &echo_wrapped);
+                    break;
+                }
                 gss_release_buffer(&min, &echo_wrapped);
-                break;
             }
-            gss_release_buffer(&min, &echo_wrapped);
+
+            gss_delete_sec_context(&min, &ctx, NULL);
+            close(client_fd);
+            ret = 0;
         }
-
-        gss_delete_sec_context(&min, &ctx, NULL);
-        close(client_fd);
     }
-
-    ret = 0;
 
 out:
     if (cred != GSS_C_NO_CREDENTIAL)
@@ -1154,10 +1484,16 @@ main(int argc, char *argv[])
     argc -= optidx;
     argv += optidx;
 
-    if (argc != 1) {
-        fprintf(stderr, "Expected one argument: %s\n",
+    if (argc < 1) {
+        fprintf(stderr, "Expected at least one argument: %s\n",
                 client_mode ? "host:port" : "port");
         usage(1);
+    }
+
+    /* If there are extra arguments, they are the command to spawn */
+    if (argc > 1) {
+        exec_argv = argv + 1;
+        exec_argc = argc - 1;
     }
 
     /* Parse mechanism */

@@ -46,6 +46,7 @@ configure_client(OM_uint32 *minor, gss_tls_ctx ctx,
     tls_backend_status status;
 
     memset(&config, 0, sizeof(config));
+    config.hctx = ctx->hctx;
     config.hx509ctx = ctx->hx509ctx;
     config.mode = TLS_BACKEND_CLIENT;
     config.verify_peer = 1;
@@ -63,6 +64,7 @@ configure_client(OM_uint32 *minor, gss_tls_ctx ctx,
             (const struct gss_tls_name_desc *)target_name;
         if (name->type == GSS_TLS_NAME_HOSTBASED && name->u.hostbased.hostname) {
             config.hostname = name->u.hostbased.hostname;
+            heim_debug(ctx->hctx, 5, "GSS-TLS: SNI hostname: %s", config.hostname);
         }
     }
 
@@ -99,12 +101,22 @@ extract_peer_identity(gss_tls_ctx ctx)
 {
     tls_backend_status status;
     hx509_cert peer_cert = NULL;
+    OM_uint32 minor;
 
     /* Get peer certificate from backend */
     status = tls_backend_get_peer_cert(ctx->backend, ctx->hx509ctx, &peer_cert);
     if (status == TLS_BACKEND_OK && peer_cert != NULL) {
         ctx->peer_cert = peer_cert;
-        /* TODO: Create gss_tls_name from certificate subject/SANs */
+
+        /* Create name from certificate */
+        if (_gss_tls_name_from_cert(&minor, ctx->hx509ctx, peer_cert,
+                                     &ctx->peer_name) == GSS_S_COMPLETE) {
+            heim_debug(ctx->hctx, 5, "GSS-TLS: extracted server identity from certificate");
+        } else {
+            /* Failed to extract name - shouldn't happen */
+            heim_debug(ctx->hctx, 1, "GSS-TLS: failed to extract server identity");
+            ctx->peer_name = _gss_tls_anonymous_identity;
+        }
     } else {
         /* Anonymous peer (shouldn't happen for TLS server) */
         ctx->peer_name = _gss_tls_anonymous_identity;
@@ -168,6 +180,10 @@ _gss_tls_init_sec_context(OM_uint32 *minor,
         ctx->is_initiator = 1;
         ctx->cred = cred;
 
+        /* Initialize tracing context */
+        gss_tls_trace_init(&ctx->hctx);
+        heim_debug(ctx->hctx, 5, "GSS-TLS: initiating context (client)");
+
         /* Initialize hx509 context */
         if (hx509_context_init(&ctx->hx509ctx) != 0) {
             *minor = ENOMEM;
@@ -188,6 +204,7 @@ _gss_tls_init_sec_context(OM_uint32 *minor,
 
     /* Provide input token data to recv buffer */
     if (input_token != GSS_C_NO_BUFFER && input_token->length > 0) {
+        heim_debug(ctx->hctx, 10, "GSS-TLS: received %zu bytes", input_token->length);
         tls_iobuf_reset(&ctx->recv_buf);
         if (tls_iobuf_append(&ctx->recv_buf, input_token->value,
                              input_token->length) != 0) {
@@ -204,6 +221,7 @@ _gss_tls_init_sec_context(OM_uint32 *minor,
 
     /* Return any TLS records that were generated */
     if (ctx->send_buf.len > 0 && output_token != GSS_C_NO_BUFFER) {
+        heim_debug(ctx->hctx, 10, "GSS-TLS: sending %zu bytes", ctx->send_buf.len);
         output_token->value = malloc(ctx->send_buf.len);
         if (output_token->value == NULL) {
             *minor = ENOMEM;
@@ -215,6 +233,7 @@ _gss_tls_init_sec_context(OM_uint32 *minor,
 
     if (status == TLS_BACKEND_OK) {
         /* Handshake complete */
+        heim_debug(ctx->hctx, 5, "GSS-TLS: handshake complete");
         ctx->handshake_done = 1;
         ctx->open = 1;
         ctx->established_time = time(NULL);
@@ -243,6 +262,8 @@ _gss_tls_init_sec_context(OM_uint32 *minor,
     } else if (status == TLS_BACKEND_WANT_READ ||
                status == TLS_BACKEND_WANT_WRITE) {
         /* Need more data - continue handshake */
+        heim_debug(ctx->hctx, 10, "GSS-TLS: handshake continue needed (want %s)",
+                   status == TLS_BACKEND_WANT_READ ? "read" : "write");
         if (ret_flags)
             *ret_flags = 0;
         if (time_rec)
@@ -251,6 +272,8 @@ _gss_tls_init_sec_context(OM_uint32 *minor,
         major = GSS_S_CONTINUE_NEEDED;
     } else {
         /* Error */
+        heim_debug(ctx->hctx, 1, "GSS-TLS: handshake error: %s",
+                   tls_backend_get_error(ctx->backend));
         *minor = EPROTO;
         major = GSS_S_FAILURE;
     }

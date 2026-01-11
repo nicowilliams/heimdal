@@ -37,9 +37,30 @@
 
 #include <hx509.h>
 #include <gssapi.h>
+#include <heimbase.h>
 
 #include "mech/mech_locl.h"
 #include "tls_backend.h"
+
+/*
+ * Tracing support via GSS_TLS_TRACE environment variable
+ *
+ * Set GSS_TLS_TRACE to a log specification (e.g., "STDERR", "FILE:/tmp/trace.log")
+ * to enable debug tracing of the GSS-TLS mechanism.
+ */
+static inline void
+gss_tls_trace_init(heim_context *hctx)
+{
+    const char *trace;
+
+    *hctx = NULL;
+    trace = secure_getenv("GSS_TLS_TRACE");
+    if (trace && *trace) {
+        *hctx = heim_context_init();
+        if (*hctx)
+            heim_add_debug_dest(*hctx, "gss-tls", trace);
+    }
+}
 
 /*
  * GSS-TLS credential structure
@@ -54,6 +75,7 @@
  * See cred.c for the list of supported keys.
  */
 typedef struct gss_tls_cred_desc {
+    heim_context hctx;             /* Debug/trace context */
     hx509_context hx509ctx;        /* hx509 context */
     hx509_certs certs;             /* Our certificate(s) - may be empty for anonymous */
     hx509_private_key key;         /* Private key - NULL for anonymous */
@@ -88,6 +110,7 @@ typedef struct gss_tls_cred_desc {
  * for GSS token exchange.
  */
 typedef struct gss_tls_ctx_desc {
+    heim_context hctx;             /* Debug/trace context */
     tls_backend_ctx backend;       /* TLS backend context (s2n or OpenSSL) */
 
     /* I/O buffers for GSS token exchange */
@@ -165,6 +188,14 @@ typedef struct gss_tls_name_desc {
             } value;
         } san;
     } u;
+
+    /*
+     * Certificate for composite name export.
+     * When a name is extracted from a peer certificate during handshake,
+     * the certificate is stored here to support gss_export_name_composite().
+     * The exported composite name is the DER-encoded certificate.
+     */
+    hx509_cert cert;
 } *gss_tls_name;
 
 /* Well-known names */
@@ -172,6 +203,11 @@ extern gss_name_t _gss_tls_anonymous_identity;
 
 /* Mechanism OID */
 extern gss_OID GSS_TLS_MECHANISM;
+
+/* Channel binding extraction OIDs for gss_inquire_sec_context_by_oid() */
+extern gss_OID GSS_C_INQ_CB_TLS_SERVER_END_POINT;
+extern gss_OID GSS_C_INQ_CB_TLS_UNIQUE;
+extern gss_OID GSS_C_INQ_CB_TLS_EXPORTER;
 
 /* Name type OIDs for X.509 SANs */
 
@@ -374,6 +410,18 @@ _gss_tls_inquire_mechs_for_name(OM_uint32 *minor,
                                 gss_const_name_t input_name,
                                 gss_OID_set *mech_types);
 
+OM_uint32 GSSAPI_CALLCONV
+_gss_tls_export_name_composite(OM_uint32 *minor,
+                               gss_name_t name,
+                               gss_buffer_t exported_composite_name);
+
+/* Helper to create name from certificate */
+OM_uint32
+_gss_tls_name_from_cert(OM_uint32 *minor,
+                        hx509_context hx509ctx,
+                        hx509_cert cert,
+                        gss_name_t *output_name);
+
 /* Misc */
 OM_uint32 GSSAPI_CALLCONV
 _gss_tls_display_status(OM_uint32 *minor,
@@ -382,6 +430,12 @@ _gss_tls_display_status(OM_uint32 *minor,
                         const gss_OID mech_type,
                         OM_uint32 *message_context,
                         gss_buffer_t status_string);
+
+OM_uint32 GSSAPI_CALLCONV
+_gss_tls_inquire_sec_context_by_oid(OM_uint32 *minor,
+                                    gss_const_ctx_id_t context_handle,
+                                    const gss_OID desired_object,
+                                    gss_buffer_set_t *data_set);
 
 #include "tls-private.h"
 

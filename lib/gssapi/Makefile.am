@@ -230,17 +230,23 @@ tlssrc = \
 	tls/name.c \
 	tls/unwrap.c \
 	tls/wrap.c \
+	tls/tls_backend.c \
 	tls/tls_backend.h \
 	tls/tls_locl.h \
 	tls/tls-private.h
 
-# TLS backend sources (only one backend is compiled based on configure)
+# TLS backend sources
+# When GSS_TLS_BOTH is set, both backends are compiled and selected at runtime
+# via the GSS_TLS_BACKEND environment variable.
+if GSS_TLS_BOTH
+tlsbackendsrc = tls/tls_s2n.c tls/tls_openssl.c
+else
 if GSS_TLS_S2N
 tlsbackendsrc = tls/tls_s2n.c
 endif
-
 if GSS_TLS_OPENSSL
 tlsbackendsrc = tls/tls_openssl.c
+endif
 endif
 
 dist_libgssapi_la_SOURCES  = \
@@ -270,6 +276,10 @@ libgssapi_la_LIBADD = \
 	$(LIBADD_roken)
 
 # TLS backend libraries
+# When both backends are compiled, link both libraries
+if GSS_TLS_BOTH
+libgssapi_la_LIBADD += $(LIB_s2n) $(LIB_openssl_ssl)
+else
 if GSS_TLS_S2N
 libgssapi_la_LIBADD += $(LIB_s2n)
 endif
@@ -277,8 +287,9 @@ if GSS_TLS_OPENSSL
 # OpenSSL backend needs libssl (libcrypto is already linked via libhx509)
 libgssapi_la_LIBADD += $(LIB_openssl_ssl)
 endif
+endif
 
-man_MANS = gssapi.3 gss_acquire_cred.3 mech/mech.5 gss-token.1
+man_MANS = gssapi.3 gss_acquire_cred.3 mech/mech.5 gss-token.1 gsstool.1 gss.1
 
 include_HEADERS = gssapi.h
 noinst_HEADERS = \

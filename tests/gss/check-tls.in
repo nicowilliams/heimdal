@@ -1,0 +1,276 @@
+#!/bin/sh
+#
+# Copyright (c) 2024 Kungliga Tekniska Högskolan
+# (Royal Institute of Technology, Stockholm, Sweden).
+# All rights reserved.
+#
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that the following conditions
+# are met:
+#
+# 1. Redistributions of source code must retain the above copyright
+#    notice, this list of conditions and the following disclaimer.
+#
+# 2. Redistributions in binary form must reproduce the above copyright
+#    notice, this list of conditions and the following disclaimer in the
+#    documentation and/or other materials provided with the distribution.
+#
+# 3. Neither the name of the Institute nor the names of its contributors
+#    may be used to endorse or promote products derived from this software
+#    without specific prior written permission.
+#
+# THIS SOFTWARE IS PROVIDED BY THE INSTITUTE AND CONTRIBUTORS ``AS IS'' AND
+# ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+# IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+# ARE DISCLAIMED.  IN NO EVENT SHALL THE INSTITUTE OR CONTRIBUTORS BE LIABLE
+# FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+# DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
+# OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
+# HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
+# LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
+# OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
+# SUCH DAMAGE.
+
+top_builddir="@top_builddir@"
+env_setup="@env_setup@"
+objdir="@objdir@"
+srcdir="@srcdir@"
+
+. ${env_setup}
+
+testfailed="echo test failed; exit 1"
+
+# Check if hxtool supports RSA
+rsa=yes
+if ${hxtool} info | grep 'rsa: hx509 null RSA' > /dev/null ; then
+    rsa=no
+fi
+if ${hxtool} info | grep 'rand: not available' > /dev/null ; then
+    rsa=no
+fi
+
+if test "$rsa" != yes ; then
+    echo "RSA not available, skipping TLS tests"
+    exit 77
+fi
+
+# The gss tool
+gss="${TESTS_ENVIRONMENT} ${top_builddir}/lib/gssapi/gss"
+
+# Test server hostname (will be in certificate SAN)
+server=www.test.h5l.se
+
+# Port for TLS server
+tlsport=@port@
+
+umask 077
+
+rm -f ${objdir}/ca.pem ${objdir}/server.pem ${objdir}/client.pem
+rm -f ${objdir}/messages.log
+
+> ${objdir}/messages.log
+
+gsspid=
+
+cleanup() {
+    echo "Cleaning up..."
+    if [ -n "$gsspid" ]; then
+        kill $gsspid 2>/dev/null
+    fi
+    trap '' EXIT INT TERM
+    cat ${objdir}/messages.log 2>/dev/null
+    exit 1
+}
+trap cleanup EXIT INT TERM
+
+echo "Creating CA certificate"
+${hxtool} ca --issue-ca --self-signed \
+            --ku=digitalSignature --ku=keyCertSign --ku=cRLSign \
+            --generate-key=rsa --key-bits=2048 \
+            --subject="CN=Test CA" \
+            --certificate=PEM-FILE:"${objdir}/ca.pem" ||
+    { echo "Failed to create CA certificate"; exit 2; }
+
+echo "Creating server certificate with dNSName SAN"
+${hxtool} ca --ca-certificate=PEM-FILE:"${objdir}/ca.pem" \
+            --ku=digitalSignature --ku=keyEncipherment \
+            --eku=id_pkix_kp_serverAuth \
+            --generate-key=rsa --key-bits=2048 \
+            --subject="CN=${server}" \
+            --hostname="${server}" \
+            --certificate=PEM-FILE:"${objdir}/server.pem" ||
+    { echo "Failed to create server certificate"; exit 2; }
+
+echo "Verifying server certificate"
+${hxtool} print --content PEM-FILE:"${objdir}/server.pem" ||
+    { echo "Failed to print server certificate"; exit 2; }
+
+# Extract just the CA cert (without private key) for trust anchors
+# Use hxtool to export just the certificate
+${hxtool} cert-print --content PEM-FILE:"${objdir}/ca.pem" |
+    sed -n '/-----BEGIN CERTIFICATE-----/,/-----END CERTIFICATE-----/p' \
+    > "${objdir}/ca-cert.pem"
+
+# Verify the CA cert file was created
+if [ ! -s "${objdir}/ca-cert.pem" ]; then
+    echo "Failed to extract CA certificate"
+    # Fall back to using the full ca.pem (client only needs cert, not key)
+    cp "${objdir}/ca.pem" "${objdir}/ca-cert.pem"
+fi
+
+echo "CA cert for trust anchors:"
+cat "${objdir}/ca-cert.pem"
+
+echo "Starting TLS server on port ${tlsport}"
+${gss} -s -m tls -v \
+    -C "PEM-FILE:${objdir}/server.pem" \
+    -K "PEM-FILE:${objdir}/server.pem" \
+    ${tlsport} > ${objdir}/server.log 2>&1 &
+gsspid=$!
+
+# Wait for server to start
+sleep 1
+
+# Check if server is still running
+if ! kill -0 $gsspid 2>/dev/null; then
+    echo "Server failed to start"
+    cat ${objdir}/server.log
+    exit 1
+fi
+
+echo "Server started with PID $gsspid"
+
+echo "Running TLS client with --resolve"
+# Use --resolve to connect to 127.0.0.1 but use www.test.h5l.se for SNI
+# Note: The TLS mechanism is work-in-progress, handshake may fail
+echo "hello from client" | timeout 10 ${gss} -c -m tls -v \
+    -A "PEM-FILE:${objdir}/ca-cert.pem" \
+    "--resolve=${server}:127.0.0.1" \
+    "${server}:${tlsport}" > ${objdir}/client.log 2>&1 &
+client_pid=$!
+
+# Give client time to connect and handshake
+sleep 3
+
+# Check if client is still running (handshake in progress or complete)
+if kill -0 $client_pid 2>/dev/null; then
+    echo "Client still running (handshake may be in progress)"
+    # Send EOF to client stdin to trigger data exchange
+    kill $client_pid 2>/dev/null
+fi
+
+wait $client_pid 2>/dev/null
+client_status=$?
+
+echo "Client exited with status $client_status"
+cat ${objdir}/client.log
+
+# Check for successful handshake
+if grep -q "GSS handshake complete" ${objdir}/client.log; then
+    echo "TLS handshake successful!"
+else
+    echo "TLS handshake failed"
+    cat ${objdir}/server.log
+    exit 1
+fi
+
+# Check that peer identity was displayed
+if grep -q "Peer:" ${objdir}/client.log; then
+    echo "Peer identity displayed"
+else
+    echo "Warning: Peer identity not displayed"
+fi
+
+# Stop server
+echo "Stopping server"
+kill $gsspid 2>/dev/null
+gsspid=
+
+echo "=== Server log ==="
+cat ${objdir}/server.log
+
+echo ""
+echo "GSS-TLS client test passed!"
+
+# ============================================================
+# Test 2: OpenSSL s_client interoperability
+# ============================================================
+
+echo ""
+echo "=== Testing OpenSSL s_client interoperability ==="
+
+# Check if openssl is available
+if ! command -v openssl >/dev/null 2>&1; then
+    echo "openssl not found, skipping s_client test"
+else
+    # Pick a new port for this test
+    tlsport2=$((tlsport + 1))
+
+    echo "Starting TLS server on port ${tlsport2} for OpenSSL test"
+    ${gss} -s -m tls -v \
+        -C "PEM-FILE:${objdir}/server.pem" \
+        -K "PEM-FILE:${objdir}/server.pem" \
+        ${tlsport2} > ${objdir}/server-openssl.log 2>&1 &
+    gsspid=$!
+
+    # Wait for server to start
+    sleep 1
+
+    # Check if server is still running
+    if ! kill -0 $gsspid 2>/dev/null; then
+        echo "Server failed to start for OpenSSL test"
+        cat ${objdir}/server-openssl.log
+        exit 1
+    fi
+
+    echo "Server started with PID $gsspid"
+
+    echo "Running openssl s_client"
+    # Use openssl s_client to connect
+    # Send a simple message and expect echo back
+    echo "hello from openssl" | timeout 10 openssl s_client \
+        -connect 127.0.0.1:${tlsport2} \
+        -servername ${server} \
+        -CAfile "${objdir}/ca-cert.pem" \
+        -verify_return_error \
+        -quiet 2>&1 > ${objdir}/openssl-client.log
+    openssl_status=$?
+
+    echo "OpenSSL s_client exited with status $openssl_status"
+
+    echo "=== OpenSSL client output ==="
+    cat ${objdir}/openssl-client.log
+
+    # Check server log for successful handshake
+    echo "=== Server log (OpenSSL test) ==="
+    cat ${objdir}/server-openssl.log
+
+    # Stop server
+    echo "Stopping server"
+    kill $gsspid 2>/dev/null
+    gsspid=
+
+    # Verify the server saw a successful handshake
+    if grep -q "handshake complete" ${objdir}/server-openssl.log; then
+        echo "OpenSSL s_client handshake successful!"
+    else
+        echo "OpenSSL s_client handshake failed"
+        exit 1
+    fi
+
+    # Check if we received echo response
+    if grep -q "hello from openssl" ${objdir}/openssl-client.log; then
+        echo "Echo response received!"
+    else
+        echo "Warning: Echo response not found in output"
+    fi
+
+    echo ""
+    echo "OpenSSL s_client interoperability test passed!"
+fi
+
+echo ""
+echo "All TLS tests passed!"
+
+trap '' EXIT
+exit 0

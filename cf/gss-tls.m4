@@ -5,18 +5,20 @@ dnl --with-gss-tls=BACKEND where BACKEND is one of:
 dnl   auto     - prefer s2n-tls if available, fall back to openssl (default)
 dnl   s2n-tls  - require s2n-tls
 dnl   openssl  - use OpenSSL's libssl
+dnl   both     - compile both backends, select at runtime via GSS_TLS_BACKEND env var
 dnl   no       - disable GSS-TLS mechanism
 dnl
 
 AC_DEFUN([KRB_GSS_TLS], [
 AC_ARG_WITH([gss-tls],
     AS_HELP_STRING([--with-gss-tls=BACKEND],
-        [GSS-TLS backend: auto, s2n-tls, openssl, or no (default: auto)]),
+        [GSS-TLS backend: auto, s2n-tls, openssl, both, or no (default: auto)]),
     [gss_tls_backend=$withval],
     [gss_tls_backend=auto])
 
 gss_tls_s2n=no
 gss_tls_openssl=no
+gss_tls_both=no
 
 case "$gss_tls_backend" in
     auto)
@@ -45,11 +47,23 @@ case "$gss_tls_backend" in
         gss_tls_openssl=yes
         AC_MSG_NOTICE([GSS-TLS: using OpenSSL backend])
         ;;
+    both)
+        if test "$s2n" != "yes"; then
+            AC_MSG_ERROR([both backends requested but s2n-tls not found])
+        fi
+        if test "$openssl" != "yes"; then
+            AC_MSG_ERROR([both backends requested but OpenSSL not found])
+        fi
+        gss_tls_s2n=yes
+        gss_tls_openssl=yes
+        gss_tls_both=yes
+        AC_MSG_NOTICE([GSS-TLS: both backends enabled (runtime selection via GSS_TLS_BACKEND)])
+        ;;
     no|none)
         AC_MSG_NOTICE([GSS-TLS: disabled by request])
         ;;
     *)
-        AC_MSG_ERROR([Unknown GSS-TLS backend: $gss_tls_backend (use auto, s2n-tls, openssl, or no)])
+        AC_MSG_ERROR([Unknown GSS-TLS backend: $gss_tls_backend (use auto, s2n-tls, openssl, both, or no)])
         ;;
 esac
 
@@ -75,7 +89,12 @@ if test "$gss_tls_openssl" = "yes"; then
     AC_SUBST([LIB_openssl_ssl])
 fi
 
+if test "$gss_tls_both" = "yes"; then
+    AC_DEFINE([GSS_TLS_BOTH], 1, [Define if both TLS backends are compiled for runtime selection])
+fi
+
 AM_CONDITIONAL([GSS_TLS_S2N], [test "$gss_tls_s2n" = "yes"])
 AM_CONDITIONAL([GSS_TLS_OPENSSL], [test "$gss_tls_openssl" = "yes"])
+AM_CONDITIONAL([GSS_TLS_BOTH], [test "$gss_tls_both" = "yes"])
 AM_CONDITIONAL([GSS_TLS], [test "$gss_tls_s2n" = "yes" -o "$gss_tls_openssl" = "yes"])
 ])
