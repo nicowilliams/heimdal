@@ -33,10 +33,6 @@
 
 #include "krb5_locl.h"
 
-#ifndef HEIMDAL_SMALLER
-#define DES3_OLD_ENCTYPE 1
-#endif
-
 static struct _krb5_key_type keytype_null = {
     KRB5_ENCTYPE_NULL,
     "null",

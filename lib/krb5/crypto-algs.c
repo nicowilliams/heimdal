@@ -33,14 +33,19 @@
 
 #include "krb5_locl.h"
 
-#ifndef HEIMDAL_SMALLER
-#define DES3_OLD_ENCTYPE 1
-#endif
-
 struct _krb5_checksum_type *_krb5_checksum_types[] = {
     &_krb5_checksum_none,
 #ifdef HEIM_WEAK_CRYPTO
     &_krb5_checksum_crc32,
+    &_krb5_checksum_rsa_md4,
+    &_krb5_checksum_rsa_md4_des,
+    &_krb5_checksum_rsa_md5_des,
+#endif
+#ifdef HEIM_DES3
+    &_krb5_checksum_rsa_md5_des3,
+#endif
+#if defined(HEIM_DES3) || defined(HEIM_WEAK_CRYPTO)
+    &_krb5_checksum_hmac_sha1_des3,
 #endif
     &_krb5_checksum_rsa_md5,
     &_krb5_checksum_sha1,
@@ -48,7 +53,9 @@ struct _krb5_checksum_type *_krb5_checksum_types[] = {
     &_krb5_checksum_hmac_sha1_aes256,
     &_krb5_checksum_hmac_sha256_128_aes128,
     &_krb5_checksum_hmac_sha384_192_aes256,
+#ifdef HEIM_ARCFOUR
     &_krb5_checksum_hmac_md5,
+#endif
     &_krb5_checksum_sha256,
     &_krb5_checksum_sha384,
     &_krb5_checksum_sha512
@@ -66,7 +73,25 @@ struct _krb5_encryption_type *_krb5_etypes[] = {
     &_krb5_enctype_aes128_cts_hmac_sha256_128,
     &_krb5_enctype_aes256_cts_hmac_sha1,
     &_krb5_enctype_aes128_cts_hmac_sha1,
+#ifdef HEIM_ARCFOUR
     &_krb5_enctype_arcfour_hmac_md5,
+#endif
+#if defined(HEIM_DES3) || defined(HEIM_WEAK_CRYPTO)
+    &_krb5_enctype_des3_cbc_sha1,
+    &_krb5_enctype_des3_cbc_none,
+#endif
+#ifdef HEIM_DES3
+    &_krb5_enctype_des3_cbc_md5,
+    &_krb5_enctype_old_des3_cbc_sha1,
+#endif
+#ifdef HEIM_WEAK_CRYPTO
+    &_krb5_enctype_des_cbc_crc,
+    &_krb5_enctype_des_cbc_md4,
+    &_krb5_enctype_des_cbc_md5,
+    &_krb5_enctype_des_cbc_none,
+    &_krb5_enctype_des_cfb64_none,
+    &_krb5_enctype_des_pcbc_none,
+#endif
     &_krb5_enctype_null
 };
 

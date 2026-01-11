@@ -64,6 +64,7 @@ libkrb5_OBJS =			\
 	$(OBJ)\crypto-arcfour.obj	    \
 	$(OBJ)\crypto-des-common.obj	    \
 	$(OBJ)\crypto-des.obj		    \
+	$(OBJ)\crypto-des3.obj		    \
 	$(OBJ)\crypto-evp.obj		    \
 	$(OBJ)\crypto-null.obj		    \
 	$(OBJ)\crypto-pk.obj		    \
@@ -139,6 +140,8 @@ libkrb5_OBJS =			\
 	$(OBJ)\salt-aes-sha1.obj	    \
 	$(OBJ)\salt-aes-sha2.obj	    \
 	$(OBJ)\salt-arcfour.obj		    \
+	$(OBJ)\salt-des.obj		    \
+	$(OBJ)\salt-des3.obj		    \
 	$(OBJ)\salt.obj			    \
 	$(OBJ)\scache.obj		    \
 	$(OBJ)\send_to_kdc.obj		    \
@@ -221,6 +224,7 @@ dist_libkrb5_la_SOURCES =			\
 	crypto-algs.c				\
 	crypto-arcfour.c			\
 	crypto-des.c				\
+	crypto-des3.c				\
 	crypto-des-common.c			\
 	crypto-evp.c				\
 	crypto-pk.c				\
@@ -298,6 +302,8 @@ dist_libkrb5_la_SOURCES =			\
 	salt-aes-sha1.c				\
 	salt-aes-sha2.c				\
 	salt-arcfour.c				\
+	salt-des.c				\
+	salt-des3.c				\
 	scache.c				\
 	send_to_kdc.c				\
 	sendauth.c				\
@@ -389,6 +395,7 @@ librfc3961_OBJS=\
 	$(OBJ)\crypto-algs.obj		\
 	$(OBJ)\crypto-arcfour.obj	\
 	$(OBJ)\crypto-des.obj		\
+	$(OBJ)\crypto-des3.obj		\
 	$(OBJ)\crypto-des-common.obj	\
 	$(OBJ)\crypto-evp.obj		\
 	$(OBJ)\crypto-null.obj		\
@@ -403,6 +410,8 @@ librfc3961_OBJS=\
 	$(OBJ)\salt-aes-sha1.obj	\
 	$(OBJ)\salt-aes-sha2.obj	\
 	$(OBJ)\salt-arcfour.obj		\
+	$(OBJ)\salt-des.obj		\
+	$(OBJ)\salt-des3.obj		\
 	$(OBJ)\sp800-108-kdf.obj	\
 	$(OBJ)\store-int.obj		\
 	$(OBJ)\warn.obj

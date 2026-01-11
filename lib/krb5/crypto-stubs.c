@@ -39,6 +39,7 @@ KRB5_LIB_FUNCTION krb5_error_code KRB5_LIB_CALL
 krb5_init_context(krb5_context *context)
 {
     krb5_context p;
+    krb5_context_ossl ossl;
 
     *context = NULL;
 
@@ -48,6 +49,27 @@ krb5_init_context(krb5_context *context)
     p = calloc(1, sizeof(*p));
     if(!p)
         return ENOMEM;
+
+    /* Initialize minimal OpenSSL context for crypto operations */
+    ossl = calloc(1, sizeof(*ossl));
+    if (ossl == NULL) {
+        free(p);
+        return ENOMEM;
+    }
+    ossl->libctx = OSSL_LIB_CTX_get0_global_default();
+    ossl->openssl_leg = OSSL_PROVIDER_load(ossl->libctx, "legacy");
+    ossl->openssl_def = OSSL_PROVIDER_load(ossl->libctx, "default");
+    ossl->des_cbc = EVP_CIPHER_fetch(ossl->libctx, "DES-CBC", NULL);
+    ossl->des_ede3_cbc = EVP_CIPHER_fetch(ossl->libctx, "DES-EDE3-CBC", NULL);
+    ossl->rc4 = EVP_CIPHER_fetch(ossl->libctx, "RC4", NULL);
+    ossl->aes128_cbc = EVP_CIPHER_fetch(ossl->libctx, "AES-128-CBC", NULL);
+    ossl->aes256_cbc = EVP_CIPHER_fetch(ossl->libctx, "AES-256-CBC", NULL);
+    ossl->md4 = EVP_MD_fetch(ossl->libctx, "MD4", NULL);
+    ossl->md5 = EVP_MD_fetch(ossl->libctx, "MD5", NULL);
+    ossl->sha1 = EVP_MD_fetch(ossl->libctx, "SHA1", NULL);
+    ossl->sha256 = EVP_MD_fetch(ossl->libctx, "SHA256", NULL);
+    ossl->sha384 = EVP_MD_fetch(ossl->libctx, "SHA384", NULL);
+    p->ossl = ossl;
 
     *context = p;
     return 0;
@@ -60,6 +82,25 @@ krb5_free_context(krb5_context context)
 
     if (context->flags & KRB5_CTX_F_SOCKETS_INITIALIZED) {
         rk_SOCK_EXIT();
+    }
+
+    /* Clean up OpenSSL context */
+    if (context->ossl) {
+        EVP_CIPHER_free(context->ossl->des_cbc);
+        EVP_CIPHER_free(context->ossl->des_ede3_cbc);
+        EVP_CIPHER_free(context->ossl->rc4);
+        EVP_CIPHER_free(context->ossl->aes128_cbc);
+        EVP_CIPHER_free(context->ossl->aes256_cbc);
+        EVP_MD_free(context->ossl->md4);
+        EVP_MD_free(context->ossl->md5);
+        EVP_MD_free(context->ossl->sha1);
+        EVP_MD_free(context->ossl->sha256);
+        EVP_MD_free(context->ossl->sha384);
+        if (context->ossl->openssl_leg)
+            OSSL_PROVIDER_unload(context->ossl->openssl_leg);
+        if (context->ossl->openssl_def)
+            OSSL_PROVIDER_unload(context->ossl->openssl_def);
+        free(context->ossl);
     }
 
     memset(context, 0, sizeof(*context));

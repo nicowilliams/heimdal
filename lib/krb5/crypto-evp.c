@@ -248,7 +248,6 @@ _krb5_evp_encrypt(krb5_context context,
 {
     struct _krb5_evp_schedule *ctx = key->schedule->data;
     EVP_CIPHER_CTX *c;
-    int ret = 0;
 
     c = encryptp ? ctx->ectx : ctx->dctx;
     if (ivec == NULL) {
@@ -259,16 +258,18 @@ _krb5_evp_encrypt(krb5_context context,
 	    return krb5_enomem(context);
 	memset(loiv, 0, len2);
 	if (EVP_CipherInit_ex(c, NULL, NULL, NULL, loiv, -1) != 1) {
-            ret = _krb5_set_error_message_openssl(context, KRB5_CRYPTO_INTERNAL,
-                                                  "Failed to initialize cipher");
+	    free(loiv);
+            return _krb5_set_error_message_openssl(context, KRB5_CRYPTO_INTERNAL,
+                                                   "Failed to initialize cipher");
         }
 	free(loiv);
     } else if (EVP_CipherInit_ex(c, NULL, NULL, NULL, ivec, -1) != 1) {
-        ret = _krb5_set_error_message_openssl(context, KRB5_CRYPTO_INTERNAL,
-                                              "Failed to initialize cipher");
+        return _krb5_set_error_message_openssl(context, KRB5_CRYPTO_INTERNAL,
+                                               "Failed to initialize cipher");
     }
-    EVP_Cipher(c, data, data, len);
-    return ret;
+    if (EVP_Cipher(c, data, data, len) < 0)
+        return KRB5_CRYPTO_INTERNAL;
+    return 0;
 }
 
 struct _krb5_evp_iov_cursor
@@ -755,7 +756,9 @@ _krb5_evp_encrypt_cts(krb5_context context,
     if (encryptp) {
 	p = data;
 	i = ((len - 1) / blocksize) * blocksize;
-	EVP_Cipher(c, p, p, i);
+	if (EVP_Cipher(c, p, p, i) != (int)i)
+            return _krb5_set_error_message_openssl(context, EINVAL,
+                                                   "Failed to encrypt");
 	p += i - blocksize;
 	len -= i;
 	memcpy(ivec2, p, blocksize);
@@ -781,7 +784,9 @@ _krb5_evp_encrypt_cts(krb5_context context,
 	    /* remove last two blocks and round up, decrypt this with cbc, then do cts dance */
 	    i = ((((len - blocksize * 2) + blocksize - 1) / blocksize) * blocksize);
 	    memcpy(ivec2, p + i - blocksize, blocksize);
-	    EVP_Cipher(c, p, p, i);
+	    if (EVP_Cipher(c, p, p, i) != (int)i)
+                return _krb5_set_error_message_openssl(context, EINVAL,
+                                                       "Failed to decrypt");
 	    p += i;
 	    len -= i + blocksize;
 	} else {

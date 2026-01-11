@@ -31,9 +31,15 @@
  * SUCH DAMAGE.
  */
 
+/*
+ * Suppress OpenSSL deprecation warnings - we need these legacy DES functions
+ * for backward compatibility with old Kerberos encryption types.
+ */
+#define OPENSSL_SUPPRESS_DEPRECATED
+
 #include "krb5_locl.h"
 
-#ifdef DES3_OLD_ENCTYPE
+#ifdef HEIM_DES3
 static krb5_error_code
 DES3_string_to_key(krb5_context context,
 		   krb5_enctype enctype,
@@ -126,7 +132,7 @@ DES3_string_to_key_derived(krb5_context context,
 }
 
 
-#ifdef DES3_OLD_ENCTYPE
+#ifdef HEIM_DES3
 struct salt_type _krb5_des3_salt[] = {
     {
 	KRB5_PW_SALT,

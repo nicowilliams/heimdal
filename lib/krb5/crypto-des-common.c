@@ -31,6 +31,8 @@
  * SUCH DAMAGE.
  */
 
+/* Functions which are used by both single and triple DES enctypes */
+
 #include "krb5_locl.h"
 
 /*
@@ -50,6 +52,114 @@ _krb5_xor8(unsigned char *a, const unsigned char *b)
     a[7] ^= b[7];
 }
 
+#if defined(HEIM_DES3) || defined(HEIM_WEAK_CRYPTO)
+KRB5_LIB_FUNCTION krb5_error_code KRB5_LIB_CALL
+_krb5_des_checksum(krb5_context context,
+		   const EVP_MD *evp_md,
+		   struct _krb5_key_data *key,
+		   const struct krb5_crypto_iov *iov,
+		   int niov,
+		   Checksum *cksum)
+{
+    struct _krb5_evp_schedule *ctx = key->schedule->data;
+    EVP_MD_CTX *m;
+    DES_cblock ivec;
+    int i;
+    unsigned char *p = cksum->checksum.data;
+
+    if (evp_md == NULL) {
+        krb5_set_error_message(context, KRB5_PROG_ETYPE_NOSUPP,
+                               "1DES not supported");
+        return KRB5_PROG_ETYPE_NOSUPP;
+    }
+
+    krb5_generate_random_block(p, 8);
+
+    m = EVP_MD_CTX_new();
+    if (m == NULL)
+	return krb5_enomem(context);
+
+    if (EVP_DigestInit_ex(m, evp_md, NULL) != 1 ||
+	EVP_DigestUpdate(m, p, 8) != 1)
+	goto err;
+    for (i = 0; i < niov; i++) {
+	if (_krb5_crypto_iov_should_sign(&iov[i]) &&
+	    EVP_DigestUpdate(m, iov[i].data.data, iov[i].data.length) != 1)
+	    goto err;
+    }
+    if (EVP_DigestFinal_ex(m, p + 8, NULL) != 1)
+	goto err;
+    EVP_MD_CTX_free(m);
+    memset_s(&ivec, sizeof(ivec), 0, sizeof(ivec));
+    if (EVP_CipherInit_ex(ctx->ectx, NULL, NULL, NULL, (void *)&ivec, -1) != 1 ||
+	EVP_Cipher(ctx->ectx, p, p, 24) < 0)
+	return KRB5_CRYPTO_INTERNAL;
+
+    return 0;
+
+err:
+    EVP_MD_CTX_free(m);
+    return KRB5_CRYPTO_INTERNAL;
+}
+
+KRB5_LIB_FUNCTION krb5_error_code KRB5_LIB_CALL
+_krb5_des_verify(krb5_context context,
+		 const EVP_MD *evp_md,
+		 struct _krb5_key_data *key,
+		 const struct krb5_crypto_iov *iov,
+		 int niov,
+		 Checksum *C)
+{
+    struct _krb5_evp_schedule *ctx = key->schedule->data;
+    EVP_MD_CTX *m;
+    unsigned char tmp[24];
+    unsigned char res[16];
+    DES_cblock ivec;
+    krb5_error_code ret = 0;
+    int i;
+
+    if (evp_md == NULL) {
+        krb5_set_error_message(context, KRB5_PROG_ETYPE_NOSUPP,
+                               "1DES not supported");
+        return KRB5_PROG_ETYPE_NOSUPP;
+    }
+
+    m = EVP_MD_CTX_new();
+    if (m == NULL)
+	return krb5_enomem(context);
+
+    memset_s(&ivec, sizeof(ivec), 0, sizeof(ivec));
+    if (EVP_CipherInit_ex(ctx->dctx, NULL, NULL, NULL, (void *)&ivec, -1) != 1 ||
+	EVP_Cipher(ctx->dctx, tmp, C->checksum.data, 24) < 0)
+	goto err;
+
+    if (EVP_DigestInit_ex(m, evp_md, NULL) != 1 ||
+	EVP_DigestUpdate(m, tmp, 8) != 1) /* confounder */
+	goto err;
+    for (i = 0; i < niov; i++) {
+	if (_krb5_crypto_iov_should_sign(&iov[i]) &&
+	    EVP_DigestUpdate(m, iov[i].data.data, iov[i].data.length) != 1)
+	    goto err;
+    }
+    if (EVP_DigestFinal_ex(m, res, NULL) != 1)
+	goto err;
+    EVP_MD_CTX_free(m);
+    if(ct_memcmp(res, tmp + 8, sizeof(res)) != 0) {
+	krb5_clear_error_message (context);
+	ret = KRB5KRB_AP_ERR_BAD_INTEGRITY;
+    }
+    memset_s(tmp, sizeof(tmp), 0, sizeof(tmp));
+    memset_s(res, sizeof(res), 0, sizeof(res));
+    return ret;
+
+err:
+    EVP_MD_CTX_free(m);
+    memset_s(tmp, sizeof(tmp), 0, sizeof(tmp));
+    return KRB5_CRYPTO_INTERNAL;
+}
+
+#endif
+
 static krb5_error_code
 RSA_MD5_checksum(krb5_context context,
 		 krb5_crypto crypto,
@@ -60,7 +170,7 @@ RSA_MD5_checksum(krb5_context context,
 		 Checksum *C)
 {
     if (_krb5_evp_digest_iov(crypto, iov, niov, C->checksum.data,
-			     NULL, EVP_md5(), NULL) != 1)
+			     NULL, context->ossl->md5, NULL) != 1)
 	krb5_abortx(context, "md5 checksum failed");
 
     return 0;

@@ -33,6 +33,8 @@
 
 #include "krb5_locl.h"
 
+#ifdef HEIM_ARCFOUR
+
 static krb5_error_code
 ARCFOUR_string_to_key(krb5_context context,
 		      krb5_enctype enctype,
@@ -105,3 +107,5 @@ struct salt_type _krb5_arcfour_salt[] = {
     },
     { 0, NULL, NULL }
 };
+
+#endif /* HEIM_ARCFOUR */
