@@ -205,6 +205,69 @@ collect_commandline(const char * fn, va_list * ap)
     return cmd;
 }
 
+static char *
+collect_commandline_from_argv(char *const argv[])
+{
+    size_t len = 0;
+    size_t alloc_len = 0;
+    char * cmd = NULL;
+    int i;
+
+    for (i = 0; argv[i]; i++) {
+	const char *s = argv[i];
+	size_t cmp_len;
+	int need_quote = FALSE;
+
+	if (FAILED(StringCchLength(s, MAX_PATH, &cmp_len))) {
+	    if (cmd)
+		free(cmd);
+	    return NULL;
+	}
+
+	if (cmp_len == 0)
+	    continue;
+
+	if (strchr(s, ' ') &&
+	    s[0] != '"' &&
+	    s[cmp_len - 1] != '"') {
+	    need_quote = TRUE;
+	    cmp_len += 2 * sizeof(char);
+	}
+
+	if (i > 0)
+	    cmp_len += 1 * sizeof(char);
+
+	if (alloc_len < len + cmp_len + 1) {
+	    char * nc;
+
+	    alloc_len += ((len + cmp_len - alloc_len) / MAX_PATH + 1) * MAX_PATH;
+	    nc = (char *) realloc(cmd, alloc_len * sizeof(char));
+	    if (nc == NULL) {
+		if (cmd)
+		    free(cmd);
+		return NULL;
+	    }
+	    cmd = nc;
+	}
+
+	if (cmd == NULL)
+	    return NULL;
+
+	if (i > 0)
+	    cmd[len++] = ' ';
+
+	if (need_quote) {
+	    StringCchPrintf(cmd + len, alloc_len - len, "\"%s\"", s);
+	} else {
+	    StringCchCopy(cmd + len, alloc_len - len, s);
+	}
+
+	len += cmp_len;
+    }
+
+    return cmd;
+}
+
 ROKEN_LIB_FUNCTION pid_t ROKEN_LIB_CALL
 pipe_execv(FILE **stdin_fd, FILE **stdout_fd, FILE **stderr_fd,
 	   const char *file, ...)
@@ -314,6 +377,132 @@ pipe_execv(FILE **stdin_fd, FILE **stdout_fd, FILE **stderr_fd,
     rv = (pid_t) pi.dwProcessId;
 
  _exit:
+
+    if (pi.hProcess) CloseHandle(pi.hProcess);
+
+    if (pi.hThread) CloseHandle(pi.hThread);
+
+    if (hIn_r) CloseHandle(hIn_r);
+
+    if (hIn_w) CloseHandle(hIn_w);
+
+    if (hOut_r) CloseHandle(hOut_r);
+
+    if (hOut_w) CloseHandle(hOut_w);
+
+    if (hErr_r) CloseHandle(hErr_r);
+
+    if (hErr_w) CloseHandle(hErr_w);
+
+    return rv;
+}
+
+
+ROKEN_LIB_FUNCTION pid_t ROKEN_LIB_CALL
+pipe_execvp(FILE **stdin_fd, FILE **stdout_fd, FILE **stderr_fd,
+	    const char *file, char *const argv[])
+{
+    HANDLE  hOut_r = NULL;
+    HANDLE  hOut_w = NULL;
+    HANDLE  hIn_r  = NULL;
+    HANDLE  hIn_w  = NULL;
+    HANDLE  hErr_r = NULL;
+    HANDLE  hErr_w = NULL;
+
+    SECURITY_ATTRIBUTES sa;
+    STARTUPINFO si;
+    PROCESS_INFORMATION pi;
+
+    char * commandline = NULL;
+
+    pid_t rv = (pid_t) -1;
+
+    commandline = collect_commandline_from_argv(argv);
+    if (commandline == NULL)
+	return rv;
+
+    ZeroMemory(&si, sizeof(si));
+    ZeroMemory(&pi, sizeof(pi));
+    ZeroMemory(&sa, sizeof(sa));
+
+    pi.hProcess = NULL;
+    pi.hThread = NULL;
+
+    sa.nLength = sizeof(sa);
+    sa.bInheritHandle = TRUE;
+    sa.lpSecurityDescriptor = NULL;
+
+    if ((stdout_fd && !CreatePipe(&hOut_r, &hOut_w, &sa, 0 /* Use default */)) ||
+
+	(stdin_fd && !CreatePipe(&hIn_r, &hIn_w, &sa, 0)) ||
+
+	(stderr_fd && !CreatePipe(&hErr_r, &hErr_w, &sa, 0)) ||
+
+	(!stdout_fd && (hOut_w = CreateFile("CON", GENERIC_WRITE, FILE_SHARE_READ|FILE_SHARE_WRITE,
+					    &sa, OPEN_EXISTING, 0, NULL)) == INVALID_HANDLE_VALUE) ||
+
+	(!stdin_fd && (hIn_r = CreateFile("CON",GENERIC_READ, FILE_SHARE_READ|FILE_SHARE_WRITE,
+					  &sa, OPEN_EXISTING, 0, NULL)) == INVALID_HANDLE_VALUE) ||
+
+	(!stderr_fd && (hErr_w = CreateFile("CON", GENERIC_WRITE, FILE_SHARE_READ|FILE_SHARE_WRITE,
+					    &sa, OPEN_EXISTING, 0, NULL)) == INVALID_HANDLE_VALUE))
+
+	goto _exit;
+
+    /* We don't want the child processes inheriting these */
+    if (hOut_r)
+	SetHandleInformation(hOut_r, HANDLE_FLAG_INHERIT, FALSE);
+
+    if (hIn_w)
+	SetHandleInformation(hIn_w, HANDLE_FLAG_INHERIT, FALSE);
+
+    if (hErr_r)
+	SetHandleInformation(hErr_r, HANDLE_FLAG_INHERIT, FALSE);
+
+    si.cb = sizeof(si);
+    si.lpReserved = NULL;
+    si.lpDesktop = NULL;
+    si.lpTitle = NULL;
+    si.dwFlags = STARTF_USESTDHANDLES;
+    si.hStdInput = hIn_r;
+    si.hStdOutput = hOut_w;
+    si.hStdError = hErr_w;
+
+    if (!CreateProcess(file, commandline, NULL, NULL,
+		       TRUE,	/* bInheritHandles */
+		       CREATE_NO_WINDOW, /* dwCreationFlags */
+		       NULL,		 /* lpEnvironment */
+		       NULL,		 /* lpCurrentDirectory */
+		       &si,
+		       &pi)) {
+
+	rv = (pid_t) (GetLastError() == ERROR_FILE_NOT_FOUND)? 127 : -1;
+	goto _exit;
+    }
+
+    if (stdin_fd) {
+	*stdin_fd = _fdopen(_open_osfhandle((intptr_t) hIn_w, 0), "wb");
+	if (*stdin_fd)
+	    hIn_w = NULL;
+    }
+
+    if (stdout_fd) {
+	*stdout_fd = _fdopen(_open_osfhandle((intptr_t) hOut_r, _O_RDONLY), "rb");
+	if (*stdout_fd)
+	    hOut_r = NULL;
+    }
+
+    if (stderr_fd) {
+	*stderr_fd = _fdopen(_open_osfhandle((intptr_t) hErr_r, _O_RDONLY), "rb");
+	if (*stderr_fd)
+	    hErr_r = NULL;
+    }
+
+    rv = (pid_t) pi.dwProcessId;
+
+ _exit:
+
+    if (commandline) free(commandline);
 
     if (pi.hProcess) CloseHandle(pi.hProcess);
 

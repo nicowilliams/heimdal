@@ -390,6 +390,10 @@ wait_for_process_timed(pid_t, time_t (*)(void *),
 ROKEN_LIB_FUNCTION int ROKEN_LIB_CALL
 pipe_execv(FILE**, FILE**, FILE**, const char*, ...);
 
+#define pipe_execvp rk_pipe_execvp
+ROKEN_LIB_FUNCTION int ROKEN_LIB_CALL
+pipe_execvp(FILE**, FILE**, FILE**, const char*, char *const[]);
+
 #define print_version rk_print_version
 ROKEN_LIB_FUNCTION void ROKEN_LIB_CALL
 print_version(const char *);
