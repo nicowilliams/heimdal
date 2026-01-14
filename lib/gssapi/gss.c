@@ -803,6 +803,8 @@ recv_token(int fd, gss_buffer_t token)
 /*
  * Spawn a command and relay data between GSS context and child stdin/stdout
  *
+ * Uses roken's pipe_execvp() for portability (works on Windows too).
+ *
  * Returns 0 on success, non-zero on error.
  * If exec_argv is NULL, returns -1 (caller should use interactive mode).
  */
@@ -811,61 +813,26 @@ spawn_and_relay(int fd, gss_ctx_id_t ctx)
 {
     OM_uint32 maj, min;
     pid_t pid;
-    int child_stdin[2] = {-1, -1};
-    int child_stdout[2] = {-1, -1};
+    FILE *child_stdin_f = NULL;
+    FILE *child_stdout_f = NULL;
+    int child_stdin_fd, child_stdout_fd;
     int ret = 1;
 
     if (exec_argv == NULL || exec_argc == 0)
         return -1;  /* No command specified */
 
-    /* Create pipes for child stdin/stdout */
-    if (pipe(child_stdin) < 0) {
-        perror("pipe");
-        return 1;
-    }
-    if (pipe(child_stdout) < 0) {
-        perror("pipe");
-        close(child_stdin[0]);
-        close(child_stdin[1]);
-        return 1;
-    }
+    /* Spawn the child process with pipes for stdin/stdout */
+    pid = pipe_execvp(&child_stdin_f, &child_stdout_f, NULL,
+                      exec_argv[0], exec_argv);
 
-    pid = fork();
     if (pid < 0) {
-        perror("fork");
-        close(child_stdin[0]);
-        close(child_stdin[1]);
-        close(child_stdout[0]);
-        close(child_stdout[1]);
+        fprintf(stderr, "Failed to spawn %s: %s\n", exec_argv[0],
+                pid == SE_E_FORKFAILED ? "fork failed" : "unspecified error");
         return 1;
     }
 
-    if (pid == 0) {
-        /* Child process */
-        close(child_stdin[1]);   /* Close write end of stdin pipe */
-        close(child_stdout[0]);  /* Close read end of stdout pipe */
-
-        /* Connect pipes to stdin/stdout */
-        if (dup2(child_stdin[0], STDIN_FILENO) < 0)
-            _exit(126);
-        if (dup2(child_stdout[1], STDOUT_FILENO) < 0)
-            _exit(126);
-
-        close(child_stdin[0]);
-        close(child_stdout[1]);
-        close(fd);  /* Don't need the socket in child */
-
-        /* Close all other file descriptors */
-        closefrom(3);
-
-        /* Execute the command */
-        execvp(exec_argv[0], exec_argv);
-        _exit((errno == ENOENT) ? 127 : 126);
-    }
-
-    /* Parent process */
-    close(child_stdin[0]);   /* Close read end of stdin pipe */
-    close(child_stdout[1]);  /* Close write end of stdout pipe */
+    child_stdin_fd = fileno(child_stdin_f);
+    child_stdout_fd = fileno(child_stdout_f);
 
     if (verbose)
         fprintf(stderr, "Spawned %s (pid %d)\n", exec_argv[0], (int)pid);
@@ -877,8 +844,6 @@ spawn_and_relay(int fd, gss_ctx_id_t ctx)
      */
     {
         struct pollfd fds[2];
-        int child_stdin_fd = child_stdin[1];
-        int child_stdout_fd = child_stdout[0];
         int child_stdin_closed = 0;
         int socket_eof = 0;
 
@@ -910,7 +875,8 @@ spawn_and_relay(int fd, gss_ctx_id_t ctx)
                 if (recv_token(fd, &wrapped) < 0 || wrapped.length == 0) {
                     /* EOF or error from network - close child stdin */
                     if (!child_stdin_closed) {
-                        close(child_stdin_fd);
+                        fclose(child_stdin_f);
+                        child_stdin_f = NULL;
                         child_stdin_closed = 1;
                     }
                     socket_eof = 1;
@@ -930,7 +896,8 @@ spawn_and_relay(int fd, gss_ctx_id_t ctx)
                                            unwrapped.length);
                         if (nw < 0) {
                             /* Child closed stdin - that's okay */
-                            close(child_stdin_fd);
+                            fclose(child_stdin_f);
+                            child_stdin_f = NULL;
                             child_stdin_closed = 1;
                         }
                     }
@@ -975,16 +942,18 @@ spawn_and_relay(int fd, gss_ctx_id_t ctx)
             /* Check for HUP/ERR on socket (only matters if we haven't seen EOF) */
             if (!socket_eof && (fds[0].revents & (POLLHUP | POLLERR))) {
                 if (!child_stdin_closed) {
-                    close(child_stdin_fd);
+                    fclose(child_stdin_f);
+                    child_stdin_f = NULL;
                     child_stdin_closed = 1;
                 }
                 socket_eof = 1;
             }
         }
 
-        if (!child_stdin_closed)
-            close(child_stdin_fd);
-        close(child_stdout_fd);
+        if (child_stdin_f)
+            fclose(child_stdin_f);
+        if (child_stdout_f)
+            fclose(child_stdout_f);
     }
 
     /* Wait for child to exit */
