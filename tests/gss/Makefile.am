@@ -18,6 +18,9 @@ SCRIPT_TESTS += check-tls
 endif
 endif
 
+# JWT mechanism test
+SCRIPT_TESTS += check-jwt
+
 TESTS = $(SCRIPT_TESTS)
 
 check_SCRIPTS = $(SCRIPT_TESTS)
@@ -83,6 +86,11 @@ check-tls-s2n: check-tls-s2n.in check-tls Makefile
 	chmod +x check-tls-s2n.tmp && \
 	mv check-tls-s2n.tmp check-tls-s2n
 
+check-jwt: check-jwt.in Makefile
+	$(do_subst) < $(srcdir)/check-jwt.in > check-jwt.tmp && \
+	chmod +x check-jwt.tmp && \
+	mv check-jwt.tmp check-jwt
+
 krb5.conf: krb5.conf.in Makefile
 	$(do_subst) < $(srcdir)/krb5.conf.in > krb5.conf.tmp && \
 	mv krb5.conf.tmp krb5.conf
@@ -124,7 +132,13 @@ CLEANFILES= \
 	check-negoex.tmp \
 	check-tls.tmp \
 	check-tls-openssl.tmp \
-	check-tls-s2n.tmp
+	check-tls-s2n.tmp \
+	check-jwt.tmp \
+	jwt-key.pem \
+	jwt-key.jwk \
+	test.jwt \
+	test2.jwt \
+	test3.jwt
 
 EXTRA_DIST = \
 	NTMakefile \
@@ -138,6 +152,7 @@ EXTRA_DIST = \
 	check-tls.in \
 	check-tls-openssl.in \
 	check-tls-s2n.in \
+	check-jwt.in \
 	krb5.conf.in \
 	krb5-nodns.conf.in \
 	include-krb5.conf \

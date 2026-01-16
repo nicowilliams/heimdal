@@ -87,7 +87,7 @@ static struct getargs args[] = {
     { "server", 's', arg_flag, &server_mode,
       "Run in server mode", NULL },
     { "mechanism", 'm', arg_string, &mechanism_name,
-      "GSS mechanism (krb5, spnego, sanon, tls, or OID)", "MECH" },
+      "GSS mechanism (krb5, spnego, sanon, tls, jwt, or OID)", "MECH" },
     { "option", 'o', arg_strings, &cred_store_options,
       "Credential store option KEY=VALUE (repeatable)", "KEY=VALUE" },
     { "certificate", 'C', arg_string, &certificate_store,
@@ -123,7 +123,7 @@ usage(int exit_code)
     arg_printusage(args, num_args, NULL,
                    "[-c | -s] [-m mech] [options] host:port | port [command [args...]]");
     fprintf(stderr, "\nMechanisms:\n");
-    fprintf(stderr, "  krb5, spnego, sanon, tls, or OID (e.g., 1.2.840.113554.1.2.2)\n");
+    fprintf(stderr, "  krb5, spnego, sanon, tls, jwt, or OID (e.g., 1.2.840.113554.1.2.2)\n");
     fprintf(stderr, "  Use -m '?' to list available mechanisms\n");
     fprintf(stderr, "\nExamples:\n");
     fprintf(stderr, "  Kerberos client:\n");
@@ -192,6 +192,14 @@ static gss_OID_desc tls_mech_oid = {
 };
 
 /*
+ * JWT mechanism OID
+ * OID: 1.3.6.1.4.1.40402.1.4 (PEN 40402, arc 1 = heimdal, arc 4 = jwt)
+ */
+static gss_OID_desc jwt_mech_oid = {
+    10, rk_UNCONST("\x2b\x06\x01\x04\x01\x82\xbb\x52\x01\x04")
+};
+
+/*
  * Mechanism attribute: self-framed tokens
  * OID: 1.3.6.1.4.1.40402.1.2
  *
@@ -225,6 +233,10 @@ parse_mechanism(const char *name)
     /* Special case: "tls" is our new mechanism */
     if (strcasecmp(name, "tls") == 0)
         return &tls_mech_oid;
+
+    /* Special case: "jwt" mechanism */
+    if (strcasecmp(name, "jwt") == 0)
+        return &jwt_mech_oid;
 
     /* Use gss_name_to_oid for everything else */
     oid = gss_name_to_oid(name);

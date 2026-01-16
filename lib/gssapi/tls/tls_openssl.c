@@ -75,6 +75,9 @@
 #define tls_backend_get_cb_server_end_point tls_backend_openssl_get_cb_server_end_point
 #define tls_backend_get_cb_unique tls_backend_openssl_get_cb_unique
 #define tls_backend_get_cb_exporter tls_backend_openssl_get_cb_exporter
+#define tls_backend_get_early_data_status tls_backend_openssl_get_early_data_status
+#define tls_backend_get_early_data tls_backend_openssl_get_early_data
+#define tls_backend_get_session_ticket tls_backend_openssl_get_session_ticket
 #else
 #define BACKEND_STATIC
 #endif
@@ -860,6 +863,86 @@ tls_backend_get_cb_exporter(tls_backend_ctx ctx,
 }
 
 /*
+ * 0-RTT Early Data and Session Resumption
+ *
+ * OpenSSL supports early data via SSL_write_early_data/SSL_read_early_data,
+ * but this requires more complex setup with SSL_SESSION handling and
+ * SSL_CTX_set_max_early_data. For now, these are stub implementations.
+ *
+ * TODO: Implement full early data support for OpenSSL backend.
+ */
+
+BACKEND_STATIC tls_early_data_status
+tls_backend_get_early_data_status(tls_backend_ctx ctx)
+{
+    (void)ctx;
+    /* Early data not yet implemented in OpenSSL backend */
+    return TLS_EARLY_DATA_NOT_REQUESTED;
+}
+
+BACKEND_STATIC tls_backend_status
+tls_backend_get_early_data(tls_backend_ctx ctx,
+                           uint8_t *data,
+                           size_t *len)
+{
+    (void)ctx;
+    (void)data;
+    *len = 0;
+    /* No early data - not implemented yet */
+    return TLS_BACKEND_EOF;
+}
+
+BACKEND_STATIC tls_backend_status
+tls_backend_get_session_ticket(tls_backend_ctx ctx,
+                               uint8_t *ticket,
+                               size_t *len)
+{
+    SSL_SESSION *session;
+    unsigned char *data = NULL;
+    int data_len;
+
+    *len = 0;
+
+    if (!ctx->handshake_done) {
+        snprintf(ctx->error_buf, sizeof(ctx->error_buf),
+                 "Handshake not complete");
+        return TLS_BACKEND_ERROR;
+    }
+
+    session = SSL_get1_session(ctx->ssl);
+    if (session == NULL) {
+        snprintf(ctx->error_buf, sizeof(ctx->error_buf),
+                 "No session available");
+        return TLS_BACKEND_ERROR;
+    }
+
+    /* Serialize the session */
+    data_len = i2d_SSL_SESSION(session, &data);
+    SSL_SESSION_free(session);
+
+    if (data_len <= 0 || data == NULL) {
+        snprintf(ctx->error_buf, sizeof(ctx->error_buf),
+                 "Failed to serialize session");
+        return TLS_BACKEND_ERROR;
+    }
+
+    if ((size_t)data_len > *len) {
+        OPENSSL_free(data);
+        snprintf(ctx->error_buf, sizeof(ctx->error_buf),
+                 "Buffer too small for session ticket (need %d bytes)", data_len);
+        return TLS_BACKEND_ERROR;
+    }
+
+    memcpy(ticket, data, data_len);
+    *len = data_len;
+    OPENSSL_free(data);
+
+    heim_debug(ctx->hctx, 10, "TLS: retrieved session ticket (%zu bytes)", *len);
+
+    return TLS_BACKEND_OK;
+}
+
+/*
  * Backend vtable for runtime dispatch
  */
 const tls_backend_ops tls_backend_openssl_ops = {
@@ -878,6 +961,9 @@ const tls_backend_ops tls_backend_openssl_ops = {
     .get_cb_server_end_point = tls_backend_get_cb_server_end_point,
     .get_cb_unique = tls_backend_get_cb_unique,
     .get_cb_exporter = tls_backend_get_cb_exporter,
+    .get_early_data_status = tls_backend_get_early_data_status,
+    .get_early_data = tls_backend_get_early_data,
+    .get_session_ticket = tls_backend_get_session_ticket,
 };
 
 #endif /* GSS_TLS_OPENSSL */

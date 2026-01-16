@@ -286,6 +286,41 @@ tls_backend_get_cb_exporter(tls_backend_ctx ctx,
     return tls_backend_get_ops()->get_cb_exporter(ctx, cb_data, cb_len);
 }
 
+tls_early_data_status
+tls_backend_get_early_data_status(tls_backend_ctx ctx)
+{
+    const tls_backend_ops *ops = tls_backend_get_ops();
+    if (ops->get_early_data_status == NULL)
+        return TLS_EARLY_DATA_NOT_REQUESTED;
+    return ops->get_early_data_status(ctx);
+}
+
+tls_backend_status
+tls_backend_get_early_data(tls_backend_ctx ctx,
+                           uint8_t *data,
+                           size_t *len)
+{
+    const tls_backend_ops *ops = tls_backend_get_ops();
+    if (ops->get_early_data == NULL) {
+        *len = 0;
+        return TLS_BACKEND_EOF;
+    }
+    return ops->get_early_data(ctx, data, len);
+}
+
+tls_backend_status
+tls_backend_get_session_ticket(tls_backend_ctx ctx,
+                               uint8_t *ticket,
+                               size_t *len)
+{
+    const tls_backend_ops *ops = tls_backend_get_ops();
+    if (ops->get_session_ticket == NULL) {
+        *len = 0;
+        return TLS_BACKEND_ERROR;
+    }
+    return ops->get_session_ticket(ctx, ticket, len);
+}
+
 #else /* !GSS_TLS_BOTH */
 
 /*

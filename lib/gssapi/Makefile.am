@@ -16,6 +16,7 @@ AM_CPPFLAGS += \
 	-I$(srcdir)/spnego \
 	-I$(srcdir)/sanon \
 	-I$(srcdir)/tls \
+	-I$(srcdir)/jwt \
 	$(INCLUDE_libintl) \
 	$(INCLUDE_s2n)
 
@@ -235,6 +236,16 @@ tlssrc = \
 	tls/tls_locl.h \
 	tls/tls-private.h
 
+jwtsrc = \
+	jwt/accept_sec_context.c \
+	jwt/cred.c \
+	jwt/external.c \
+	jwt/init_sec_context.c \
+	jwt/sts.c \
+	jwt/stubs.c \
+	jwt/jwt_locl.h \
+	jwt/jwt-private.h
+
 # TLS backend sources
 # When GSS_TLS_BOTH is set, both backends are compiled and selected at runtime
 # via the GSS_TLS_BACKEND environment variable.
@@ -255,7 +266,8 @@ dist_libgssapi_la_SOURCES  = \
 	$(spnegosrc) \
 	$(sanonsrc) \
 	$(tlssrc) \
-	$(tlsbackendsrc)
+	$(tlsbackendsrc) \
+	$(jwtsrc)
 
 nodist_libgssapi_la_SOURCES  = \
 	$(BUILT_SOURCES)
@@ -298,7 +310,8 @@ noinst_HEADERS = \
 	$(srcdir)/spnego/spnego-private.h \
 	$(srcdir)/sanon/sanon-private.h \
 	$(srcdir)/krb5/gsskrb5-private.h \
-	$(srcdir)/tls/tls-private.h
+	$(srcdir)/tls/tls-private.h \
+	$(srcdir)/jwt/jwt-private.h
 
 nobase_include_HEADERS = \
 	gssapi/gssapi.h \
@@ -328,7 +341,8 @@ BUILTHEADERS = \
 	$(srcdir)/krb5/gsskrb5-private.h \
 	$(srcdir)/spnego/spnego-private.h \
 	$(srcdir)/sanon/sanon-private.h \
-	$(srcdir)/tls/tls-private.h
+	$(srcdir)/tls/tls-private.h \
+	$(srcdir)/jwt/jwt-private.h
 
 $(libgssapi_la_OBJECTS): $(BUILTHEADERS)
 $(test_context_OBJECTS): $(BUILTHEADERS)
@@ -384,6 +398,9 @@ $(srcdir)/sanon/sanon-private.h:
 
 $(srcdir)/tls/tls-private.h:
 	cd $(srcdir) && perl ../../cf/make-proto.pl -q -P comment -p tls/tls-private.h $(tlssrc) || rm -f tls/tls-private.h
+
+$(srcdir)/jwt/jwt-private.h:
+	cd $(srcdir) && perl ../../cf/make-proto.pl -q -P comment -p jwt/jwt-private.h $(jwtsrc) || rm -f jwt/jwt-private.h
 
 TESTS = test_oid test_names test_cfx
 # test_sequence

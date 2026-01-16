@@ -105,6 +105,26 @@ typedef struct tls_backend_config {
 
     unsigned int require_client_cert : 1;  /* Server: require client cert */
     unsigned int verify_peer : 1;          /* Verify peer certificate */
+
+    /*
+     * Session resumption and 0-RTT early data
+     *
+     * For TLS 1.3 session resumption:
+     * - Client provides session_ticket from previous connection
+     * - If resumption succeeds, client can send early_data with ClientHello
+     *
+     * Security considerations for 0-RTT early data:
+     * - Not forward-secret (uses PSK-derived keys)
+     * - Replayable by network attacker (server must handle idempotency)
+     * - For JWT, replay protection comes from exp/jti claims
+     */
+    const uint8_t *session_ticket;         /* Session ticket for resumption */
+    size_t session_ticket_len;             /* Length of session ticket */
+
+    const uint8_t *early_data;             /* Data to send as 0-RTT (client) */
+    size_t early_data_len;                 /* Length of early data */
+
+    size_t max_early_data_size;            /* Max early data to accept (server) */
 } tls_backend_config;
 
 /*
@@ -238,6 +258,66 @@ void
 tls_backend_destroy(tls_backend_ctx ctx);
 
 /*
+ * 0-RTT Early Data and Session Resumption
+ *
+ * These functions support TLS 1.3 session resumption and 0-RTT early data.
+ * Early data allows sending application data with the ClientHello, reducing
+ * latency for resumed sessions.
+ */
+
+/* Early data status */
+typedef enum {
+    TLS_EARLY_DATA_NOT_REQUESTED = 0, /* No early data was offered */
+    TLS_EARLY_DATA_REJECTED = 1,      /* Early data was rejected by peer */
+    TLS_EARLY_DATA_ACCEPTED = 2       /* Early data was accepted */
+} tls_early_data_status;
+
+/*
+ * Check early data status after handshake
+ *
+ * Call after handshake completes to determine if early data was accepted.
+ * If rejected, the application should re-send the data normally.
+ *
+ * @param ctx         Backend context
+ * @return Early data status
+ */
+tls_early_data_status
+tls_backend_get_early_data_status(tls_backend_ctx ctx);
+
+/*
+ * Get received early data (server side)
+ *
+ * After handshake completes on server, retrieve any early data sent by client.
+ * Should be called before processing normal application data.
+ *
+ * @param ctx         Backend context
+ * @param data        Output buffer for early data
+ * @param len         Input: buffer size; Output: bytes written
+ * @return TLS_BACKEND_OK if early data available, TLS_BACKEND_EOF if none
+ */
+tls_backend_status
+tls_backend_get_early_data(tls_backend_ctx ctx,
+                           uint8_t *data,
+                           size_t *len);
+
+/*
+ * Get session ticket for future resumption
+ *
+ * After handshake completes, retrieve the session ticket (if any).
+ * Store this and provide it in tls_backend_config.session_ticket
+ * for future connections to enable resumption and 0-RTT.
+ *
+ * @param ctx         Backend context
+ * @param ticket      Output buffer for session ticket
+ * @param len         Input: buffer size; Output: bytes written
+ * @return TLS_BACKEND_OK on success, TLS_BACKEND_ERROR if no ticket
+ */
+tls_backend_status
+tls_backend_get_session_ticket(tls_backend_ctx ctx,
+                               uint8_t *ticket,
+                               size_t *len);
+
+/*
  * I/O buffer helper functions
  */
 
@@ -312,6 +392,13 @@ struct tls_backend_ops {
     tls_backend_status (*get_cb_exporter)(tls_backend_ctx ctx,
                                           uint8_t *cb_data,
                                           size_t *cb_len);
+
+    /* 0-RTT early data and session resumption */
+    tls_early_data_status (*get_early_data_status)(tls_backend_ctx ctx);
+    tls_backend_status (*get_early_data)(tls_backend_ctx ctx,
+                                         uint8_t *data, size_t *len);
+    tls_backend_status (*get_session_ticket)(tls_backend_ctx ctx,
+                                             uint8_t *ticket, size_t *len);
 };
 
 /*

@@ -649,6 +649,7 @@ gssapi_mech_interface __gss_spnego_initialize(void);
 gssapi_mech_interface __gss_krb5_initialize(void);
 gssapi_mech_interface __gss_sanon_initialize(void);
 gssapi_mech_interface __gss_tls_initialize(void);
+gssapi_mech_interface __gss_jwt_initialize(void);
 
 void		gss_mg_collect_error(gss_OID, OM_uint32, OM_uint32);
 

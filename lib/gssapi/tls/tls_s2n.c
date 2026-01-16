@@ -79,6 +79,9 @@
 #define tls_backend_get_cb_server_end_point tls_backend_s2n_get_cb_server_end_point
 #define tls_backend_get_cb_unique tls_backend_s2n_get_cb_unique
 #define tls_backend_get_cb_exporter tls_backend_s2n_get_cb_exporter
+#define tls_backend_get_early_data_status tls_backend_s2n_get_early_data_status
+#define tls_backend_get_early_data tls_backend_s2n_get_early_data
+#define tls_backend_get_session_ticket tls_backend_s2n_get_session_ticket
 #else
 #define BACKEND_STATIC
 #endif
@@ -111,6 +114,18 @@ struct tls_backend_ctx {
     tls_backend_mode mode;        /* Client or server */
     unsigned int handshake_done : 1;
     unsigned int closed : 1;
+    unsigned int early_data_sent : 1;     /* Client sent early data */
+    unsigned int early_data_received : 1; /* Server received early data */
+
+    /* Early data buffer for client-side sending */
+    const uint8_t *early_data;    /* Data to send as 0-RTT */
+    size_t early_data_len;        /* Length of early data */
+    size_t early_data_written;    /* Bytes written so far */
+
+    /* Server-side received early data */
+    uint8_t *received_early_data; /* Buffer for received early data */
+    size_t received_early_data_len;
+    size_t received_early_data_capacity;
 
     char error_buf[256];          /* Last error message */
 };
@@ -514,6 +529,62 @@ tls_backend_init(tls_backend_ctx *pctx,
         goto fail;
     }
 
+    /*
+     * Session resumption and 0-RTT early data configuration
+     */
+
+    /* Enable session tickets for resumption */
+    if (s2n_config_set_session_tickets_onoff(ctx->config, 1) != 0) {
+        set_s2n_error(ctx, "s2n_config_set_session_tickets_onoff");
+        goto fail;
+    }
+
+    /* Server: set max early data size */
+    if (config->mode == TLS_BACKEND_SERVER && config->max_early_data_size > 0) {
+        if (s2n_config_set_server_max_early_data_size(ctx->config,
+                (uint32_t)config->max_early_data_size) != 0) {
+            set_s2n_error(ctx, "s2n_config_set_server_max_early_data_size");
+            goto fail;
+        }
+        heim_debug(ctx->hctx, 10, "TLS: server max early data size=%zu",
+                   config->max_early_data_size);
+    }
+
+    /* Client: set session ticket for resumption */
+    if (config->mode == TLS_BACKEND_CLIENT &&
+        config->session_ticket != NULL && config->session_ticket_len > 0) {
+        if (s2n_connection_set_session(ctx->conn,
+                config->session_ticket, config->session_ticket_len) != 0) {
+            set_s2n_error(ctx, "s2n_connection_set_session");
+            /* Non-fatal - continue without resumption */
+            heim_debug(ctx->hctx, 5, "TLS: failed to set session ticket for resumption");
+        } else {
+            heim_debug(ctx->hctx, 10, "TLS: configured session ticket for resumption (%zu bytes)",
+                       config->session_ticket_len);
+        }
+    }
+
+    /* Store early data for sending during handshake (client side) */
+    if (config->mode == TLS_BACKEND_CLIENT &&
+        config->early_data != NULL && config->early_data_len > 0) {
+        ctx->early_data = config->early_data;
+        ctx->early_data_len = config->early_data_len;
+        ctx->early_data_written = 0;
+        heim_debug(ctx->hctx, 10, "TLS: will send %zu bytes as early data",
+                   config->early_data_len);
+    }
+
+    /* Server: allocate buffer for receiving early data */
+    if (config->mode == TLS_BACKEND_SERVER && config->max_early_data_size > 0) {
+        ctx->received_early_data_capacity = config->max_early_data_size;
+        ctx->received_early_data = malloc(ctx->received_early_data_capacity);
+        if (ctx->received_early_data == NULL) {
+            snprintf(ctx->error_buf, sizeof(ctx->error_buf), "malloc failed");
+            goto fail;
+        }
+        ctx->received_early_data_len = 0;
+    }
+
     heim_debug(ctx->hctx, 10, "TLS: backend initialized successfully");
 
     *pctx = ctx;
@@ -526,6 +597,7 @@ fail:
     if (ctx->config)
         s2n_config_free(ctx->config);
     free(ctx->expected_hostname);
+    free(ctx->received_early_data);
     free(ctx);
     return TLS_BACKEND_ERROR;
 }
@@ -538,6 +610,37 @@ tls_backend_handshake(tls_backend_ctx ctx)
 
     if (ctx->handshake_done)
         return TLS_BACKEND_OK;
+
+    /*
+     * Client: send early data before/during handshake
+     *
+     * s2n_send_early_data() must be called before s2n_negotiate() completes.
+     * It will send data as TLS 1.3 0-RTT early data if we have a valid
+     * session ticket for resumption.
+     */
+    if (ctx->mode == TLS_BACKEND_CLIENT &&
+        ctx->early_data != NULL && !ctx->early_data_sent) {
+        ssize_t written = 0;
+
+        ret = s2n_send_early_data(ctx->conn,
+                                   ctx->early_data + ctx->early_data_written,
+                                   ctx->early_data_len - ctx->early_data_written,
+                                   &written, &blocked);
+        if (ret == 0 && written > 0) {
+            ctx->early_data_written += written;
+            heim_debug(ctx->hctx, 10, "TLS: sent %zd bytes as early data (total %zu/%zu)",
+                       written, ctx->early_data_written, ctx->early_data_len);
+        }
+        if (ctx->early_data_written >= ctx->early_data_len) {
+            ctx->early_data_sent = 1;
+            heim_debug(ctx->hctx, 5, "TLS: early data send complete");
+        }
+        if (ret != 0 && s2n_error_get_type(s2n_errno) != S2N_ERR_T_BLOCKED) {
+            /* Early data rejected or failed - not fatal, continue handshake normally */
+            ctx->early_data_sent = 1;  /* Don't retry */
+            heim_debug(ctx->hctx, 5, "TLS: early data not accepted, will send after handshake");
+        }
+    }
 
     ret = s2n_negotiate(ctx->conn, &blocked);
     heim_debug(ctx->hctx, 15, "TLS: s2n_negotiate returned %d", ret);
@@ -564,7 +667,35 @@ tls_backend_handshake(tls_backend_ctx ctx)
             return TLS_BACKEND_WANT_WRITE;
 
         case S2N_BLOCKED_ON_EARLY_DATA:
-            /* Early data not supported - treat as want read */
+            /*
+             * Server: blocked waiting for early data to be read.
+             * Read all available early data before continuing handshake.
+             */
+            if (ctx->mode == TLS_BACKEND_SERVER &&
+                ctx->received_early_data != NULL &&
+                !ctx->early_data_received) {
+                ssize_t bytes_read = 0;
+                size_t remaining = ctx->received_early_data_capacity -
+                                   ctx->received_early_data_len;
+
+                ret = s2n_recv_early_data(ctx->conn,
+                        ctx->received_early_data + ctx->received_early_data_len,
+                        remaining, &bytes_read, &blocked);
+                if (ret == 0 && bytes_read > 0) {
+                    ctx->received_early_data_len += bytes_read;
+                    heim_debug(ctx->hctx, 10, "TLS: received %zd bytes early data (total %zu)",
+                               bytes_read, ctx->received_early_data_len);
+                }
+                if (blocked != S2N_BLOCKED_ON_EARLY_DATA) {
+                    /* Done reading early data */
+                    ctx->early_data_received = 1;
+                    heim_debug(ctx->hctx, 5, "TLS: early data receive complete (%zu bytes)",
+                               ctx->received_early_data_len);
+                }
+            }
+            /* Need more input to continue */
+            if (ctx->send_buf->len > 0)
+                return TLS_BACKEND_WANT_WRITE;
             return TLS_BACKEND_WANT_READ;
 
         case S2N_BLOCKED_ON_APPLICATION_INPUT:
@@ -771,6 +902,7 @@ tls_backend_destroy(tls_backend_ctx ctx)
     if (ctx->config)
         s2n_config_free(ctx->config);
     free(ctx->expected_hostname);
+    free(ctx->received_early_data);
     free(ctx);
 }
 
@@ -1005,6 +1137,109 @@ tls_backend_get_cb_exporter(tls_backend_ctx ctx,
 }
 
 /*
+ * 0-RTT Early Data and Session Resumption
+ */
+
+BACKEND_STATIC tls_early_data_status
+tls_backend_get_early_data_status(tls_backend_ctx ctx)
+{
+    s2n_early_data_status_t status;
+
+    if (!ctx->handshake_done)
+        return TLS_EARLY_DATA_NOT_REQUESTED;
+
+    if (s2n_connection_get_early_data_status(ctx->conn, &status) != 0)
+        return TLS_EARLY_DATA_NOT_REQUESTED;
+
+    switch (status) {
+    case S2N_EARLY_DATA_STATUS_OK:
+        return TLS_EARLY_DATA_ACCEPTED;
+    case S2N_EARLY_DATA_STATUS_REJECTED:
+        return TLS_EARLY_DATA_REJECTED;
+    case S2N_EARLY_DATA_STATUS_NOT_REQUESTED:
+    case S2N_EARLY_DATA_STATUS_END:
+    default:
+        return TLS_EARLY_DATA_NOT_REQUESTED;
+    }
+}
+
+BACKEND_STATIC tls_backend_status
+tls_backend_get_early_data(tls_backend_ctx ctx,
+                           uint8_t *data,
+                           size_t *len)
+{
+    size_t buflen = *len;
+    *len = 0;
+
+    /* Server side only */
+    if (ctx->mode != TLS_BACKEND_SERVER) {
+        snprintf(ctx->error_buf, sizeof(ctx->error_buf),
+                 "get_early_data only valid for server");
+        return TLS_BACKEND_ERROR;
+    }
+
+    if (ctx->received_early_data == NULL || ctx->received_early_data_len == 0) {
+        /* No early data received */
+        return TLS_BACKEND_EOF;
+    }
+
+    /* Copy the received early data */
+    if (buflen > ctx->received_early_data_len)
+        buflen = ctx->received_early_data_len;
+
+    memcpy(data, ctx->received_early_data, buflen);
+    *len = buflen;
+
+    heim_debug(ctx->hctx, 10, "TLS: returning %zu bytes of early data", buflen);
+
+    return TLS_BACKEND_OK;
+}
+
+BACKEND_STATIC tls_backend_status
+tls_backend_get_session_ticket(tls_backend_ctx ctx,
+                               uint8_t *ticket,
+                               size_t *len)
+{
+    int session_len;
+    size_t buflen = *len;
+
+    *len = 0;
+
+    if (!ctx->handshake_done) {
+        snprintf(ctx->error_buf, sizeof(ctx->error_buf),
+                 "Handshake not complete");
+        return TLS_BACKEND_ERROR;
+    }
+
+    /* Get required session length */
+    session_len = s2n_connection_get_session_length(ctx->conn);
+    if (session_len <= 0) {
+        snprintf(ctx->error_buf, sizeof(ctx->error_buf),
+                 "No session ticket available");
+        return TLS_BACKEND_ERROR;
+    }
+
+    if (buflen < (size_t)session_len) {
+        snprintf(ctx->error_buf, sizeof(ctx->error_buf),
+                 "Buffer too small for session ticket (need %d bytes)",
+                 session_len);
+        return TLS_BACKEND_ERROR;
+    }
+
+    /* Get session data */
+    if (s2n_connection_get_session(ctx->conn, ticket, buflen) != session_len) {
+        set_s2n_error(ctx, "s2n_connection_get_session");
+        return TLS_BACKEND_ERROR;
+    }
+
+    *len = (size_t)session_len;
+
+    heim_debug(ctx->hctx, 10, "TLS: retrieved session ticket (%zu bytes)", *len);
+
+    return TLS_BACKEND_OK;
+}
+
+/*
  * Backend vtable for runtime dispatch
  */
 const tls_backend_ops tls_backend_s2n_ops = {
@@ -1023,6 +1258,9 @@ const tls_backend_ops tls_backend_s2n_ops = {
     .get_cb_server_end_point = tls_backend_get_cb_server_end_point,
     .get_cb_unique = tls_backend_get_cb_unique,
     .get_cb_exporter = tls_backend_get_cb_exporter,
+    .get_early_data_status = tls_backend_get_early_data_status,
+    .get_early_data = tls_backend_get_early_data,
+    .get_session_ticket = tls_backend_get_session_ticket,
 };
 
 #endif /* GSS_TLS_S2N */
