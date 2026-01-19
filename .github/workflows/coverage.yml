@@ -1,0 +1,57 @@
+name: Test Coverage
+
+on:
+    push:
+      branches:
+         - 'coverage-*'
+
+jobs:
+    coverage:
+        runs-on: ubuntu-22.04
+        steps:
+            - name: Clone repository
+              uses: actions/checkout@v4
+            - name: Install packages
+              run: |
+                sudo apt-get update -qq
+                sudo apt-get install -y bison comerr-dev flex doxygen
+                sudo apt-get install -y libcap-ng-dev libdb-dev libedit-dev libjson-perl
+                sudo apt-get install -y libldap2-dev libncurses5-dev libperl4-corelibs-perl
+                sudo apt-get install -y libsqlite3-dev libkeyutils-dev pkg-config python3
+                sudo apt-get install -y ss-dev texinfo unzip netbase keyutils ldap-utils
+                sudo apt-get install -y gdb apport curl libmicrohttpd-dev jq valgrind
+                sudo apt-get install -y lcov
+                # Temporary workaround for:
+                # https://github.com/actions/virtual-environments/issues/3185
+                sudo hostname localhost
+            - name: Build with coverage
+              env:
+                CC: gcc
+                CFLAGS: '--coverage -O0 -g'
+                LDFLAGS: '--coverage'
+              run: |
+                /bin/sh ./autogen.sh
+                mkdir build
+                cd build
+                ../configure --srcdir=`dirname "$PWD"` --enable-maintainer-mode --enable-developer --with-ldap --prefix=$HOME/inst CFLAGS="$CFLAGS" LDFLAGS="$LDFLAGS"
+                make -j4
+            - name: Test
+              run: |
+                cd build
+                sudo sysctl kernel.core_pattern=core.%p || true
+                ulimit -c unlimited
+                make check || true
+            - name: Generate coverage report
+              run: |
+                cd build
+                # Capture coverage data
+                lcov --capture --directory . --output-file coverage.info --ignore-errors source
+                # Remove coverage for system headers and generated files
+                lcov --remove coverage.info '/usr/*' '*/build/*asn1*' '*/build/*_err.*' --output-file coverage.info --ignore-errors unused
+                # List coverage summary
+                lcov --list coverage.info
+            - name: Upload to Coveralls
+              uses: coverallsapp/github-action@v2
+              with:
+                file: build/coverage.info
+                format: lcov
