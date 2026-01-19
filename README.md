@@ -1,7 +1,6 @@
 [![GitHub Build Workflow](https://github.com/heimdal/heimdal/actions/workflows/linux.yml/badge.svg)](https://github.com/heimdal/heimdal/actions?query=workflow%3Alinux)
 [![GitHub Build Workflow](https://github.com/heimdal/heimdal/actions/workflows/osx.yml/badge.svg)](https://github.com/heimdal/heimdal/actions?query=workflow%3Aosx)
 [![GitHub Build Workflow](https://github.com/heimdal/heimdal/actions/workflows/windows.yml/badge.svg)](https://github.com/heimdal/heimdal/actions?query=workflow%3Awindows)
-[![Coverage Status](https://coveralls.io/repos/github/heimdal/heimdal/badge.svg?branch=master)](https://coveralls.io/github/heimdal/heimdal?branch=master)
 
 Heimdal
 =======
@@ -34,4 +33,3 @@ Build Status
 [![GitHub Build Workflow](https://github.com/heimdal/heimdal/actions/workflows/linux.yml/badge.svg)](https://github.com/heimdal/heimdal/actions?query=workflow%3Alinux)
 [![GitHub Build Workflow](https://github.com/heimdal/heimdal/actions/workflows/osx.yml/badge.svg)](https://github.com/heimdal/heimdal/actions?query=workflow%3Aosx)
 [![GitHub Build Workflow](https://github.com/heimdal/heimdal/actions/workflows/windows.yml/badge.svg)](https://github.com/heimdal/heimdal/actions?query=workflow%3Awindows)
-[![Coverage Status](https://coveralls.io/repos/github/heimdal/heimdal/badge.svg?branch=master)](https://coveralls.io/github/heimdal/heimdal?branch=master)
