@@ -46,6 +46,9 @@ _gss_sanon_acquire_cred_from(OM_uint32 *minor,
 {
     *minor = 0;
 
+    if (desired_name == GSS_C_NO_NAME)
+        return GSS_S_NO_CRED;
+
     if (desired_name == GSS_C_NO_NAME ||
 	desired_name == _gss_sanon_anonymous_identity)
 	*output_cred_handle = _gss_sanon_anonymous_cred;

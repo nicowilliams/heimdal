@@ -146,8 +146,8 @@ ${kdestroy}
 
 for mech in sanon-x25519 spnego ; do
     echo "Trying ${mech} pre-authentication with FAST armor"; > messages.log
-    ${kinit} --fast-armor-cache=${acache} \
-	--anonymous --gss-mech=${mech} @$R 2>/dev/null || \
+    ${kinit} --fast-armor-cache=${acache} --anonymous \
+	--gss-mech=${mech} --gss-name=anonymous @$R 2>/dev/null  || \
 	{ ec=1 ; eval "${testfailed}"; }
 
     echo "Getting service ticket"
@@ -155,8 +155,8 @@ for mech in sanon-x25519 spnego ; do
     ${kdestroy}
 
     echo "Trying ${mech} pre-authentication with anonymous FAST armor"; > messages.log
-    ${kinit} --pk-anon-fast-armor \
-	--anonymous --gss-mech=${mech} @$R 2>/dev/null || \
+    ${kinit} --pk-anon-fast-armor --anonymous \
+	--gss-mech=${mech} --gss-name=anonymous @$R 2>/dev/null || \
 	{ ec=1 ; eval "${testfailed}"; }
 
     echo "Getting service ticket"
@@ -164,8 +164,8 @@ for mech in sanon-x25519 spnego ; do
     ${kdestroy}
 
     echo "Trying ${mech} pre-authentication with no FAST armor"; > messages.log
-    ${kinit} \
-	--anonymous --gss-mech=${mech} @$R 2>/dev/null && \
+    ${kinit} --anonymous \
+	----gss-mech=${mech} --gss-name=anonymous @$R 2>/dev/null && \
 	{ ec=1 ; eval "${testfailed}"; }
 done
 
