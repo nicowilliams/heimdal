@@ -23,8 +23,6 @@ on:
          - '**/INSTALL'
          - '**/README*'
          - '.github/workflows/linux.yml'
-         - '!appveyor.yml'
-         - '!.travis.yml'
 
     pull_request:
       paths:
@@ -45,8 +43,6 @@ on:
          - '**/INSTALL'
          - '**/README*'
          - '.github/workflows/linux.yml'
-         - '!appveyor.yml'
-         - '!.travis.yml'
 
 jobs:
     unix:

@@ -61,9 +61,7 @@ hx509_TEXINFOS = \
 
 MAKEINFOFLAGS = --css-include=$(SRCDIR)/heimdal.css
 
-!ifdef APPVEYOR
-MAKEINFO = $(PERL) C:\msys64\usr\bin\makeinfo
-!endif
+# MAKEINFO = $(PERL) C:\msys64\usr\bin\makeinfo
 
 ######################################################################
 # Build heimdal.chm

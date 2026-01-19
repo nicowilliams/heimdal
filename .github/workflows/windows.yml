@@ -23,8 +23,6 @@ on:
          - '**/INSTALL'
          - '**/README*'
          - '.github/workflows/windows.yml'
-         - '!appveyor.yml'
-         - '!.travis.yml'
 
     pull_request:
       paths:
@@ -44,8 +42,6 @@ on:
          - '**/INSTALL'
          - '**/README*'
          - '.github/workflows/windows.yml'
-         - '!appveyor.yml'
-         - '!.travis.yml'
 
 jobs:
     windows:
