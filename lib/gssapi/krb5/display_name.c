@@ -46,6 +46,16 @@ OM_uint32 GSSAPI_CALLCONV _gsskrb5_display_name
     char *buf;
     size_t len;
 
+    output_name_buffer->length = 0;
+    output_name_buffer->value  = NULL;
+    if (output_name_type)
+        *output_name_type = GSS_C_NO_OID;
+
+    if (input_name == GSS_C_NO_NAME) {
+        *minor_status = EINVAL;
+        return GSS_S_CALL_INACCESSIBLE_READ;
+    }
+
     GSSAPI_KRB5_INIT (&context);
 
     kret = krb5_unparse_name_flags (context, name,
