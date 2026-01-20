@@ -2210,7 +2210,7 @@ out:
     }
     free_LastReq(&r->ek.last_req);
     if (r->et.key.keyvalue.data) {
-	memset_s(r->et.key.keyvalue.data, 0, r->et.key.keyvalue.length,
+	memset_s(r->et.key.keyvalue.data, r->et.key.keyvalue.length, 0,
 		 r->et.key.keyvalue.length);
     }
     free_EncryptionKey(&r->et.key);

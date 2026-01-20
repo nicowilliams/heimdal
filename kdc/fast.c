@@ -844,8 +844,8 @@ _kdc_free_fast_state(KDCFastState *state)
 	PA_DATA *pa = &state->fast_state.val[i];
 
 	if (pa->padata_value.data)
-	    memset_s(pa->padata_value.data, 0,
-		     pa->padata_value.length, pa->padata_value.length);
+	    memset_s(pa->padata_value.data, pa->padata_value.length,
+		     0, pa->padata_value.length);
     }
     free_KDCFastState(state);
 }
