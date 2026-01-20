@@ -137,6 +137,7 @@ cpw -r krbtgt/${R}@${R}
 cpw -r krbtgt/${R}@${R}
 cpw -r krbtgt/${R}@${R}
 add -p foo --use-defaults foo@${R}
+modify --alias=foo-alias@${R} foo@${R}
 add -p foo --use-defaults foo/host.${r}@${R}
 add -p foo --use-defaults foo@${R2}
 add -p foo --use-defaults foo@${R3}
@@ -1016,6 +1017,15 @@ ${kinit} --renewable --password-file=${objdir}/foopassword foo@$R || \
 echo "test_renew"
 env KRB5CCNAME=${cache} ${test_renew} || \
 	{ ec=1 ; eval "${testfailed}"; }
+${kdestroy}
+
+echo "checking client principal alias"; > messages.log
+${kinit} --password-file=${objdir}/foopassword foo-alias@${R} || \
+	{ ec=1 ; eval "${testfailed}"; }
+${klist} | grep "Principal: foo@${R}" > /dev/null || \
+	{ ec=1 ; eval "${testfailed}"; }
+echo "Getting tickets with aliased client"
+${kgetcred} ${server}@${R} || { ec=1 ; eval "${testfailed}"; }
 ${kdestroy}
 
 echo "checking server aliases"; > messages.log

@@ -353,14 +353,24 @@ _hdb_fetch_kvno(krb5_context context, HDB *db, krb5_const_principal principal,
                                          "same_realm_aliases_are_soft", NULL))
             return 0;
 
-        /* EPNs are always soft */
-        if (principal->name.name_type != KRB5_NT_ENTERPRISE_PRINCIPAL) {
-            krb5_free_principal(context, entry->principal);
-            ret = krb5_copy_principal(context, principal, &entry->principal);
-            if (ret) {
-                hdb_free_entry(context, db, entry);
-                return ret;
-            }
+        /*
+         * For client principal lookups, keep the canonical name so the
+         * client knows their true identity.  For server lookups, use the
+         * alias name so the ticket contains the name the client requested.
+         *
+         * EPNs are always soft.
+         */
+        if ((flags & HDB_F_GET_CLIENT) ||
+            principal->name.name_type == KRB5_NT_ENTERPRISE_PRINCIPAL) {
+            entry->flags.force_canonicalize = 1;
+            return 0;
+        }
+
+        krb5_free_principal(context, entry->principal);
+        ret = krb5_copy_principal(context, principal, &entry->principal);
+        if (ret) {
+            hdb_free_entry(context, db, entry);
+            return ret;
         }
         return 0;
     }
