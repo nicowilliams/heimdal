@@ -108,8 +108,10 @@ all:: asm-krb
 clean::
 	-$(RM) $(ASMKRBDIR)\*.*
 
+!ifndef GHA
 test::
 	$(MT) -manifest $(ASMKRBDIR)\$(ASMKRBMAN) -validate_manifest
+!endif
 
 {$(BINDIR)}.dll{$(ASMKRBDIR)}.dll:
 	$(CP) $< $@
@@ -132,8 +134,10 @@ $(APPMANIFEST): Heimdal.Application.manifest.in
 		-e "s,[@]cpu[@],$(MCPU),g" \
 		-e "s,[@]pkt[@],$(CODESIGN_PKT),g" < $** > $@
 
+!ifndef GHA
 test::
 	$(MT) -manifest $(APPMANIFEST) -validate_manifest
+!endif
 
 # ----------------------------------------------------------------------
 # Publisher configuration files

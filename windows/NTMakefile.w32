@@ -249,7 +249,11 @@ RC2RES = $(RC2RES_C) -fo $@ $**
 
 REQUIRED_TOOLS= \
 	"$(AWK_CMD)" "$(YACC_CMD)" "$(LEX_CMD)" "$(PYTHON)" "$(PERL)" \
-	"$(CMP)" "$(SED)" "$(MAKECAT)" "$(MAKEINFO)" "$(HHC)"
+	"$(CMP)" "$(SED)" "$(MAKECAT)"
+
+!ifndef GHA
+REQUIRED_TOOLS=$(REQUIRED_TOOLS) "$(MAKEINFO)" "$(HHC)"
+!endif
 
 !ifdef BUILD_INSTALLERS
 REQUIRED_TOOLS=$(REQUIRED_TOOLS) "$(CANDLE_CMD)" "$(LIGHT_CMD)"
