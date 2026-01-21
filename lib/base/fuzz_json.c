@@ -50,6 +50,8 @@
 #include <string.h>
 
 #include <heimbase.h>
+#include <getarg.h>
+#include <roken.h>
 
 /* libFuzzer entry points */
 int LLVMFuzzerInitialize(int *argc, char ***argv);
@@ -158,23 +160,56 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
  * Standalone mode for testing without libFuzzer.
  * Reads input from stdin or file arguments.
  */
+
+static int help_flag;
+static int version_flag;
+
+static struct getargs args[] = {
+    { "help",    'h', arg_flag, &help_flag,    "Print help message", NULL },
+    { "version",  0,  arg_flag, &version_flag, "Print version",      NULL }
+};
+
+static void
+usage(int ret)
+{
+    arg_printusage(args, sizeof(args)/sizeof(args[0]), NULL, "[FILE...]");
+    exit(ret);
+}
+
 int main(int argc, char **argv)
 {
     uint8_t buf[256 * 1024];
     size_t len;
     FILE *fp;
     int i;
+    int optidx = 0;
+
+    setprogname(argv[0]);
+
+    if (getarg(args, sizeof(args)/sizeof(args[0]), argc, argv, &optidx))
+        usage(1);
+
+    if (help_flag)
+        usage(0);
+
+    if (version_flag) {
+        print_version(NULL);
+        exit(0);
+    }
+
+    argc -= optidx;
+    argv += optidx;
 
     LLVMFuzzerInitialize(&argc, &argv);
 
-    if (argc < 2) {
+    if (argc < 1) {
         /* Read from stdin */
         len = fread(buf, 1, sizeof(buf), stdin);
         if (len > 0)
             LLVMFuzzerTestOneInput(buf, len);
     } else {
         /* Read from each file argument */
-        for (i = 1; i < argc; i++) {
+        for (i = 0; i < argc; i++) {
             fp = fopen(argv[i], "rb");
             if (fp == NULL)
                 continue;
