@@ -600,6 +600,7 @@ main(int argc, char **argv)
 	unsigned maxchildbudget = 8, childbudget = maxchildbudget;
 	sigset_t mask, omask;
 
+        setprogname(argv[0]);
         if (getarg(args, sizeof(args)/sizeof(args[0]), argc, argv, &optidx)) {
                 arg_printusage(args, sizeof(args)/sizeof(args[0]), NULL,
                                "listenport matchhost matchport matchuser host port");
