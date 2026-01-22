@@ -30,6 +30,7 @@
 ** the version number) and changes its name to "sqlite3.h" as
 ** part of the build process.
 */
+#include "sqlite3_namespace.h"
 #ifndef SQLITE3_H
 #define SQLITE3_H
 #include <stdarg.h>     /* Needed for the definition of va_list */

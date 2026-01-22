@@ -1,0 +1,479 @@
+/*
+ * Copyright (c) 2025 Kungliga Tekniska Högskolan
+ * (Royal Institute of Technology, Stockholm, Sweden).
+ * All rights reserved.
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions
+ * are met:
+ *
+ * 1. Redistributions of source code must retain the above copyright
+ *    notice, this list of conditions and the following disclaimer.
+ *
+ * 2. Redistributions in binary form must reproduce the above copyright
+ *    notice, this list of conditions and the following disclaimer in the
+ *    documentation and/or other materials provided with the distribution.
+ *
+ * 3. Neither the name of the Institute nor the names of its contributors
+ *    may be used to endorse or promote products derived from this software
+ *    without specific prior written permission.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE INSTITUTE AND CONTRIBUTORS ``AS IS'' AND
+ * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+ * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+ * ARE DISCLAIMED.  IN NO EVENT SHALL THE INSTITUTE OR CONTRIBUTORS BE LIABLE
+ * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+ * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
+ * OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
+ * HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
+ * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
+ * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
+ * SUCH DAMAGE.
+ */
+
+/*
+ * This header renames all public SQLite3 symbols to use a heim_ prefix
+ * to avoid symbol conflicts when both libheimsqlite and libsqlite3 are
+ * loaded in the same process.
+ *
+ * This file is auto-generated. To regenerate:
+ *   grep '^SQLITE_API' lib/sqlite/sqlite3.c | grep -oE 'sqlite3[a-zA-Z0-9_]*' | sort -u > /tmp/funcs.txt
+ *   grep -E '^typedef' lib/sqlite/sqlite3.h | grep -oE 'sqlite3[a-zA-Z0-9_]*' | sort -u > /tmp/types.txt
+ *   cat /tmp/funcs.txt /tmp/types.txt | sort -u | while read sym; do echo "#define $sym heim_$sym"; done
+ */
+
+#ifndef SQLITE3_NAMESPACE_H
+#define SQLITE3_NAMESPACE_H
+
+#define sqlite3 heim_sqlite3
+#define sqlite3_activate_cerod heim_sqlite3_activate_cerod
+#define sqlite3_aggregate_context heim_sqlite3_aggregate_context
+#define sqlite3_aggregate_count heim_sqlite3_aggregate_count
+#define sqlite3_api_routines heim_sqlite3_api_routines
+#define sqlite3_auto_extension heim_sqlite3_auto_extension
+#define sqlite3_backup heim_sqlite3_backup
+#define sqlite3_backup_finish heim_sqlite3_backup_finish
+#define sqlite3_backup_init heim_sqlite3_backup_init
+#define sqlite3_backup_pagecount heim_sqlite3_backup_pagecount
+#define sqlite3_backup_remaining heim_sqlite3_backup_remaining
+#define sqlite3_backup_step heim_sqlite3_backup_step
+#define sqlite3_bind_blob heim_sqlite3_bind_blob
+#define sqlite3_bind_blob64 heim_sqlite3_bind_blob64
+#define sqlite3_bind_double heim_sqlite3_bind_double
+#define sqlite3_bind_int heim_sqlite3_bind_int
+#define sqlite3_bind_int64 heim_sqlite3_bind_int64
+#define sqlite3_bind_null heim_sqlite3_bind_null
+#define sqlite3_bind_parameter_count heim_sqlite3_bind_parameter_count
+#define sqlite3_bind_parameter_index heim_sqlite3_bind_parameter_index
+#define sqlite3_bind_parameter_name heim_sqlite3_bind_parameter_name
+#define sqlite3_bind_pointer heim_sqlite3_bind_pointer
+#define sqlite3_bind_text heim_sqlite3_bind_text
+#define sqlite3_bind_text16 heim_sqlite3_bind_text16
+#define sqlite3_bind_text64 heim_sqlite3_bind_text64
+#define sqlite3_bind_value heim_sqlite3_bind_value
+#define sqlite3_bind_zeroblob heim_sqlite3_bind_zeroblob
+#define sqlite3_bind_zeroblob64 heim_sqlite3_bind_zeroblob64
+#define sqlite3_blob heim_sqlite3_blob
+#define sqlite3_blob_bytes heim_sqlite3_blob_bytes
+#define sqlite3_blob_close heim_sqlite3_blob_close
+#define sqlite3_blob_open heim_sqlite3_blob_open
+#define sqlite3_blob_read heim_sqlite3_blob_read
+#define sqlite3_blob_reopen heim_sqlite3_blob_reopen
+#define sqlite3_blob_write heim_sqlite3_blob_write
+#define sqlite3_busy_handler heim_sqlite3_busy_handler
+#define sqlite3_busy_timeout heim_sqlite3_busy_timeout
+#define sqlite3_callback heim_sqlite3_callback
+#define sqlite3_cancel_auto_extension heim_sqlite3_cancel_auto_extension
+#define sqlite3_changegroup heim_sqlite3_changegroup
+#define sqlite3changegroup_add heim_sqlite3changegroup_add
+#define sqlite3changegroup_add_strm heim_sqlite3changegroup_add_strm
+#define sqlite3changegroup_delete heim_sqlite3changegroup_delete
+#define sqlite3changegroup_new heim_sqlite3changegroup_new
+#define sqlite3changegroup_output heim_sqlite3changegroup_output
+#define sqlite3changegroup_output_strm heim_sqlite3changegroup_output_strm
+#define sqlite3_changes heim_sqlite3_changes
+#define sqlite3changeset_apply heim_sqlite3changeset_apply
+#define sqlite3changeset_apply_strm heim_sqlite3changeset_apply_strm
+#define sqlite3changeset_apply_v2 heim_sqlite3changeset_apply_v2
+#define sqlite3changeset_apply_v2_strm heim_sqlite3changeset_apply_v2_strm
+#define sqlite3changeset_concat heim_sqlite3changeset_concat
+#define sqlite3changeset_concat_strm heim_sqlite3changeset_concat_strm
+#define sqlite3changeset_conflict heim_sqlite3changeset_conflict
+#define sqlite3changeset_finalize heim_sqlite3changeset_finalize
+#define sqlite3changeset_fk_conflicts heim_sqlite3changeset_fk_conflicts
+#define sqlite3changeset_invert heim_sqlite3changeset_invert
+#define sqlite3changeset_invert_strm heim_sqlite3changeset_invert_strm
+#define sqlite3_changeset_iter heim_sqlite3_changeset_iter
+#define sqlite3changeset_new heim_sqlite3changeset_new
+#define sqlite3changeset_next heim_sqlite3changeset_next
+#define sqlite3changeset_old heim_sqlite3changeset_old
+#define sqlite3changeset_op heim_sqlite3changeset_op
+#define sqlite3changeset_pk heim_sqlite3changeset_pk
+#define sqlite3changeset_start heim_sqlite3changeset_start
+#define sqlite3changeset_start_strm heim_sqlite3changeset_start_strm
+#define sqlite3changeset_start_v2 heim_sqlite3changeset_start_v2
+#define sqlite3changeset_start_v2_strm heim_sqlite3changeset_start_v2_strm
+#define sqlite3_clear_bindings heim_sqlite3_clear_bindings
+#define sqlite3_close heim_sqlite3_close
+#define sqlite3Close heim_sqlite3Close
+#define sqlite3_close_v2 heim_sqlite3_close_v2
+#define sqlite3_collation_needed heim_sqlite3_collation_needed
+#define sqlite3_collation_needed16 heim_sqlite3_collation_needed16
+#define sqlite3_column_blob heim_sqlite3_column_blob
+#define sqlite3_column_bytes heim_sqlite3_column_bytes
+#define sqlite3_column_bytes16 heim_sqlite3_column_bytes16
+#define sqlite3_column_count heim_sqlite3_column_count
+#define sqlite3_column_database_name heim_sqlite3_column_database_name
+#define sqlite3_column_database_name16 heim_sqlite3_column_database_name16
+#define sqlite3_column_decltype heim_sqlite3_column_decltype
+#define sqlite3_column_decltype16 heim_sqlite3_column_decltype16
+#define sqlite3_column_double heim_sqlite3_column_double
+#define sqlite3_column_int heim_sqlite3_column_int
+#define sqlite3_column_int64 heim_sqlite3_column_int64
+#define sqlite3_column_name heim_sqlite3_column_name
+#define sqlite3_column_name16 heim_sqlite3_column_name16
+#define sqlite3_column_origin_name heim_sqlite3_column_origin_name
+#define sqlite3_column_origin_name16 heim_sqlite3_column_origin_name16
+#define sqlite3_column_table_name heim_sqlite3_column_table_name
+#define sqlite3_column_table_name16 heim_sqlite3_column_table_name16
+#define sqlite3_column_text heim_sqlite3_column_text
+#define sqlite3_column_text16 heim_sqlite3_column_text16
+#define sqlite3_column_type heim_sqlite3_column_type
+#define sqlite3_column_value heim_sqlite3_column_value
+#define sqlite3_commit_hook heim_sqlite3_commit_hook
+#define sqlite3_compileoption_get heim_sqlite3_compileoption_get
+#define sqlite3_compileoption_used heim_sqlite3_compileoption_used
+#define sqlite3_complete heim_sqlite3_complete
+#define sqlite3_complete16 heim_sqlite3_complete16
+#define sqlite3_config heim_sqlite3_config
+#define sqlite3_context heim_sqlite3_context
+#define sqlite3_context_db_handle heim_sqlite3_context_db_handle
+#define sqlite3_create_collation heim_sqlite3_create_collation
+#define sqlite3_create_collation16 heim_sqlite3_create_collation16
+#define sqlite3_create_collation_v2 heim_sqlite3_create_collation_v2
+#define sqlite3_create_filename heim_sqlite3_create_filename
+#define sqlite3_create_function heim_sqlite3_create_function
+#define sqlite3_create_function16 heim_sqlite3_create_function16
+#define sqlite3_create_function_v2 heim_sqlite3_create_function_v2
+#define sqlite3_create_module heim_sqlite3_create_module
+#define sqlite3_create_module_v2 heim_sqlite3_create_module_v2
+#define sqlite3_create_window_function heim_sqlite3_create_window_function
+#define sqlite3_current_time heim_sqlite3_current_time
+#define sqlite3_database_file_object heim_sqlite3_database_file_object
+#define sqlite3_data_count heim_sqlite3_data_count
+#define sqlite3_data_directory heim_sqlite3_data_directory
+#define sqlite3_db_cacheflush heim_sqlite3_db_cacheflush
+#define sqlite3_db_config heim_sqlite3_db_config
+#define sqlite3_db_filename heim_sqlite3_db_filename
+#define sqlite3_db_handle heim_sqlite3_db_handle
+#define sqlite3_db_mutex heim_sqlite3_db_mutex
+#define sqlite3_db_readonly heim_sqlite3_db_readonly
+#define sqlite3_db_release_memory heim_sqlite3_db_release_memory
+#define sqlite3_db_status heim_sqlite3_db_status
+#define sqlite3_declare_vtab heim_sqlite3_declare_vtab
+#define sqlite3_deserialize heim_sqlite3_deserialize
+#define sqlite3_destructor_type heim_sqlite3_destructor_type
+#define sqlite3_diskfull heim_sqlite3_diskfull
+#define sqlite3_diskfull_pending heim_sqlite3_diskfull_pending
+#define sqlite3_drop_modules heim_sqlite3_drop_modules
+#define sqlite3_enable_load_extension heim_sqlite3_enable_load_extension
+#define sqlite3_enable_shared_cache heim_sqlite3_enable_shared_cache
+#define sqlite3_errcode heim_sqlite3_errcode
+#define sqlite3_errmsg heim_sqlite3_errmsg
+#define sqlite3_errmsg16 heim_sqlite3_errmsg16
+#define sqlite3_errstr heim_sqlite3_errstr
+#define sqlite3_exec heim_sqlite3_exec
+#define sqlite3_expanded_sql heim_sqlite3_expanded_sql
+#define sqlite3_expired heim_sqlite3_expired
+#define sqlite3_extended_errcode heim_sqlite3_extended_errcode
+#define sqlite3_extended_result_codes heim_sqlite3_extended_result_codes
+#define sqlite3_file heim_sqlite3_file
+#define sqlite3_file_control heim_sqlite3_file_control
+#define sqlite3_filename_database heim_sqlite3_filename_database
+#define sqlite3_filename_journal heim_sqlite3_filename_journal
+#define sqlite3_filename_wal heim_sqlite3_filename_wal
+#define sqlite3_finalize heim_sqlite3_finalize
+#define sqlite3_found_count heim_sqlite3_found_count
+#define sqlite3_free heim_sqlite3_free
+#define sqlite3_free_filename heim_sqlite3_free_filename
+#define sqlite3_free_table heim_sqlite3_free_table
+#define sqlite3_fts3_enable_parentheses heim_sqlite3_fts3_enable_parentheses
+#define sqlite3_fts3_init heim_sqlite3_fts3_init
+#define sqlite3_fts3_may_be_corrupt heim_sqlite3_fts3_may_be_corrupt
+#define sqlite3_fts5_init heim_sqlite3_fts5_init
+#define sqlite3_fts5_may_be_corrupt heim_sqlite3_fts5_may_be_corrupt
+#define sqlite3_fts_init heim_sqlite3_fts_init
+#define sqlite3_fullsync_count heim_sqlite3_fullsync_count
+#define sqlite3_get_autocommit heim_sqlite3_get_autocommit
+#define sqlite3_get_auxdata heim_sqlite3_get_auxdata
+#define sqlite3_get_table heim_sqlite3_get_table
+#define sqlite3_global_recover heim_sqlite3_global_recover
+#define sqlite3_hard_heap_limit64 heim_sqlite3_hard_heap_limit64
+#define sqlite3_hostid_num heim_sqlite3_hostid_num
+#define sqlite3_icu_init heim_sqlite3_icu_init
+#define sqlite3_index_info heim_sqlite3_index_info
+#define sqlite3_initialize heim_sqlite3_initialize
+#define sqlite3_int64 heim_sqlite3_int64
+#define sqlite3_interrupt heim_sqlite3_interrupt
+#define sqlite3_interrupt_count heim_sqlite3_interrupt_count
+#define sqlite3_io_error_benign heim_sqlite3_io_error_benign
+#define sqlite3_io_error_hardhit heim_sqlite3_io_error_hardhit
+#define sqlite3_io_error_hit heim_sqlite3_io_error_hit
+#define sqlite3_io_error_pending heim_sqlite3_io_error_pending
+#define sqlite3_io_error_persist heim_sqlite3_io_error_persist
+#define sqlite3_io_methods heim_sqlite3_io_methods
+#define sqlite3IoTrace heim_sqlite3IoTrace
+#define sqlite3_json_init heim_sqlite3_json_init
+#define sqlite3_keyword_check heim_sqlite3_keyword_check
+#define sqlite3_keyword_count heim_sqlite3_keyword_count
+#define sqlite3_keyword_name heim_sqlite3_keyword_name
+#define sqlite3_last_insert_rowid heim_sqlite3_last_insert_rowid
+#define sqlite3_libversion heim_sqlite3_libversion
+#define sqlite3_libversion_number heim_sqlite3_libversion_number
+#define sqlite3_like_count heim_sqlite3_like_count
+#define sqlite3_limit heim_sqlite3_limit
+#define sqlite3_load_extension heim_sqlite3_load_extension
+#define sqlite3_log heim_sqlite3_log
+#define sqlite3_malloc heim_sqlite3_malloc
+#define sqlite3_malloc64 heim_sqlite3_malloc64
+#define sqlite3_max_blobsize heim_sqlite3_max_blobsize
+#define sqlite3_memdebug_vfs_oom_test heim_sqlite3_memdebug_vfs_oom_test
+#define sqlite3_mem_methods heim_sqlite3_mem_methods
+#define sqlite3_memory_alarm heim_sqlite3_memory_alarm
+#define sqlite3_memory_highwater heim_sqlite3_memory_highwater
+#define sqlite3_memory_used heim_sqlite3_memory_used
+#define sqlite3_module heim_sqlite3_module
+#define sqlite3_mprintf heim_sqlite3_mprintf
+#define sqlite3_msize heim_sqlite3_msize
+#define sqlite3_mutex heim_sqlite3_mutex
+#define sqlite3_mutex_alloc heim_sqlite3_mutex_alloc
+#define sqlite3_mutex_enter heim_sqlite3_mutex_enter
+#define sqlite3_mutex_free heim_sqlite3_mutex_free
+#define sqlite3_mutex_held heim_sqlite3_mutex_held
+#define sqlite3_mutex_leave heim_sqlite3_mutex_leave
+#define sqlite3_mutex_methods heim_sqlite3_mutex_methods
+#define sqlite3_mutex_notheld heim_sqlite3_mutex_notheld
+#define sqlite3_mutex_try heim_sqlite3_mutex_try
+#define sqlite3_next_stmt heim_sqlite3_next_stmt
+#define sqlite3_normalized_sql heim_sqlite3_normalized_sql
+#define sqlite3_open heim_sqlite3_open
+#define sqlite3_open16 heim_sqlite3_open16
+#define sqlite3_open_file_count heim_sqlite3_open_file_count
+#define sqlite3_opentemp_count heim_sqlite3_opentemp_count
+#define sqlite3_open_v2 heim_sqlite3_open_v2
+#define sqlite3_os_end heim_sqlite3_os_end
+#define sqlite3_os_init heim_sqlite3_os_init
+#define sqlite3_os_type heim_sqlite3_os_type
+#define sqlite3_overload_function heim_sqlite3_overload_function
+#define sqlite3_pager_readdb_count heim_sqlite3_pager_readdb_count
+#define sqlite3_pager_writedb_count heim_sqlite3_pager_writedb_count
+#define sqlite3_pager_writej_count heim_sqlite3_pager_writej_count
+#define sqlite3_pcache heim_sqlite3_pcache
+#define sqlite3_pcache_methods heim_sqlite3_pcache_methods
+#define sqlite3_pcache_methods2 heim_sqlite3_pcache_methods2
+#define sqlite3_pcache_page heim_sqlite3_pcache_page
+#define sqlite3_prepare heim_sqlite3_prepare
+#define sqlite3_prepare16 heim_sqlite3_prepare16
+#define sqlite3_prepare16_v2 heim_sqlite3_prepare16_v2
+#define sqlite3_prepare16_v3 heim_sqlite3_prepare16_v3
+#define sqlite3_prepare_v2 heim_sqlite3_prepare_v2
+#define sqlite3_prepare_v3 heim_sqlite3_prepare_v3
+#define sqlite3_preupdate_count heim_sqlite3_preupdate_count
+#define sqlite3_preupdate_depth heim_sqlite3_preupdate_depth
+#define sqlite3_preupdate_hook heim_sqlite3_preupdate_hook
+#define sqlite3_preupdate_new heim_sqlite3_preupdate_new
+#define sqlite3_preupdate_old heim_sqlite3_preupdate_old
+#define sqlite3_profile heim_sqlite3_profile
+#define sqlite3_progress_handler heim_sqlite3_progress_handler
+#define sqlite3_randomness heim_sqlite3_randomness
+#define sqlite3rbu heim_sqlite3rbu
+#define sqlite3rbu_bp_progress heim_sqlite3rbu_bp_progress
+#define sqlite3rbu_close heim_sqlite3rbu_close
+#define sqlite3rbu_create_vfs heim_sqlite3rbu_create_vfs
+#define sqlite3rbu_db heim_sqlite3rbu_db
+#define sqlite3rbu_destroy_vfs heim_sqlite3rbu_destroy_vfs
+#define sqlite3rbu_open heim_sqlite3rbu_open
+#define sqlite3rbu_progress heim_sqlite3rbu_progress
+#define sqlite3rbu_savestate heim_sqlite3rbu_savestate
+#define sqlite3rbu_state heim_sqlite3rbu_state
+#define sqlite3rbu_step heim_sqlite3rbu_step
+#define sqlite3rbu_temp_size heim_sqlite3rbu_temp_size
+#define sqlite3rbu_temp_size_limit heim_sqlite3rbu_temp_size_limit
+#define sqlite3rbu_vacuum heim_sqlite3rbu_vacuum
+#define sqlite3_realloc heim_sqlite3_realloc
+#define sqlite3_realloc64 heim_sqlite3_realloc64
+#define sqlite3_rebaser heim_sqlite3_rebaser
+#define sqlite3rebaser_configure heim_sqlite3rebaser_configure
+#define sqlite3rebaser_create heim_sqlite3rebaser_create
+#define sqlite3rebaser_delete heim_sqlite3rebaser_delete
+#define sqlite3rebaser_rebase heim_sqlite3rebaser_rebase
+#define sqlite3rebaser_rebase_strm heim_sqlite3rebaser_rebase_strm
+#define sqlite3_release_memory heim_sqlite3_release_memory
+#define sqlite3_reset heim_sqlite3_reset
+#define sqlite3_reset_auto_extension heim_sqlite3_reset_auto_extension
+#define sqlite3_result_blob heim_sqlite3_result_blob
+#define sqlite3_result_blob64 heim_sqlite3_result_blob64
+#define sqlite3_result_double heim_sqlite3_result_double
+#define sqlite3_result_error heim_sqlite3_result_error
+#define sqlite3_result_error16 heim_sqlite3_result_error16
+#define sqlite3_result_error_code heim_sqlite3_result_error_code
+#define sqlite3_result_error_nomem heim_sqlite3_result_error_nomem
+#define sqlite3_result_error_toobig heim_sqlite3_result_error_toobig
+#define sqlite3_result_int heim_sqlite3_result_int
+#define sqlite3_result_int64 heim_sqlite3_result_int64
+#define sqlite3_result_null heim_sqlite3_result_null
+#define sqlite3_result_pointer heim_sqlite3_result_pointer
+#define sqlite3_result_subtype heim_sqlite3_result_subtype
+#define sqlite3_result_text heim_sqlite3_result_text
+#define sqlite3_result_text16 heim_sqlite3_result_text16
+#define sqlite3_result_text16be heim_sqlite3_result_text16be
+#define sqlite3_result_text16le heim_sqlite3_result_text16le
+#define sqlite3_result_text64 heim_sqlite3_result_text64
+#define sqlite3_result_value heim_sqlite3_result_value
+#define sqlite3_result_zeroblob heim_sqlite3_result_zeroblob
+#define sqlite3_result_zeroblob64 heim_sqlite3_result_zeroblob64
+#define sqlite3_rollback_hook heim_sqlite3_rollback_hook
+#define sqlite3_rtree_geometry heim_sqlite3_rtree_geometry
+#define sqlite3_rtree_geometry_callback heim_sqlite3_rtree_geometry_callback
+#define sqlite3_rtree_init heim_sqlite3_rtree_init
+#define sqlite3_rtree_query_callback heim_sqlite3_rtree_query_callback
+#define sqlite3_rtree_query_info heim_sqlite3_rtree_query_info
+#define sqlite3_search_count heim_sqlite3_search_count
+#define sqlite3_serialize heim_sqlite3_serialize
+#define sqlite3_session heim_sqlite3_session
+#define sqlite3session_attach heim_sqlite3session_attach
+#define sqlite3session_changeset heim_sqlite3session_changeset
+#define sqlite3session_changeset_strm heim_sqlite3session_changeset_strm
+#define sqlite3session_config heim_sqlite3session_config
+#define sqlite3session_create heim_sqlite3session_create
+#define sqlite3session_delete heim_sqlite3session_delete
+#define sqlite3session_diff heim_sqlite3session_diff
+#define sqlite3session_enable heim_sqlite3session_enable
+#define sqlite3session_indirect heim_sqlite3session_indirect
+#define sqlite3session_isempty heim_sqlite3session_isempty
+#define sqlite3session_patchset heim_sqlite3session_patchset
+#define sqlite3session_patchset_strm heim_sqlite3session_patchset_strm
+#define sqlite3session_table_filter heim_sqlite3session_table_filter
+#define sqlite3_set_authorizer heim_sqlite3_set_authorizer
+#define sqlite3_set_auxdata heim_sqlite3_set_auxdata
+#define sqlite3_set_last_insert_rowid heim_sqlite3_set_last_insert_rowid
+#define sqlite3_shutdown heim_sqlite3_shutdown
+#define sqlite3_sleep heim_sqlite3_sleep
+#define sqlite3_snapshot heim_sqlite3_snapshot
+#define sqlite3_snapshot_cmp heim_sqlite3_snapshot_cmp
+#define sqlite3_snapshot_free heim_sqlite3_snapshot_free
+#define sqlite3_snapshot_get heim_sqlite3_snapshot_get
+#define sqlite3_snapshot_open heim_sqlite3_snapshot_open
+#define sqlite3_snapshot_recover heim_sqlite3_snapshot_recover
+#define sqlite3_snprintf heim_sqlite3_snprintf
+#define sqlite3_soft_heap_limit heim_sqlite3_soft_heap_limit
+#define sqlite3_soft_heap_limit64 heim_sqlite3_soft_heap_limit64
+#define sqlite3_sort_count heim_sqlite3_sort_count
+#define sqlite3_sourceid heim_sqlite3_sourceid
+#define sqlite3_sql heim_sqlite3_sql
+#define sqlite3_status heim_sqlite3_status
+#define sqlite3_status64 heim_sqlite3_status64
+#define sqlite3_step heim_sqlite3_step
+#define sqlite3_stmt heim_sqlite3_stmt
+#define sqlite3_stmt_busy heim_sqlite3_stmt_busy
+#define sqlite3_stmt_init heim_sqlite3_stmt_init
+#define sqlite3_stmt_isexplain heim_sqlite3_stmt_isexplain
+#define sqlite3_stmt_readonly heim_sqlite3_stmt_readonly
+#define sqlite3_stmt_scanstatus heim_sqlite3_stmt_scanstatus
+#define sqlite3_stmt_scanstatus_reset heim_sqlite3_stmt_scanstatus_reset
+#define sqlite3_stmt_status heim_sqlite3_stmt_status
+#define sqlite3_str heim_sqlite3_str
+#define sqlite3_str_append heim_sqlite3_str_append
+#define sqlite3_str_appendall heim_sqlite3_str_appendall
+#define sqlite3_str_appendchar heim_sqlite3_str_appendchar
+#define sqlite3_str_appendf heim_sqlite3_str_appendf
+#define sqlite3_str_errcode heim_sqlite3_str_errcode
+#define sqlite3_str_finish heim_sqlite3_str_finish
+#define sqlite3_strglob heim_sqlite3_strglob
+#define sqlite3_stricmp heim_sqlite3_stricmp
+#define sqlite3_str_length heim_sqlite3_str_length
+#define sqlite3_strlike heim_sqlite3_strlike
+#define sqlite3_str_new heim_sqlite3_str_new
+#define sqlite3_strnicmp heim_sqlite3_strnicmp
+#define sqlite3_str_reset heim_sqlite3_str_reset
+#define sqlite3_str_value heim_sqlite3_str_value
+#define sqlite3_str_vappendf heim_sqlite3_str_vappendf
+#define sqlite3_sync_count heim_sqlite3_sync_count
+#define sqlite3_syscall_ptr heim_sqlite3_syscall_ptr
+#define sqlite3_system_errno heim_sqlite3_system_errno
+#define sqlite3_table_column_metadata heim_sqlite3_table_column_metadata
+#define sqlite3_temp_directory heim_sqlite3_temp_directory
+#define sqlite3_test_control heim_sqlite3_test_control
+#define sqlite3_thread_cleanup heim_sqlite3_thread_cleanup
+#define sqlite3_threadsafe heim_sqlite3_threadsafe
+#define sqlite3_total_changes heim_sqlite3_total_changes
+#define sqlite3_trace heim_sqlite3_trace
+#define sqlite3_trace_v2 heim_sqlite3_trace_v2
+#define sqlite3_transfer_bindings heim_sqlite3_transfer_bindings
+#define sqlite3_txn_state heim_sqlite3_txn_state
+#define sqlite3_uint64 heim_sqlite3_uint64
+#define sqlite3_unlock_notify heim_sqlite3_unlock_notify
+#define sqlite3_unsupported_selecttrace heim_sqlite3_unsupported_selecttrace
+#define sqlite3_update_hook heim_sqlite3_update_hook
+#define sqlite3_uri_boolean heim_sqlite3_uri_boolean
+#define sqlite3_uri_int64 heim_sqlite3_uri_int64
+#define sqlite3_uri_key heim_sqlite3_uri_key
+#define sqlite3_uri_parameter heim_sqlite3_uri_parameter
+#define sqlite3_user_data heim_sqlite3_user_data
+#define sqlite3_value heim_sqlite3_value
+#define sqlite3_value_blob heim_sqlite3_value_blob
+#define sqlite3_value_bytes heim_sqlite3_value_bytes
+#define sqlite3_value_bytes16 heim_sqlite3_value_bytes16
+#define sqlite3_value_double heim_sqlite3_value_double
+#define sqlite3_value_dup heim_sqlite3_value_dup
+#define sqlite3_value_free heim_sqlite3_value_free
+#define sqlite3_value_frombind heim_sqlite3_value_frombind
+#define sqlite3_value_int heim_sqlite3_value_int
+#define sqlite3_value_int64 heim_sqlite3_value_int64
+#define sqlite3_value_nochange heim_sqlite3_value_nochange
+#define sqlite3_value_numeric_type heim_sqlite3_value_numeric_type
+#define sqlite3_value_pointer heim_sqlite3_value_pointer
+#define sqlite3_value_subtype heim_sqlite3_value_subtype
+#define sqlite3_value_text heim_sqlite3_value_text
+#define sqlite3_value_text16 heim_sqlite3_value_text16
+#define sqlite3_value_text16be heim_sqlite3_value_text16be
+#define sqlite3_value_text16le heim_sqlite3_value_text16le
+#define sqlite3_value_type heim_sqlite3_value_type
+#define sqlite3_version heim_sqlite3_version
+#define sqlite3_vfs heim_sqlite3_vfs
+#define sqlite3_vfs_find heim_sqlite3_vfs_find
+#define sqlite3_vfs_register heim_sqlite3_vfs_register
+#define sqlite3_vfs_unregister heim_sqlite3_vfs_unregister
+#define sqlite3_vmprintf heim_sqlite3_vmprintf
+#define sqlite3_vsnprintf heim_sqlite3_vsnprintf
+#define sqlite3_vtab heim_sqlite3_vtab
+#define sqlite3_vtab_collation heim_sqlite3_vtab_collation
+#define sqlite3_vtab_config heim_sqlite3_vtab_config
+#define sqlite3_vtab_cursor heim_sqlite3_vtab_cursor
+#define sqlite3_vtab_nochange heim_sqlite3_vtab_nochange
+#define sqlite3_vtab_on_conflict heim_sqlite3_vtab_on_conflict
+#define sqlite3_wal_autocheckpoint heim_sqlite3_wal_autocheckpoint
+#define sqlite3_wal_checkpoint heim_sqlite3_wal_checkpoint
+#define sqlite3_wal_checkpoint_v2 heim_sqlite3_wal_checkpoint_v2
+#define sqlite3_wal_hook heim_sqlite3_wal_hook
+#define sqlite3_win32_compact_heap heim_sqlite3_win32_compact_heap
+#define sqlite3_win32_is_nt heim_sqlite3_win32_is_nt
+#define sqlite3_win32_mbcs_to_utf8 heim_sqlite3_win32_mbcs_to_utf8
+#define sqlite3_win32_mbcs_to_utf8_v2 heim_sqlite3_win32_mbcs_to_utf8_v2
+#define sqlite3_win32_reset_heap heim_sqlite3_win32_reset_heap
+#define sqlite3_win32_set_directory heim_sqlite3_win32_set_directory
+#define sqlite3_win32_set_directory16 heim_sqlite3_win32_set_directory16
+#define sqlite3_win32_set_directory8 heim_sqlite3_win32_set_directory8
+#define sqlite3_win32_sleep heim_sqlite3_win32_sleep
+#define sqlite3_win32_unicode_to_utf8 heim_sqlite3_win32_unicode_to_utf8
+#define sqlite3_win32_utf8_to_mbcs heim_sqlite3_win32_utf8_to_mbcs
+#define sqlite3_win32_utf8_to_mbcs_v2 heim_sqlite3_win32_utf8_to_mbcs_v2
+#define sqlite3_win32_utf8_to_unicode heim_sqlite3_win32_utf8_to_unicode
+#define sqlite3_win32_write_debug heim_sqlite3_win32_write_debug
+#define sqlite3_wsd_find heim_sqlite3_wsd_find
+#define sqlite3_wsd_init heim_sqlite3_wsd_init
+#define sqlite3_xferopt_count heim_sqlite3_xferopt_count
+#define sqlite_int64 heim_sqlite_int64
+#define sqlite_uint64 heim_sqlite_uint64
+
+#endif /* SQLITE3_NAMESPACE_H */
