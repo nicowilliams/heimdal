@@ -251,7 +251,6 @@ EXPORTS
 	asn1_oid_id_sha384	DATA
 	asn1_oid_id_sha512	DATA
 	asn1_oid_id_signedData	DATA
-	asn1_oid_id_test_default	DATA
 	asn1_oid_id_Userid	DATA
 	asn1_oid_id_uspkicommon_card_id	DATA
 	asn1_oid_id_uspkicommon_piv_interim	DATA
@@ -300,7 +299,6 @@ EXPORTS
 	asn1_oid_tcg_kp_EKCertificate	DATA
 	asn1_oid_tcg_on_ekPermIdSha256	DATA
 	asn1_oid_tcg_tpm20	DATA
-	asn1_oid_testDer	DATA
 	asn1_PAC_OPTIONS_FLAGS_units
 	_asn1_print_top
 	asn1_SAMFlags_units
