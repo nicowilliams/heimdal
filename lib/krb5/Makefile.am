@@ -50,6 +50,7 @@ TESTS =						\
 	test_pknistkdf				\
 	test_time				\
 	test_expand_toks			\
+	test_mcache				\
 	test_x500
 
 check_DATA = test_config_strings.out
@@ -67,6 +68,8 @@ test_cc_LDADD = $(LDADD) -lkeyutils
 else
 test_cc_LDADD = $(LDADD)
 endif
+
+test_mcache_LDADD = $(LDADD) $(PTHREAD_LIBADD)
 
 aes_test_LDADD = $(LDADD) $(LIB_openssl_crypto)
 

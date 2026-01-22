@@ -40,6 +40,7 @@ typedef struct krb5_mcache {
     unsigned int refcnt;
     unsigned int anonymous:1;
     unsigned int dead:1;
+    unsigned int gen;
     krb5_principal primary_principal;
     struct link {
 	krb5_creds cred;
@@ -50,6 +51,11 @@ typedef struct krb5_mcache {
     krb5_deltat kdc_offset;
     HEIMDAL_MUTEX mutex;
 } krb5_mcache;
+
+struct mcc_cursor {
+    struct link *next;
+    unsigned int gen;
+};
 
 static HEIMDAL_MUTEX mcc_mutex = HEIMDAL_MUTEX_INITIALIZER;
 static struct krb5_mcache *mcc_head;
@@ -232,6 +238,7 @@ mcc_initialize(krb5_context context,
      * MEMORY: backend in MIT.
      */
     mcc_destroy_internal(context, m);
+    m->gen++;
     m->dead = 0;
     m->kdc_offset = context->kdc_sec_offset;
     m->mtime = time(NULL);
@@ -333,8 +340,10 @@ mcc_store_cred(krb5_context context,
     }
 
     l = malloc (sizeof(*l));
-    if (l == NULL)
+    if (l == NULL) {
+        HEIMDAL_MUTEX_unlock(&(m->mutex));
         return krb5_enomem(context);
+    }
     l->next = m->creds;
     m->creds = l;
     memset (&l->cred, 0, sizeof(l->cred));
@@ -345,8 +354,9 @@ mcc_store_cred(krb5_context context,
     	HEIMDAL_MUTEX_unlock(&(m->mutex));
     	return ret;
     }
+    m->gen++;
     m->mtime = time(NULL);
-	HEIMDAL_MUTEX_unlock(&(m->mutex));
+    HEIMDAL_MUTEX_unlock(&(m->mutex));
     return 0;
 }
 
@@ -376,13 +386,21 @@ mcc_get_first (krb5_context context,
 		krb5_cc_cursor *cursor)
 {
     krb5_mcache *m = MCACHE(id);
+    struct mcc_cursor *c;
+
+    c = calloc(1, sizeof(*c));
+    if (c == NULL)
+	return krb5_enomem(context);
 
     HEIMDAL_MUTEX_lock(&(m->mutex));
     if (MISDEAD(m)) {
 	HEIMDAL_MUTEX_unlock(&(m->mutex));
+	free(c);
 	return ENOENT;
     }
-    *cursor = m->creds;
+    c->gen = m->gen;
+    c->next = m->creds;
+    *cursor = c;
 
     HEIMDAL_MUTEX_unlock(&(m->mutex));
     return 0;
@@ -395,23 +413,23 @@ mcc_get_next (krb5_context context,
 	      krb5_creds *creds)
 {
     krb5_mcache *m = MCACHE(id);
-    struct link *l;
+    struct mcc_cursor *c = *cursor;
+    krb5_error_code ret;
 
     HEIMDAL_MUTEX_lock(&(m->mutex));
-    if (MISDEAD(m)) {
+    if (MISDEAD(m) || c->gen != m->gen) {
 	HEIMDAL_MUTEX_unlock(&(m->mutex));
 	return ENOENT;
     }
-    HEIMDAL_MUTEX_unlock(&(m->mutex));
 
-    l = *cursor;
-    if (l != NULL) {
-	*cursor = l->next;
-	return krb5_copy_creds_contents (context,
-					 &l->cred,
-					 creds);
-    } else
-	return KRB5_CC_END;
+    if (c->next != NULL) {
+	ret = krb5_copy_creds_contents(context, &c->next->cred, creds);
+	c->next = c->next->next;
+	HEIMDAL_MUTEX_unlock(&(m->mutex));
+	return ret;
+    }
+    HEIMDAL_MUTEX_unlock(&(m->mutex));
+    return KRB5_CC_END;
 }
 
 static krb5_error_code KRB5_CALLCONV
@@ -419,6 +437,8 @@ mcc_end_get (krb5_context context,
 	     krb5_ccache id,
 	     krb5_cc_cursor *cursor)
 {
+    free(*cursor);
+    *cursor = NULL;
     return 0;
 }
 
@@ -438,6 +458,7 @@ mcc_remove_cred(krb5_context context,
 	    *q = p->next;
 	    krb5_free_cred_contents(context, &p->cred);
 	    free(p);
+	    m->gen++;
 	    m->mtime = time(NULL);
 	} else
 	    q = &p->next;
