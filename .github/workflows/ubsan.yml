@@ -19,6 +19,7 @@ on:
          - '**.py'
          - '**.asn1'
          - '**.opt'
+         - '**.map'
          - '**/COPYING'
          - '**/INSTALL'
          - '**/README*'

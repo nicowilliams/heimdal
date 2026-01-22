@@ -18,6 +18,7 @@ on:
          - '**.asn1'
          - '**.opt'
          - '**.w32'
+         - '**.def'
          - '**/NTMakefile*'
          - '**/COPYING'
          - '**/INSTALL'
