@@ -650,9 +650,23 @@ change_password_loop (krb5_context	context,
 	    continue;
 	}
 
-	ret = krb5_krbhst_get_addrinfo(context, hi, &ai);
-	if (ret)
-	    continue;
+        if (context->socks4a_proxy) {
+            /*
+             * Refuse anything but TCP connections when we have a
+             * SOCKS4a proxy configured.
+             */
+            if (hi->proto != KRB5_KRBHST_TCP)
+                continue;
+ 
+            /*
+             * Make a connection to the proxy's addrinfo.
+             */
+            ai = proxy_ai;
+        } else {
+            ret = krb5_krbhst_get_addrinfo(context, hi, &ai);
+            if (ret)
+                continue;
+        }
 
 	for (a = ai; !done && a != NULL; a = a->ai_next) {
 	    int replied = 0;
