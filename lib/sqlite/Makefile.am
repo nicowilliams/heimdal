@@ -11,7 +11,7 @@ WFLAGS =
 
 lib_LTLIBRARIES = libheimsqlite.la
 
-noinst_HEADERS = sqlite3.h sqlite3ext.h
+noinst_HEADERS = sqlite3.h sqlite3ext.h sqlite3_namespace.h
 
 libheimsqlite_la_SOURCES = sqlite3.c
 

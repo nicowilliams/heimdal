@@ -35,7 +35,8 @@ RELDIR=lib\sqlite
 
 INCFILES=	\
 	$(INCDIR)\sqlite3.h	\
-	$(INCDIR)\sqlite3ext.h
+	$(INCDIR)\sqlite3ext.h	\
+	$(INCDIR)\sqlite3_namespace.h
 
 # pmode 0600 = _S_IREAD | _S_IWRITE
 cdefines = $(cdefines) \

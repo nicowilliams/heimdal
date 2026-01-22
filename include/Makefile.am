@@ -122,6 +122,7 @@ CLEANFILES =			\
 	send_to_kdc_plugin.h	\
 	sl.h			\
 	sqlite3.h		\
+	sqlite3_namespace.h	\
 	sqlite3ext.h		\
 	test-mem.h		\
 	vers.h			\
