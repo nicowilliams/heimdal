@@ -548,19 +548,11 @@ verify (krb5_auth_context *auth_context,
     krb_priv_data.length = len - 6 - ap_req_len;
 
     /*
-     * Only enforce client addresses on on tickets with addresses.  If
-     * its addressless, we are guessing its behind NAT and really
-     * can't know this information.
+     * Don't set the client's address as the remote on the auth_context so we
+     * don't check it in krb5_rd_priv(), so that password changes can be done
+     * behind NATs.  The idea is that the change/set password protocol isn't
+     * really susceptible to reflection attacks.  This is MIT's approach.
      */
-
-    if ((*ticket)->ticket.caddr && (*ticket)->ticket.caddr->len > 0) {
-	ret = krb5_auth_con_setaddrs (context, *auth_context,
-				      NULL, client_addr);
-	if (ret) {
-	    krb5_warn (context, ret, "krb5_auth_con_setaddr(this)");
-	    goto out;
-	}
-    }
 
     ret = krb5_rd_priv (context,
 			*auth_context,
