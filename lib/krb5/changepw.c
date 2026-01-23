@@ -732,13 +732,6 @@ change_password_loop (krb5_context	context,
 		    continue;
 	    }
 
-	    ret = krb5_auth_con_genaddrs (context, auth_context, sock,
-					  KRB5_AUTH_CONTEXT_GENERATE_LOCAL_ADDR);
-	    if (ret) {
-		rk_closesocket (sock);
-		goto out;
-	    }
-
 	    for (i = 0; !done && i < 5; ++i) {
 		fd_set fdset;
 		struct timeval tv;
