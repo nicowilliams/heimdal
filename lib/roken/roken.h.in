@@ -881,7 +881,15 @@ ROKEN_LIB_FUNCTION unsigned int ROKEN_LIB_CALL bswap32(unsigned int);
 ROKEN_LIB_FUNCTION unsigned short ROKEN_LIB_CALL bswap16(unsigned short);
 #endif
 
-#ifndef HAVE_FLOCK
+/*
+ * rk_flock() - portable flock() implementation
+ *
+ * Always use rk_flock() (via the flock macro) instead of calling system
+ * flock() directly.  rk_flock() provides:
+ * - Prefer OFD locks (F_OFD_SETLK) when available for better thread safety
+ * - Fallback to system flock() if available
+ * - Fallback to POSIX fcntl() locks for NFS and other filesystems
+ */
 #ifndef LOCK_SH
 #define LOCK_SH   1		/* Shared lock */
 #endif
@@ -895,9 +903,8 @@ ROKEN_LIB_FUNCTION unsigned short ROKEN_LIB_CALL bswap16(unsigned short);
 #define LOCK_UN   8		/* Unlock */
 #endif
 
+ROKEN_LIB_FUNCTION int ROKEN_LIB_CALL rk_flock(int fd, int operation);
 #define flock(_x,_y) rk_flock(_x,_y)
-int rk_flock(int fd, int operation);
-#endif /* HAVE_FLOCK */
 
 #ifndef HAVE_DIRFD
 #ifdef HAVE_DIR_DD_FD

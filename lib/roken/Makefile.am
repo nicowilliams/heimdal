@@ -139,6 +139,7 @@ libroken_la_SOURCES =		\
 	eread.c			\
 	esetenv.c		\
 	ewrite.c		\
+	flock.c			\
 	fseeko.c		\
 	ftello.c		\
 	getaddrinfo_hostspec.c	\

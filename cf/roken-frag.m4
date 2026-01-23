@@ -334,7 +334,6 @@ AC_BROKEN([					\
 	err					\
 	errx					\
 	fchown					\
-	flock					\
 	fnmatch					\
 	freehostent				\
 	getcwd					\
@@ -401,6 +400,10 @@ AC_BROKEN([					\
 ])
 
 rk_LIBOBJ(closefrom)
+
+dnl Check for flock() - we always provide rk_flock() but need to know if
+dnl the system has flock() for our fallback chain
+AC_CHECK_FUNCS([flock])
 
 AM_CONDITIONAL(have_fnmatch_h,
 	test "$ac_cv_header_fnmatch_h" = yes -a "$ac_cv_func_fnmatch" = yes)

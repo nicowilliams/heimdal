@@ -90,20 +90,22 @@ _krb5_xlock(krb5_context context, int fd, krb5_boolean exclusive,
 	    const char *filename)
 {
     int ret;
-#ifdef HAVE_FCNTL
-    struct flock l;
 
-    l.l_start = 0;
-    l.l_len = 0;
-    l.l_type = exclusive ? F_WRLCK : F_RDLCK;
-    l.l_whence = SEEK_SET;
-    ret = fcntl(fd, F_SETLKW, &l);
-#else
-    ret = flock(fd, exclusive ? LOCK_EX : LOCK_SH);
-#endif
-    if(ret < 0)
+    /*
+     * Use rk_flock(), which uses the first to work of these on Linux and
+     * Unix-like systems:
+     *
+     * - OFD fcntl() locks   (works on NFS; thread-safe)
+     * - BSD flock()         (does not work on NFS; thread-safe)
+     * - POSIX fcntl() locks (works on NFS; NOT thread-safe, because POSIX byte
+     *                        range file locking semantics are insane)
+     *
+     * On Windows it uses LockFileEx().
+     */
+    ret = rk_flock(fd, exclusive ? LOCK_EX : LOCK_SH);
+    if (ret < 0)
 	ret = errno;
-    if(ret == EACCES) /* fcntl can return EACCES instead of EAGAIN */
+    if (ret == EACCES) /* fcntl can return EACCES instead of EAGAIN */
 	ret = EAGAIN;
 
     switch (ret) {
@@ -133,16 +135,8 @@ KRB5_LIB_FUNCTION int KRB5_LIB_CALL
 _krb5_xunlock(krb5_context context, int fd)
 {
     int ret;
-#ifdef HAVE_FCNTL
-    struct flock l;
-    l.l_start = 0;
-    l.l_len = 0;
-    l.l_type = F_UNLCK;
-    l.l_whence = SEEK_SET;
-    ret = fcntl(fd, F_SETLKW, &l);
-#else
-    ret = flock(fd, LOCK_UN);
-#endif
+
+    ret = rk_flock(fd, LOCK_UN);
     if (ret < 0)
 	ret = errno;
     switch (ret) {
