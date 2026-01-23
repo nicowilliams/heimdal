@@ -1252,64 +1252,17 @@ get_ccache(struct bx509_request_desc *r, krb5_ccache *cc, int *won)
 {
     krb5_error_code ret = 0;
     char *temp_ccname = NULL;
-    const char *fn = NULL;
     time_t life;
-    int fd = -1;
 
     /*
-     * Open and lock a .new ccache file.  Use .new to avoid garbage files on
-     * crash.
-     *
-     * We can race with other threads to do this, so we loop until we
-     * definitively win or definitely lose the race.  We win when we have a) an
-     * open FD that is b) flock'ed, and c) we observe with lstat() that the
-     * file we opened and locked is the same as on disk after locking.
-     *
-     * We don't close the FD until we're done.
-     *
-     * If we had a proper anon MEMORY ccache, we could instead use that for a
-     * temporary ccache, and then the initialization of and move to the final
-     * FILE ccache would take care to mkstemp() and rename() into place.
-     * fcc_open() basically does a similar thing.
+     * Use a .ccnew temp ccache to avoid garbage files on crash.
+     * The krb5_cc API handles its own file locking internally.
      */
     *cc = NULL;
     *won = -1;
     if (asprintf(&temp_ccname, "%s.ccnew", r->ccname) == -1 ||
         temp_ccname == NULL)
         ret = ENOMEM;
-    if (ret == 0)
-        fn = temp_ccname + sizeof("FILE:") - 1;
-    if (ret == 0) do {
-        struct stat st1, st2;
-        /*
-         * Open and flock the temp ccache file.
-         *
-         * XXX We should really a) use _krb5_xlock(), or move that into
-         * lib/roken anyways, b) abstract this loop into a utility function in
-         * lib/roken.
-         */
-        if (fd != -1) {
-            (void) close(fd);
-            fd = -1;
-        }
-        errno = 0;
-        memset(&st1, 0, sizeof(st1));
-        memset(&st2, 0xff, sizeof(st2));
-        if (ret == 0 &&
-            ((fd = open(fn, O_RDWR | O_CREAT, 0600)) == -1 ||
-             flock(fd, LOCK_EX) == -1 ||
-             (lstat(fn, &st1) == -1 && errno != ENOENT) ||
-             fstat(fd, &st2) == -1))
-            ret = errno;
-        if (ret == 0 && errno == 0 &&
-            st1.st_dev == st2.st_dev && st1.st_ino == st2.st_ino) {
-            if (S_ISREG(st1.st_mode))
-                break;
-            if (unlink(fn) == -1)
-                ret = errno;
-        }
-    } while (ret == 0);
-
     /* Check if we lost any race to acquire Kerberos creds */
     if (ret == 0)
         ret = krb5_cc_resolve(r->context, temp_ccname, cc);
@@ -1321,8 +1274,6 @@ get_ccache(struct bx509_request_desc *r, krb5_ccache *cc, int *won)
         ret = 0;
     }
     free(temp_ccname);
-    if (fd != -1)
-        (void) close(fd); /* Drops the flock */
     return ret;
 }
 
