@@ -333,11 +333,12 @@ typedef struct krb5_preauthdata {
 }krb5_preauthdata;
 
 typedef enum krb5_address_type {
-    KRB5_ADDRESS_INET     =   2,
-    KRB5_ADDRESS_NETBIOS  =  20,
-    KRB5_ADDRESS_INET6    =  24,
-    KRB5_ADDRESS_ADDRPORT = 256,
-    KRB5_ADDRESS_IPPORT   = 257
+    KRB5_ADDRESS_INET           =   2,
+    KRB5_ADDRESS_DIRECTIONAL    =   3,
+    KRB5_ADDRESS_NETBIOS        =  20,
+    KRB5_ADDRESS_INET6          =  24,
+    KRB5_ADDRESS_ADDRPORT       = 256,
+    KRB5_ADDRESS_IPPORT         = 257
 } krb5_address_type;
 
 enum {

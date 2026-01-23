@@ -734,6 +734,56 @@ addrport_print_addr (const krb5_address *addr, char *str, size_t len)
     return ret_len;
 }
 
+/*
+ * RFC 4120 section 7.1 "Directional" address type (type 3).
+ *
+ * Used in KRB-SAFE, KRB-PRIV, and KRB-CRED s-address/r-address fields when
+ * the actual network addresses aren't available (e.g., behind NAT).
+ *
+ * The address data is a 4-byte value in network byte order:
+ *   0 = sender
+ *   1 = recipient
+ */
+
+static int
+directional_print_addr(const krb5_address *addr, char *str, size_t len)
+{
+    unsigned long value;
+
+    if (addr->address.length == 4) {
+	_krb5_get_int(addr->address.data, &value, 4);
+	if (value == 0)
+	    return snprintf(str, len, "DIRECTIONAL:client");
+	if (value == 1)
+	    return snprintf(str, len, "DIRECTIONAL:server");
+	return snprintf(str, len, "DIRECTIONAL:<invalid-%lu>", value);
+    }
+    return snprintf(str, len, "DIRECTIONAL:<invalid>");
+}
+
+static int
+directional_parse_addr(krb5_context context, const char *address,
+		       krb5_address *addr)
+{
+    unsigned long value;
+    unsigned char buf[4];
+
+    if (strncasecmp(address, "DIRECTIONAL:", 12) != 0)
+	return -1;
+    address += 12;
+
+    if (strcasecmp(address, "client") == 0)
+	value = 0;
+    else if (strcasecmp(address, "server") == 0)
+	value = 1;
+    else
+	return -1;
+
+    addr->addr_type = KRB5_ADDRESS_DIRECTIONAL;
+    _krb5_put_int(buf, value, 4);
+    return krb5_data_copy(&addr->address, buf, 4);
+}
+
 static const struct addr_operations at[] = {
     {
 	AF_INET,	KRB5_ADDRESS_INET, sizeof(struct sockaddr_in),
@@ -803,6 +853,23 @@ static const struct addr_operations at[] = {
 	NULL,
 	addrport_print_addr,
 	NULL,
+	NULL,
+	NULL,
+	NULL,
+	NULL
+    },
+    {
+	KRB5_ADDRESS_DIRECTIONAL, KRB5_ADDRESS_DIRECTIONAL, 0,
+	NULL,
+	NULL,
+	NULL,
+	NULL,
+	NULL,
+	NULL,
+	NULL,
+	NULL,
+	directional_print_addr,
+	directional_parse_addr,
 	NULL,
 	NULL,
 	NULL,
