@@ -678,8 +678,9 @@ change_password_loop (krb5_context	context,
 
 	    ret = connect(sock, a->ai_addr, a->ai_addrlen);
 	    if (rk_IS_SOCKET_ERROR(ret)) {
-		rk_closesocket (sock);
-		goto out;
+                ret = rk_SOCK_ERRNO;
+		rk_closesocket(sock);
+		continue;
 	    }
 
 	    /*
