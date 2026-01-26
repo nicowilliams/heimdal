@@ -31,9 +31,6 @@
 # OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF 
 # SUCH DAMAGE. 
 
-# Skip until hierarchical iprop deadlock is fixed
-exit 77
-
 top_builddir="@top_builddir@"
 env_setup="@env_setup@"
 objdir="@objdir@"
@@ -285,14 +282,14 @@ rm -f iprop-slave-status iprop-slave-status2
 
 ipropd_slave2=$ipropd_slave
 ipropd_master2=$ipropd_master
-ipropd_slave="${ipropd_slave} --status-file=iprop-slave-status --port=$ipropport"
+ipropd_slave="${ipropd_slave} --verbose --status-file=iprop-slave-status --port=$ipropport"
 ipropd_slave="${ipropd_slave} --hostname=slave.test.h5l.se -k ${keytab}"
 ipropd_slave="${ipropd_slave} --detach localhost"
-ipropd_master="${ipropd_master} --hostname=localhost -k ${keytab}"
+ipropd_master="${ipropd_master} --verbose --hostname=localhost -k ${keytab}"
 ipropd_master="${ipropd_master} --port=$ipropport"
 ipropd_master="${ipropd_master} --database=${objdir}/current-db --detach"
 
-ipropd_slave2="${ipropd_slave2} --status-file=iprop-slave-status2 --port=$ipropport2"
+ipropd_slave2="${ipropd_slave2} --verbose --status-file=iprop-slave-status2 --port=$ipropport2"
 ipropd_slave2="${ipropd_slave2} --hostname=slave.test.h5l.se -k ${keytab}"
 ipropd_slave2="${ipropd_slave2} --pidfile-basename=ipropd-slave2"
 ipropd_slave2="${ipropd_slave2} --detach localhost"
@@ -554,7 +551,7 @@ wait_for_master_down
 wait_for "slave to disconnect" \
   ${EGREP} 'disconnected' iprop-slave-status >/dev/null
 
-if ! tail -30 messages.log | grep 'disconnected for server' > /dev/null; then
+if ! tail -30 messages.log | grep 'disconnected from server' > /dev/null; then
     echo "client didnt disconnect"
     exit 1
 fi

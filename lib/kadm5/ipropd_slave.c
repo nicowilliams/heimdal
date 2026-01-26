@@ -355,11 +355,6 @@ receive_loop(krb5_context context,
     if (verbose)
         krb5_warnx(context, "receiving diffs");
 
-    ret = kadm5_log_exclusivelock(server_context);
-    if (ret)
-        krb5_err(context, IPROPD_RESTART, ret,
-                 "Failed to lock iprop log for writes");
-
     /*
      * Seek to the first entry in the message from the master that is
      * past the current version of the local database.
@@ -477,9 +472,6 @@ receive(krb5_context context,
     if (ret)
         krb5_err(context, IPROPD_RESTART_SLOW, ret, "db->close");
 
-    (void) kadm5_log_sharedlock(server_context);
-    if (verbose)
-        krb5_warnx(context, "downgraded iprop log lock to shared");
     kadm5_log_signal_master(server_context);
     if (verbose)
         krb5_warnx(context, "signaled master for hierarchical iprop");
@@ -531,9 +523,6 @@ reinit_log(krb5_context context,
     ret = kadm5_log_reinit(server_context, vno);
     if (ret)
         krb5_err(context, IPROPD_RESTART_SLOW, ret, "kadm5_log_reinit");
-    (void) kadm5_log_sharedlock(server_context);
-    if (verbose)
-        krb5_warnx(context, "downgraded iprop log lock to shared");
 }
 
 
@@ -553,10 +542,6 @@ receive_everything(krb5_context context, int fd,
 
     krb5_warnx(context, "receive complete database");
 
-    ret = kadm5_log_exclusivelock(server_context);
-    if (ret)
-        krb5_err(context, IPROPD_RESTART, ret,
-                 "Failed to lock iprop log for writes");
     if (server_context->db->hdb_method_name) {
         ret = asprintf(&dbname, "%.*s:%s-NEW",
                        (int) strlen(server_context->db->hdb_method_name) - 1,
@@ -900,9 +885,6 @@ main(int argc, char **argv)
     ret = kadm5_log_init(server_context);
     if (ret)
 	krb5_err(context, 1, ret, "kadm5_log_init");
-    (void) kadm5_log_sharedlock(server_context);
-    if (verbose)
-        krb5_warnx(context, "downgraded iprop log lock to shared");
 
     ret = server_context->db->hdb_close(context, server_context->db);
     if (ret)
@@ -1091,9 +1073,6 @@ main(int argc, char **argv)
                 krb5_err(context, IPROPD_RESTART, ret, "kadm5_log_init while "
                          "handling a message from the master");
             }
-            (void) kadm5_log_sharedlock(server_context);
-            if (verbose)
-                krb5_warnx(context, "downgraded iprop log lock to shared");
 
 	    ret = server_context->db->hdb_close (context, server_context->db);
 	    if (ret)
@@ -1125,7 +1104,6 @@ main(int argc, char **argv)
                     krb5_warnx(context, "master sent us a full dump");
 		ret = receive_everything(context, master_fd, server_context,
 					 auth_context);
-                (void) kadm5_log_sharedlock(server_context);
                 if (ret == 0) {
                     ret = ihave(context, auth_context, master_fd,
                                 server_context->log_context.version);
@@ -1134,8 +1112,6 @@ main(int argc, char **argv)
 		    connected = FALSE;
                 else
                     is_up_to_date(context, status_file, server_context);
-                if (verbose)
-                    krb5_warnx(context, "downgraded iprop log lock to shared");
                 kadm5_log_signal_master(server_context);
                 if (verbose)
                     krb5_warnx(context, "signaled master for hierarchical iprop");
@@ -1152,6 +1128,7 @@ main(int argc, char **argv)
                  *
                  * So we don't ihave() here.
                  */
+		is_up_to_date(context, status_file, server_context);
 		send_im_here(context, master_fd, auth_context);
 		break;
 	    case YOU_HAVE_LAST_VERSION:
@@ -1175,7 +1152,7 @@ main(int argc, char **argv)
 	slave_status(context, status_file, "disconnected from master");
     retry:
 	if (connected == FALSE)
-	    krb5_warnx (context, "disconnected for server");
+	    krb5_warnx (context, "disconnected from server");
 
 	if (exit_flag)
 	    krb5_warnx (context, "got an exit signal");

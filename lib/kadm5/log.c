@@ -174,12 +174,6 @@ RCSID("$Id$");
  * will deadlock with ipropd-slave -- don't do that.
  */
 
-#define LOG_HEADER_SZ   ((off_t)(sizeof(uint32_t) * 4))
-#define LOG_TRAILER_SZ  ((off_t)(sizeof(uint32_t) * 2))
-#define LOG_WRAPPER_SZ  ((off_t)(LOG_HEADER_SZ + LOG_TRAILER_SZ))
-#define LOG_UBER_LEN    ((off_t)(sizeof(uint64_t) + sizeof(uint32_t) * 2))
-#define LOG_UBER_SZ     ((off_t)(LOG_WRAPPER_SZ + LOG_UBER_LEN))
-
 #define LOG_NOPEEK 0
 #define LOG_DOPEEK 1
 
@@ -490,12 +484,7 @@ kadm5_log_get_version_fd(kadm5_server_context *server_context, int fd,
 {
     kadm5_ret_t ret = 0;
     krb5_storage *sp;
-    enum kadm_ops op = kadm_get;
-    uint32_t len = 0;
     uint32_t tmp;
-
-    if (fd == -1)
-        return 0; /* /dev/null */
 
     if (tstamp == NULL)
         tstamp = &tmp;
@@ -503,9 +492,44 @@ kadm5_log_get_version_fd(kadm5_server_context *server_context, int fd,
     *ver = 0;
     *tstamp = 0;
 
+    if (fd == -1)
+        fd = server_context->log_context.log_fd;
+
     sp = krb5_storage_from_fd(fd);
     if (sp == NULL)
         return errno ? errno : ENOMEM;
+
+    ret = kadm5_log_get_version_sp(server_context, sp, which, ver, tstamp);
+    krb5_storage_free(sp);
+    return ret;
+}
+
+kadm5_ret_t
+kadm5_log_get_version_sp(kadm5_server_context *server_context, krb5_storage *sp,
+                         int which, uint32_t *ver, uint32_t *tstamp)
+{
+    struct kadm5_log_snap snap;
+    kadm5_ret_t ret = 0;
+    enum kadm_ops op = kadm_get;
+    uint32_t len = 0;
+    uint32_t tmp;
+
+    /*
+     * If we're operating lock-less-ly then get a snapshot of the log so we can
+     * validate that what we read here is correct once we're done reading it.
+     */
+    memset(&snap, 0, sizeof(snap));
+    if (server_context->log_context.lock_mode == LOCK_UN) {
+        ret = kadm5_log_snapshot(server_context, &snap);
+        if (ret)
+            return ret;
+    }
+
+    if (tstamp == NULL)
+        tstamp = &tmp;
+
+    *ver = 0;
+    *tstamp = 0;
 
     switch (which) {
     case LOG_VERSION_LAST:
@@ -531,8 +555,90 @@ kadm5_log_get_version_fd(kadm5_server_context *server_context, int fd,
         break;
     }
 
-    krb5_storage_free(sp);
+    if (ret == 0 && server_context->log_context.lock_mode == LOCK_UN)
+        /* Validate the snapshot when operating lock-less-ly */
+        return kadm5_log_snapshot_verify(server_context, &snap);
     return ret;
+}
+
+/*
+ * For lock-less reading of the log first get a snapshot, then read, then
+ * verify the snapshot before using the data read.  If snapshot verification
+ * fails, start over.
+ *
+ * This will be used in ipropd-master and iprop-log to avoid needing a lock on
+ * the iprop log.  For example, when a client says I_HAVE $ver then the server
+ * gets a snapshot, finds the offset to $ver and the offset to the end of the
+ * log, reads all that into memory, then the server veerifies the snapshot, and
+ * finally it sends the data to client, but if the snapshot verification fails
+ * then the server starts over the process of finding the offset to $ver.
+ *
+ * The way this works is that as long as the log is not rotated and truncated,
+ * then we can expect the header of the first record after the uber-record to
+ * remain the same.
+ */
+kadm5_ret_t
+kadm5_log_snapshot(kadm5_server_context *server_context,
+                   struct kadm5_log_snap *snap)
+{
+    ssize_t bytes;
+
+    assert(sizeof(snap->buf) < CHAR_MAX);
+    snap->bytes = 0;
+
+    bytes = pread(server_context->log_context.log_fd,
+                  snap->buf, sizeof(snap->buf), 0);
+    if (bytes < 0)
+        return errno;
+    if (bytes < LOG_UBER_SZ)
+        return KADM5_LOG_CORRUPT;
+    if (bytes < sizeof(snap->buf))
+        bytes = LOG_UBER_SZ;
+
+    snap->bytes = bytes;
+    return 0;
+}
+
+/*
+ * kadm5_log_snapshot_verify() checks that the iprop log has not been rotated
+ * since the given `snap` snapshot.  Returns -1 if the log has been rotated.
+ */
+kadm5_ret_t
+kadm5_log_snapshot_verify(kadm5_server_context *server_context,
+                          struct kadm5_log_snap *snap)
+{
+    struct kadm5_log_snap v;
+    kadm5_ret_t ret;
+
+    assert(sizeof(snap->buf) < CHAR_MAX);
+    if (snap->bytes < LOG_UBER_SZ)
+        return KADM5_LOG_SNAPSHOT_INVALID;
+
+    ret = kadm5_log_snapshot(server_context, &v);
+    if (ret)
+        return ret;
+
+    if (v.bytes < LOG_UBER_SZ)
+        return KADM5_LOG_CORRUPT;
+
+    /* The two snapshots are equal -> no log rotation, no log change at all */
+    if (snap->bytes == v.bytes && memcmp(snap->buf, v.buf, v.bytes) == 0)
+        return 0;
+
+    /*
+     * Both snapshots capture the first record's header past the uber record?
+     * Check that that first record's header is the same for both.
+     */
+    if (snap->bytes == v.bytes && v.bytes == sizeof(v.buf) &&
+        memcmp(snap->buf + LOG_UBER_SZ, v.buf + LOG_UBER_SZ,
+                LOG_HEADER_SZ) == 0)
+        return 0; /* No log rotation, but the log did change */
+
+    /*
+     * Log rotated, or we don't have any log entries but the uber record
+     * changed.
+     */
+    return KADM5_LOG_SNAPSHOT_INVALID;
 }
 
 /* Get the version of the last confirmed entry in the log */
@@ -2133,7 +2239,7 @@ kadm5_log_goto_first(kadm5_server_context *server_context, krb5_storage *sp)
     if (ret)
         return ret;
     if (op == kadm_nop && len == LOG_UBER_LEN && seek_next(sp) == -1)
-        return KADM5_LOG_CORRUPT;
+        return KADM5_LOG_EMPTY;
     return 0;
 }
 
@@ -2503,6 +2609,13 @@ load_entries(kadm5_server_context *context, krb5_data *p,
 /*
  * Truncate the log, retaining at most `keep' entries and at most `maxbytes'.
  * If `maxbytes' is zero, keep at most the default log size limit.
+ *
+ * I.e., rotate the log, except we don't rename a new log into place.
+ *
+ * Ensures that the log will be smaller than prior to truncation.  This is
+ * important as it ensures that the log snapshot approach used by ipropd-master
+ * to read the log lock-less-ly will work.  See also kadm5_log_snapshot() and
+ * kadm5_log_snapshot_verify().
  */
 kadm5_ret_t
 kadm5_log_truncate(kadm5_server_context *context, size_t keep, size_t maxbytes)
@@ -2514,7 +2627,10 @@ kadm5_log_truncate(kadm5_server_context *context, size_t keep, size_t maxbytes)
     krb5_storage *sp;
     ssize_t bytes;
     uint64_t sz;
-    off_t off;
+    off_t off, fsz;
+
+    if ((fsz = lseek(context->log_context.log_fd, 0, SEEK_END)) < 0)
+        return errno;
 
     if (maxbytes == 0)
         maxbytes = get_max_log_size(context->context);
@@ -2547,6 +2663,50 @@ kadm5_log_truncate(kadm5_server_context *context, size_t keep, size_t maxbytes)
     if (off < 0 || off != sz || sz < entries.length) {
         krb5_data_free(&entries);
         return EOVERFLOW; /* caller should ask for fewer entries */
+    }
+
+    /* Ensure that the iprop log will be smaller, or defer truncation */
+    if (sz >= fsz) {
+        uint32_t skip;
+
+        krb5_data_free(&entries);
+
+        if (first > last)
+            first = 1;
+
+        skip = (last - first) / 2;
+
+        if (skip < 2) {
+            /*
+             * There must be an entry that is just large enough, or larger,
+             * that it alone causes the log to exceed the log size
+             * limit.
+             */
+            krb5_warnx(context->context,
+                       "Unable to truncate log due to very large record; "
+                       "deferring truncation");
+            return 0;
+        }
+        first += (last - first) / 2;
+        ret = load_entries(context, &entries, last - first, maxbytes, &first, &last);
+        if (ret)
+            return ret;
+
+        sz = LOG_UBER_SZ + entries.length;
+        off = (off_t)sz;
+        if (off < 0 || off != sz || sz < entries.length) {
+            krb5_data_free(&entries);
+            return EOVERFLOW; /* caller should ask for fewer entries */
+        }
+
+        if (sz >= fsz) {
+            /* Should never happen! */
+            krb5_data_free(&entries);
+            krb5_warnx(context->context,
+                       "Unable to truncate log due to very large record; "
+                       "deferring truncation");
+            return 0;
+        }
     }
 
     /* Truncate to zero size and seek to zero offset */
