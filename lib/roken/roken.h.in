@@ -860,6 +860,12 @@ ROKEN_LIB_FUNCTION ssize_t ROKEN_LIB_CALL
 readv(int, const struct iovec *, int);
 #endif
 
+#ifndef HAVE_PREAD
+#define pread rk_pread
+ROKEN_LIB_FUNCTION ssize_t ROKEN_LIB_CALL
+pread(int, void *, size_t, off_t);
+#endif
+
 #ifdef NO_PIDFILES
 #define rk_pidfile(x) ((void) 0)
 #else
