@@ -36,6 +36,7 @@ jobs:
                 ../configure --srcdir=`dirname "$PWD"` --enable-maintainer-mode --enable-developer --with-ldap --prefix=$HOME/inst CFLAGS="$CFLAGS" LDFLAGS="$LDFLAGS"
                 make -j4
             - name: Test
+              timeout-minutes: 40
               run: |
                 cd build
                 sudo sysctl kernel.core_pattern=core.%p || true

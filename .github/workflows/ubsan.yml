@@ -90,6 +90,7 @@ jobs:
                 ../configure --srcdir=`dirname "$PWD"` --enable-maintainer-mode --enable-developer --enable-dynamic --disable-static --with-ldap $CONFIGURE_OPTS --prefix=$HOME/inst CFLAGS="${{ matrix.cflags }} -Wno-error=shadow -Wno-error=bad-function-cast -Wno-error=unused-function -Wno-error=unused-result -Wno-error=deprecated-declarations" LDFLAGS="${{ matrix.ldflags }}"
                 make -j4
             - name: Test
+              timeout-minutes: 80
               env:
                 CC: ${{ matrix.compiler }}
                 MAKEVARS: ${{ matrix.makevars }}

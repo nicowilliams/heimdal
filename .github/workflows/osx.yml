@@ -93,6 +93,7 @@ jobs:
             #  with:
             #      limit-access-to-actor: true
             - name: Test
+              timeout-minutes: 60
               shell: bash
               env:
                 CC: ${{ matrix.compiler }}

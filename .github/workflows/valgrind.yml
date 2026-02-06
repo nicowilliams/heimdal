@@ -46,6 +46,7 @@ jobs:
                 ../configure --srcdir=`dirname "$PWD"` --enable-maintainer-mode --enable-developer --with-ldap $CONFIGURE_OPTS --prefix=$HOME/inst CFLAGS="-gdwarf-4 -g -ggdb3 -O0 -Wno-error=shadow -Wno-error=bad-function-cast -Wno-error=unused-function -Wno-error=unused-result -Wno-error=deprecated-declarations"
                 make -j4
             - name: Test
+              timeout-minutes: 120
               env:
                 CC: ${{ matrix.compiler }}
                 MAKEVARS: ${{ matrix.makevars }}

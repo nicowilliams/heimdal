@@ -119,6 +119,7 @@ jobs:
                 )
 
             - name: Test
+              timeout-minutes: 20
               shell: cmd
               run: |
                 set "PATH=%PATH%;C:\msys64\usr\bin"
