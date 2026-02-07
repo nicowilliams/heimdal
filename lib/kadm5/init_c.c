@@ -203,12 +203,10 @@ kadm5_c_dup_context(void *vin, void **out)
     kadm5_client_context *ctx;
 
     *out = NULL;
-    ctx = malloc(sizeof(*ctx));
+    ctx = calloc(1, sizeof(*ctx));
     if (ctx == NULL)
 	return krb5_enomem(in->context);
 
-
-    memset(ctx, 0, sizeof(*ctx));
     set_funcs(ctx);
     ctx->readonly_kadmind_port = in->readonly_kadmind_port;
     ctx->kadmind_port = in->kadmind_port;
@@ -226,8 +224,13 @@ kadm5_c_dup_context(void *vin, void **out)
     if (in->readonly_admin_server &&
 	(ctx->readonly_admin_server = strdup(in->readonly_admin_server)) == NULL)
         ret = krb5_enomem(context);
+    if (in->client_name != NULL &&
+	(ctx->client_name = strdup(in->client_name)) == NULL)
+        ret = krb5_enomem(context);
     if (in->keytab && (ctx->keytab = strdup(in->keytab)) == NULL)
         ret = krb5_enomem(context);
+    ctx->prompter = in->prompter;
+
     if (in->ccache) {
         char *fullname = NULL;
 
@@ -455,9 +458,19 @@ _kadm5_c_get_cred_cache(krb5_context context,
     }
 
     if(ccache != NULL) {
-	id = ccache;
-	ret = krb5_cc_get_principal(context, id, &client);
-	if(ret)
+        char *fullname = NULL;
+
+        ret = krb5_cc_get_full_name(context, ccache, &fullname);
+        if (ret)
+            return ret;
+
+        ret = krb5_cc_resolve(context, fullname, &id);
+        free(fullname);
+        if (ret)
+            return ret;
+
+        ret = krb5_cc_get_principal(context, id, &client);
+	if (ret)
 	    return ret;
     } else {
 	/* get principal from default cache, ok if this doesn't work */
@@ -515,7 +528,7 @@ _kadm5_c_get_cred_cache(krb5_context context,
 	    return -1;
     }
     /* get creds via AS request */
-    if(id && (id != ccache))
+    if (id)
 	krb5_cc_close(context, id);
     if (client != default_client)
 	krb5_free_principal(context, default_client);
@@ -708,7 +721,8 @@ kadm5_c_init_with_context(krb5_context context,
     if (ret)
 	return ret;
 
-    if (password != NULL && *password != '\0') {
+    if ((password != NULL && *password != '\0') ||
+        (client_name && !keytab)) {
 	ret = _kadm5_c_get_cred_cache(context,
 				      client_name,
 				      service_name,
