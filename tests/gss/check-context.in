@@ -77,6 +77,8 @@ rm -f mkey.file*
 
 test_init
 
+alias test_run=test_run_x
+
 test_section "Creating database"
 # add both lucid and lucid.test.h5l.se to simulate aliases
 # XXX ext should ext aliases too

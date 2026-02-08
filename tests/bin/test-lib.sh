@@ -272,7 +272,7 @@ test_run_x() {
 
     # Run with tracing enabled
     (
-        set -x
+        set -vx
         "$@"
     ) > "$cmd_out" 2>"$trace_out"
     rc=$?
