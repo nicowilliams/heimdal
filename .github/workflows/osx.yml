@@ -106,6 +106,27 @@ jobs:
                 sudo lsof -nP -i:49188 || true
                 cd build
                 make check
+            - name: Interrupted/timed out test diagnostics
+              if: ${{ cancelled() || failure() }}
+              run: |
+                set -x
+                # Show any test-related processes still running
+                ps auxww | grep -E 'kdc|test_context|kinit|kadmin|check-' | grep -v grep || true
+                # Show who's on the test port
+                sudo lsof -nP -i:49188 || true
+                # Show the newest .log file (the one likely interrupted)
+                newest=$(find build/tests -name '*.log' -newer build/tests/gss/Makefile -print0 2>/dev/null | xargs -0 stat -f '%m %N' 2>/dev/null | sort -rn | head -1 | cut -d' ' -f2-)
+                if [ -n "$newest" ]; then
+                  echo "=== Newest test log: $newest ==="
+                  cat "$newest"
+                fi
+                # Also show KDC messages.log if any exist
+                for f in build/tests/gss/messages.log build/tests/kdc/messages.log; do
+                  if [ -f "$f" ]; then
+                    echo "=== $f ==="
+                    tail -100 "$f"
+                  fi
+                done
             - name: Install
               run: |
                 cd build || true
@@ -113,6 +134,7 @@ jobs:
                 cd /tmp/h5l
                 tar czf $HOME/heimdal-install-osx.tgz .
             - name: Test logs
+              if: ${{ always() }}
               run: |
                 find build -depth -name \*.trs|xargs grep -lw FAIL|sed -e 's/trs$/log/' | cpio -o > $HOME/logs-osx.cpio
                 find build -name \*.trs|xargs grep -lw FAIL|sed -e 's/trs$/log/'|xargs cat
