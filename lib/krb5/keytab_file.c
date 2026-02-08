@@ -381,10 +381,12 @@ fkt_start_seq_get_int(krb5_context context,
 	return ret;
     }
     rk_cloexec(c->fd);
-    ret = _krb5_xlock(context, c->fd, exclusive, d->filename);
-    if (ret) {
-	close(c->fd);
-	return ret;
+    if (exclusive) {
+	ret = _krb5_xlock(context, c->fd, exclusive, d->filename);
+	if (ret) {
+	    close(c->fd);
+	    return ret;
+	}
     }
     if ((flags & O_ACCMODE) == O_RDWR && (flags & O_APPEND))
         stdio_mode = "ab+";
