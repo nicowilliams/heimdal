@@ -43,6 +43,9 @@ kt_rename(struct rename_options *opt, int argc, char **argv)
     krb5_keytab keytab;
     krb5_kt_cursor cursor;
     krb5_principal from_princ, to_princ;
+    krb5_keytab_entry *entries = NULL;
+    size_t num_entries = 0;
+    size_t i;
 
     ret = krb5_parse_name(context, argv[0], &from_princ);
     if(ret != 0) {
@@ -63,6 +66,14 @@ kt_rename(struct rename_options *opt, int argc, char **argv)
 	return 1;
     }
 
+    /*
+     * Collect matching entries first, then close the cursor before
+     * adding/removing.  We must not call krb5_kt_add_entry() or
+     * krb5_kt_remove_entry() while holding the seq_get cursor because
+     * the cursor holds a shared file lock and the add/remove operations
+     * need an exclusive lock -- with per-fd locking (BSD flock, OFD locks)
+     * this self-deadlocks.
+     */
     ret = krb5_kt_start_seq_get(context, keytab, &cursor);
     if(ret) {
 	krb5_kt_close(context, keytab);
@@ -70,40 +81,52 @@ kt_rename(struct rename_options *opt, int argc, char **argv)
 	krb5_free_principal(context, to_princ);
 	return 1;
     }
-    while(1) {
-	ret = krb5_kt_next_entry(context, keytab, &entry, &cursor);
-	if(ret != 0) {
-	    if(ret != KRB5_CC_END && ret != KRB5_KT_END)
-		krb5_warn(context, ret, "getting entry from keytab");
-	    else
-		ret = 0;
-	    break;
-	}
+    while((ret = krb5_kt_next_entry(context, keytab, &entry, &cursor)) == 0) {
 	if(krb5_principal_compare(context, entry.principal, from_princ)) {
-	    krb5_free_principal(context, entry.principal);
-	    entry.principal = to_princ;
-	    ret = krb5_kt_add_entry(context, keytab, &entry);
-	    if(ret) {
-		entry.principal = NULL;
+	    krb5_keytab_entry *tmp;
+
+	    tmp = realloc(entries, (num_entries + 1) * sizeof(*entries));
+	    if (tmp == NULL) {
 		krb5_kt_free_entry(context, &entry);
-		krb5_warn(context, ret, "adding entry");
+		ret = krb5_enomem(context);
 		break;
 	    }
-	    if (opt->delete_flag) {
-		entry.principal = from_princ;
-		ret = krb5_kt_remove_entry(context, keytab, &entry);
-		if(ret) {
-		    entry.principal = NULL;
-		    krb5_kt_free_entry(context, &entry);
-		    krb5_warn(context, ret, "removing entry");
-		    break;
-		}
-	    }
+	    entries = tmp;
+	    krb5_free_principal(context, entry.principal);
 	    entry.principal = NULL;
+	    entries[num_entries++] = entry;
+	} else {
+	    krb5_kt_free_entry(context, &entry);
 	}
-	krb5_kt_free_entry(context, &entry);
     }
+    if(ret == KRB5_CC_END || ret == KRB5_KT_END)
+	ret = 0;
+    else if(ret)
+	krb5_warn(context, ret, "getting entry from keytab");
     krb5_kt_end_seq_get(context, keytab, &cursor);
+
+    for (i = 0; ret == 0 && i < num_entries; i++) {
+	entries[i].principal = to_princ;
+	ret = krb5_kt_add_entry(context, keytab, &entries[i]);
+	if(ret) {
+	    krb5_warn(context, ret, "adding entry");
+	    break;
+	}
+	if (opt->delete_flag) {
+	    entries[i].principal = from_princ;
+	    ret = krb5_kt_remove_entry(context, keytab, &entries[i]);
+	    if(ret) {
+		krb5_warn(context, ret, "removing entry");
+		break;
+	    }
+	}
+    }
+
+    for (i = 0; i < num_entries; i++) {
+	entries[i].principal = NULL;
+	krb5_kt_free_entry(context, &entries[i]);
+    }
+    free(entries);
 
     krb5_free_principal(context, from_princ);
     krb5_free_principal(context, to_princ);
