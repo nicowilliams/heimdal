@@ -2175,13 +2175,13 @@ _kdc_pk_check_client(astgs_request_t r,
 	 * and not the reverse.
 	 */
 	for (i = 0; i < acl->len; i++) {
-	    if (strcmp(*subject_name, acl->val[0].subject) != 0)
+	    if (strcmp(*subject_name, acl->val[i].subject) != 0)
 		continue;
 
 	    /* Don't support issuer and anchor checking right now */
-	    if (acl->val[0].issuer)
+	    if (acl->val[i].issuer)
 		continue;
-	    if (acl->val[0].anchor)
+	    if (acl->val[i].anchor)
 		continue;
 
             kdc_audit_addkv((kdc_request_t)r, 0, "authorized_by",
