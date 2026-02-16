@@ -372,6 +372,87 @@ kadm5_s_get_principal(void *server_handle,
 		goto out;
 	}
 
+        {
+            const HDB_Ext_PKINIT_issuer_serial *is;
+
+            ret = hdb_entry_get_pkinit_issuer_serial(&ent, &is);
+            if (ret == 0 && is) {
+                krb5_data buf;
+                size_t len;
+
+                ASN1_MALLOC_ENCODE(HDB_Ext_PKINIT_issuer_serial,
+                                   buf.data, buf.length, is, &len, ret);
+                if (ret)
+                    goto out;
+                if (len != buf.length)
+                    krb5_abortx(context->context,
+                                "internal ASN.1 encoder error");
+                ret = add_tl_data(out, KRB5_TL_PKINIT_ISSUER_SERIAL,
+                                  buf.data, buf.length);
+                free(buf.data);
+                if (ret)
+                    goto out;
+            }
+        }
+
+        {
+            const ObjectSid *sid;
+
+            ret = hdb_entry_get_pkinit_object_sid(&ent, &sid);
+            if (ret == 0 && sid) {
+                ret = add_tl_data(out, KRB5_TL_PKINIT_OBJECT_SID,
+                                  sid->data, sid->length);
+                if (ret)
+                    goto out;
+            }
+        }
+
+        {
+            const HDB_Ext_PKINIT_rfc822 *emails;
+
+            ret = hdb_entry_get_pkinit_rfc822(&ent, &emails);
+            if (ret == 0 && emails) {
+                krb5_data buf;
+                size_t len;
+
+                ASN1_MALLOC_ENCODE(HDB_Ext_PKINIT_rfc822,
+                                   buf.data, buf.length, emails, &len, ret);
+                if (ret)
+                    goto out;
+                if (len != buf.length)
+                    krb5_abortx(context->context,
+                                "internal ASN.1 encoder error");
+                ret = add_tl_data(out, KRB5_TL_PKINIT_RFC822,
+                                  buf.data, buf.length);
+                free(buf.data);
+                if (ret)
+                    goto out;
+            }
+        }
+
+        {
+            const HDB_Ext_PKINIT_ski *skis;
+
+            ret = hdb_entry_get_pkinit_ski(&ent, &skis);
+            if (ret == 0 && skis) {
+                krb5_data buf;
+                size_t len;
+
+                ASN1_MALLOC_ENCODE(HDB_Ext_PKINIT_ski,
+                                   buf.data, buf.length, skis, &len, ret);
+                if (ret)
+                    goto out;
+                if (len != buf.length)
+                    krb5_abortx(context->context,
+                                "internal ASN.1 encoder error");
+                ret = add_tl_data(out, KRB5_TL_PKINIT_SKI,
+                                  buf.data, buf.length);
+                free(buf.data);
+                if (ret)
+                    goto out;
+            }
+        }
+
         ret = hdb_entry_get_aliases(&ent, &aliases);
 	if (ret == 0 && aliases) {
 	    krb5_data buf;
