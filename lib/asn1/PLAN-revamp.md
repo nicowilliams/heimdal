@@ -125,10 +125,13 @@ backend supports DER and has growing JER (JSON) support.  If we want to
 support BER, CER, OER, PER, or other encoding rules, we need a way to
 select which rules to use at runtime or compile time.
 
-### Proposal
+### Approaches
 
-Add a `flags` argument to the codec functions (could be combined with the
-implicit tag parameter from section 1 into a context/options struct):
+There are two fundamentally different ways to support multiple ERs,
+each with distinct tradeoffs:
+
+**Approach A: Flags argument (runtime selection).**  Add a `flags`
+field to the codec context struct:
 
 ```c
 typedef struct asn1_codec_ctx {
@@ -141,11 +144,38 @@ int asn1_decode_T(const unsigned char *p, size_t len, T *data, size_t *size,
                   const asn1_codec_ctx *ctx);
 ```
 
-For the codegen backend, the `flags` field selects between different
-generated code paths (if multiple ER code is generated) or returns
-`ENOTSUP` for unsupported ERs.  For the template backend, the template
-interpreter already has this capability via the `flags` parameter to
-`_asn1_decode()`.
+The template backend already works this way — `_asn1_decode()` takes a
+`flags` parameter and branches internally.  This adds branches at
+runtime, which is a performance cost.  But the whole point of the
+template approach is trading branches for smaller I-cache footprint,
+and that's supposedly a large win.  So for the template backend, flags
+are the natural and consistent choice.
+
+**Approach B: More symbols (compile-time selection).**  Generate
+separate per-ER functions: `asn1_der_decode_T()`,
+`asn1_ber_decode_T()`, `asn1_jer_decode_T()`, etc.  Each function is
+specialized for one ER with no branches.  This is what the codegen
+backend would naturally do — it already generates straight-line code
+with no ER dispatch.
+
+**Tradeoffs:**
+
+| | Flags (A) | More symbols (B) |
+|---|---|---|
+| Branches | Yes, at every ER-dependent point | None within each function |
+| Code size | One function per type | N functions per type (N = ERs) |
+| I-cache | Smaller (shared code) | Larger (duplicated per ER) |
+| Template backend | Natural fit | Unnatural (defeats the purpose) |
+| Codegen backend | Adds branches to straight-line code | Natural fit |
+| Stubs / ABI surface | One entry point | N entry points per type |
+
+**Recommendation:** Use flags for the template backend (it already
+does this internally) and generate separate per-ER functions in the
+codegen backend.  The `asn1_codec_ctx` struct would carry flags for the
+template path; callers using the codegen path would call the
+ER-specific function directly.  The exported type descriptor (section 5)
+could hold function pointers for each supported ER, unifying the two
+approaches at the generic API level.
 
 ### Note
 
