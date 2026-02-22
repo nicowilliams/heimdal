@@ -13,7 +13,11 @@ heimdal/
   lib/           - Core libraries
     asn1/        - ASN.1 compiler and runtime (DER encoding/decoding)
     krb5/        - Kerberos 5 library
-    gssapi/      - GSSAPI library (krb5, SPNEGO, NEGOEX mechanisms)
+    gssapi/      - GSSAPI library with multiple mechanisms:
+      krb5/      - Kerberos 5 mechanism
+      spnego/    - SPNEGO negotiation mechanism
+      sanon/     - Simple Anonymous mechanism (X25519-based)
+      mech/      - Mechanism dispatch layer
     hx509/       - X.509/PKIX certificate library
     hdb/         - Heimdal database library (KDC backend)
     kadm5/       - Kadmin client/server library
@@ -68,18 +72,26 @@ Heimdal uses GNU Autotools (autoconf, automake, libtool).
 ```
 Requires: autoconf, automake, libtool, Perl with JSON module.
 
-**Out-of-tree build** (recommended, used by CI):
+**Out-of-tree build** (recommended, uses `build/` directory):
 ```sh
-mkdir build && cd build
+mkdir -p build && cd build
 ../configure --enable-maintainer-mode --enable-developer [OPTIONS]
-make -j4
+make -j8
 ```
+
+If `build/` already has a configured build, just run `make` there -- it will
+re-run autoconf and `../configure` as needed:
+```sh
+cd build && make -j8
+```
+
+Add `V=1` to make commands for verbose output (see actual compiler commands).
 
 **Key configure options:**
 - `--enable-maintainer-mode` - Regenerate Makefile.in etc. when sources change
 - `--enable-developer` - Enable `-Werror` and strict warnings
 - `--with-ldap` - Enable LDAP HDB backend
-- `--with-openssl=PATH` - Specify OpenSSL location
+- `--with-openssl=PATH` - Specify OpenSSL location (e.g., `--with-openssl=/opt/ossl36`)
 - `--disable-pk-init` - Disable PKINIT support
 - `--disable-heimdal-documentation` - Skip building docs
 - `--prefix=PATH` - Install prefix (default: `/usr/heimdal`)
@@ -88,11 +100,21 @@ make -j4
 ```sh
 make              # Build everything
 make check        # Run all tests
+make clean        # Remove build artifacts (prefer over rm)
 make install      # Install (use DESTDIR= for staged installs)
 make dist         # Create distribution tarball
 make distclean    # Clean build tree fully
 make check-valgrind   # Run tests under valgrind
 make check-helgrind   # Run tests under helgrind
+```
+
+### Debugging with Libtool
+
+Heimdal uses `libtool`, so you cannot run `gdb`, `ldd`, `strace`, etc. directly
+on built executables. Use `libtool --mode=execute` instead:
+```sh
+build/libtool --mode=execute gdb --args build/kuser/kinit ...
+build/libtool --mode=execute ldd build/kdc/kdc
 ```
 
 ### Windows (NTMakefile)
@@ -107,6 +129,7 @@ Several source files are generated and should not be edited directly:
 - **ASN.1 compiler** (`lib/asn1/asn1_compile`): Compiles `.asn1` files into C source.
   Generated files are named `asn1_*_asn1.c` and corresponding headers.
   ASN.1 module definitions live in `lib/asn1/*.asn1`.
+  The `--template` backend is preferred for new code.
 - **Error tables** (`lib/com_err/compile_et`): Compiles `.et` files into C error
   code definitions and headers.
 - **SLC** (`lib/sl/slc`): Compiles `*-commands.in` files into command-line
@@ -130,9 +153,15 @@ Tests are a mix of:
 
 ```sh
 cd build
-make check                # Run all tests
-make check -C tests/kdc   # Run only KDC tests
-make check -C lib/krb5    # Run only krb5 library tests
+make check                                    # Run all tests
+make check -C tests/kdc                       # Run only KDC tests
+make check -C lib/krb5                        # Run only krb5 library tests
+cd tests/kdc && make check TESTS=check-kdc    # Run a specific test suite
+```
+
+To run a single test script directly (without the automake harness):
+```sh
+cd build/tests/kdc && make ./check-kdc && ./check-kdc
 ```
 
 Test scripts use `tests/bin/test-lib.sh` for common utilities (setup/teardown,
@@ -165,6 +194,17 @@ Workflows in `.github/workflows/`:
 
 PRs can use `[only linux]`, `[only osx]`, or `[only windows]` in the title
 to limit CI to one platform.
+
+## Key Design Principles
+
+- **Reuse existing functionality** rather than duplicating it. For example, do not
+  write code to read a private key from a PEM file directly -- use `lib/hx509`
+  APIs instead. This is important because `lib/hx509`'s private key support
+  includes PKCS#12 password-protected keys and PKCS#11 hardware tokens, not just
+  PEM files, and we want that functionality available everywhere.
+- **Runtime configuration** via `krb5.conf`. KDC configuration in the `[kdc]`
+  section, library options in `[libdefaults]`.
+- Relevant RFCs and standards are in `doc/standardisation/`.
 
 ## Coding Conventions
 
