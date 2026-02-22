@@ -3178,6 +3178,169 @@ _asn1_json_dict_get(heim_dict_t d, const char *name)
 }
 
 /*
+ * Parse an open type value from JSON.
+ *
+ * The JSON printer outputs three keys for each open type field:
+ *
+ *   1. The raw hex field (e.g., "parameters": "0500")
+ *   2. "_<name>_choice": the object set entry name (e.g., "NULL")
+ *   3. "_<name>": the decoded typed value (e.g., null for ASN.1 NULL)
+ *
+ * Regular field parsing handles #1 (hex → heim_any).  This function
+ * handles #2 and #3: it looks up the typed value in the JSON dict,
+ * parses it using the matched type's template, encodes it to DER,
+ * and stores the DER in the heim_any/heim_octet_string field.
+ *
+ * If the raw hex field was already populated by field parsing, this
+ * function does nothing (the DER is already available for
+ * _asn1_decode_open_type() to decode into the typed choice struct).
+ *
+ * This allows hand-written JSON to omit the hex DER field and instead
+ * provide the human-readable typed value directly.
+ */
+static int
+_asn1_parse_open_type_json(const struct asn1_template *t,
+                           const struct asn1_template *tbase,
+                           heim_object_t j,
+                           void *data,
+                           size_t nelements,
+                           size_t nnames,
+                           const struct asn1_template *topentype)
+{
+    const struct asn1_template *tos = t->ptr;
+    const struct asn1_template *tactual_type;
+    size_t opentype_idx = (t->tt >> 10) & ((1 << 10) - 1);
+    const char *opentype_name;
+    char choice_key[256];
+    char value_key[256];
+    heim_object_t jchoice, jvalue;
+    const char *choice_name;
+    struct heim_base_data *os;
+    size_t i, n;
+    void *decoded = NULL;
+    size_t der_len;
+    unsigned char *der_buf = NULL;
+    size_t sz;
+    int ret;
+
+    /* We can only look up synthetic keys in a JSON dict */
+    if (heim_get_tid(j) != HEIM_TID_DICT)
+        return 0;
+
+    /* Check if the raw heim_any field already has data */
+    if (t->tt & A1_OTF_IS_OPTIONAL) {
+        struct heim_base_data **od = DPO(data, topentype->offset);
+
+        if (*od && (*od)->data && (*od)->length)
+            return 0;   /* Already populated from hex decode */
+    } else {
+        os = DPO(data, topentype->offset);
+        if (os->data && os->length)
+            return 0;   /* Already populated from hex decode */
+    }
+
+    /*
+     * Get the open type field name from the A1_OP_NAME entries.
+     * The printer uses: tbase[(nelements - nnames) + 2 + opentype_idx].ptr
+     */
+    opentype_name = (const char *)tbase[(nelements - nnames) + 2 + opentype_idx].ptr;
+    snprintf(choice_key, sizeof(choice_key), "_%s_choice", opentype_name);
+    snprintf(value_key, sizeof(value_key), "_%s", opentype_name);
+
+    /* Look for the synthetic keys in the JSON dict */
+    jchoice = _asn1_json_dict_get((heim_dict_t)j, choice_key);
+    jvalue = _asn1_json_dict_get((heim_dict_t)j, value_key);
+    if (!jchoice || heim_get_tid(jchoice) != HEIM_TID_STRING)
+        return 0;   /* No typed value in JSON */
+
+    /* Find the matching object in the object set by name */
+    choice_name = heim_string_get_utf8(jchoice);
+    n = A1_HEADER_LEN(tos);
+    for (i = 0; i < n; i++) {
+        const char *obj_name = (const char *)tos[3 * i + 2].ptr;
+
+        if (strcmp(obj_name, choice_name) == 0)
+            break;
+    }
+    if (i == n)
+        return 0;   /* Unknown type name, skip */
+
+    tactual_type = &tos[3 * i + 4];
+
+    /*
+     * If the value is null/missing but we matched the choice name, that's
+     * OK for types like ASN.1 NULL.  But we still need to parse+encode.
+     */
+    if (!jvalue || heim_get_tid(jvalue) == HEIM_TID_NULL) {
+        /* Create an empty JSON dict for parsing */
+        jvalue = heim_dict_create(1);
+        if (!jvalue)
+            return ENOMEM;
+    } else {
+        heim_retain(jvalue);
+    }
+
+    /* Parse the typed value from JSON */
+    decoded = calloc(1, tactual_type->offset);
+    if (!decoded) {
+        heim_release(jvalue);
+        return ENOMEM;
+    }
+    ret = _asn1_parse_json(tactual_type->ptr, jvalue, decoded);
+    heim_release(jvalue);
+    if (ret) {
+        _asn1_free(tactual_type->ptr, decoded);
+        free(decoded);
+        return 0;   /* Parse failed, not fatal -- fall back to hex if available */
+    }
+
+    /* Encode the parsed value to DER */
+    der_len = _asn1_length(tactual_type->ptr, decoded);
+    if (der_len > 0) {
+        der_buf = malloc(der_len);
+        if (!der_buf) {
+            _asn1_free(tactual_type->ptr, decoded);
+            free(decoded);
+            return ENOMEM;
+        }
+        ret = _asn1_encode(tactual_type->ptr,
+                           der_buf + der_len - 1, der_len, decoded, &sz);
+        if (ret) {
+            free(der_buf);
+            _asn1_free(tactual_type->ptr, decoded);
+            free(decoded);
+            return 0;   /* Encode failed, not fatal */
+        }
+    } else {
+        sz = 0;
+    }
+
+    _asn1_free(tactual_type->ptr, decoded);
+    free(decoded);
+
+    /* Store the DER in the heim_any/heim_octet_string field */
+    if (t->tt & A1_OTF_IS_OPTIONAL) {
+        struct heim_base_data **od = DPO(data, topentype->offset);
+
+        if (!*od) {
+            *od = calloc(1, sizeof(**od));
+            if (!*od) {
+                free(der_buf);
+                return ENOMEM;
+            }
+        }
+        (*od)->data = der_buf;
+        (*od)->length = sz;
+    } else {
+        os = DPO(data, topentype->offset);
+        free(os->data);
+        os->data = der_buf;
+        os->length = sz;
+    }
+    return 0;
+}
+
+/*
  * Recursive JSON-to-C-struct parser, the inverse of _asn1_print().
  *
  * Walks the template `t' and populates the C struct at `data' from
@@ -3215,11 +3378,37 @@ _asn1_parse_json(const struct asn1_template *t,
             t++;
             elements--;
             continue;
-        case A1_OP_OPENTYPE_OBJSET:
-            /* Open type parsing: skip for now (ENOTSUP) */
+        case A1_OP_OPENTYPE_OBJSET: {
+            size_t opentypeid = t->tt & ((1<<10)-1);
+            size_t opentype = (t->tt >> 10) & ((1<<10)-1);
+            const struct asn1_template *topentype_t =
+                template4member(tbase, opentype);
+
+            /*
+             * First, try to parse from the "_<name>" typed JSON value.
+             * This handles hand-written JSON that provides the decoded
+             * value instead of hex DER.  If the raw hex field was already
+             * populated by regular field parsing, this is a no-op.
+             */
+            ret = _asn1_parse_open_type_json(t, tbase, j, data,
+                                             nelements, nnames,
+                                             topentype_t);
+            if (ret)
+                return ret;
+
+            /*
+             * Now decode the raw DER (from hex or from the above encoding)
+             * into the typed choice struct, just like the DER decoder does.
+             */
+            ret = _asn1_decode_open_type(t, 0, data,
+                                         template4member(tbase, opentypeid),
+                                         topentype_t);
+            if (ret)
+                return ret;
             t++;
             elements--;
             continue;
+        }
         case A1_OP_TYPE_DECORATE_EXTERN:
         case A1_OP_TYPE_DECORATE:
             t++;
@@ -3316,11 +3505,46 @@ _asn1_parse_json(const struct asn1_template *t,
                 ret = _asn1_parse_json(t->ptr, jfield, el);
             } else {
                 /*
-                 * External type: we don't have a JSON parser for it.
-                 * Try to treat the JSON value as a hex-encoded DER blob
-                 * and decode it.
+                 * External type (e.g., heim_any, heim_any_set).
+                 * The printer outputs hex-encoded DER bytes wrapped in
+                 * quotes via der_print_octet_string() + rk_strasvis().
+                 * Parse the hex string back to binary and decode.
                  */
-                ret = ENOTSUP;
+                const struct asn1_type_func *f = t->ptr;
+
+                if (heim_get_tid(jfield) == HEIM_TID_STRING) {
+                    const char *hex = heim_string_get_utf8(jfield);
+                    size_t hexlen = strlen(hex);
+                    size_t binlen = hexlen / 2;
+
+                    if (binlen > 0) {
+                        unsigned char *bin = malloc(binlen);
+
+                        if (!bin) {
+                            ret = ENOMEM;
+                        } else {
+                            ssize_t decoded = hex_decode(hex, bin, binlen);
+
+                            if (decoded < 0) {
+                                free(bin);
+                                ret = ASN1_PARSE_ERROR;
+                            } else {
+                                size_t sz = 0;
+
+                                ret = f->decode(bin, (size_t)decoded, el, &sz);
+                                free(bin);
+                            }
+                        }
+                    } else {
+                        /* Empty hex string -> empty data */
+                        size_t sz = 0;
+                        unsigned char empty = 0;
+
+                        ret = f->decode(&empty, 0, el, &sz);
+                    }
+                } else {
+                    ret = ENOTSUP;
+                }
             }
             if (ret && (t->tt & A1_FLAG_OPTIONAL)) {
                 if ((t->tt & A1_OP_MASK) == A1_OP_TYPE)
