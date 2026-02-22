@@ -264,6 +264,12 @@ char *
 _asn1_print_top(const struct asn1_template *, int, const void *);
 
 int
+_asn1_parse_json_top(const struct asn1_template *, void * /*heim_object_t*/, void *);
+
+int
+_asn1_parse_json_string_top(const struct asn1_template *, const char *, size_t, void *);
+
+int
 _asn1_decode_top (
 	const struct asn1_template * /*t*/,
 	unsigned /*flags*/,

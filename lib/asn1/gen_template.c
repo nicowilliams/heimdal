@@ -1696,4 +1696,16 @@ generate_template(const Symbol *s)
 	    s->gen_name,
 	    s->gen_name,
 	    dupname);
+
+    fprintf(f,
+	    "\n"
+	    "int ASN1CALL\n"
+	    "asn1_parse_%s(const char *jstr, size_t jlen, %s *data)\n"
+	    "{\n"
+	    "    return _asn1_parse_json_string_top(asn1_%s, jstr, jlen, data);\n"
+	    "}\n"
+	    "\n",
+	    s->gen_name,
+	    s->gen_name,
+	    dupname);
 }
