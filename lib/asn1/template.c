@@ -3685,7 +3685,7 @@ _asn1_parse_json_string_top(const struct asn1_template *t,
 
     if (jlen == 0)
         jlen = strlen(jstr);
-    j = heim_json_create_with_bytes(jstr, jlen, 10, 0, &e);
+    j = heim_json_create_with_bytes(jstr, jlen, 64, 0, &e);
     if (!j) {
         heim_release(e);
         return EINVAL;

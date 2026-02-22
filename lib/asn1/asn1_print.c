@@ -500,8 +500,8 @@ dotype(unsigned char *buf, size_t len, char **argv, size_t *size)
                 sorted_types[i].release(vcpy);
                 free(vcpy);
             }
-            if (test_json_flag && sorted_types[i].print &&
-                sorted_types[i].parse_json) {
+            if ((test_json_flag || test_encode_flag) &&
+                sorted_types[i].print && sorted_types[i].parse_json) {
                 char *json_str;
                 void *vjson;
                 int jret;
