@@ -247,7 +247,8 @@ tagged type is encoded identically to its underlying base type.
 were that type — no wrapper, no choice key.
 
 **Heimdal divergence:** Heimdal uses underscore-prefixed sibling fields in
-the parent object (`_params_choice`, `_params`).
+the parent object (`_params_choice`, `_params`). To achieve JER compliance,
+promote the decoded open type fields directly into the containing structure.
 
 ### 17. HEIM_INTEGER (big integers)
 
@@ -283,12 +284,12 @@ X.697 defines six encoding instructions (clauses 14–19):
 | String VIS escaping vs. JSON `\uXXXX` | Medium | Medium |
 | Named INTEGER values (name vs. number) | Low | Easy |
 | ENUMERATED fallback to number | Low | Easy |
-| Open type encoding | Medium | Hard (architectural) |
+| Open type encoding | Medium | Easy (promote decoded fields to parent) |
 | HEIM_INTEGER hex vs. number | Low | Medium |
 
 The biggest structural divergences are OID representation, CHOICE encoding,
 BIT STRING encoding, and time formats. The `_type` metadata and
 OPTIONAL-as-null are easy to toggle. The string escaping issue (`\xHH` vs
-`\uXXXX`) affects JSON validity and would need attention. The open type
-encoding is architecturally the hardest to change since JER expects inline
-transparent encoding.
+`\uXXXX`) affects JSON validity and would need attention. Open type encoding
+is straightforward: promote the decoded open type fields directly into the
+containing structure rather than using underscore-prefixed sibling keys.
