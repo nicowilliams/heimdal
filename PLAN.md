@@ -6,7 +6,7 @@ Add `_asn1_parse_json()` — a new template interpreter in `template.c` that is
 the inverse of `_asn1_print()`.  This enables parsing the JSON produced by
 `print_<TYPE>()` back into C types, completing a JSON round-trip:
 
-    C struct → print_<TYPE>() → JSON string → parse_<TYPE>() → C struct
+    C struct → print_<TYPE>() → JSON string → asn1_parse_<TYPE>() → C struct
 
 ## JSON Format Reference (produced by `_asn1_print`)
 
@@ -73,7 +73,7 @@ Add ~600-800 lines:
 Add declaration for `_asn1_parse_json_top()` alongside the existing
 declarations for `_asn1_decode_top`, `_asn1_print_top`, etc.
 
-### 3. `lib/asn1/gen_template.c` — Generate `parse_<TYPE>()` stubs
+### 3. `lib/asn1/gen_template.c` — Generate `asn1_parse_<TYPE>()` stubs
 
 After the existing `print_<TYPE>()` stub generation (line ~1688), add:
 
@@ -81,7 +81,7 @@ After the existing `print_<TYPE>()` stub generation (line ~1688), add:
 fprintf(f,
     "\n"
     "int ASN1CALL\n"
-    "parse_%s(const char *jstr, size_t jlen, %s *data)\n"
+    "asn1_parse_%s(const char *jstr, size_t jlen, %s *data)\n"
     "{\n"
     "    heim_object_t j;\n"
     "    heim_error_t e = NULL;\n"
@@ -98,7 +98,7 @@ fprintf(f,
     s->gen_name, s->gen_name, dupname);
 ```
 
-**Function signature**: `int parse_<TYPE>(const char *json, size_t len, <TYPE> *data)`
+**Function signature**: `int asn1_parse_<TYPE>(const char *json, size_t len, <TYPE> *data)`
 - `json` is a NUL-terminated JSON string (or `len` bytes if `len > 0`)
 - Returns 0 on success, error code on failure
 - On failure, `data` is zeroed (freed by `_asn1_parse_json_top`)
@@ -109,13 +109,13 @@ After the `print_<TYPE>()` declaration (line ~2088), add:
 
 ```c
 fprintf(h,
-    "%sint    ASN1CALL parse_%s (const char *, size_t, %s *);\n",
+    "%sint    ASN1CALL asn1_parse_%s (const char *, size_t, %s *);\n",
     exp, s->gen_name, s->gen_name);
 ```
 
 ### 5. `lib/asn1/gen_print.c` — Non-template backend stub
 
-Add a `parse_<TYPE>()` stub that returns ENOTSUP, for the non-template
+Add a `asn1_parse_<TYPE>()` stub that returns ENOTSUP, for the non-template
 (codegen) backend:
 
 ```c
@@ -123,7 +123,7 @@ void
 generate_type_parse_stub(const Symbol *s)
 {
     fprintf(codefile, "int ASN1CALL\n"
-            "parse_%s(const char *j, size_t l, %s *d)\n"
+            "asn1_parse_%s(const char *j, size_t l, %s *d)\n"
             "{ return ENOTSUP; }\n\n",
             s->gen_name, s->gen_name);
 }
@@ -133,7 +133,7 @@ And call it from gen.c alongside `generate_type_print_stub()`.
 
 ### 6. `lib/asn1/asn1_print.c` — Add JSON-to-DER mode (optional, can defer)
 
-Add a `--from-json` mode that reads JSON from stdin, calls `parse_<TYPE>()`,
+Add a `--from-json` mode that reads JSON from stdin, calls `asn1_parse_<TYPE>()`,
 then encodes to DER with `encode_<TYPE>()`.  This enables:
 ```
 asn1_print file.der Certificate | asn1_print --from-json Certificate > roundtrip.der
@@ -144,7 +144,7 @@ asn1_print file.der Certificate | asn1_print --from-json Certificate > roundtrip
 Add a round-trip test that for each type:
 1. Decodes a DER value
 2. Prints to JSON via `print_<TYPE>()`
-3. Parses JSON back via `parse_<TYPE>()`
+3. Parses JSON back via `asn1_parse_<TYPE>()`
 4. Encodes to DER via `encode_<TYPE>()`
 5. Compares original DER with round-tripped DER
 
@@ -183,9 +183,9 @@ For each `enum template_types` value, the JSON-to-C conversion:
 
 1. Add `_asn1_parse_json_top()` declaration to `asn1-template.h`
 2. Implement `_asn1_parse_json_prim()` and `_asn1_parse_json()` in `template.c`
-3. Add `parse_<TYPE>()` stub generation in `gen_template.c`
-4. Add `parse_<TYPE>()` header declaration in `gen.c`
-5. Add `parse_<TYPE>()` non-template stub in `gen_print.c`
+3. Add `asn1_parse_<TYPE>()` stub generation in `gen_template.c`
+4. Add `asn1_parse_<TYPE>()` header declaration in `gen.c`
+5. Add `asn1_parse_<TYPE>()` non-template stub in `gen_print.c`
 6. Add round-trip test in `asn1_print.c` (`--test-json-roundtrip` flag)
 7. Build and test
 
