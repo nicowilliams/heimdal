@@ -198,7 +198,7 @@ with no ER dispatch.
 does this internally) and generate separate per-ER functions in the
 codegen backend.  The `asn1_codec_ctx` struct would carry flags for the
 template path; callers using the codegen path would call the
-ER-specific function directly.  The exported type descriptor (section 5)
+ER-specific function directly.  The exported type descriptor (section 6)
 could hold function pointers for each supported ER, unifying the two
 approaches at the generic API level.
 
@@ -326,7 +326,101 @@ allocation centrally (in `_asn1_decode()` in `template.c`).
 
 ---
 
-## 5. Exported Type Descriptors (DATA Symbols)
+## 5. Caller-Supplied Object Sets for Open Type Decoding
+
+### Problem
+
+The compiler currently bakes the object set into the generated
+templates / code at compile time.  When decoding an X.509 certificate,
+**every** extension in the compiled object set gets decoded, even if
+the caller only cares about a handful of them.  And conversely, if the
+certificate contains a private extension that wasn't in the compiled
+object set, its open type value stays as an undecoded OCTET STRING /
+ANY — there's no way for the caller to supply additional decoders at
+runtime.
+
+### Use Cases
+
+- **Selective decoding.** A TLS library validating a certificate chain
+  only needs `SubjectAltName`, `BasicConstraints`, `KeyUsage`, and a
+  few others.  Decoding all ~30 standard extensions is wasted work.
+  With arena allocation (section 4) it's wasted memory too.
+
+- **Private / custom extensions.** Microsoft's AD certificates include
+  proprietary extensions (`szOID_NTDS_CA_SECURITY_EXT`, etc.).  Rather
+  than adding these to the compiled object set (polluting the standard
+  module), callers should be able to register them at decode time.
+
+- **Version-independent decoding.** A KDC built against an older ASN.1
+  module can still decode new authorization-data types if the caller
+  provides the object set for them.
+
+### Proposed Interface
+
+Add an optional object set override to `asn1_codec_ctx`:
+
+```c
+typedef struct asn1_objset_override {
+    const char                  *field_name;  /* e.g., "extensions" */
+    const struct asn1_template  *objset;      /* replacement/additional object set */
+    unsigned                     mode;        /* REPLACE or MERGE */
+} asn1_objset_override;
+
+typedef struct asn1_codec_ctx {
+    unsigned                     flags;
+    const asn1_tag_override     *implicit_tag;
+    asn1_arena                  *arena;
+    const asn1_objset_override  *objset_overrides;  /* NULL-terminated array */
+} asn1_codec_ctx;
+```
+
+When `mode` is `REPLACE`, only the caller-supplied object set is used
+(selective decoding).  When `mode` is `MERGE`, the caller's objects are
+appended to the compiled set (extending it).
+
+### Template Backend Implementation
+
+The template runtime's `_asn1_decode_open_type()` (in `template.c`)
+currently gets the object set from the template's `A1_OP_OPENTYPE_OBJSET`
+entry:
+
+```c
+case A1_OP_OPENTYPE_OBJSET: {
+    tos = t->ptr;  /* compiled object set */
+    ...
+}
+```
+
+With overrides, it would check the context first:
+
+1. Look up `field_name` in `ctx->objset_overrides`
+2. If found with `REPLACE`, use the override object set instead of `tos`
+3. If found with `MERGE`, search the override set first, fall back to
+   `tos` on miss
+4. If not found, use `tos` as today (no behavior change)
+
+### Codegen Backend Implementation
+
+The codegen backend generates inline if/else chains comparing type-ID
+values.  To support runtime object sets, the generated code would need
+a fallback path that calls a generic open-type decoder when the
+compiled if/else chain doesn't match (or is overridden).  This
+naturally pushes toward the type descriptor approach in section 6.
+
+### Relationship to Other Sections
+
+- **Section 4 (arena):** Selective decoding + arena allocation is a
+  powerful combination — allocate only what you need, free it all at
+  once.
+- **Section 6 (type descriptors):** The override object set entries
+  need type descriptors to work — each entry maps a type-ID to a
+  decoder, which is exactly what the type descriptor provides.
+- **Section 3 (multi-ER):** Object set overrides are ER-independent;
+  the same mechanism works for DER, BER, JER, etc.
+
+---
+
+## 6. Exported Type Descriptors (DATA Symbols)
 
 ### Problem
 
@@ -370,7 +464,7 @@ and leaving `tpl` NULL.
 
 ---
 
-## 6. OpenSSL-Compatible Template Generation
+## 7. OpenSSL-Compatible Template Generation
 
 ### Problem
 
@@ -456,7 +550,7 @@ throughout the code generator.
 
 ---
 
-## 7. Extended Type Controls
+## 8. Extended Type Controls
 
 ### Problem
 
@@ -542,7 +636,7 @@ new `--integer-type` etc. directives would follow the same pattern:
 
 ---
 
-## 8. Parser Revamp (Multi-Pass, Context Resolution)
+## 9. Parser Revamp (Multi-Pass, Context Resolution)
 
 ### Problem
 
@@ -664,21 +758,23 @@ and allow all 7 CLASS field types to be distinguished syntactically.
 |---------|----------|------------|--------|
 | 1. Implicit tag parameter | High | — | Large |
 | 2. Function naming | Medium | 1 (do together) | Small |
-| 3. Multi-serialization | Medium-High | 1, 5 | Medium per ER |
+| 3. Multi-serialization | Medium-High | 1, 6 | Medium per ER |
 | 4. Arena allocation | Medium | 1 (use ctx struct) | Large |
-| 5. Type descriptors | Medium-High | — | Medium |
-| 6. OpenSSL templates | Medium | — | Large |
-| 7. Type controls | Medium | — | Small |
-| 8. Parser revamp | Medium | — | Very Large |
+| 5. Object set overrides | Medium-High | 1, 6 | Medium |
+| 6. Type descriptors | Medium-High | — | Medium |
+| 7. OpenSSL templates | Medium | — | Large |
+| 8. Type controls | Medium | — | Small |
+| 9. Parser revamp | Medium | — | Very Large |
 
 Recommended ordering:
 1. **Sections 1+2** together (new signatures with new names)
-2. **Section 7** (easy win, no ABI implications)
-3. **Section 5** (enables generic APIs, prerequisite for multi-ER
-   unification)
-4. **Section 3** (multi-serialization — incremental, one ER at a time;
+2. **Section 8** (easy win, no ABI implications)
+3. **Section 6** (enables generic APIs, prerequisite for multi-ER
+   unification and object set overrides)
+4. **Section 5** (caller-supplied object sets, builds on 6)
+5. **Section 3** (multi-serialization — incremental, one ER at a time;
    PER/OER first since they're ASN.1-native, then CBOR/protobuf)
-5. **Section 4** (arena, using ctx struct from 1)
-6. **Section 6** (OpenSSL backend, standalone)
-7. **Section 8** (parser revamp — enables alternative input syntaxes
+6. **Section 4** (arena, using ctx struct from 1)
+7. **Section 7** (OpenSSL backend, standalone)
+8. **Section 9** (parser revamp — enables alternative input syntaxes
    like `.proto` / IDL alongside ASN.1)
