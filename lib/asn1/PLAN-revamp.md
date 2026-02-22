@@ -116,14 +116,39 @@ Could be done in conjunction with the signature change in section 1
 
 ---
 
-## 3. Encoding Rules Flag / Multi-ER Support
+## 3. Multi-Encoding-Rules and Multi-Serialization Support
 
 ### Problem
 
 Currently the codegen backend generates only DER codecs and the template
-backend supports DER and has growing JER (JSON) support.  If we want to
-support BER, CER, OER, PER, or other encoding rules, we need a way to
-select which rules to use at runtime or compile time.
+backend supports DER and has growing JER (JSON) support.  But the
+compiler already has a rich schema representation (the AST) — it's only
+the backends that are DER/TLV-specific.
+
+The motivation goes well beyond just adding BER or CER.  The ASN.1
+compiler is already a general-purpose schema compiler; its schema
+language (ASN.1) is more expressive than most alternatives.  There are
+real and emerging use cases for targeting other serialization formats:
+
+- **PER / OER** — not as hard as it might seem; the main requirement is
+  new template operators to record things like the count of OPTIONAL
+  members (for PER's bitmap preamble) and effective permitted alphabet
+  constraints.  PER is used in telecom (LTE/5G) and aviation (ADS-B).
+- **CBOR** — natural fit for constrained IoT environments; CDDL is the
+  usual schema language but ASN.1 could target CBOR encoding directly.
+- **Protocol Buffers / FlatBuffers** — ASN.1 could serve as the schema
+  language with protobuf or flatbuffers as the wire format, or the
+  compiler could consume `.proto` files as an alternative input syntax.
+- **Microsoft RPC IDL / NDR encoding** — either using ASN.1 as the
+  schema syntax or consuming IDL directly.
+- **Certificate Transparency alternatives** — the PLANTS WG has
+  discussed whether CT's successor should use something other than DER;
+  having a compiler that can target multiple formats would make
+  migration straightforward.
+
+In all these cases, the schema compiler infrastructure (parsing, type
+resolution, constraint checking, struct generation) is reusable — only
+the encoding/decoding backend changes.
 
 ### Approaches
 
@@ -177,12 +202,38 @@ ER-specific function directly.  The exported type descriptor (section 5)
 could hold function pointers for each supported ER, unifying the two
 approaches at the generic API level.
 
-### Note
+### Template Operator Requirements for Non-TLV ERs
 
-This is a "nice to have" — DER covers nearly all Kerberos and PKIX needs.
+PER, OER, and non-ASN.1 formats need schema metadata that TLV encoders
+don't care about.  New template operators or annotations would include:
+
+- **OPTIONAL member count** — PER needs a bitmap preamble listing which
+  optional members are present.  The template currently doesn't record
+  the total count of OPTIONAL members in a SEQUENCE.
+- **Effective constraints** — PER uses size constraints, value range
+  constraints, and permitted alphabet constraints to determine encoding.
+  These are partially parsed today but not carried through to templates.
+- **Field ordering guarantees** — some formats (protobuf) use field
+  numbers rather than positional encoding.
+- **Extensibility markers** — PER's extension mechanism differs from
+  DER's; the template would need to distinguish the extension root from
+  extension additions.
+
+### Architecture Note
+
+The compiler is already structured as a pipeline: parse → AST → codegen.
+Adding new serialization backends is primarily a matter of:
+
+1. New template operators (for the template backend) or new
+   `gen_*.c` files (for the codegen backend)
+2. New runtime interpreters (for template) or generated code (for
+   codegen)
+3. Possibly new input syntax support (`.proto`, IDL) as alternative
+   front-ends to the same AST
+
 BER support already exists in the decoder (controlled by
 `support_ber`).  JER is handled separately via `print_T()` /
-`asn1_parse_T()`.  OER/PER would be a major undertaking.
+`asn1_parse_T()` but could be unified into this framework.
 
 ---
 
@@ -613,18 +664,21 @@ and allow all 7 CLASS field types to be distinguished syntactically.
 |---------|----------|------------|--------|
 | 1. Implicit tag parameter | High | — | Large |
 | 2. Function naming | Medium | 1 (do together) | Small |
-| 3. Multi-ER flags | Low | 1 | Medium |
+| 3. Multi-serialization | Medium-High | 1, 5 | Medium per ER |
 | 4. Arena allocation | Medium | 1 (use ctx struct) | Large |
-| 5. Type descriptors | Medium | — | Medium |
+| 5. Type descriptors | Medium-High | — | Medium |
 | 6. OpenSSL templates | Medium | — | Large |
 | 7. Type controls | Medium | — | Small |
-| 8. Parser revamp | Low | — | Very Large |
+| 8. Parser revamp | Medium | — | Very Large |
 
 Recommended ordering:
 1. **Sections 1+2** together (new signatures with new names)
 2. **Section 7** (easy win, no ABI implications)
-3. **Section 5** (enables generic APIs)
-4. **Section 4** (arena, using ctx struct from 1)
-5. **Section 6** (OpenSSL backend, standalone)
-6. **Section 8** (parser, standalone, long-term)
-7. **Section 3** (multi-ER, only when needed)
+3. **Section 5** (enables generic APIs, prerequisite for multi-ER
+   unification)
+4. **Section 3** (multi-serialization — incremental, one ER at a time;
+   PER/OER first since they're ASN.1-native, then CBOR/protobuf)
+5. **Section 4** (arena, using ctx struct from 1)
+6. **Section 6** (OpenSSL backend, standalone)
+7. **Section 8** (parser revamp — enables alternative input syntaxes
+   like `.proto` / IDL alongside ASN.1)
