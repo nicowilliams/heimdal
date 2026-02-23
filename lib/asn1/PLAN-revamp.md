@@ -7,6 +7,58 @@ area.  These are largely independent and can be tackled in any order
 
 ---
 
+## Motivation
+
+Several real-world needs drive the desire to enhance Heimdal's ASN.1
+compiler beyond its current role as an internal build tool:
+
+- **Certificate templating and issuance UIs.**  Imagine using `jq`,
+  JavaScript, Lua, or any scripting language to fill in JSON templates
+  that then get parsed into ASN.1 structures to issue an X.509
+  certificate.  This requires robust JSON-to-DER round-tripping
+  (sections 3, 6) and good type descriptors (section 6).
+
+- **Kerberos authorization data as JSON claims.**  RFC 6680 (GSS
+  naming extensions) was a failure in practice.  What's needed is a
+  name-or-context to JWT-style JSON claims function — turning Kerberos
+  authorization data (and other ticket metadata) into something as
+  easy to consume as a JWT.  This requires JER / JSON codec support
+  (section 3) and caller-supplied object sets (section 5) to decode
+  the authorization-data types of interest.
+
+- **Certificate policy evaluation via DSLs.**  Re-encoding
+  certificates as JSON enables use of domain-specific languages
+  (e.g., Rego, CEL, or even `jq`) for evaluating certificate
+  policies.  The existing `print_T()` functions already demonstrate
+  this, but a proper JER backend (section 3) would produce
+  standards-conformant, machine-readable output.
+
+- **Usability in OpenSSL.**  Making the compiler capable of generating
+  OpenSSL-compatible templates (section 7) increases mindshare and
+  attracts contributors who care about OpenSSL's ASN.1 quality.  A
+  compiler-generated approach is more maintainable than OpenSSL's
+  hand-written template macros.
+
+- **Encouraging adoption of alternative encoding rules.**  Adding
+  support for PER, OER, CBOR, etc. (section 3) makes it more
+  appealing for open standards to specify those ERs.  Making it easy
+  to add new ERs also lowers the barrier to experimenting — for
+  example, an OER variant with smaller, more reasonable length
+  encodings.
+
+- **Windows / Active Directory PAC encoding.**  Improving the compiler
+  to the point where it can parse and encode Windows PAC structures
+  (which are essentially NDR-encoded, but the types are expressible
+  in ASN.1) would eliminate a lot of fragile hand-written marshalling
+  code in the KDC and libkrb5.
+
+- **Backend generation for other languages.**  Improving the JSON
+  module output of the compiler (type schemas, field metadata) makes
+  it a viable basis for generating codecs in other programming
+  languages — Python, Rust, Go, etc. — from the same ASN.1 source.
+
+---
+
 ## 1. New Codec Function Signatures (IMPLICIT Tag Parameter)
 
 ### Problem
