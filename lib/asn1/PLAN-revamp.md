@@ -1,5 +1,7 @@
 # ASN.1 Compiler and Codec Interface Revamp Plan
 
+Session: https://claude.ai/code/session_01XBEKHRaPVDhuWpqDaBptKt
+
 This document outlines a long-term plan for revamping Heimdal's ASN.1
 compiler and generated codec interfaces.  Each section is a major work
 area.  These are largely independent and can be tackled in any order
