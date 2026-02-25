@@ -893,10 +893,18 @@ static void
 template_names(struct templatehead *temp, const char *basetype, const Type *t)
 {
     Member *m;
+    char *qname = NULL;
 
     add_line_string(temp, basetype, "0", "A1_OP_NAME");
     HEIM_TAILQ_FOREACH(m, t->members, members) {
-        add_line_string(temp, m->name, "0", "A1_OP_NAME");
+        if (asprintf(&qname, "%s.%s", basetype, m->name) == -1 || qname == NULL)
+            errx(1, "malloc");
+        if (redact_field(qname))
+            add_line_string(temp, m->name, "0", "A1_OP_NAME|A1_NM_REDACT");
+        else
+            add_line_string(temp, m->name, "0", "A1_OP_NAME");
+        free(qname);
+        qname = NULL;
     }
 }
 

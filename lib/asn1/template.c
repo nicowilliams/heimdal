@@ -2606,10 +2606,19 @@ _asn1_print(const struct asn1_template *t,
         }
         if (nnames &&
             (t->tt & A1_OP_MASK) != A1_OP_TYPE_DECORATE_EXTERN &&
-            (t->tt & A1_OP_MASK) != A1_OP_TYPE_DECORATE)
+            (t->tt & A1_OP_MASK) != A1_OP_TYPE_DECORATE) {
+            int do_redact = (flags & ASN1_PRINT_REDACT) &&
+                            (tnames->tt & A1_NM_REDACT);
             r = rk_strpoolprintf(r, ",%s\"%s\":",
                                  indents ? indents : "",
                                  (const char *)(tnames++)->ptr);
+            if (do_redact) {
+                r = rk_strpoolprintf(r, "\"<REDACTED>\"");
+                t++;
+                elements--;
+                continue;
+            }
+        }
 	switch (t->tt & A1_OP_MASK) {
         case A1_OP_OPENTYPE_OBJSET:
             break;

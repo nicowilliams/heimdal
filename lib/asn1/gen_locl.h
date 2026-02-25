@@ -145,6 +145,7 @@ int is_tagged_type(const Type *);
 
 int preserve_type(const char *);
 int seq_type(const char *);
+int redact_field(const char *);
 
 struct decoration {
     char *field_type;           /* C type name */
