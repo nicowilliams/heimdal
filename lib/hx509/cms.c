@@ -1174,6 +1174,7 @@ add_one_attribute(Attribute **attr,
     if (d == NULL)
 	return ENOMEM;
     (*attr) = d;
+    memset(&(*attr)[*len], 0, sizeof((*attr)[*len]));
 
     ret = der_copy_oid(oid, &(*attr)[*len].type);
     if (ret)
