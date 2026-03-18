@@ -360,48 +360,55 @@ test_Name (void)
     Name n1, n2;
     RelativeDistinguishedName rdn1[1];
     RelativeDistinguishedName rdn2[1];
-    AttributeTypeAndValue atv1[2];
-    AttributeTypeAndValue atv2[2];
+    SingleAttribute sa1[2];
+    SingleAttribute sa2[2];
     unsigned cmp_CN[] = { 2, 5, 4, 3 };
     unsigned cmp_L[] = { 2, 5, 4, 7 };
+
+    /*
+     * DER-encoded PrintableString values for SingleAttribute HEIM_ANY values.
+     * PrintableString tag = 0x13, then length, then content.
+     */
+    unsigned char der_love[] = { 0x13, 0x04, 'L', 'o', 'v', 'e' };
+    unsigned char der_stockholm[] = { 0x13, 0x09, 'S', 'T', 'O', 'C', 'K',
+                                      'H', 'O', 'L', 'M' };
+
+    memset(sa1, 0, sizeof(sa1));
+    memset(sa2, 0, sizeof(sa2));
 
     /* n1 */
     n1.element = choice_Name_rdnSequence;
     n1.u.rdnSequence.val = rdn1;
     n1.u.rdnSequence.len = sizeof(rdn1)/sizeof(rdn1[0]);
-    rdn1[0].val = atv1;
-    rdn1[0].len = sizeof(atv1)/sizeof(atv1[0]);
+    rdn1[0].val = sa1;
+    rdn1[0].len = sizeof(sa1)/sizeof(sa1[0]);
 
-    atv1[0].type.length = sizeof(cmp_CN)/sizeof(cmp_CN[0]);
-    atv1[0].type.components = cmp_CN;
-    atv1[0].value.element = choice_DirectoryString_printableString;
-    atv1[0].value.u.printableString.data = rk_UNCONST("Love");
-    atv1[0].value.u.printableString.length = 4;
+    sa1[0].type.length = sizeof(cmp_CN)/sizeof(cmp_CN[0]);
+    sa1[0].type.components = cmp_CN;
+    sa1[0].value.data = der_love;
+    sa1[0].value.length = sizeof(der_love);
 
-    atv1[1].type.length = sizeof(cmp_L)/sizeof(cmp_L[0]);
-    atv1[1].type.components = cmp_L;
-    atv1[1].value.element = choice_DirectoryString_printableString;
-    atv1[1].value.u.printableString.data = rk_UNCONST("STOCKHOLM");
-    atv1[1].value.u.printableString.length = 9;
+    sa1[1].type.length = sizeof(cmp_L)/sizeof(cmp_L[0]);
+    sa1[1].type.components = cmp_L;
+    sa1[1].value.data = der_stockholm;
+    sa1[1].value.length = sizeof(der_stockholm);
 
     /* n2 */
     n2.element = choice_Name_rdnSequence;
     n2.u.rdnSequence.val = rdn2;
     n2.u.rdnSequence.len = sizeof(rdn2)/sizeof(rdn2[0]);
-    rdn2[0].val = atv2;
-    rdn2[0].len = sizeof(atv2)/sizeof(atv2[0]);
+    rdn2[0].val = sa2;
+    rdn2[0].len = sizeof(sa2)/sizeof(sa2[0]);
 
-    atv2[0].type.length = sizeof(cmp_L)/sizeof(cmp_L[0]);
-    atv2[0].type.components = cmp_L;
-    atv2[0].value.element = choice_DirectoryString_printableString;
-    atv2[0].value.u.printableString.data = rk_UNCONST("STOCKHOLM");
-    atv2[0].value.u.printableString.length = 9;
+    sa2[0].type.length = sizeof(cmp_L)/sizeof(cmp_L[0]);
+    sa2[0].type.components = cmp_L;
+    sa2[0].value.data = der_stockholm;
+    sa2[0].value.length = sizeof(der_stockholm);
 
-    atv2[1].type.length = sizeof(cmp_CN)/sizeof(cmp_CN[0]);
-    atv2[1].type.components = cmp_CN;
-    atv2[1].value.element = choice_DirectoryString_printableString;
-    atv2[1].value.u.printableString.data = rk_UNCONST("Love");
-    atv2[1].value.u.printableString.length = 4;
+    sa2[1].type.length = sizeof(cmp_CN)/sizeof(cmp_CN[0]);
+    sa2[1].type.components = cmp_CN;
+    sa2[1].value.data = der_love;
+    sa2[1].value.length = sizeof(der_love);
 
     /* */
     tests[0].val = &n1;

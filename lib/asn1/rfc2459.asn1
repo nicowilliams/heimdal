@@ -274,8 +274,6 @@ AlgorithmIdentifier ::= AlgorithmIdentifier{KnownAlgorithms}
 
 AttributeType ::=   OBJECT IDENTIFIER
 
-AttributeValue ::=   HEIM_ANY
-
 DirectoryString ::= CHOICE {
 	ia5String	IA5String,
 	teletexString	TeletexString,
@@ -285,34 +283,12 @@ DirectoryString ::= CHOICE {
 	bmpString	BMPString
 }
 
-AttributeValues ::= SET OF AttributeValue
-
-Attribute ::= SEQUENCE {
-        type    AttributeType,
-        value   AttributeValues
-}
-
 AttributeTypeAndValue ::= SEQUENCE {
         type    AttributeType,
         value   DirectoryString
 }
 
--- RDNs really should be SET OF SingleAttribute per the RFCs, but making that
--- change will affect lib/hx509 code, so we'll wait.  The issue is that there
--- is code in lib/hx509 and in lib/asn1/check-gen.c that assumes that the
--- `value` of an rdn is a `DirectoryString` and not an open type.
---
--- Also, it's really not worth making this change, as a) it will increase the
--- amount of code needed in lib/hx509, and b) it really is useful to be able to
--- assume RDN values are ultimately only strings, c) we don't have any attrs
--- for RDNs that aren't strings, and d) the non-string attributes from TCG that
--- are used in SubjectDirectoryAttributes will never be used here (so we hope).
---
--- Until we fix this lib/hx509 cannot support name attributes whose type isn't
--- DirectoryString.  For example, the UID attribute is broken at this time, as
--- that wants NumericString.
---
-RelativeDistinguishedName ::= SET OF AttributeTypeAndValue -- XXX SingleAttribute
+RelativeDistinguishedName ::= SET OF SingleAttribute
 
 RDNSequence ::= SEQUENCE OF RelativeDistinguishedName
 
@@ -364,6 +340,11 @@ SingleAttribute{_ATTRIBUTE:AttrSet} ::= SEQUENCE {
 }
 
 AttributeSet{_ATTRIBUTE:AttrSet} ::= SEQUENCE {
+    type      _ATTRIBUTE.&id({AttrSet}),
+    values    SET --SIZE (1..MAX)-- OF _ATTRIBUTE.&Type({AttrSet}{@type})
+}
+
+Attribute{_ATTRIBUTE:AttrSet} ::= SEQUENCE {
     type      _ATTRIBUTE.&id({AttrSet}),
     values    SET --SIZE (1..MAX)-- OF _ATTRIBUTE.&Type({AttrSet}{@type})
 }
@@ -1060,6 +1041,7 @@ SupportedAttributes _ATTRIBUTE ::= {
 
 SingleAttribute ::= SingleAttribute{SupportedAttributes}
 AttributeSet ::= AttributeSet{SupportedAttributes}
+Attribute ::= Attribute{SupportedAttributes}
 SubjectDirectoryAttributes ::= SEQUENCE SIZE (1..MAX) OF AttributeSet
 
 ext-AuthorityKeyIdentifier _EXTENSION ::= {

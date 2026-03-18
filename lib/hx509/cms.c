@@ -984,7 +984,7 @@ hx509_cms_verify_signed_ext(hx509_context context,
 				       "is missing");
 		goto next_signature;
 	    }
-	    if (attr->value.len != 1) {
+	    if (attr->values.len != 1) {
 		ret = HX509_CRYPTO_SIGNATURE_MISSING;
 		hx509_set_error_string(context, 0, ret,
 				       "SignerInfo has more than one "
@@ -992,8 +992,8 @@ hx509_cms_verify_signed_ext(hx509_context context,
 		goto next_signature;
 	    }
 
-	    ret = decode_MessageDigest(attr->value.val[0].data,
-				       attr->value.val[0].length,
+	    ret = decode_MessageDigest(attr->values.val[0].data,
+				       attr->values.val[0].length,
 				       &os,
 				       &size);
 	    if (ret) {
@@ -1024,15 +1024,15 @@ hx509_cms_verify_signed_ext(hx509_context context,
 	    if (attr == NULL) {
 		match_oid = &asn1_oid_id_pkcs7_data;
 	    } else {
-		if (attr->value.len != 1) {
+		if (attr->values.len != 1) {
 		    ret = HX509_CMS_DATA_OID_MISMATCH;
 		    hx509_set_error_string(context, 0, ret,
 					   "More than one oid in signedAttrs");
 		    goto next_signature;
 
 		}
-		ret = decode_ContentType(attr->value.val[0].data,
-					 attr->value.val[0].length,
+		ret = decode_ContentType(attr->values.val[0].data,
+					 attr->values.val[0].length,
 					 &decode_oid,
 					 &size);
 		if (ret) {
@@ -1179,14 +1179,14 @@ add_one_attribute(Attribute **attr,
     if (ret)
 	return ret;
 
-    ALLOC_SEQ(&(*attr)[*len].value, 1);
-    if ((*attr)[*len].value.val == NULL) {
+    ALLOC_SEQ(&(*attr)[*len].values, 1);
+    if ((*attr)[*len].values.val == NULL) {
 	der_free_oid(&(*attr)[*len].type);
 	return ENOMEM;
     }
 
-    (*attr)[*len].value.val[0].data = data->data;
-    (*attr)[*len].value.val[0].length = data->length;
+    (*attr)[*len].values.val[0].data = data->data;
+    (*attr)[*len].values.val[0].length = data->length;
 
     *len += 1;
 

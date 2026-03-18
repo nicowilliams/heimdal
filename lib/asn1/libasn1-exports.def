@@ -1,5 +1,4 @@
 EXPORTS
-	add_AttributeValues
 	add_AuthorizationData
 	add_CertificatePolicies
 	add_Certificates
@@ -324,8 +323,6 @@ EXPORTS
 	copy_AttributeSet
 	copy_AttributeType
 	copy_AttributeTypeAndValue
-	copy_AttributeValue
-	copy_AttributeValues
 	copy_AUTHDATA_TYPE
 	copy_Authenticator
 	copy_AuthorityInfoAccessSyntax
@@ -696,8 +693,6 @@ EXPORTS
 	decode_AttributeSet
 	decode_AttributeType
 	decode_AttributeTypeAndValue
-	decode_AttributeValue
-	decode_AttributeValues
 	decode_AUTHDATA_TYPE
 	decode_Authenticator
 	decode_AuthorityInfoAccessSyntax
@@ -1219,8 +1214,6 @@ EXPORTS
 	encode_AttributeSet
 	encode_AttributeType
 	encode_AttributeTypeAndValue
-	encode_AttributeValue
-	encode_AttributeValues
 	encode_AUTHDATA_TYPE
 	encode_Authenticator
 	encode_AuthorityInfoAccessSyntax
@@ -1592,8 +1585,6 @@ EXPORTS
 	free_AttributeSet
 	free_AttributeType
 	free_AttributeTypeAndValue
-	free_AttributeValue
-	free_AttributeValues
 	free_AUTHDATA_TYPE
 	free_Authenticator
 	free_AuthorityInfoAccessSyntax
@@ -1988,8 +1979,6 @@ EXPORTS
 	length_AttributeSet
 	length_AttributeType
 	length_AttributeTypeAndValue
-	length_AttributeValue
-	length_AttributeValues
 	length_AUTHDATA_TYPE
 	length_Authenticator
 	length_AuthorityInfoAccessSyntax
@@ -2361,8 +2350,6 @@ EXPORTS
 	print_AttributeSet
 	print_AttributeType
 	print_AttributeTypeAndValue
-	print_AttributeValue
-	print_AttributeValues
 	print_AUTHDATA_TYPE
 	print_Authenticator
 	print_AuthorityInfoAccessSyntax
@@ -2713,7 +2700,6 @@ EXPORTS
 	print_X520OrganizationalUnitName
 	print_X520OrganizationName
 	print_X520StateOrProvinceName
-	remove_AttributeValues
 	remove_AuthorizationData
 	remove_CertificatePolicies
 	remove_Certificates

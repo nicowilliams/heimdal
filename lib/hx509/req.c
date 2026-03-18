@@ -761,8 +761,17 @@ hx509_request_to_pkcs10(hx509_context context,
                                &exts, &size, ret);
         if (ret == 0 && a)
             ret = der_copy_oid(&asn1_oid_id_pkcs9_extReq, &a->type);
-        if (ret == 0)
-            ret = add_AttributeValues(&a->value, &extns);
+        if (ret == 0) {
+            a->values.len = 1;
+            a->values.val = calloc(1, sizeof(a->values.val[0]));
+            if (a->values.val == NULL)
+                ret = ENOMEM;
+        }
+        if (ret == 0) {
+            a->values.val[0] = extns;
+            extns.data = NULL;
+            extns.length = 0;
+        }
         free_heim_any(&extns);
     }
 
@@ -917,10 +926,10 @@ hx509_request_parse_der(hx509_context context,
             free(oidstr);
             continue;
         }
-        if (!a->value.val)
+        if (!a->values.val)
             continue;
 
-        av = a->value.val;
+        av = a->values.val;
 	free_Extensions(&exts);   /* keep last instance of extension, if multiple included */
         ret = decode_Extensions(av->data, av->length, &exts, NULL);
         if (ret) {

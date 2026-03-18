@@ -256,33 +256,44 @@ _hx509_Name_to_string(const Name *n, char **str)
 	i = m - 1;
 
 	for (j = 0; j < n->u.rdnSequence.val[i].len; j++) {
-	    DirectoryString *ds = &n->u.rdnSequence.val[i].val[j].value;
+	    heim_any *value = &n->u.rdnSequence.val[i].val[j].value;
+	    DirectoryString ds;
 	    char *oidname;
 	    char *ss;
+	    size_t sz;
 
 	    oidname = oidtostring(&n->u.rdnSequence.val[i].val[j].type, NULL);
 
-	    switch(ds->element) {
+	    ret = decode_DirectoryString(value->data, value->length, &ds, &sz);
+	    if (ret) {
+		free(oidname);
+		free(*str);
+		*str = NULL;
+		return ret;
+	    }
+
+	    switch(ds.element) {
 	    case choice_DirectoryString_ia5String:
-		ss = ds->u.ia5String.data;
-		len = ds->u.ia5String.length;
+		ss = ds.u.ia5String.data;
+		len = ds.u.ia5String.length;
 		break;
 	    case choice_DirectoryString_printableString:
-		ss = ds->u.printableString.data;
-		len = ds->u.printableString.length;
+		ss = ds.u.printableString.data;
+		len = ds.u.printableString.length;
 		break;
 	    case choice_DirectoryString_utf8String:
-		ss = ds->u.utf8String;
+		ss = ds.u.utf8String;
 		len = strlen(ss);
 		break;
 	    case choice_DirectoryString_bmpString: {
-	        const uint16_t *bmp = ds->u.bmpString.data;
-		size_t bmplen = ds->u.bmpString.length;
+	        const uint16_t *bmp = ds.u.bmpString.data;
+		size_t bmplen = ds.u.bmpString.length;
 		size_t k;
 
 		ret = wind_ucs2utf8_length(bmp, bmplen, &k);
 		if (ret) {
                     free(oidname);
+		    free_DirectoryString(&ds);
                     free(*str);
                     *str = NULL;
 		    return ret;
@@ -295,6 +306,7 @@ _hx509_Name_to_string(const Name *n, char **str)
 		if (ret) {
                     free(oidname);
 		    free(ss);
+		    free_DirectoryString(&ds);
                     free(*str);
                     *str = NULL;
 		    return ret;
@@ -304,17 +316,18 @@ _hx509_Name_to_string(const Name *n, char **str)
 		break;
 	    }
 	    case choice_DirectoryString_teletexString:
-		ss = ds->u.teletexString;
+		ss = ds.u.teletexString;
 		len = strlen(ss);
 		break;
 	    case choice_DirectoryString_universalString: {
-	        const uint32_t *uni = ds->u.universalString.data;
-		size_t unilen = ds->u.universalString.length;
+	        const uint32_t *uni = ds.u.universalString.data;
+		size_t unilen = ds.u.universalString.length;
 		size_t k;
 
 		ret = wind_ucs4utf8_length(uni, unilen, &k);
 		if (ret) {
                     free(oidname);
+		    free_DirectoryString(&ds);
                     free(*str);
                     *str = NULL;
 		    return ret;
@@ -327,6 +340,7 @@ _hx509_Name_to_string(const Name *n, char **str)
 		if (ret) {
 		    free(ss);
                     free(oidname);
+		    free_DirectoryString(&ds);
                     free(*str);
                     *str = NULL;
 		    return ret;
@@ -336,18 +350,20 @@ _hx509_Name_to_string(const Name *n, char **str)
 		break;
 	    }
 	    default:
-		_hx509_abort("unknown directory type: %d", ds->element);
+		free_DirectoryString(&ds);
+		_hx509_abort("unknown directory type: %d", ds.element);
 		exit(1);
 	    }
 	    append_string(str, &total_len, oidname, strlen(oidname), 0);
 	    free(oidname);
 	    append_string(str, &total_len, "=", 1, 0);
 	    append_string(str, &total_len, ss, len, 1);
-	    if (ds->element == choice_DirectoryString_bmpString ||
-		ds->element == choice_DirectoryString_universalString)
+	    if (ds.element == choice_DirectoryString_bmpString ||
+		ds.element == choice_DirectoryString_universalString)
 	    {
 		free(ss);
 	    }
+	    free_DirectoryString(&ds);
 	    if (j + 1 < n->u.rdnSequence.val[i].len)
 		append_string(str, &total_len, "+", 1, 0);
 	}
@@ -498,6 +514,33 @@ _hx509_name_ds_cmp(const DirectoryString *ds1,
     return 0;
 }
 
+/*
+ * Compare two SingleAttribute values decoded as DirectoryStrings.
+ */
+static int
+sa_cmp_ds(const heim_any *v1, const heim_any *v2, int *diff)
+{
+    DirectoryString ds1, ds2;
+    size_t sz;
+    int ret;
+
+    memset(&ds1, 0, sizeof(ds1));
+    memset(&ds2, 0, sizeof(ds2));
+
+    ret = decode_DirectoryString(v1->data, v1->length, &ds1, &sz);
+    if (ret)
+	return ret;
+    ret = decode_DirectoryString(v2->data, v2->length, &ds2, &sz);
+    if (ret) {
+	free_DirectoryString(&ds1);
+	return ret;
+    }
+    ret = _hx509_name_ds_cmp(&ds1, &ds2, diff);
+    free_DirectoryString(&ds1);
+    free_DirectoryString(&ds2);
+    return ret;
+}
+
 HX509_LIB_FUNCTION int HX509_LIB_CALL
 _hx509_name_cmp(const Name *n1, const Name *n2, int *c)
 {
@@ -519,9 +562,9 @@ _hx509_name_cmp(const Name *n1, const Name *n2, int *c)
 	    if (*c)
 		return 0;
 
-	    ret = _hx509_name_ds_cmp(&n1->u.rdnSequence.val[i].val[j].value,
-				     &n2->u.rdnSequence.val[i].val[j].value,
-				     c);
+	    ret = sa_cmp_ds(&n1->u.rdnSequence.val[i].val[j].value,
+			    &n2->u.rdnSequence.val[i].val[j].value,
+			    c);
 	    if (ret)
 		return ret;
 	    if (*c)
@@ -602,7 +645,7 @@ _hx509_name_modify(hx509_context context,
     }
 
     memset(&rdn, 0, sizeof(rdn));
-    if ((rdn.val = malloc(sizeof(rdn.val[0]))) == NULL) {
+    if ((rdn.val = calloc(1, sizeof(rdn.val[0]))) == NULL) {
 	hx509_set_error_string(context, 0, ENOMEM, "Out of memory");
 	return ENOMEM;
     }
@@ -623,47 +666,66 @@ _hx509_name_modify(hx509_context context,
      * However, for some cases we really should prefer other types when the
      * input string is all printable ASCII.
      */
-    rdn.val[0].value.element = type_choice;
-    if ((s = strdup(str)) == NULL ||
-        der_copy_oid(oid, &rdn.val[0].type)) {
-        free(rdn.val);
-        free(s);
-	return hx509_enomem(context);
-    }
-    switch (rdn.val[0].value.element) {
-    /* C strings: */
-    case choice_DirectoryString_utf8String:
-        rdn.val[0].value.u.utf8String = s;
-        break;
-    case choice_DirectoryString_teletexString:
-        rdn.val[0].value.u.teletexString = s;
-        break;
+    {
+        DirectoryString ds;
+        size_t sz;
 
-    /* Length and pointer */
-    case choice_DirectoryString_ia5String:
-        rdn.val[0].value.u.ia5String.data = s;
-        rdn.val[0].value.u.ia5String.length = strlen(s);
-        break;
-    case choice_DirectoryString_printableString:
-        rdn.val[0].value.u.printableString.data = s;
-        rdn.val[0].value.u.printableString.length = strlen(s);
-        break;
-    case choice_DirectoryString_universalString:
+        memset(&ds, 0, sizeof(ds));
+        ds.element = type_choice;
+
+        if ((s = strdup(str)) == NULL) {
+            free(rdn.val);
+            return hx509_enomem(context);
+        }
+
+        switch (type_choice) {
+        /* C strings: */
+        case choice_DirectoryString_utf8String:
+            ds.u.utf8String = s;
+            break;
+        case choice_DirectoryString_teletexString:
+            ds.u.teletexString = s;
+            break;
+
+        /* Length and pointer */
+        case choice_DirectoryString_ia5String:
+            ds.u.ia5String.data = s;
+            ds.u.ia5String.length = strlen(s);
+            break;
+        case choice_DirectoryString_printableString:
+            ds.u.printableString.data = s;
+            ds.u.printableString.length = strlen(s);
+            break;
+        case choice_DirectoryString_universalString:
+            free(s);
+            free(rdn.val);
+            hx509_set_error_string(context, 0, ENOTSUP, "UniversalString not supported");
+            return ENOTSUP;
+        case choice_DirectoryString_bmpString:
+            free(s);
+            free(rdn.val);
+            hx509_set_error_string(context, 0, ENOTSUP, "BMPString not supported");
+            return ENOTSUP;
+        default:
+            free(s);
+            free(rdn.val);
+            hx509_set_error_string(context, 0, ENOTSUP,
+                                   "Internal error; unknown DirectoryString choice");
+            return ENOTSUP;
+        }
+
+        ASN1_MALLOC_ENCODE(DirectoryString, rdn.val[0].value.data,
+                           rdn.val[0].value.length, &ds, &sz, ret);
         free(s);
-        free(rdn.val);
-	hx509_set_error_string(context, 0, ENOTSUP, "UniversalString not supported");
-        return ENOTSUP;
-    case choice_DirectoryString_bmpString:
-        free(s);
-        free(rdn.val);
-	hx509_set_error_string(context, 0, ENOTSUP, "BMPString not supported");
-        return ENOTSUP;
-    default:
-        free(s);
-        free(rdn.val);
-	hx509_set_error_string(context, 0, ENOTSUP,
-                               "Internal error; unknown DirectoryString choice");
-        return ENOTSUP;
+        if (ret) {
+            free(rdn.val);
+            return hx509_enomem(context);
+        }
+        if (der_copy_oid(oid, &rdn.val[0].type)) {
+            der_free_octet_string(&rdn.val[0].value);
+            free(rdn.val);
+            return hx509_enomem(context);
+        }
     }
 
     /* Append RDN.  If the caller wanted to prepend instead, we'll rotate. */
@@ -894,37 +956,47 @@ hx509_name_expand(hx509_context context,
 	        convert back to orignal format, store in COMP
 	      free normalized utf8 string
 	    */
-	    DirectoryString *ds = &n->u.rdnSequence.val[i].val[j].value;
+	    heim_any *value = &n->u.rdnSequence.val[i].val[j].value;
             heim_oid *type = &n->u.rdnSequence.val[i].val[j].type;
+	    DirectoryString ds;
             const char *sval = NULL;
 	    char *p, *p2;
             char *s = NULL;
 	    struct rk_strpool *strpool = NULL;
+	    size_t sz;
 
-            switch (ds->element) {
+	    ret = decode_DirectoryString(value->data, value->length, &ds, &sz);
+	    if (ret)
+		return ret;
+
+            switch (ds.element) {
             case choice_DirectoryString_utf8String:
-                sval = ds->u.utf8String;
+                sval = ds.u.utf8String;
                 break;
             case choice_DirectoryString_teletexString:
-                sval = ds->u.utf8String;
+                sval = ds.u.utf8String;
                 break;
             case choice_DirectoryString_ia5String:
-                s = strndup(ds->u.ia5String.data,
-                            ds->u.ia5String.length);
+                s = strndup(ds.u.ia5String.data,
+                            ds.u.ia5String.length);
                 break;
             case choice_DirectoryString_printableString:
-                s = strndup(ds->u.printableString.data,
-                            ds->u.printableString.length);
+                s = strndup(ds.u.printableString.data,
+                            ds.u.printableString.length);
                 break;
             case choice_DirectoryString_universalString:
+		free_DirectoryString(&ds);
                 hx509_set_error_string(context, 0, ENOTSUP, "UniversalString not supported");
                 return ENOTSUP;
             case choice_DirectoryString_bmpString:
+		free_DirectoryString(&ds);
                 hx509_set_error_string(context, 0, ENOTSUP, "BMPString not supported");
                 return ENOTSUP;
             }
-            if (sval == NULL && s == NULL)
+            if (sval == NULL && s == NULL) {
+		free_DirectoryString(&ds);
                 return hx509_enomem(context);
+	    }
             if (s)
                 sval = s;
 
@@ -934,34 +1006,38 @@ hx509_name_expand(hx509_context context,
 		if (strpool == NULL) {
 		    hx509_set_error_string(context, 0, ENOMEM, "out of memory");
                     free(s);
+		    free_DirectoryString(&ds);
 		    return ENOMEM;
 		}
 	    }
 
 	    while (p != NULL) {
 		/* expand variables */
-		const char *value;
+		const char *vval;
 		p2 = strchr(p, '}');
 		if (p2 == NULL) {
 		    hx509_set_error_string(context, 0, EINVAL, "missing }");
 		    rk_strpoolfree(strpool);
                     free(s);
+		    free_DirectoryString(&ds);
 		    return EINVAL;
 		}
 		p += 2;
-		value = hx509_env_lfind(context, env, p, p2 - p);
-		if (value == NULL) {
+		vval = hx509_env_lfind(context, env, p, p2 - p);
+		if (vval == NULL) {
 		    hx509_set_error_string(context, 0, EINVAL,
 					   "variable %.*s missing",
 					   (int)(p2 - p), p);
 		    rk_strpoolfree(strpool);
                     free(s);
+		    free_DirectoryString(&ds);
 		    return EINVAL;
 		}
-		strpool = rk_strpoolprintf(strpool, "%s", value);
+		strpool = rk_strpoolprintf(strpool, "%s", vval);
 		if (strpool == NULL) {
 		    hx509_set_error_string(context, 0, ENOMEM, "out of memory");
                     free(s);
+		    free_DirectoryString(&ds);
 		    return ENOMEM;
 		}
 		p2++;
@@ -975,6 +1051,7 @@ hx509_name_expand(hx509_context context,
 		if (strpool == NULL) {
 		    hx509_set_error_string(context, 0, ENOMEM, "out of memory");
                     free(s);
+		    free_DirectoryString(&ds);
 		    return ENOMEM;
 		}
 	    }
@@ -987,6 +1064,7 @@ hx509_name_expand(hx509_context context,
 
                 if ((s = rk_strpoolcollect(strpool)) == NULL) {
                     hx509_set_error_string(context, 0, ENOMEM, "out of memory");
+		    free_DirectoryString(&ds);
                     return ENOMEM;
                 }
 
@@ -994,31 +1072,42 @@ hx509_name_expand(hx509_context context,
                 if ((max_bytes = oidtomaxlen(type)) && strlen(s) > max_bytes)
                     bounds_check = 0;
 
-                switch (ds->element) {
+                switch (ds.element) {
                 /* C strings: */
                 case choice_DirectoryString_utf8String:
-                    free(ds->u.utf8String);
-                    ds->u.utf8String = s;
+                    free(ds.u.utf8String);
+                    ds.u.utf8String = s;
                     break;
                 case choice_DirectoryString_teletexString:
-                    free(ds->u.teletexString);
-                    ds->u.teletexString = s;
+                    free(ds.u.teletexString);
+                    ds.u.teletexString = s;
                     break;
 
                 /* Length and pointer */
                 case choice_DirectoryString_ia5String:
-                    free(ds->u.ia5String.data);
-                    ds->u.ia5String.data = s;
-                    ds->u.ia5String.length = strlen(s);
+                    free(ds.u.ia5String.data);
+                    ds.u.ia5String.data = s;
+                    ds.u.ia5String.length = strlen(s);
                     break;
                 case choice_DirectoryString_printableString:
-                    free(ds->u.printableString.data);
-                    ds->u.printableString.data = s;
-                    ds->u.printableString.length = strlen(s);
+                    free(ds.u.printableString.data);
+                    ds.u.printableString.data = s;
+                    ds.u.printableString.length = strlen(s);
                     break;
                 default:
                     break; /* Handled above */
                 }
+                s = NULL;
+
+                /* Re-encode modified DirectoryString to HEIM_ANY */
+                der_free_octet_string(value);
+                ASN1_MALLOC_ENCODE(DirectoryString, value->data,
+                                   value->length, &ds, &sz, ret);
+                free_DirectoryString(&ds);
+                if (ret)
+                    return ret;
+	    } else {
+		free_DirectoryString(&ds);
 	    }
 	}
     }
