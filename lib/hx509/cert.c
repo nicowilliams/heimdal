@@ -2862,6 +2862,31 @@ hx509_verify_path(hx509_context context,
 	    goto out;
 
 	/*
+	 * Reject certificates with an empty SubjectAltName extension.
+	 * RFC 5280 section 4.2.1.6 requires the extension to contain
+	 * at least one GeneralName.
+	 */
+	{
+	    size_t san_idx = 0;
+	    GeneralNames san;
+
+	    ret = find_extension_subject_alt_name(c, &san_idx, &san);
+	    if (ret == 0) {
+		size_t san_len = san.len;
+
+		free_GeneralNames(&san);
+		if (san_len == 0) {
+		    ret = HX509_CERTIFICATE_MALFORMED;
+		    hx509_set_error_string(context, 0, ret,
+					   "Empty SubjectAltName extension "
+					   "is not allowed");
+		    goto out;
+		}
+	    }
+	    /* HX509_EXTENSION_NOT_FOUND is fine -- no SAN is OK */
+	}
+
+	/*
 	 * Don't check the trust anchors expiration time since they
 	 * are transported out of band, from RFC3820.
 	 */
