@@ -25,7 +25,10 @@ EXPORTS
 	_hx509_private_key_oid
 	_hx509_private_key_ref
 	hx509_private_key2SPKI
+	hx509_private_key_assign_rsa
 	hx509_private_key_free
+	hx509_private_key_init
+	hx509_private_key_private_decrypt
 	_hx509_private_key_ref
 	hx509_request_add_GeneralName
 	hx509_request_add_dns_name
@@ -111,6 +114,7 @@ EXPORTS
 	hx509_ca_tbs_set_spki
 	hx509_ca_tbs_set_subject
 	hx509_ca_tbs_set_template
+	hx509_ca_tbs_set_unique
 	hx509_ca_tbs_subject_expand
 	hx509_ca_tbs_template_units
 ;	hx509_cert
@@ -126,16 +130,19 @@ EXPORTS
 	hx509_cert_get_base_subject
 	hx509_cert_get_friendly_name
 	hx509_cert_get_issuer
+	hx509_cert_get_issuer_unique_id
 	hx509_cert_get_notAfter
 	hx509_cert_get_notBefore
 	hx509_cert_get_pkinit_max_life
 	hx509_cert_get_serialnumber
 	hx509_cert_get_subject
+	hx509_cert_get_subject_unique_id
 	hx509_cert_have_private_key
 	hx509_cert_have_private_key_only
 	hx509_cert_init
 	hx509_cert_init_data
 	hx509_cert_init_private_key
+	hx509_cert_public_encrypt
 	hx509_cert_is_ca
 	hx509_cert_is_root
 	hx509_cert_is_self_signed
@@ -206,6 +213,7 @@ EXPORTS
 ;	hx509_env_init
 	hx509_env_lfind
 	hx509_err
+	hx509_find_private_alg
 	hx509_free_error_string
 	hx509_free_octet_string_list
 	hx509_general_name_unparse
