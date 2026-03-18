@@ -882,7 +882,7 @@ template_open_type(struct templatehead *temp,
                       * values yet, so they must all be known.
                       */
                      "A1_OP_OPENTYPE_OBJSET | A1_OS_IS_SORTED | %s | %s | (%llu << 10) | %llu",
-                     opentypefield->optional ? "A1_OTF_IS_OPTIONAL" : "0",
+                     m->optional ? "A1_OTF_IS_OPTIONAL" : "0",
                      is_array_of_open_type ? "A1_OS_OT_IS_ARRAY" : "0",
                      (unsigned long long)opentypeidx,
                      (unsigned long long)typeididx);

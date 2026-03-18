@@ -934,6 +934,7 @@ hx509_name_expand(hx509_context context,
 {
     Name *n = &name->der_name;
     size_t i, j;
+    int ret;
     int bounds_check = 1;
 
     if (env == NULL)
