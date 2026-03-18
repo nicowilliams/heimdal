@@ -12,6 +12,8 @@
 .deps/
 .dirstamp
 .libs/
+*.deb
+/build/
 Makefile
 Makefile.in
 rs_state.ini
