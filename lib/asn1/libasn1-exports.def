@@ -1,8 +1,40 @@
 EXPORTS
+	APOptions2int
+	DigestTypes2int
+	DistributionPointReasonFlags2int
+	FastOptions2int
+	HEIM_ANY_cmp
+	KDCFastFlags2int
+	KDCOptions2int
+	KeyUsage2int
+	PAC_OPTIONS_FLAGS2int
+	SAMFlags2int
+	TicketFlags2int
+	_asn1_bmember_isset_bit
+	_asn1_bmember_put_bit
+	_asn1_copy
+	_asn1_copy_top
+	_asn1_decode
+	_asn1_decode_top
+	_asn1_encode
+	_asn1_free
+	_asn1_free_top
+	_asn1_length
+	_asn1_print_top
+	_asn1_sizeofType
+	_der_gmtime
+	_der_timegm
+	_heim_der_set_sort
+	_heim_fix_dce
+	_heim_len_int
+	_heim_len_int64
+	_heim_len_unsigned
+	_heim_len_unsigned64
+	_heim_time2generalizedtime
 	add_AuthorizationData
+	add_CRLDistributionPoints
 	add_CertificatePolicies
 	add_Certificates
-	add_CRLDistributionPoints
 	add_DigestAlgorithmIdentifiers
 	add_ETYPE_INFO
 	add_ETYPE_INFO2
@@ -15,24 +47,23 @@ EXPORTS
 	add_RDNSequence
 	add_SupportedKDFs
 	add_TD_DH_PARAMETERS
-	APOptions2int
 	asn1_APOptions_units
-	_asn1_bmember_isset_bit
-	_asn1_bmember_put_bit
-	_asn1_copy
-	_asn1_copy_top
-	_asn1_decode
-	_asn1_decode_top
 	asn1_DigestTypes_units
 	asn1_DistributionPointReasonFlags_units
-	_asn1_encode
 	asn1_FastOptions_units
-	_asn1_free
-	_asn1_free_top
 	asn1_KDCFastFlags_units
 	asn1_KDCOptions_units
 	asn1_KeyUsage_units
-	_asn1_length
+	asn1_PAC_OPTIONS_FLAGS_units
+	asn1_SAMFlags_units
+	asn1_TicketFlags_units
+	asn1_oid_id_Ed25519	DATA
+	asn1_oid_id_Ed448	DATA
+	asn1_oid_id_PBES2	DATA
+	asn1_oid_id_PBKDF2	DATA
+	asn1_oid_id_Userid	DATA
+	asn1_oid_id_X25519	DATA
+	asn1_oid_id_X448	DATA
 	asn1_oid_id_aa_communityIdentifiers	DATA
 	asn1_oid_id_aa_decryptKeyID	DATA
 	asn1_oid_id_aa_firmwarePackageID	DATA
@@ -41,12 +72,12 @@ EXPORTS
 	asn1_oid_id_aa_implCryptoAlgs	DATA
 	asn1_oid_id_aa_targetHardwareIDs	DATA
 	asn1_oid_id_aa_wrappedFirmwareKey	DATA
-	asn1_oid_id_aes_128_cbc	DATA
 	asn1_oid_id_aes128_CBC	DATA
-	asn1_oid_id_aes_192_cbc	DATA
 	asn1_oid_id_aes192_CBC	DATA
-	asn1_oid_id_aes_256_cbc	DATA
 	asn1_oid_id_aes256_CBC	DATA
+	asn1_oid_id_aes_128_cbc	DATA
+	asn1_oid_id_aes_192_cbc	DATA
+	asn1_oid_id_aes_256_cbc	DATA
 	asn1_oid_id_apple_system_id	DATA
 	asn1_oid_id_at_commonName	DATA
 	asn1_oid_id_at_countryName	DATA
@@ -58,8 +89,8 @@ EXPORTS
 	asn1_oid_id_at_initials	DATA
 	asn1_oid_id_at_localityName	DATA
 	asn1_oid_id_at_name	DATA
-	asn1_oid_id_at_organizationalUnitName	DATA
 	asn1_oid_id_at_organizationName	DATA
+	asn1_oid_id_at_organizationalUnitName	DATA
 	asn1_oid_id_at_pseudonym	DATA
 	asn1_oid_id_at_serialNumber	DATA
 	asn1_oid_id_at_stateOrProvinceName	DATA
@@ -78,21 +109,19 @@ EXPORTS
 	asn1_oid_id_dsa	DATA
 	asn1_oid_id_dsa_with_sha1	DATA
 	asn1_oid_id_ecDH	DATA
-	asn1_oid_id_ecdsa_with_SHA1	DATA
-	asn1_oid_id_ecdsa_with_SHA224	DATA
-	asn1_oid_id_ecdsa_with_SHA256	DATA
-	asn1_oid_id_ecdsa_with_SHA384	DATA
-	asn1_oid_id_ecdsa_with_SHA512	DATA
+	asn1_oid_id_ecMQV	DATA
+	asn1_oid_id_ecPublicKey	DATA
 	asn1_oid_id_ec_group_secp160r1	DATA
 	asn1_oid_id_ec_group_secp160r2	DATA
 	asn1_oid_id_ec_group_secp224r1	DATA
 	asn1_oid_id_ec_group_secp256r1	DATA
 	asn1_oid_id_ec_group_secp384r1	DATA
 	asn1_oid_id_ec_group_secp521r1	DATA
-	asn1_oid_id_ecMQV	DATA
-	asn1_oid_id_ecPublicKey	DATA
-	asn1_oid_id_Ed25519	DATA
-	asn1_oid_id_Ed448	DATA
+	asn1_oid_id_ecdsa_with_SHA1	DATA
+	asn1_oid_id_ecdsa_with_SHA224	DATA
+	asn1_oid_id_ecdsa_with_SHA256	DATA
+	asn1_oid_id_ecdsa_with_SHA384	DATA
+	asn1_oid_id_ecdsa_with_SHA512	DATA
 	asn1_oid_id_encryptedData	DATA
 	asn1_oid_id_envelopedData	DATA
 	asn1_oid_id_heim_ce_pkinit_princ_max_life	DATA
@@ -104,38 +133,33 @@ EXPORTS
 	asn1_oid_id_hmacWithSHA512	DATA
 	asn1_oid_id_ms_cert_enroll_domaincontroller	DATA
 	asn1_oid_id_msft	DATA
+	asn1_oid_id_msft_kp_msCTLSign	DATA
 	asn1_oid_id_msft_kp_msCodeCom	DATA
 	asn1_oid_id_msft_kp_msCodeInd	DATA
-	asn1_oid_id_msft_kp_msCTLSign	DATA
 	asn1_oid_id_msft_kp_msEFS	DATA
 	asn1_oid_id_msft_kp_msSGC	DATA
 	asn1_oid_id_msft_kp_msSmartcardLogin	DATA
 	asn1_oid_id_msft_kp_msUPN	DATA
-	asn1_oid_id_netscape_cert_comment	DATA
 	asn1_oid_id_netscape	DATA
-	asn1_oid_id_nist_aes_algs	DATA
+	asn1_oid_id_netscape_cert_comment	DATA
 	asn1_oid_id_nistAlgorithm	DATA
+	asn1_oid_id_nist_aes_algs	DATA
 	asn1_oid_id_nist_sha_algs	DATA
 	asn1_oid_id_on_hardwareModuleName	DATA
-	asn1_oid_id_PBES2	DATA
 	asn1_oid_id_pbeWithSHAAnd128BitRC2_CBC	DATA
 	asn1_oid_id_pbeWithSHAAnd128BitRC4	DATA
 	asn1_oid_id_pbeWithSHAAnd2_KeyTripleDES_CBC	DATA
 	asn1_oid_id_pbeWithSHAAnd3_KeyTripleDES_CBC	DATA
-	asn1_oid_id_pbewithSHAAnd40BitRC2_CBC	DATA
 	asn1_oid_id_pbeWithSHAAnd40BitRC4	DATA
-	asn1_oid_id_PBKDF2	DATA
+	asn1_oid_id_pbewithSHAAnd40BitRC2_CBC	DATA
 	asn1_oid_id_pkauthdata	DATA
 	asn1_oid_id_pkcs12_bagtypes	DATA
 	asn1_oid_id_pkcs12_certBag	DATA
 	asn1_oid_id_pkcs12_crlBag	DATA
-	asn1_oid_id_pkcs_12	DATA
 	asn1_oid_id_pkcs12_keyBag	DATA
-	asn1_oid_id_pkcs_12PbeIds	DATA
 	asn1_oid_id_pkcs12_pkcs8ShroudedKeyBag	DATA
 	asn1_oid_id_pkcs12_safeContentsBag	DATA
 	asn1_oid_id_pkcs12_secretBag	DATA
-	asn1_oid_id_pkcs_1	DATA
 	asn1_oid_id_pkcs1_md2WithRSAEncryption	DATA
 	asn1_oid_id_pkcs1_md5WithRSAEncryption	DATA
 	asn1_oid_id_pkcs1_rsaEncryption	DATA
@@ -143,15 +167,12 @@ EXPORTS
 	asn1_oid_id_pkcs1_sha256WithRSAEncryption	DATA
 	asn1_oid_id_pkcs1_sha384WithRSAEncryption	DATA
 	asn1_oid_id_pkcs1_sha512WithRSAEncryption	DATA
-	asn1_oid_id_pkcs_2	DATA
 	asn1_oid_id_pkcs2_md2	DATA
 	asn1_oid_id_pkcs2_md4	DATA
 	asn1_oid_id_pkcs2_md5	DATA
-	asn1_oid_id_pkcs_3	DATA
 	asn1_oid_id_pkcs3_des_ede3_cbc	DATA
 	asn1_oid_id_pkcs3_rc2_cbc	DATA
 	asn1_oid_id_pkcs3_rc4	DATA
-	asn1_oid_id_pkcs_5	DATA
 	asn1_oid_id_pkcs7	DATA
 	asn1_oid_id_pkcs7_data	DATA
 	asn1_oid_id_pkcs7_digestedData	DATA
@@ -159,35 +180,44 @@ EXPORTS
 	asn1_oid_id_pkcs7_envelopedData	DATA
 	asn1_oid_id_pkcs7_signedAndEnvelopedData	DATA
 	asn1_oid_id_pkcs7_signedData	DATA
+	asn1_oid_id_pkcs9_contentType	DATA
+	asn1_oid_id_pkcs9_countersignature	DATA
+	asn1_oid_id_pkcs9_emailAddress	DATA
+	asn1_oid_id_pkcs9_extReq	DATA
+	asn1_oid_id_pkcs9_extReq_copy	DATA
+	asn1_oid_id_pkcs9_messageDigest	DATA
+	asn1_oid_id_pkcs9_signingTime	DATA
+	asn1_oid_id_pkcs_1	DATA
+	asn1_oid_id_pkcs_12	DATA
+	asn1_oid_id_pkcs_12PbeIds	DATA
+	asn1_oid_id_pkcs_2	DATA
+	asn1_oid_id_pkcs_3	DATA
+	asn1_oid_id_pkcs_5	DATA
+	asn1_oid_id_pkcs_9	DATA
 	asn1_oid_id_pkcs_9_at_certTypes	DATA
 	asn1_oid_id_pkcs_9_at_certTypes_x509	DATA
 	asn1_oid_id_pkcs_9_at_friendlyName	DATA
 	asn1_oid_id_pkcs_9_at_localKeyId	DATA
-	asn1_oid_id_pkcs9_contentType	DATA
-	asn1_oid_id_pkcs9_countersignature	DATA
-	asn1_oid_id_pkcs_9	DATA
-	asn1_oid_id_pkcs9_emailAddress	DATA
-	asn1_oid_id_pkcs9_extReq_copy	DATA
-	asn1_oid_id_pkcs9_extReq	DATA
-	asn1_oid_id_pkcs9_messageDigest	DATA
-	asn1_oid_id_pkcs9_signingTime	DATA
 	asn1_oid_id_pkdhkeydata	DATA
 	asn1_oid_id_pkekuoid	DATA
 	asn1_oid_id_pkinit	DATA
+	asn1_oid_id_pkinit_kdf	DATA
 	asn1_oid_id_pkinit_kdf_ah_sha1	DATA
 	asn1_oid_id_pkinit_kdf_ah_sha256	DATA
 	asn1_oid_id_pkinit_kdf_ah_sha384	DATA
 	asn1_oid_id_pkinit_kdf_ah_sha512	DATA
-	asn1_oid_id_pkinit_kdf	DATA
 	asn1_oid_id_pkinit_ms_eku	DATA
 	asn1_oid_id_pkinit_ms_san	DATA
 	asn1_oid_id_pkinit_san	DATA
+	asn1_oid_id_pkix	DATA
+	asn1_oid_id_pkix_ad	DATA
 	asn1_oid_id_pkix_ad_caIssuers	DATA
 	asn1_oid_id_pkix_ad_caRepository	DATA
-	asn1_oid_id_pkix_ad	DATA
 	asn1_oid_id_pkix_ad_ocsp	DATA
 	asn1_oid_id_pkix_ad_timeStamping	DATA
-	asn1_oid_id_pkix	DATA
+	asn1_oid_id_pkix_kp	DATA
+	asn1_oid_id_pkix_kp_DVCS	DATA
+	asn1_oid_id_pkix_kp_OCSPSigning	DATA
 	asn1_oid_id_pkix_kp_bgpsec_router	DATA
 	asn1_oid_id_pkix_kp_capwapAC	DATA
 	asn1_oid_id_pkix_kp_capwapWTP	DATA
@@ -196,14 +226,11 @@ EXPORTS
 	asn1_oid_id_pkix_kp_cmcCA	DATA
 	asn1_oid_id_pkix_kp_cmcRA	DATA
 	asn1_oid_id_pkix_kp_codeSigning	DATA
-	asn1_oid_id_pkix_kp	DATA
-	asn1_oid_id_pkix_kp_DVCS	DATA
 	asn1_oid_id_pkix_kp_emailProtection	DATA
 	asn1_oid_id_pkix_kp_ipsecEndSystem	DATA
 	asn1_oid_id_pkix_kp_ipsecIKE	DATA
 	asn1_oid_id_pkix_kp_ipsecTunnel	DATA
 	asn1_oid_id_pkix_kp_ipsecUser	DATA
-	asn1_oid_id_pkix_kp_OCSPSigning	DATA
 	asn1_oid_id_pkix_kp_secureShellClient	DATA
 	asn1_oid_id_pkix_kp_secureShellServer	DATA
 	asn1_oid_id_pkix_kp_sendOwner	DATA
@@ -213,8 +240,8 @@ EXPORTS
 	asn1_oid_id_pkix_kp_serverAuth	DATA
 	asn1_oid_id_pkix_kp_sipDomain	DATA
 	asn1_oid_id_pkix_kp_timeStamping	DATA
-	asn1_oid_id_pkix_ocsp_basic	DATA
 	asn1_oid_id_pkix_ocsp	DATA
+	asn1_oid_id_pkix_ocsp_basic	DATA
 	asn1_oid_id_pkix_ocsp_nonce	DATA
 	asn1_oid_id_pkix_on	DATA
 	asn1_oid_id_pkix_on_dnsSRV	DATA
@@ -223,16 +250,16 @@ EXPORTS
 	asn1_oid_id_pkix_on_pkinit_ms_san	DATA
 	asn1_oid_id_pkix_on_pkinit_san	DATA
 	asn1_oid_id_pkix_on_xmppAddr	DATA
-	asn1_oid_id_pkix_pe_authorityInfoAccess	DATA
 	asn1_oid_id_pkix_pe	DATA
+	asn1_oid_id_pkix_pe_authorityInfoAccess	DATA
 	asn1_oid_id_pkix_pe_proxyCertInfo	DATA
 	asn1_oid_id_pkix_pe_subjectInfoAccess	DATA
-	asn1_oid_id_pkix_ppl_anyLanguage	DATA
 	asn1_oid_id_pkix_ppl	DATA
+	asn1_oid_id_pkix_ppl_anyLanguage	DATA
 	asn1_oid_id_pkix_ppl_independent	DATA
 	asn1_oid_id_pkix_ppl_inheritAll	DATA
-	asn1_oid_id_pkix_qt_cps	DATA
 	asn1_oid_id_pkix_qt	DATA
+	asn1_oid_id_pkix_qt_cps	DATA
 	asn1_oid_id_pkix_qt_unotice	DATA
 	asn1_oid_id_pkkdcekuoid	DATA
 	asn1_oid_id_pkrkeydata	DATA
@@ -250,22 +277,19 @@ EXPORTS
 	asn1_oid_id_sha384	DATA
 	asn1_oid_id_sha512	DATA
 	asn1_oid_id_signedData	DATA
-	asn1_oid_id_Userid	DATA
 	asn1_oid_id_uspkicommon_card_id	DATA
 	asn1_oid_id_uspkicommon_piv_interim	DATA
-	asn1_oid_id_X25519	DATA
-	asn1_oid_id_X448	DATA
+	asn1_oid_id_x509_ce	DATA
 	asn1_oid_id_x509_ce_anyExtendedKeyUsage	DATA
 	asn1_oid_id_x509_ce_authorityKeyIdentifier	DATA
 	asn1_oid_id_x509_ce_basicConstraints	DATA
-	asn1_oid_id_x509_ce_certificateIssuer	DATA
-	asn1_oid_id_x509_ce_certificatePolicies_anyPolicy	DATA
-	asn1_oid_id_x509_ce_certificatePolicies	DATA
 	asn1_oid_id_x509_ce_cRLDistributionPoints	DATA
 	asn1_oid_id_x509_ce_cRLNumber	DATA
 	asn1_oid_id_x509_ce_cRLReason	DATA
 	asn1_oid_id_x509_ce_cRLReasons	DATA
-	asn1_oid_id_x509_ce	DATA
+	asn1_oid_id_x509_ce_certificateIssuer	DATA
+	asn1_oid_id_x509_ce_certificatePolicies	DATA
+	asn1_oid_id_x509_ce_certificatePolicies_anyPolicy	DATA
 	asn1_oid_id_x509_ce_deltaCRLIndicator	DATA
 	asn1_oid_id_x509_ce_extKeyUsage	DATA
 	asn1_oid_id_x509_ce_freshestCRL	DATA
@@ -284,68 +308,96 @@ EXPORTS
 	asn1_oid_id_x509_ce_subjectKeyIdentifier	DATA
 	asn1_oid_id_x520_at	DATA
 	asn1_oid_id_x9_57	DATA
-	asn1_oid_tcg_at_tpmManufacturer	DATA
-	asn1_oid_tcg_at_tpmModel	DATA
-	asn1_oid_tcg_at_tpmSecurityAssertions	DATA
-	asn1_oid_tcg_at_tpmSpecification	DATA
-	asn1_oid_tcg_at_tpmVersion	DATA
-	asn1_oid_tcg_attribute	DATA
-	asn1_oid_tcg_cap_verifiedTPMFixed	DATA
-	asn1_oid_tcg_cap_verifiedTPMResidency	DATA
-	asn1_oid_tcg_cap_verifiedTPMRestricted	DATA
+	asn1_oid_tcg
 	asn1_oid_tcg	DATA
+	asn1_oid_tcg_address
+	asn1_oid_tcg_address_bluetoothMac
+	asn1_oid_tcg_address_ethernetMac
+	asn1_oid_tcg_address_wlanMac
+	asn1_oid_tcg_at_platformConfigUri
+	asn1_oid_tcg_at_platformConfiguration
+	asn1_oid_tcg_at_platformConfigurationV2
+	asn1_oid_tcg_at_platformManufacturerId
+	asn1_oid_tcg_at_platformManufacturerStr
+	asn1_oid_tcg_at_platformModel
+	asn1_oid_tcg_at_platformSerial
+	asn1_oid_tcg_at_platformVersion
+	asn1_oid_tcg_at_tbbSecurityAssertions
+	asn1_oid_tcg_at_tcgCredentialSpecification
+	asn1_oid_tcg_at_tcgCredentialType
+	asn1_oid_tcg_at_tcgPlatformSpecification
+	asn1_oid_tcg_at_tpmManufacturer
+	asn1_oid_tcg_at_tpmManufacturer	DATA
+	asn1_oid_tcg_at_tpmModel
+	asn1_oid_tcg_at_tpmModel	DATA
+	asn1_oid_tcg_at_tpmSecurityAssertions
+	asn1_oid_tcg_at_tpmSecurityAssertions	DATA
+	asn1_oid_tcg_at_tpmSpecification
+	asn1_oid_tcg_at_tpmSpecification	DATA
+	asn1_oid_tcg_at_tpmVersion
+	asn1_oid_tcg_at_tpmVersion	DATA
+	asn1_oid_tcg_attribute
+	asn1_oid_tcg_attribute	DATA
+	asn1_oid_tcg_cap_verifiedTPMFixed
+	asn1_oid_tcg_cap_verifiedTPMFixed	DATA
+	asn1_oid_tcg_cap_verifiedTPMResidency
+	asn1_oid_tcg_cap_verifiedTPMResidency	DATA
+	asn1_oid_tcg_cap_verifiedTPMRestricted
+	asn1_oid_tcg_cap_verifiedTPMRestricted	DATA
+	asn1_oid_tcg_ce
+	asn1_oid_tcg_ce_relevantCredentials
+	asn1_oid_tcg_ce_relevantManifests
+	asn1_oid_tcg_common
+	asn1_oid_tcg_kp
 	asn1_oid_tcg_kp	DATA
+	asn1_oid_tcg_kp_AIKCertificate
+	asn1_oid_tcg_kp_DeltaPlatformAttributeCertificate
+	asn1_oid_tcg_kp_EKCertificate
 	asn1_oid_tcg_kp_EKCertificate	DATA
+	asn1_oid_tcg_kp_PlatformAttributeCertificate
+	asn1_oid_tcg_kp_PlatformKeyCertificate
+	asn1_oid_tcg_on_ekPermIdSha256
 	asn1_oid_tcg_on_ekPermIdSha256	DATA
+	asn1_oid_tcg_platformClass
+	asn1_oid_tcg_registry
+	asn1_oid_tcg_registry_componentClass
+	asn1_oid_tcg_registry_componentClass_dmtf
+	asn1_oid_tcg_registry_componentClass_ietf
+	asn1_oid_tcg_registry_componentClass_tcg
+	asn1_oid_tcg_tpm20
 	asn1_oid_tcg_tpm20	DATA
-	asn1_PAC_OPTIONS_FLAGS_units
-	_asn1_print_top
-	asn1_SAMFlags_units
-	_asn1_sizeofType
-	asn1_TicketFlags_units
-	copy_AccessDescription
 	copy_AD_AND_OR
 	copy_AD_IF_RELEVANT
 	copy_AD_INITIAL_VERIFIED_CAS
 	copy_AD_KDCIssued
 	copy_AD_LoginAlias
 	copy_AD_MANDATORY_FOR_KDC
-	copy_AlgorithmIdentifier
-	copy_AliasIA5String
-	copy_AliasPrintableString
-	copy_AliasUTF8String
 	copy_APOptions
 	copy_AP_REP
 	copy_AP_REQ
 	copy_AS_REP
 	copy_AS_REQ
+	copy_AUTHDATA_TYPE
+	copy_AccessDescription
+	copy_AlgorithmIdentifier
+	copy_AliasIA5String
+	copy_AliasOID
+	copy_AliasPrintableString
+	copy_AliasUTF8String
 	copy_Attribute
 	copy_AttributeSet
+	copy_AttributeStatus
 	copy_AttributeType
 	copy_AttributeTypeAndValue
-	copy_AUTHDATA_TYPE
+	copy_AuthPack
+	copy_AuthPack_Win2k
 	copy_Authenticator
 	copy_AuthorityInfoAccessSyntax
 	copy_AuthorityKeyIdentifier
 	copy_AuthorizationData
 	copy_AuthorizationDataElement
-	copy_AuthPack
-	copy_AuthPack_Win2k
 	copy_BaseDistance
 	copy_BasicConstraints
-	copy_Certificate
-	copy_CertificateChoices
-	copy_CertificateList
-	copy_CertificatePolicies
-	copy_CertificateRevocationLists
-	copy_Certificates
-	copy_CertificateSerialNumber
-	copy_CertificateSet
-	copy_CertificationRequest
-	copy_CertificationRequestInfo
-	copy_CertPolicyId
-	copy_ChangePasswdDataMS
-	copy_Checksum
 	copy_CKSUMTYPE
 	copy_CMSAttributes
 	copy_CMSCBCParameter
@@ -353,25 +405,45 @@ EXPORTS
 	copy_CMSIdentifier
 	copy_CMSRC2CBCParameter
 	copy_CMSVersion
-	copy_CommonCriteriaMeasures
-	copy_CommunityIdentifier
-	copy_CommunityIdentifiers
-	copy_CompositePrincipal
-	copy_ContentEncryptionAlgorithmIdentifier
-	copy_ContentInfo
-	copy_ContentType
 	copy_CPSuri
 	copy_CRIAttributeSet
 	copy_CRIExtensions
 	copy_CRLCertificateList
 	copy_CRLDistributionPoints
 	copy_CRLReason
+	copy_CertPolicyId
+	copy_Certificate
+	copy_CertificateChoices
+	copy_CertificateIdentifier
+	copy_CertificateList
+	copy_CertificatePolicies
+	copy_CertificateRevocationLists
+	copy_CertificateSerialNumber
+	copy_CertificateSet
+	copy_Certificates
+	copy_CertificationRequest
+	copy_CertificationRequestInfo
+	copy_ChangePasswdDataMS
+	copy_Checksum
+	copy_CommonCriteriaMeasures
+	copy_CommunityIdentifier
+	copy_CommunityIdentifiers
+	copy_ComponentAddress
+	copy_ComponentClass
+	copy_ComponentIdentifierV2
+	copy_CompositePrincipal
+	copy_ContentEncryptionAlgorithmIdentifier
+	copy_ContentInfo
+	copy_ContentType
 	copy_CurrentFWConfig
-	copy_DecryptKeyIdentifier
 	copy_DHNonce
 	copy_DHParameter
 	copy_DHPublicKey
 	copy_DHRepInfo
+	copy_DSAParams
+	copy_DSAPublicKey
+	copy_DSASigValue
+	copy_DecryptKeyIdentifier
 	copy_DigestAlgorithmIdentifier
 	copy_DigestAlgorithmIdentifiers
 	copy_DigestError
@@ -379,8 +451,8 @@ EXPORTS
 	copy_DigestInit
 	copy_DigestInitReply
 	copy_DigestREP
-	copy_DigestRepInner
 	copy_DigestREQ
+	copy_DigestRepInner
 	copy_DigestReqInner
 	copy_DigestRequest
 	copy_DigestResponse
@@ -391,71 +463,67 @@ EXPORTS
 	copy_DistributionPointName
 	copy_DistributionPointReasonFlags
 	copy_DomainParameters
-	copy_DSAParams
-	copy_DSAPublicKey
-	copy_DSASigValue
 	copy_ECDSA_Sig_Value
 	copy_ECParameters
 	copy_ECPoint
 	copy_EKCertificateGenerationLocation
 	copy_EKGenerationLocation
 	copy_EKGenerationType
+	copy_ENCTYPE
+	copy_ETYPE_INFO
+	copy_ETYPE_INFO2
+	copy_ETYPE_INFO2_ENTRY
+	copy_ETYPE_INFO_ENTRY
 	copy_EncAPRepPart
-	copy_EncapsulatedContentInfo
 	copy_EncASRepPart
 	copy_EncKDCRepPart
 	copy_EncKrbCredPart
 	copy_EncKrbPrivPart
+	copy_EncTGSRepPart
+	copy_EncTicketPart
+	copy_EncapsulatedContentInfo
 	copy_EncryptedContent
 	copy_EncryptedContentInfo
 	copy_EncryptedData
 	copy_EncryptedKey
 	copy_EncryptionKey
-	copy_EncTGSRepPart
-	copy_EncTicketPart
-	copy_ENCTYPE
 	copy_EnvelopedData
-	copy_ETYPE_INFO
-	copy_ETYPE_INFO2
-	copy_ETYPE_INFO2_ENTRY
-	copy_ETYPE_INFO_ENTRY
 	copy_EtypeList
 	copy_EvaluationAssuranceLevel
 	copy_EvaluationStatus
+	copy_ExtKeyUsage
 	copy_Extension
 	copy_Extensions
 	copy_ExternalPrincipalIdentifier
 	copy_ExternalPrincipalIdentifiers
-	copy_ExtKeyUsage
-	copy_FastOptions
 	copy_FIPSLevel
+	copy_FWErrorVersion
+	copy_FWReceiptVersion
+	copy_FastOptions
 	copy_FirmwarePackageIdentifier
 	copy_FirmwarePackageInfo
 	copy_FirmwarePackageLoadError
 	copy_FirmwarePackageLoadErrorCode
 	copy_FirmwarePackageLoadReceipt
 	copy_FirmwarePkgData
-	copy_FWErrorVersion
-	copy_FWReceiptVersion
 	copy_GeneralName
 	copy_GeneralNames
 	copy_GeneralSubtree
 	copy_GeneralSubtrees
+	copy_HEIM_ANY
+	copy_HEIM_ANY_SET
 	copy_HardwareModuleName
 	copy_HardwareModules
 	copy_HardwareSerialEntry
-	copy_heim_any
-	copy_HEIM_ANY
-	copy_heim_any_set
-	copy_HEIM_ANY_SET
 	copy_HeimPkinitPrincMaxLifeSecs
 	copy_HostAddress
 	copy_HostAddresses
-	copy_ImplementedCompressAlgorithms
-	copy_ImplementedCryptoAlgorithms
 	copy_IOSCertificationRequest
 	copy_IOSCertificationRequestInfo
+	copy_ImplementedCompressAlgorithms
+	copy_ImplementedCryptoAlgorithms
 	copy_IssuerAndSerialNumber
+	copy_IssuerSerial
 	copy_KDCDHKeyInfo
 	copy_KDCDHKeyInfo_Win2k
 	copy_KDCFastCookie
@@ -470,53 +538,54 @@ EXPORTS
 	copy_KERB_AD_RESTRICTION_ENTRY
 	copy_KERB_ARMOR_SERVICE_REPLY
 	copy_KERB_CRED
-	copy_KerberosString
-	copy_KerberosTime
 	copy_KERB_TGS_REP_IN
 	copy_KERB_TGS_REP_OUT
 	copy_KERB_TGS_REQ_IN
 	copy_KERB_TGS_REQ_OUT
 	copy_KERB_TIMES
+	copy_KRB5PrincipalName
+	copy_KRB_CRED
+	copy_KRB_ERROR
+	copy_KRB_PRIV
+	copy_KRB_SAFE
+	copy_KRB_SAFE_BODY
+	copy_KX509_ERROR_CODE
+	copy_KerberosString
+	copy_KerberosTime
 	copy_KeyEncryptionAlgorithmIdentifier
 	copy_KeyIdentifier
 	copy_KeyTransRecipientInfo
 	copy_KeyUsage
 	copy_Krb5Int32
-	copy_KRB5PrincipalName
 	copy_Krb5UInt32
-	copy_KRB_CRED
 	copy_KrbCredInfo
-	copy_KRB_ERROR
 	copy_KrbFastArmor
 	copy_KrbFastArmoredRep
 	copy_KrbFastArmoredReq
 	copy_KrbFastFinished
 	copy_KrbFastReq
 	copy_KrbFastResponse
-	copy_KRB_PRIV
-	copy_KRB_SAFE
-	copy_KRB_SAFE_BODY
 	copy_Kx509CSRPlus
 	copy_Kx509ErrorCode
-	copy_KX509_ERROR_CODE
 	copy_Kx509Request
 	copy_Kx509Response
-	copy_LastReq
 	copy_LR_TYPE
-	copy_MessageDigest
+	copy_LastReq
 	copy_MESSAGE_TYPE
 	copy_METHOD_DATA
 	copy_MS_UPN_SAN
-	copy_Name
-	copy_NameConstraints
+	copy_MeasurementRootType
+	copy_MessageDigest
 	copy_NAME_TYPE
-	copy_NoticeReference
 	copy_NTLMInit
 	copy_NTLMInitReply
 	copy_NTLMReply
 	copy_NTLMRequest
 	copy_NTLMRequest2
 	copy_NTLMResponse
+	copy_Name
+	copy_NameConstraints
+	copy_NoticeReference
 	copy_NullType
 	copy_OCSPBasicOCSPResponse
 	copy_OCSPCertID
@@ -537,8 +606,8 @@ EXPORTS
 	copy_OriginatorInfo
 	copy_OtherName
 	copy_PAC_OPTIONS_FLAGS
-	copy_PA_DATA
 	copy_PADATA_TYPE
+	copy_PA_DATA
 	copy_PA_ENC_SAM_RESPONSE_ENC
 	copy_PA_ENC_TS_ENC
 	copy_PA_FX_FAST_REPLY
@@ -552,7 +621,6 @@ EXPORTS
 	copy_PA_PK_AS_REP_Win2k
 	copy_PA_PK_AS_REQ
 	copy_PA_PK_AS_REQ_Win2k
-	copy_ParamOptions
 	copy_PA_S4U2Self
 	copy_PA_S4U_X509_USER
 	copy_PA_SAM_CHALLENGE_2
@@ -560,12 +628,11 @@ EXPORTS
 	copy_PA_SAM_REDIRECT
 	copy_PA_SAM_RESPONSE_2
 	copy_PA_SAM_TYPE
-	copy_PA_ServerReferralData
 	copy_PA_SERVER_REFERRAL_DATA
+	copy_PA_ServerReferralData
 	copy_PA_SvrReferralData
 	copy_PBES2_params
 	copy_PBKDF2_params
-	copy_PermanentIdentifier
 	copy_PKAuthenticator
 	copy_PKAuthenticator_Win2k
 	copy_PKCS10_Version
@@ -587,9 +654,14 @@ EXPORTS
 	copy_PKCS8PrivateKeyInfo
 	copy_PKCS9_BMPString
 	copy_PKCS9_friendlyName
+	copy_PKIXXmppAddr
+	copy_PROV_SRV_LOCATION
+	copy_ParamOptions
+	copy_PermanentIdentifier
 	copy_PkinitSP80056AOtherInfo
 	copy_PkinitSuppPubInfo
-	copy_PKIXXmppAddr
+	copy_PlatformConfigurationV2
+	copy_PlatformPropertyV2
 	copy_PolicyConstraints
 	copy_PolicyInformation
 	copy_PolicyMapping
@@ -602,14 +674,17 @@ EXPORTS
 	copy_PreferredPackageIdentifier
 	copy_Principal
 	copy_PrincipalName
-	copy_PrincipalNameAttrs
 	copy_PrincipalNameAttrSrc
+	copy_PrincipalNameAttrs
 	copy_Principals
 	copy_PrivateKeyUsagePeriod
-	copy_PROV_SRV_LOCATION
 	copy_ProxyCertInfo
 	copy_ProxyPolicy
 	copy_RDNSequence
+	copy_RSAES_OAEP_params
+	copy_RSAPrivateKey
+	copy_RSAPublicKey
+	copy_RSASSA_PSS_params
 	copy_Realm
 	copy_RecipientIdentifier
 	copy_RecipientInfo
@@ -617,12 +692,9 @@ EXPORTS
 	copy_RelativeDistinguishedName
 	copy_ReplyKeyPack
 	copy_ReplyKeyPack_Win2k
-	copy_RSAES_OAEP_params
-	copy_RSAPrivateKey
-	copy_RSAPublicKey
-	copy_RSASSA_PSS_params
 	copy_S4UUserID
 	copy_SAMFlags
+	copy_SRVName
 	copy_SecurityLevel
 	copy_SignatureAlgorithmIdentifier
 	copy_SignatureValue
@@ -632,35 +704,38 @@ EXPORTS
 	copy_SignerInfos
 	copy_SingleAttribute
 	copy_SkipCerts
-	copy_SRVName
 	copy_StrengthOfFunction
 	copy_SubjectDirectoryAttributes
 	copy_SubjectInfoAccessSyntax
 	copy_SubjectKeyIdentifier
 	copy_SubjectPublicKeyInfo
 	copy_SupportedKDFs
-	copy_TargetHardwareIdentifiers
-	copy_TBSCertificate
+	copy_TBBSecurityAssertions
 	copy_TBSCRLCertList
+	copy_TBSCertificate
+	copy_TCGCredentialType
+	copy_TCGPlatformSpecification
+	copy_TCGSpecificationVersion
 	copy_TD_DH_PARAMETERS
 	copy_TD_INVALID_CERTIFICATES
 	copy_TD_TRUSTED_CERTIFIERS
 	copy_TGS_REP
 	copy_TGS_REQ
-	copy_Ticket
-	copy_TicketFlags
-	copy_Time
 	copy_TPMSecurityAssertions
 	copy_TPMSpecification
 	copy_TPMVersion
+	copy_TYPED_DATA
+	copy_TargetHardwareIdentifiers
+	copy_Ticket
+	copy_TicketFlags
+	copy_Time
 	copy_TransitedEncoding
 	copy_TrustedCA
 	copy_TrustedCA_Win2k
 	copy_TypedData
-	copy_TYPED_DATA
+	copy_URIReference
 	copy_UniqueIdentifier
 	copy_UnprotectedAttributes
-	copy_URIReference
 	copy_UserNotice
 	copy_ValidationParms
 	copy_Validity
@@ -669,53 +744,44 @@ EXPORTS
 	copy_WrappedFirmwareKey
 	copy_X520CommonName
 	copy_X520LocalityName
-	copy_X520name
-	copy_X520OrganizationalUnitName
 	copy_X520OrganizationName
+	copy_X520OrganizationalUnitName
 	copy_X520StateOrProvinceName
-	decode_AccessDescription
+	copy_X520name
+	copy_heim_any
+	copy_heim_any_set
 	decode_AD_AND_OR
 	decode_AD_IF_RELEVANT
 	decode_AD_INITIAL_VERIFIED_CAS
 	decode_AD_KDCIssued
 	decode_AD_LoginAlias
 	decode_AD_MANDATORY_FOR_KDC
-	decode_AlgorithmIdentifier
-	decode_AliasIA5String
-	decode_AliasPrintableString
-	decode_AliasUTF8String
 	decode_APOptions
 	decode_AP_REP
 	decode_AP_REQ
 	decode_AS_REP
 	decode_AS_REQ
+	decode_AUTHDATA_TYPE
+	decode_AccessDescription
+	decode_AlgorithmIdentifier
+	decode_AliasIA5String
+	decode_AliasOID
+	decode_AliasPrintableString
+	decode_AliasUTF8String
 	decode_Attribute
 	decode_AttributeSet
+	decode_AttributeStatus
 	decode_AttributeType
 	decode_AttributeTypeAndValue
-	decode_AUTHDATA_TYPE
+	decode_AuthPack
+	decode_AuthPack_Win2k
 	decode_Authenticator
 	decode_AuthorityInfoAccessSyntax
 	decode_AuthorityKeyIdentifier
 	decode_AuthorizationData
 	decode_AuthorizationDataElement
-	decode_AuthPack
-	decode_AuthPack_Win2k
 	decode_BaseDistance
 	decode_BasicConstraints
-	decode_Certificate
-	decode_CertificateChoices
-	decode_CertificateList
-	decode_CertificatePolicies
-	decode_CertificateRevocationLists
-	decode_Certificates
-	decode_CertificateSerialNumber
-	decode_CertificateSet
-	decode_CertificationRequest
-	decode_CertificationRequestInfo
-	decode_CertPolicyId
-	decode_ChangePasswdDataMS
-	decode_Checksum
 	decode_CKSUMTYPE
 	decode_CMSAttributes
 	decode_CMSCBCParameter
@@ -723,25 +789,45 @@ EXPORTS
 	decode_CMSIdentifier
 	decode_CMSRC2CBCParameter
 	decode_CMSVersion
-	decode_CommonCriteriaMeasures
-	decode_CommunityIdentifier
-	decode_CommunityIdentifiers
-	decode_CompositePrincipal
-	decode_ContentEncryptionAlgorithmIdentifier
-	decode_ContentInfo
-	decode_ContentType
 	decode_CPSuri
 	decode_CRIAttributeSet
 	decode_CRIExtensions
 	decode_CRLCertificateList
 	decode_CRLDistributionPoints
 	decode_CRLReason
+	decode_CertPolicyId
+	decode_Certificate
+	decode_CertificateChoices
+	decode_CertificateIdentifier
+	decode_CertificateList
+	decode_CertificatePolicies
+	decode_CertificateRevocationLists
+	decode_CertificateSerialNumber
+	decode_CertificateSet
+	decode_Certificates
+	decode_CertificationRequest
+	decode_CertificationRequestInfo
+	decode_ChangePasswdDataMS
+	decode_Checksum
+	decode_CommonCriteriaMeasures
+	decode_CommunityIdentifier
+	decode_CommunityIdentifiers
+	decode_ComponentAddress
+	decode_ComponentClass
+	decode_ComponentIdentifierV2
+	decode_CompositePrincipal
+	decode_ContentEncryptionAlgorithmIdentifier
+	decode_ContentInfo
+	decode_ContentType
 	decode_CurrentFWConfig
-	decode_DecryptKeyIdentifier
 	decode_DHNonce
 	decode_DHParameter
 	decode_DHPublicKey
 	decode_DHRepInfo
+	decode_DSAParams
+	decode_DSAPublicKey
+	decode_DSASigValue
+	decode_DecryptKeyIdentifier
 	decode_DigestAlgorithmIdentifier
 	decode_DigestAlgorithmIdentifiers
 	decode_DigestError
@@ -749,8 +835,8 @@ EXPORTS
 	decode_DigestInit
 	decode_DigestInitReply
 	decode_DigestREP
-	decode_DigestRepInner
 	decode_DigestREQ
+	decode_DigestRepInner
 	decode_DigestReqInner
 	decode_DigestRequest
 	decode_DigestResponse
@@ -761,71 +847,67 @@ EXPORTS
 	decode_DistributionPointName
 	decode_DistributionPointReasonFlags
 	decode_DomainParameters
-	decode_DSAParams
-	decode_DSAPublicKey
-	decode_DSASigValue
 	decode_ECDSA_Sig_Value
 	decode_ECParameters
 	decode_ECPoint
 	decode_EKCertificateGenerationLocation
 	decode_EKGenerationLocation
 	decode_EKGenerationType
+	decode_ENCTYPE
+	decode_ETYPE_INFO
+	decode_ETYPE_INFO2
+	decode_ETYPE_INFO2_ENTRY
+	decode_ETYPE_INFO_ENTRY
 	decode_EncAPRepPart
-	decode_EncapsulatedContentInfo
 	decode_EncASRepPart
 	decode_EncKDCRepPart
 	decode_EncKrbCredPart
 	decode_EncKrbPrivPart
+	decode_EncTGSRepPart
+	decode_EncTicketPart
+	decode_EncapsulatedContentInfo
 	decode_EncryptedContent
 	decode_EncryptedContentInfo
 	decode_EncryptedData
 	decode_EncryptedKey
 	decode_EncryptionKey
-	decode_EncTGSRepPart
-	decode_EncTicketPart
-	decode_ENCTYPE
 	decode_EnvelopedData
-	decode_ETYPE_INFO
-	decode_ETYPE_INFO2
-	decode_ETYPE_INFO2_ENTRY
-	decode_ETYPE_INFO_ENTRY
 	decode_EtypeList
 	decode_EvaluationAssuranceLevel
 	decode_EvaluationStatus
+	decode_ExtKeyUsage
 	decode_Extension
 	decode_Extensions
 	decode_ExternalPrincipalIdentifier
 	decode_ExternalPrincipalIdentifiers
-	decode_ExtKeyUsage
-	decode_FastOptions
 	decode_FIPSLevel
+	decode_FWErrorVersion
+	decode_FWReceiptVersion
+	decode_FastOptions
 	decode_FirmwarePackageIdentifier
 	decode_FirmwarePackageInfo
 	decode_FirmwarePackageLoadError
 	decode_FirmwarePackageLoadErrorCode
 	decode_FirmwarePackageLoadReceipt
 	decode_FirmwarePkgData
-	decode_FWErrorVersion
-	decode_FWReceiptVersion
 	decode_GeneralName
 	decode_GeneralNames
 	decode_GeneralSubtree
 	decode_GeneralSubtrees
+	decode_HEIM_ANY
+	decode_HEIM_ANY_SET
 	decode_HardwareModuleName
 	decode_HardwareModules
 	decode_HardwareSerialEntry
-	decode_heim_any
-	decode_HEIM_ANY
-	decode_heim_any_set
-	decode_HEIM_ANY_SET
 	decode_HeimPkinitPrincMaxLifeSecs
 	decode_HostAddress
 	decode_HostAddresses
-	decode_ImplementedCompressAlgorithms
-	decode_ImplementedCryptoAlgorithms
 	decode_IOSCertificationRequest
 	decode_IOSCertificationRequestInfo
+	decode_ImplementedCompressAlgorithms
+	decode_ImplementedCryptoAlgorithms
 	decode_IssuerAndSerialNumber
+	decode_IssuerSerial
 	decode_KDCDHKeyInfo
 	decode_KDCDHKeyInfo_Win2k
 	decode_KDCFastCookie
@@ -840,53 +922,54 @@ EXPORTS
 	decode_KERB_AD_RESTRICTION_ENTRY
 	decode_KERB_ARMOR_SERVICE_REPLY
 	decode_KERB_CRED
-	decode_KerberosString
-	decode_KerberosTime
 	decode_KERB_TGS_REP_IN
 	decode_KERB_TGS_REP_OUT
 	decode_KERB_TGS_REQ_IN
 	decode_KERB_TGS_REQ_OUT
 	decode_KERB_TIMES
+	decode_KRB5PrincipalName
+	decode_KRB_CRED
+	decode_KRB_ERROR
+	decode_KRB_PRIV
+	decode_KRB_SAFE
+	decode_KRB_SAFE_BODY
+	decode_KX509_ERROR_CODE
+	decode_KerberosString
+	decode_KerberosTime
 	decode_KeyEncryptionAlgorithmIdentifier
 	decode_KeyIdentifier
 	decode_KeyTransRecipientInfo
 	decode_KeyUsage
 	decode_Krb5Int32
-	decode_KRB5PrincipalName
 	decode_Krb5UInt32
-	decode_KRB_CRED
 	decode_KrbCredInfo
-	decode_KRB_ERROR
 	decode_KrbFastArmor
 	decode_KrbFastArmoredRep
 	decode_KrbFastArmoredReq
 	decode_KrbFastFinished
 	decode_KrbFastReq
 	decode_KrbFastResponse
-	decode_KRB_PRIV
-	decode_KRB_SAFE
-	decode_KRB_SAFE_BODY
 	decode_Kx509CSRPlus
 	decode_Kx509ErrorCode
-	decode_KX509_ERROR_CODE
 	decode_Kx509Request
 	decode_Kx509Response
-	decode_LastReq
 	decode_LR_TYPE
-	decode_MessageDigest
+	decode_LastReq
 	decode_MESSAGE_TYPE
 	decode_METHOD_DATA
 	decode_MS_UPN_SAN
-	decode_Name
-	decode_NameConstraints
+	decode_MeasurementRootType
+	decode_MessageDigest
 	decode_NAME_TYPE
-	decode_NoticeReference
 	decode_NTLMInit
 	decode_NTLMInitReply
 	decode_NTLMReply
 	decode_NTLMRequest
 	decode_NTLMRequest2
 	decode_NTLMResponse
+	decode_Name
+	decode_NameConstraints
+	decode_NoticeReference
 	decode_NullType
 	decode_OCSPBasicOCSPResponse
 	decode_OCSPCertID
@@ -907,8 +990,8 @@ EXPORTS
 	decode_OriginatorInfo
 	decode_OtherName
 	decode_PAC_OPTIONS_FLAGS
-	decode_PA_DATA
 	decode_PADATA_TYPE
+	decode_PA_DATA
 	decode_PA_ENC_SAM_RESPONSE_ENC
 	decode_PA_ENC_TS_ENC
 	decode_PA_FX_FAST_REPLY
@@ -922,7 +1005,6 @@ EXPORTS
 	decode_PA_PK_AS_REP_Win2k
 	decode_PA_PK_AS_REQ
 	decode_PA_PK_AS_REQ_Win2k
-	decode_ParamOptions
 	decode_PA_S4U2Self
 	decode_PA_S4U_X509_USER
 	decode_PA_SAM_CHALLENGE_2
@@ -930,12 +1012,11 @@ EXPORTS
 	decode_PA_SAM_REDIRECT
 	decode_PA_SAM_RESPONSE_2
 	decode_PA_SAM_TYPE
-	decode_PA_ServerReferralData
 	decode_PA_SERVER_REFERRAL_DATA
+	decode_PA_ServerReferralData
 	decode_PA_SvrReferralData
 	decode_PBES2_params
 	decode_PBKDF2_params
-	decode_PermanentIdentifier
 	decode_PKAuthenticator
 	decode_PKAuthenticator_Win2k
 	decode_PKCS10_Version
@@ -957,9 +1038,14 @@ EXPORTS
 	decode_PKCS8PrivateKeyInfo
 	decode_PKCS9_BMPString
 	decode_PKCS9_friendlyName
+	decode_PKIXXmppAddr
+	decode_PROV_SRV_LOCATION
+	decode_ParamOptions
+	decode_PermanentIdentifier
 	decode_PkinitSP80056AOtherInfo
 	decode_PkinitSuppPubInfo
-	decode_PKIXXmppAddr
+	decode_PlatformConfigurationV2
+	decode_PlatformPropertyV2
 	decode_PolicyConstraints
 	decode_PolicyInformation
 	decode_PolicyMapping
@@ -972,14 +1058,17 @@ EXPORTS
 	decode_PreferredPackageIdentifier
 	decode_Principal
 	decode_PrincipalName
-	decode_PrincipalNameAttrs
 	decode_PrincipalNameAttrSrc
+	decode_PrincipalNameAttrs
 	decode_Principals
 	decode_PrivateKeyUsagePeriod
-	decode_PROV_SRV_LOCATION
 	decode_ProxyCertInfo
 	decode_ProxyPolicy
 	decode_RDNSequence
+	decode_RSAES_OAEP_params
+	decode_RSAPrivateKey
+	decode_RSAPublicKey
+	decode_RSASSA_PSS_params
 	decode_Realm
 	decode_RecipientIdentifier
 	decode_RecipientInfo
@@ -987,12 +1076,9 @@ EXPORTS
 	decode_RelativeDistinguishedName
 	decode_ReplyKeyPack
 	decode_ReplyKeyPack_Win2k
-	decode_RSAES_OAEP_params
-	decode_RSAPrivateKey
-	decode_RSAPublicKey
-	decode_RSASSA_PSS_params
 	decode_S4UUserID
 	decode_SAMFlags
+	decode_SRVName
 	decode_SecurityLevel
 	decode_SignatureAlgorithmIdentifier
 	decode_SignatureValue
@@ -1002,35 +1088,38 @@ EXPORTS
 	decode_SignerInfos
 	decode_SingleAttribute
 	decode_SkipCerts
-	decode_SRVName
 	decode_StrengthOfFunction
 	decode_SubjectDirectoryAttributes
 	decode_SubjectInfoAccessSyntax
 	decode_SubjectKeyIdentifier
 	decode_SubjectPublicKeyInfo
 	decode_SupportedKDFs
-	decode_TargetHardwareIdentifiers
-	decode_TBSCertificate
+	decode_TBBSecurityAssertions
 	decode_TBSCRLCertList
+	decode_TBSCertificate
+	decode_TCGCredentialType
+	decode_TCGPlatformSpecification
+	decode_TCGSpecificationVersion
 	decode_TD_DH_PARAMETERS
 	decode_TD_INVALID_CERTIFICATES
 	decode_TD_TRUSTED_CERTIFIERS
 	decode_TGS_REP
 	decode_TGS_REQ
-	decode_Ticket
-	decode_TicketFlags
-	decode_Time
 	decode_TPMSecurityAssertions
 	decode_TPMSpecification
 	decode_TPMVersion
+	decode_TYPED_DATA
+	decode_TargetHardwareIdentifiers
+	decode_Ticket
+	decode_TicketFlags
+	decode_Time
 	decode_TransitedEncoding
 	decode_TrustedCA
 	decode_TrustedCA_Win2k
 	decode_TypedData
-	decode_TYPED_DATA
+	decode_URIReference
 	decode_UniqueIdentifier
 	decode_UnprotectedAttributes
-	decode_URIReference
 	decode_UserNotice
 	decode_ValidationParms
 	decode_Validity
@@ -1039,14 +1128,16 @@ EXPORTS
 	decode_WrappedFirmwareKey
 	decode_X520CommonName
 	decode_X520LocalityName
-	decode_X520name
-	decode_X520OrganizationalUnitName
 	decode_X520OrganizationName
+	decode_X520OrganizationalUnitName
 	decode_X520StateOrProvinceName
+	decode_X520name
+	decode_heim_any
+	decode_heim_any_set
 	der_copy_bit_string
 	der_copy_bmp_string
-	der_copy_generalized_time
 	der_copy_general_string
+	der_copy_generalized_time
 	der_copy_heim_integer
 	der_copy_ia5_string
 	der_copy_integer
@@ -1065,8 +1156,8 @@ EXPORTS
 	der_find_or_parse_heim_oid
 	der_free_bit_string
 	der_free_bmp_string
-	der_free_generalized_time
 	der_free_general_string
+	der_free_generalized_time
 	der_free_heim_integer
 	der_free_ia5_string
 	der_free_integer
@@ -1085,8 +1176,8 @@ EXPORTS
 	der_get_boolean
 	der_get_class_name
 	der_get_class_num
-	der_get_generalized_time
 	der_get_general_string
+	der_get_generalized_time
 	der_get_heim_integer
 	der_get_ia5_string
 	der_get_integer
@@ -1108,7 +1199,6 @@ EXPORTS
 	der_get_utctime
 	der_get_utf8string
 	der_get_visible_string
-	_der_gmtime
 	der_heim_bit_string_cmp
 	der_heim_bmp_string_cmp
 	der_heim_integer_cmp
@@ -1120,8 +1210,8 @@ EXPORTS
 	der_length_bmp_string
 	der_length_boolean
 	der_length_enumerated
-	der_length_generalized_time
 	der_length_general_string
+	der_length_generalized_time
 	der_length_heim_integer
 	der_length_ia5_string
 	der_length_integer
@@ -1144,12 +1234,11 @@ EXPORTS
 	der_match_tag_and_length
 	der_parse_heim_oid
 	der_parse_hex_heim_integer
-	der_printable_string_cmp
 	der_print_bit_string
 	der_print_bmp_string
 	der_print_boolean
-	der_print_generalized_time
 	der_print_general_string
+	der_print_generalized_time
 	der_print_heim_integer
 	der_print_heim_oid
 	der_print_heim_oid_sym
@@ -1167,11 +1256,12 @@ EXPORTS
 	der_print_utctime
 	der_print_utf8string
 	der_print_visible_string
+	der_printable_string_cmp
 	der_put_bit_string
 	der_put_bmp_string
 	der_put_boolean
-	der_put_generalized_time
 	der_put_general_string
+	der_put_generalized_time
 	der_put_heim_integer
 	der_put_ia5_string
 	der_put_integer
@@ -1191,52 +1281,38 @@ EXPORTS
 	der_put_visible_string
 	der_replace_tag
 	der_show_heim_oid_sym
-	_der_timegm
-	DigestTypes2int
-	DistributionPointReasonFlags2int
-	encode_AccessDescription
 	encode_AD_AND_OR
 	encode_AD_IF_RELEVANT
 	encode_AD_INITIAL_VERIFIED_CAS
 	encode_AD_KDCIssued
 	encode_AD_LoginAlias
 	encode_AD_MANDATORY_FOR_KDC
-	encode_AlgorithmIdentifier
-	encode_AliasIA5String
-	encode_AliasPrintableString
-	encode_AliasUTF8String
 	encode_APOptions
 	encode_AP_REP
 	encode_AP_REQ
 	encode_AS_REP
 	encode_AS_REQ
+	encode_AUTHDATA_TYPE
+	encode_AccessDescription
+	encode_AlgorithmIdentifier
+	encode_AliasIA5String
+	encode_AliasOID
+	encode_AliasPrintableString
+	encode_AliasUTF8String
 	encode_Attribute
 	encode_AttributeSet
+	encode_AttributeStatus
 	encode_AttributeType
 	encode_AttributeTypeAndValue
-	encode_AUTHDATA_TYPE
+	encode_AuthPack
+	encode_AuthPack_Win2k
 	encode_Authenticator
 	encode_AuthorityInfoAccessSyntax
 	encode_AuthorityKeyIdentifier
 	encode_AuthorizationData
 	encode_AuthorizationDataElement
-	encode_AuthPack
-	encode_AuthPack_Win2k
 	encode_BaseDistance
 	encode_BasicConstraints
-	encode_Certificate
-	encode_CertificateChoices
-	encode_CertificateList
-	encode_CertificatePolicies
-	encode_CertificateRevocationLists
-	encode_Certificates
-	encode_CertificateSerialNumber
-	encode_CertificateSet
-	encode_CertificationRequest
-	encode_CertificationRequestInfo
-	encode_CertPolicyId
-	encode_ChangePasswdDataMS
-	encode_Checksum
 	encode_CKSUMTYPE
 	encode_CMSAttributes
 	encode_CMSCBCParameter
@@ -1244,25 +1320,45 @@ EXPORTS
 	encode_CMSIdentifier
 	encode_CMSRC2CBCParameter
 	encode_CMSVersion
-	encode_CommonCriteriaMeasures
-	encode_CommunityIdentifier
-	encode_CommunityIdentifiers
-	encode_CompositePrincipal
-	encode_ContentEncryptionAlgorithmIdentifier
-	encode_ContentInfo
-	encode_ContentType
 	encode_CPSuri
 	encode_CRIAttributeSet
 	encode_CRIExtensions
 	encode_CRLCertificateList
 	encode_CRLDistributionPoints
 	encode_CRLReason
+	encode_CertPolicyId
+	encode_Certificate
+	encode_CertificateChoices
+	encode_CertificateIdentifier
+	encode_CertificateList
+	encode_CertificatePolicies
+	encode_CertificateRevocationLists
+	encode_CertificateSerialNumber
+	encode_CertificateSet
+	encode_Certificates
+	encode_CertificationRequest
+	encode_CertificationRequestInfo
+	encode_ChangePasswdDataMS
+	encode_Checksum
+	encode_CommonCriteriaMeasures
+	encode_CommunityIdentifier
+	encode_CommunityIdentifiers
+	encode_ComponentAddress
+	encode_ComponentClass
+	encode_ComponentIdentifierV2
+	encode_CompositePrincipal
+	encode_ContentEncryptionAlgorithmIdentifier
+	encode_ContentInfo
+	encode_ContentType
 	encode_CurrentFWConfig
-	encode_DecryptKeyIdentifier
 	encode_DHNonce
 	encode_DHParameter
 	encode_DHPublicKey
 	encode_DHRepInfo
+	encode_DSAParams
+	encode_DSAPublicKey
+	encode_DSASigValue
+	encode_DecryptKeyIdentifier
 	encode_DigestAlgorithmIdentifier
 	encode_DigestAlgorithmIdentifiers
 	encode_DigestError
@@ -1270,8 +1366,8 @@ EXPORTS
 	encode_DigestInit
 	encode_DigestInitReply
 	encode_DigestREP
-	encode_DigestRepInner
 	encode_DigestREQ
+	encode_DigestRepInner
 	encode_DigestReqInner
 	encode_DigestRequest
 	encode_DigestResponse
@@ -1282,71 +1378,67 @@ EXPORTS
 	encode_DistributionPointName
 	encode_DistributionPointReasonFlags
 	encode_DomainParameters
-	encode_DSAParams
-	encode_DSAPublicKey
-	encode_DSASigValue
 	encode_ECDSA_Sig_Value
 	encode_ECParameters
 	encode_ECPoint
 	encode_EKCertificateGenerationLocation
 	encode_EKGenerationLocation
 	encode_EKGenerationType
+	encode_ENCTYPE
+	encode_ETYPE_INFO
+	encode_ETYPE_INFO2
+	encode_ETYPE_INFO2_ENTRY
+	encode_ETYPE_INFO_ENTRY
 	encode_EncAPRepPart
-	encode_EncapsulatedContentInfo
 	encode_EncASRepPart
 	encode_EncKDCRepPart
 	encode_EncKrbCredPart
 	encode_EncKrbPrivPart
+	encode_EncTGSRepPart
+	encode_EncTicketPart
+	encode_EncapsulatedContentInfo
 	encode_EncryptedContent
 	encode_EncryptedContentInfo
 	encode_EncryptedData
 	encode_EncryptedKey
 	encode_EncryptionKey
-	encode_EncTGSRepPart
-	encode_EncTicketPart
-	encode_ENCTYPE
 	encode_EnvelopedData
-	encode_ETYPE_INFO
-	encode_ETYPE_INFO2
-	encode_ETYPE_INFO2_ENTRY
-	encode_ETYPE_INFO_ENTRY
 	encode_EtypeList
 	encode_EvaluationAssuranceLevel
 	encode_EvaluationStatus
+	encode_ExtKeyUsage
 	encode_Extension
 	encode_Extensions
 	encode_ExternalPrincipalIdentifier
 	encode_ExternalPrincipalIdentifiers
-	encode_ExtKeyUsage
-	encode_FastOptions
 	encode_FIPSLevel
+	encode_FWErrorVersion
+	encode_FWReceiptVersion
+	encode_FastOptions
 	encode_FirmwarePackageIdentifier
 	encode_FirmwarePackageInfo
 	encode_FirmwarePackageLoadError
 	encode_FirmwarePackageLoadErrorCode
 	encode_FirmwarePackageLoadReceipt
 	encode_FirmwarePkgData
-	encode_FWErrorVersion
-	encode_FWReceiptVersion
 	encode_GeneralName
 	encode_GeneralNames
 	encode_GeneralSubtree
 	encode_GeneralSubtrees
+	encode_HEIM_ANY
+	encode_HEIM_ANY_SET
 	encode_HardwareModuleName
 	encode_HardwareModules
 	encode_HardwareSerialEntry
-	encode_heim_any
-	encode_HEIM_ANY
-	encode_heim_any_set
-	encode_HEIM_ANY_SET
 	encode_HeimPkinitPrincMaxLifeSecs
 	encode_HostAddress
 	encode_HostAddresses
-	encode_ImplementedCompressAlgorithms
-	encode_ImplementedCryptoAlgorithms
 	encode_IOSCertificationRequest
 	encode_IOSCertificationRequestInfo
+	encode_ImplementedCompressAlgorithms
+	encode_ImplementedCryptoAlgorithms
 	encode_IssuerAndSerialNumber
+	encode_IssuerSerial
 	encode_KDCDHKeyInfo
 	encode_KDCDHKeyInfo_Win2k
 	encode_KDCFastCookie
@@ -1361,53 +1453,54 @@ EXPORTS
 	encode_KERB_AD_RESTRICTION_ENTRY
 	encode_KERB_ARMOR_SERVICE_REPLY
 	encode_KERB_CRED
-	encode_KerberosString
-	encode_KerberosTime
 	encode_KERB_TGS_REP_IN
 	encode_KERB_TGS_REP_OUT
 	encode_KERB_TGS_REQ_IN
 	encode_KERB_TGS_REQ_OUT
 	encode_KERB_TIMES
+	encode_KRB5PrincipalName
+	encode_KRB_CRED
+	encode_KRB_ERROR
+	encode_KRB_PRIV
+	encode_KRB_SAFE
+	encode_KRB_SAFE_BODY
+	encode_KX509_ERROR_CODE
+	encode_KerberosString
+	encode_KerberosTime
 	encode_KeyEncryptionAlgorithmIdentifier
 	encode_KeyIdentifier
 	encode_KeyTransRecipientInfo
 	encode_KeyUsage
 	encode_Krb5Int32
-	encode_KRB5PrincipalName
 	encode_Krb5UInt32
-	encode_KRB_CRED
 	encode_KrbCredInfo
-	encode_KRB_ERROR
 	encode_KrbFastArmor
 	encode_KrbFastArmoredRep
 	encode_KrbFastArmoredReq
 	encode_KrbFastFinished
 	encode_KrbFastReq
 	encode_KrbFastResponse
-	encode_KRB_PRIV
-	encode_KRB_SAFE
-	encode_KRB_SAFE_BODY
 	encode_Kx509CSRPlus
 	encode_Kx509ErrorCode
-	encode_KX509_ERROR_CODE
 	encode_Kx509Request
 	encode_Kx509Response
-	encode_LastReq
 	encode_LR_TYPE
-	encode_MessageDigest
+	encode_LastReq
 	encode_MESSAGE_TYPE
 	encode_METHOD_DATA
 	encode_MS_UPN_SAN
-	encode_Name
-	encode_NameConstraints
+	encode_MeasurementRootType
+	encode_MessageDigest
 	encode_NAME_TYPE
-	encode_NoticeReference
 	encode_NTLMInit
 	encode_NTLMInitReply
 	encode_NTLMReply
 	encode_NTLMRequest
 	encode_NTLMRequest2
 	encode_NTLMResponse
+	encode_Name
+	encode_NameConstraints
+	encode_NoticeReference
 	encode_NullType
 	encode_OCSPBasicOCSPResponse
 	encode_OCSPCertID
@@ -1428,8 +1521,8 @@ EXPORTS
 	encode_OriginatorInfo
 	encode_OtherName
 	encode_PAC_OPTIONS_FLAGS
-	encode_PA_DATA
 	encode_PADATA_TYPE
+	encode_PA_DATA
 	encode_PA_ENC_SAM_RESPONSE_ENC
 	encode_PA_ENC_TS_ENC
 	encode_PA_FX_FAST_REPLY
@@ -1443,7 +1536,6 @@ EXPORTS
 	encode_PA_PK_AS_REP_Win2k
 	encode_PA_PK_AS_REQ
 	encode_PA_PK_AS_REQ_Win2k
-	encode_ParamOptions
 	encode_PA_S4U2Self
 	encode_PA_S4U_X509_USER
 	encode_PA_SAM_CHALLENGE_2
@@ -1451,12 +1543,11 @@ EXPORTS
 	encode_PA_SAM_REDIRECT
 	encode_PA_SAM_RESPONSE_2
 	encode_PA_SAM_TYPE
-	encode_PA_ServerReferralData
 	encode_PA_SERVER_REFERRAL_DATA
+	encode_PA_ServerReferralData
 	encode_PA_SvrReferralData
 	encode_PBES2_params
 	encode_PBKDF2_params
-	encode_PermanentIdentifier
 	encode_PKAuthenticator
 	encode_PKAuthenticator_Win2k
 	encode_PKCS10_Version
@@ -1478,9 +1569,14 @@ EXPORTS
 	encode_PKCS8PrivateKeyInfo
 	encode_PKCS9_BMPString
 	encode_PKCS9_friendlyName
+	encode_PKIXXmppAddr
+	encode_PROV_SRV_LOCATION
+	encode_ParamOptions
+	encode_PermanentIdentifier
 	encode_PkinitSP80056AOtherInfo
 	encode_PkinitSuppPubInfo
-	encode_PKIXXmppAddr
+	encode_PlatformConfigurationV2
+	encode_PlatformPropertyV2
 	encode_PolicyConstraints
 	encode_PolicyInformation
 	encode_PolicyMapping
@@ -1493,14 +1589,17 @@ EXPORTS
 	encode_PreferredPackageIdentifier
 	encode_Principal
 	encode_PrincipalName
-	encode_PrincipalNameAttrs
 	encode_PrincipalNameAttrSrc
+	encode_PrincipalNameAttrs
 	encode_Principals
 	encode_PrivateKeyUsagePeriod
-	encode_PROV_SRV_LOCATION
 	encode_ProxyCertInfo
 	encode_ProxyPolicy
 	encode_RDNSequence
+	encode_RSAES_OAEP_params
+	encode_RSAPrivateKey
+	encode_RSAPublicKey
+	encode_RSASSA_PSS_params
 	encode_Realm
 	encode_RecipientIdentifier
 	encode_RecipientInfo
@@ -1508,12 +1607,9 @@ EXPORTS
 	encode_RelativeDistinguishedName
 	encode_ReplyKeyPack
 	encode_ReplyKeyPack_Win2k
-	encode_RSAES_OAEP_params
-	encode_RSAPrivateKey
-	encode_RSAPublicKey
-	encode_RSASSA_PSS_params
 	encode_S4UUserID
 	encode_SAMFlags
+	encode_SRVName
 	encode_SecurityLevel
 	encode_SignatureAlgorithmIdentifier
 	encode_SignatureValue
@@ -1523,35 +1619,38 @@ EXPORTS
 	encode_SignerInfos
 	encode_SingleAttribute
 	encode_SkipCerts
-	encode_SRVName
 	encode_StrengthOfFunction
 	encode_SubjectDirectoryAttributes
 	encode_SubjectInfoAccessSyntax
 	encode_SubjectKeyIdentifier
 	encode_SubjectPublicKeyInfo
 	encode_SupportedKDFs
-	encode_TargetHardwareIdentifiers
-	encode_TBSCertificate
+	encode_TBBSecurityAssertions
 	encode_TBSCRLCertList
+	encode_TBSCertificate
+	encode_TCGCredentialType
+	encode_TCGPlatformSpecification
+	encode_TCGSpecificationVersion
 	encode_TD_DH_PARAMETERS
 	encode_TD_INVALID_CERTIFICATES
 	encode_TD_TRUSTED_CERTIFIERS
 	encode_TGS_REP
 	encode_TGS_REQ
-	encode_Ticket
-	encode_TicketFlags
-	encode_Time
 	encode_TPMSecurityAssertions
 	encode_TPMSpecification
 	encode_TPMVersion
+	encode_TYPED_DATA
+	encode_TargetHardwareIdentifiers
+	encode_Ticket
+	encode_TicketFlags
+	encode_Time
 	encode_TransitedEncoding
 	encode_TrustedCA
 	encode_TrustedCA_Win2k
 	encode_TypedData
-	encode_TYPED_DATA
+	encode_URIReference
 	encode_UniqueIdentifier
 	encode_UnprotectedAttributes
-	encode_URIReference
 	encode_UserNotice
 	encode_ValidationParms
 	encode_Validity
@@ -1560,54 +1659,44 @@ EXPORTS
 	encode_WrappedFirmwareKey
 	encode_X520CommonName
 	encode_X520LocalityName
-	encode_X520name
-	encode_X520OrganizationalUnitName
 	encode_X520OrganizationName
+	encode_X520OrganizationalUnitName
 	encode_X520StateOrProvinceName
-	FastOptions2int
-	free_AccessDescription
+	encode_X520name
+	encode_heim_any
+	encode_heim_any_set
 	free_AD_AND_OR
 	free_AD_IF_RELEVANT
 	free_AD_INITIAL_VERIFIED_CAS
 	free_AD_KDCIssued
 	free_AD_LoginAlias
 	free_AD_MANDATORY_FOR_KDC
-	free_AlgorithmIdentifier
-	free_AliasIA5String
-	free_AliasPrintableString
-	free_AliasUTF8String
 	free_APOptions
 	free_AP_REP
 	free_AP_REQ
 	free_AS_REP
 	free_AS_REQ
+	free_AUTHDATA_TYPE
+	free_AccessDescription
+	free_AlgorithmIdentifier
+	free_AliasIA5String
+	free_AliasOID
+	free_AliasPrintableString
+	free_AliasUTF8String
 	free_Attribute
 	free_AttributeSet
+	free_AttributeStatus
 	free_AttributeType
 	free_AttributeTypeAndValue
-	free_AUTHDATA_TYPE
+	free_AuthPack
+	free_AuthPack_Win2k
 	free_Authenticator
 	free_AuthorityInfoAccessSyntax
 	free_AuthorityKeyIdentifier
 	free_AuthorizationData
 	free_AuthorizationDataElement
-	free_AuthPack
-	free_AuthPack_Win2k
 	free_BaseDistance
 	free_BasicConstraints
-	free_Certificate
-	free_CertificateChoices
-	free_CertificateList
-	free_CertificatePolicies
-	free_CertificateRevocationLists
-	free_Certificates
-	free_CertificateSerialNumber
-	free_CertificateSet
-	free_CertificationRequest
-	free_CertificationRequestInfo
-	free_CertPolicyId
-	free_ChangePasswdDataMS
-	free_Checksum
 	free_CKSUMTYPE
 	free_CMSAttributes
 	free_CMSCBCParameter
@@ -1615,25 +1704,45 @@ EXPORTS
 	free_CMSIdentifier
 	free_CMSRC2CBCParameter
 	free_CMSVersion
-	free_CommonCriteriaMeasures
-	free_CommunityIdentifier
-	free_CommunityIdentifiers
-	free_CompositePrincipal
-	free_ContentEncryptionAlgorithmIdentifier
-	free_ContentInfo
-	free_ContentType
 	free_CPSuri
 	free_CRIAttributeSet
 	free_CRIExtensions
 	free_CRLCertificateList
 	free_CRLDistributionPoints
 	free_CRLReason
+	free_CertPolicyId
+	free_Certificate
+	free_CertificateChoices
+	free_CertificateIdentifier
+	free_CertificateList
+	free_CertificatePolicies
+	free_CertificateRevocationLists
+	free_CertificateSerialNumber
+	free_CertificateSet
+	free_Certificates
+	free_CertificationRequest
+	free_CertificationRequestInfo
+	free_ChangePasswdDataMS
+	free_Checksum
+	free_CommonCriteriaMeasures
+	free_CommunityIdentifier
+	free_CommunityIdentifiers
+	free_ComponentAddress
+	free_ComponentClass
+	free_ComponentIdentifierV2
+	free_CompositePrincipal
+	free_ContentEncryptionAlgorithmIdentifier
+	free_ContentInfo
+	free_ContentType
 	free_CurrentFWConfig
-	free_DecryptKeyIdentifier
 	free_DHNonce
 	free_DHParameter
 	free_DHPublicKey
 	free_DHRepInfo
+	free_DSAParams
+	free_DSAPublicKey
+	free_DSASigValue
+	free_DecryptKeyIdentifier
 	free_DigestAlgorithmIdentifier
 	free_DigestAlgorithmIdentifiers
 	free_DigestError
@@ -1641,8 +1750,8 @@ EXPORTS
 	free_DigestInit
 	free_DigestInitReply
 	free_DigestREP
-	free_DigestRepInner
 	free_DigestREQ
+	free_DigestRepInner
 	free_DigestReqInner
 	free_DigestRequest
 	free_DigestResponse
@@ -1653,71 +1762,67 @@ EXPORTS
 	free_DistributionPointName
 	free_DistributionPointReasonFlags
 	free_DomainParameters
-	free_DSAParams
-	free_DSAPublicKey
-	free_DSASigValue
 	free_ECDSA_Sig_Value
 	free_ECParameters
 	free_ECPoint
 	free_EKCertificateGenerationLocation
 	free_EKGenerationLocation
 	free_EKGenerationType
+	free_ENCTYPE
+	free_ETYPE_INFO
+	free_ETYPE_INFO2
+	free_ETYPE_INFO2_ENTRY
+	free_ETYPE_INFO_ENTRY
 	free_EncAPRepPart
-	free_EncapsulatedContentInfo
 	free_EncASRepPart
 	free_EncKDCRepPart
 	free_EncKrbCredPart
 	free_EncKrbPrivPart
+	free_EncTGSRepPart
+	free_EncTicketPart
+	free_EncapsulatedContentInfo
 	free_EncryptedContent
 	free_EncryptedContentInfo
 	free_EncryptedData
 	free_EncryptedKey
 	free_EncryptionKey
-	free_EncTGSRepPart
-	free_EncTicketPart
-	free_ENCTYPE
 	free_EnvelopedData
-	free_ETYPE_INFO
-	free_ETYPE_INFO2
-	free_ETYPE_INFO2_ENTRY
-	free_ETYPE_INFO_ENTRY
 	free_EtypeList
 	free_EvaluationAssuranceLevel
 	free_EvaluationStatus
+	free_ExtKeyUsage
 	free_Extension
 	free_Extensions
 	free_ExternalPrincipalIdentifier
 	free_ExternalPrincipalIdentifiers
-	free_ExtKeyUsage
-	free_FastOptions
 	free_FIPSLevel
+	free_FWErrorVersion
+	free_FWReceiptVersion
+	free_FastOptions
 	free_FirmwarePackageIdentifier
 	free_FirmwarePackageInfo
 	free_FirmwarePackageLoadError
 	free_FirmwarePackageLoadErrorCode
 	free_FirmwarePackageLoadReceipt
 	free_FirmwarePkgData
-	free_FWErrorVersion
-	free_FWReceiptVersion
 	free_GeneralName
 	free_GeneralNames
 	free_GeneralSubtree
 	free_GeneralSubtrees
+	free_HEIM_ANY
+	free_HEIM_ANY_SET
 	free_HardwareModuleName
 	free_HardwareModules
 	free_HardwareSerialEntry
-	free_heim_any
-	free_HEIM_ANY
-	free_heim_any_set
-	free_HEIM_ANY_SET
 	free_HeimPkinitPrincMaxLifeSecs
 	free_HostAddress
 	free_HostAddresses
-	free_ImplementedCompressAlgorithms
-	free_ImplementedCryptoAlgorithms
 	free_IOSCertificationRequest
 	free_IOSCertificationRequestInfo
+	free_ImplementedCompressAlgorithms
+	free_ImplementedCryptoAlgorithms
 	free_IssuerAndSerialNumber
+	free_IssuerSerial
 	free_KDCDHKeyInfo
 	free_KDCDHKeyInfo_Win2k
 	free_KDCFastCookie
@@ -1732,53 +1837,54 @@ EXPORTS
 	free_KERB_AD_RESTRICTION_ENTRY
 	free_KERB_ARMOR_SERVICE_REPLY
 	free_KERB_CRED
-	free_KerberosString
-	free_KerberosTime
 	free_KERB_TGS_REP_IN
 	free_KERB_TGS_REP_OUT
 	free_KERB_TGS_REQ_IN
 	free_KERB_TGS_REQ_OUT
 	free_KERB_TIMES
+	free_KRB5PrincipalName
+	free_KRB_CRED
+	free_KRB_ERROR
+	free_KRB_PRIV
+	free_KRB_SAFE
+	free_KRB_SAFE_BODY
+	free_KX509_ERROR_CODE
+	free_KerberosString
+	free_KerberosTime
 	free_KeyEncryptionAlgorithmIdentifier
 	free_KeyIdentifier
 	free_KeyTransRecipientInfo
 	free_KeyUsage
 	free_Krb5Int32
-	free_KRB5PrincipalName
 	free_Krb5UInt32
-	free_KRB_CRED
 	free_KrbCredInfo
-	free_KRB_ERROR
 	free_KrbFastArmor
 	free_KrbFastArmoredRep
 	free_KrbFastArmoredReq
 	free_KrbFastFinished
 	free_KrbFastReq
 	free_KrbFastResponse
-	free_KRB_PRIV
-	free_KRB_SAFE
-	free_KRB_SAFE_BODY
 	free_Kx509CSRPlus
 	free_Kx509ErrorCode
-	free_KX509_ERROR_CODE
 	free_Kx509Request
 	free_Kx509Response
-	free_LastReq
 	free_LR_TYPE
-	free_MessageDigest
+	free_LastReq
 	free_MESSAGE_TYPE
 	free_METHOD_DATA
 	free_MS_UPN_SAN
-	free_Name
-	free_NameConstraints
+	free_MeasurementRootType
+	free_MessageDigest
 	free_NAME_TYPE
-	free_NoticeReference
 	free_NTLMInit
 	free_NTLMInitReply
 	free_NTLMReply
 	free_NTLMRequest
 	free_NTLMRequest2
 	free_NTLMResponse
+	free_Name
+	free_NameConstraints
+	free_NoticeReference
 	free_NullType
 	free_OCSPBasicOCSPResponse
 	free_OCSPCertID
@@ -1799,8 +1905,8 @@ EXPORTS
 	free_OriginatorInfo
 	free_OtherName
 	free_PAC_OPTIONS_FLAGS
-	free_PA_DATA
 	free_PADATA_TYPE
+	free_PA_DATA
 	free_PA_ENC_SAM_RESPONSE_ENC
 	free_PA_ENC_TS_ENC
 	free_PA_FX_FAST_REPLY
@@ -1814,7 +1920,6 @@ EXPORTS
 	free_PA_PK_AS_REP_Win2k
 	free_PA_PK_AS_REQ
 	free_PA_PK_AS_REQ_Win2k
-	free_ParamOptions
 	free_PA_S4U2Self
 	free_PA_S4U_X509_USER
 	free_PA_SAM_CHALLENGE_2
@@ -1822,12 +1927,11 @@ EXPORTS
 	free_PA_SAM_REDIRECT
 	free_PA_SAM_RESPONSE_2
 	free_PA_SAM_TYPE
-	free_PA_ServerReferralData
 	free_PA_SERVER_REFERRAL_DATA
+	free_PA_ServerReferralData
 	free_PA_SvrReferralData
 	free_PBES2_params
 	free_PBKDF2_params
-	free_PermanentIdentifier
 	free_PKAuthenticator
 	free_PKAuthenticator_Win2k
 	free_PKCS10_Version
@@ -1849,9 +1953,14 @@ EXPORTS
 	free_PKCS8PrivateKeyInfo
 	free_PKCS9_BMPString
 	free_PKCS9_friendlyName
+	free_PKIXXmppAddr
+	free_PROV_SRV_LOCATION
+	free_ParamOptions
+	free_PermanentIdentifier
 	free_PkinitSP80056AOtherInfo
 	free_PkinitSuppPubInfo
-	free_PKIXXmppAddr
+	free_PlatformConfigurationV2
+	free_PlatformPropertyV2
 	free_PolicyConstraints
 	free_PolicyInformation
 	free_PolicyMapping
@@ -1864,14 +1973,17 @@ EXPORTS
 	free_PreferredPackageIdentifier
 	free_Principal
 	free_PrincipalName
-	free_PrincipalNameAttrs
 	free_PrincipalNameAttrSrc
+	free_PrincipalNameAttrs
 	free_Principals
 	free_PrivateKeyUsagePeriod
-	free_PROV_SRV_LOCATION
 	free_ProxyCertInfo
 	free_ProxyPolicy
 	free_RDNSequence
+	free_RSAES_OAEP_params
+	free_RSAPrivateKey
+	free_RSAPublicKey
+	free_RSASSA_PSS_params
 	free_Realm
 	free_RecipientIdentifier
 	free_RecipientInfo
@@ -1879,12 +1991,9 @@ EXPORTS
 	free_RelativeDistinguishedName
 	free_ReplyKeyPack
 	free_ReplyKeyPack_Win2k
-	free_RSAES_OAEP_params
-	free_RSAPrivateKey
-	free_RSAPublicKey
-	free_RSASSA_PSS_params
 	free_S4UUserID
 	free_SAMFlags
+	free_SRVName
 	free_SecurityLevel
 	free_SignatureAlgorithmIdentifier
 	free_SignatureValue
@@ -1894,35 +2003,38 @@ EXPORTS
 	free_SignerInfos
 	free_SingleAttribute
 	free_SkipCerts
-	free_SRVName
 	free_StrengthOfFunction
 	free_SubjectDirectoryAttributes
 	free_SubjectInfoAccessSyntax
 	free_SubjectKeyIdentifier
 	free_SubjectPublicKeyInfo
 	free_SupportedKDFs
-	free_TargetHardwareIdentifiers
-	free_TBSCertificate
+	free_TBBSecurityAssertions
 	free_TBSCRLCertList
+	free_TBSCertificate
+	free_TCGCredentialType
+	free_TCGPlatformSpecification
+	free_TCGSpecificationVersion
 	free_TD_DH_PARAMETERS
 	free_TD_INVALID_CERTIFICATES
 	free_TD_TRUSTED_CERTIFIERS
 	free_TGS_REP
 	free_TGS_REQ
-	free_Ticket
-	free_TicketFlags
-	free_Time
 	free_TPMSecurityAssertions
 	free_TPMSpecification
 	free_TPMVersion
+	free_TYPED_DATA
+	free_TargetHardwareIdentifiers
+	free_Ticket
+	free_TicketFlags
+	free_Time
 	free_TransitedEncoding
 	free_TrustedCA
 	free_TrustedCA_Win2k
 	free_TypedData
-	free_TYPED_DATA
+	free_URIReference
 	free_UniqueIdentifier
 	free_UnprotectedAttributes
-	free_URIReference
 	free_UserNotice
 	free_ValidationParms
 	free_Validity
@@ -1931,19 +2043,13 @@ EXPORTS
 	free_WrappedFirmwareKey
 	free_X520CommonName
 	free_X520LocalityName
-	free_X520name
-	free_X520OrganizationalUnitName
 	free_X520OrganizationName
+	free_X520OrganizationalUnitName
 	free_X520StateOrProvinceName
+	free_X520name
+	free_heim_any
+	free_heim_any_set
 	heim_any_cmp
-	HEIM_ANY_cmp
-	_heim_der_set_sort
-	_heim_fix_dce
-	_heim_len_int
-	_heim_len_int64
-	_heim_len_unsigned
-	_heim_len_unsigned64
-	_heim_time2generalizedtime
 	initialize_asn1_error_table
 	initialize_asn1_error_table_r
 	int2APOptions
@@ -1956,52 +2062,38 @@ EXPORTS
 	int2PAC_OPTIONS_FLAGS
 	int2SAMFlags
 	int2TicketFlags
-	KDCFastFlags2int
-	KDCOptions2int
-	KeyUsage2int
-	length_AccessDescription
 	length_AD_AND_OR
 	length_AD_IF_RELEVANT
 	length_AD_INITIAL_VERIFIED_CAS
 	length_AD_KDCIssued
 	length_AD_LoginAlias
 	length_AD_MANDATORY_FOR_KDC
-	length_AlgorithmIdentifier
-	length_AliasIA5String
-	length_AliasPrintableString
-	length_AliasUTF8String
 	length_APOptions
 	length_AP_REP
 	length_AP_REQ
 	length_AS_REP
 	length_AS_REQ
+	length_AUTHDATA_TYPE
+	length_AccessDescription
+	length_AlgorithmIdentifier
+	length_AliasIA5String
+	length_AliasOID
+	length_AliasPrintableString
+	length_AliasUTF8String
 	length_Attribute
 	length_AttributeSet
+	length_AttributeStatus
 	length_AttributeType
 	length_AttributeTypeAndValue
-	length_AUTHDATA_TYPE
+	length_AuthPack
+	length_AuthPack_Win2k
 	length_Authenticator
 	length_AuthorityInfoAccessSyntax
 	length_AuthorityKeyIdentifier
 	length_AuthorizationData
 	length_AuthorizationDataElement
-	length_AuthPack
-	length_AuthPack_Win2k
 	length_BaseDistance
 	length_BasicConstraints
-	length_Certificate
-	length_CertificateChoices
-	length_CertificateList
-	length_CertificatePolicies
-	length_CertificateRevocationLists
-	length_Certificates
-	length_CertificateSerialNumber
-	length_CertificateSet
-	length_CertificationRequest
-	length_CertificationRequestInfo
-	length_CertPolicyId
-	length_ChangePasswdDataMS
-	length_Checksum
 	length_CKSUMTYPE
 	length_CMSAttributes
 	length_CMSCBCParameter
@@ -2009,25 +2101,45 @@ EXPORTS
 	length_CMSIdentifier
 	length_CMSRC2CBCParameter
 	length_CMSVersion
-	length_CommonCriteriaMeasures
-	length_CommunityIdentifier
-	length_CommunityIdentifiers
-	length_CompositePrincipal
-	length_ContentEncryptionAlgorithmIdentifier
-	length_ContentInfo
-	length_ContentType
 	length_CPSuri
 	length_CRIAttributeSet
 	length_CRIExtensions
 	length_CRLCertificateList
 	length_CRLDistributionPoints
 	length_CRLReason
+	length_CertPolicyId
+	length_Certificate
+	length_CertificateChoices
+	length_CertificateIdentifier
+	length_CertificateList
+	length_CertificatePolicies
+	length_CertificateRevocationLists
+	length_CertificateSerialNumber
+	length_CertificateSet
+	length_Certificates
+	length_CertificationRequest
+	length_CertificationRequestInfo
+	length_ChangePasswdDataMS
+	length_Checksum
+	length_CommonCriteriaMeasures
+	length_CommunityIdentifier
+	length_CommunityIdentifiers
+	length_ComponentAddress
+	length_ComponentClass
+	length_ComponentIdentifierV2
+	length_CompositePrincipal
+	length_ContentEncryptionAlgorithmIdentifier
+	length_ContentInfo
+	length_ContentType
 	length_CurrentFWConfig
-	length_DecryptKeyIdentifier
 	length_DHNonce
 	length_DHParameter
 	length_DHPublicKey
 	length_DHRepInfo
+	length_DSAParams
+	length_DSAPublicKey
+	length_DSASigValue
+	length_DecryptKeyIdentifier
 	length_DigestAlgorithmIdentifier
 	length_DigestAlgorithmIdentifiers
 	length_DigestError
@@ -2035,8 +2147,8 @@ EXPORTS
 	length_DigestInit
 	length_DigestInitReply
 	length_DigestREP
-	length_DigestRepInner
 	length_DigestREQ
+	length_DigestRepInner
 	length_DigestReqInner
 	length_DigestRequest
 	length_DigestResponse
@@ -2047,71 +2159,67 @@ EXPORTS
 	length_DistributionPointName
 	length_DistributionPointReasonFlags
 	length_DomainParameters
-	length_DSAParams
-	length_DSAPublicKey
-	length_DSASigValue
 	length_ECDSA_Sig_Value
 	length_ECParameters
 	length_ECPoint
 	length_EKCertificateGenerationLocation
 	length_EKGenerationLocation
 	length_EKGenerationType
+	length_ENCTYPE
+	length_ETYPE_INFO
+	length_ETYPE_INFO2
+	length_ETYPE_INFO2_ENTRY
+	length_ETYPE_INFO_ENTRY
 	length_EncAPRepPart
-	length_EncapsulatedContentInfo
 	length_EncASRepPart
 	length_EncKDCRepPart
 	length_EncKrbCredPart
 	length_EncKrbPrivPart
+	length_EncTGSRepPart
+	length_EncTicketPart
+	length_EncapsulatedContentInfo
 	length_EncryptedContent
 	length_EncryptedContentInfo
 	length_EncryptedData
 	length_EncryptedKey
 	length_EncryptionKey
-	length_EncTGSRepPart
-	length_EncTicketPart
-	length_ENCTYPE
 	length_EnvelopedData
-	length_ETYPE_INFO
-	length_ETYPE_INFO2
-	length_ETYPE_INFO2_ENTRY
-	length_ETYPE_INFO_ENTRY
 	length_EtypeList
 	length_EvaluationAssuranceLevel
 	length_EvaluationStatus
+	length_ExtKeyUsage
 	length_Extension
 	length_Extensions
 	length_ExternalPrincipalIdentifier
 	length_ExternalPrincipalIdentifiers
-	length_ExtKeyUsage
-	length_FastOptions
 	length_FIPSLevel
+	length_FWErrorVersion
+	length_FWReceiptVersion
+	length_FastOptions
 	length_FirmwarePackageIdentifier
 	length_FirmwarePackageInfo
 	length_FirmwarePackageLoadError
 	length_FirmwarePackageLoadErrorCode
 	length_FirmwarePackageLoadReceipt
 	length_FirmwarePkgData
-	length_FWErrorVersion
-	length_FWReceiptVersion
 	length_GeneralName
 	length_GeneralNames
 	length_GeneralSubtree
 	length_GeneralSubtrees
+	length_HEIM_ANY
+	length_HEIM_ANY_SET
 	length_HardwareModuleName
 	length_HardwareModules
 	length_HardwareSerialEntry
-	length_heim_any
-	length_HEIM_ANY
-	length_heim_any_set
-	length_HEIM_ANY_SET
 	length_HeimPkinitPrincMaxLifeSecs
 	length_HostAddress
 	length_HostAddresses
-	length_ImplementedCompressAlgorithms
-	length_ImplementedCryptoAlgorithms
 	length_IOSCertificationRequest
 	length_IOSCertificationRequestInfo
+	length_ImplementedCompressAlgorithms
+	length_ImplementedCryptoAlgorithms
 	length_IssuerAndSerialNumber
+	length_IssuerSerial
 	length_KDCDHKeyInfo
 	length_KDCDHKeyInfo_Win2k
 	length_KDCFastCookie
@@ -2126,53 +2234,54 @@ EXPORTS
 	length_KERB_AD_RESTRICTION_ENTRY
 	length_KERB_ARMOR_SERVICE_REPLY
 	length_KERB_CRED
-	length_KerberosString
-	length_KerberosTime
 	length_KERB_TGS_REP_IN
 	length_KERB_TGS_REP_OUT
 	length_KERB_TGS_REQ_IN
 	length_KERB_TGS_REQ_OUT
 	length_KERB_TIMES
+	length_KRB5PrincipalName
+	length_KRB_CRED
+	length_KRB_ERROR
+	length_KRB_PRIV
+	length_KRB_SAFE
+	length_KRB_SAFE_BODY
+	length_KX509_ERROR_CODE
+	length_KerberosString
+	length_KerberosTime
 	length_KeyEncryptionAlgorithmIdentifier
 	length_KeyIdentifier
 	length_KeyTransRecipientInfo
 	length_KeyUsage
 	length_Krb5Int32
-	length_KRB5PrincipalName
 	length_Krb5UInt32
-	length_KRB_CRED
 	length_KrbCredInfo
-	length_KRB_ERROR
 	length_KrbFastArmor
 	length_KrbFastArmoredRep
 	length_KrbFastArmoredReq
 	length_KrbFastFinished
 	length_KrbFastReq
 	length_KrbFastResponse
-	length_KRB_PRIV
-	length_KRB_SAFE
-	length_KRB_SAFE_BODY
 	length_Kx509CSRPlus
 	length_Kx509ErrorCode
-	length_KX509_ERROR_CODE
 	length_Kx509Request
 	length_Kx509Response
-	length_LastReq
 	length_LR_TYPE
-	length_MessageDigest
+	length_LastReq
 	length_MESSAGE_TYPE
 	length_METHOD_DATA
 	length_MS_UPN_SAN
-	length_Name
-	length_NameConstraints
+	length_MeasurementRootType
+	length_MessageDigest
 	length_NAME_TYPE
-	length_NoticeReference
 	length_NTLMInit
 	length_NTLMInitReply
 	length_NTLMReply
 	length_NTLMRequest
 	length_NTLMRequest2
 	length_NTLMResponse
+	length_Name
+	length_NameConstraints
+	length_NoticeReference
 	length_NullType
 	length_OCSPBasicOCSPResponse
 	length_OCSPCertID
@@ -2193,8 +2302,8 @@ EXPORTS
 	length_OriginatorInfo
 	length_OtherName
 	length_PAC_OPTIONS_FLAGS
-	length_PA_DATA
 	length_PADATA_TYPE
+	length_PA_DATA
 	length_PA_ENC_SAM_RESPONSE_ENC
 	length_PA_ENC_TS_ENC
 	length_PA_FX_FAST_REPLY
@@ -2208,7 +2317,6 @@ EXPORTS
 	length_PA_PK_AS_REP_Win2k
 	length_PA_PK_AS_REQ
 	length_PA_PK_AS_REQ_Win2k
-	length_ParamOptions
 	length_PA_S4U2Self
 	length_PA_S4U_X509_USER
 	length_PA_SAM_CHALLENGE_2
@@ -2216,12 +2324,11 @@ EXPORTS
 	length_PA_SAM_REDIRECT
 	length_PA_SAM_RESPONSE_2
 	length_PA_SAM_TYPE
-	length_PA_ServerReferralData
 	length_PA_SERVER_REFERRAL_DATA
+	length_PA_ServerReferralData
 	length_PA_SvrReferralData
 	length_PBES2_params
 	length_PBKDF2_params
-	length_PermanentIdentifier
 	length_PKAuthenticator
 	length_PKAuthenticator_Win2k
 	length_PKCS10_Version
@@ -2243,9 +2350,14 @@ EXPORTS
 	length_PKCS8PrivateKeyInfo
 	length_PKCS9_BMPString
 	length_PKCS9_friendlyName
+	length_PKIXXmppAddr
+	length_PROV_SRV_LOCATION
+	length_ParamOptions
+	length_PermanentIdentifier
 	length_PkinitSP80056AOtherInfo
 	length_PkinitSuppPubInfo
-	length_PKIXXmppAddr
+	length_PlatformConfigurationV2
+	length_PlatformPropertyV2
 	length_PolicyConstraints
 	length_PolicyInformation
 	length_PolicyMapping
@@ -2258,14 +2370,17 @@ EXPORTS
 	length_PreferredPackageIdentifier
 	length_Principal
 	length_PrincipalName
-	length_PrincipalNameAttrs
 	length_PrincipalNameAttrSrc
+	length_PrincipalNameAttrs
 	length_Principals
 	length_PrivateKeyUsagePeriod
-	length_PROV_SRV_LOCATION
 	length_ProxyCertInfo
 	length_ProxyPolicy
 	length_RDNSequence
+	length_RSAES_OAEP_params
+	length_RSAPrivateKey
+	length_RSAPublicKey
+	length_RSASSA_PSS_params
 	length_Realm
 	length_RecipientIdentifier
 	length_RecipientInfo
@@ -2273,12 +2388,9 @@ EXPORTS
 	length_RelativeDistinguishedName
 	length_ReplyKeyPack
 	length_ReplyKeyPack_Win2k
-	length_RSAES_OAEP_params
-	length_RSAPrivateKey
-	length_RSAPublicKey
-	length_RSASSA_PSS_params
 	length_S4UUserID
 	length_SAMFlags
+	length_SRVName
 	length_SecurityLevel
 	length_SignatureAlgorithmIdentifier
 	length_SignatureValue
@@ -2288,35 +2400,38 @@ EXPORTS
 	length_SignerInfos
 	length_SingleAttribute
 	length_SkipCerts
-	length_SRVName
 	length_StrengthOfFunction
 	length_SubjectDirectoryAttributes
 	length_SubjectInfoAccessSyntax
 	length_SubjectKeyIdentifier
 	length_SubjectPublicKeyInfo
 	length_SupportedKDFs
-	length_TargetHardwareIdentifiers
-	length_TBSCertificate
+	length_TBBSecurityAssertions
 	length_TBSCRLCertList
+	length_TBSCertificate
+	length_TCGCredentialType
+	length_TCGPlatformSpecification
+	length_TCGSpecificationVersion
 	length_TD_DH_PARAMETERS
 	length_TD_INVALID_CERTIFICATES
 	length_TD_TRUSTED_CERTIFIERS
 	length_TGS_REP
 	length_TGS_REQ
-	length_Ticket
-	length_TicketFlags
-	length_Time
 	length_TPMSecurityAssertions
 	length_TPMSpecification
 	length_TPMVersion
+	length_TYPED_DATA
+	length_TargetHardwareIdentifiers
+	length_Ticket
+	length_TicketFlags
+	length_Time
 	length_TransitedEncoding
 	length_TrustedCA
 	length_TrustedCA_Win2k
 	length_TypedData
-	length_TYPED_DATA
+	length_URIReference
 	length_UniqueIdentifier
 	length_UnprotectedAttributes
-	length_URIReference
 	length_UserNotice
 	length_ValidationParms
 	length_Validity
@@ -2325,54 +2440,44 @@ EXPORTS
 	length_WrappedFirmwareKey
 	length_X520CommonName
 	length_X520LocalityName
-	length_X520name
-	length_X520OrganizationalUnitName
 	length_X520OrganizationName
+	length_X520OrganizationalUnitName
 	length_X520StateOrProvinceName
-	PAC_OPTIONS_FLAGS2int
-	print_AccessDescription
+	length_X520name
+	length_heim_any
+	length_heim_any_set
 	print_AD_AND_OR
 	print_AD_IF_RELEVANT
 	print_AD_INITIAL_VERIFIED_CAS
 	print_AD_KDCIssued
 	print_AD_LoginAlias
 	print_AD_MANDATORY_FOR_KDC
-	print_AlgorithmIdentifier
-	print_AliasIA5String
-	print_AliasPrintableString
-	print_AliasUTF8String
 	print_APOptions
 	print_AP_REP
 	print_AP_REQ
 	print_AS_REP
 	print_AS_REQ
+	print_AUTHDATA_TYPE
+	print_AccessDescription
+	print_AlgorithmIdentifier
+	print_AliasIA5String
+	print_AliasOID
+	print_AliasPrintableString
+	print_AliasUTF8String
 	print_Attribute
 	print_AttributeSet
+	print_AttributeStatus
 	print_AttributeType
 	print_AttributeTypeAndValue
-	print_AUTHDATA_TYPE
+	print_AuthPack
+	print_AuthPack_Win2k
 	print_Authenticator
 	print_AuthorityInfoAccessSyntax
 	print_AuthorityKeyIdentifier
 	print_AuthorizationData
 	print_AuthorizationDataElement
-	print_AuthPack
-	print_AuthPack_Win2k
 	print_BaseDistance
 	print_BasicConstraints
-	print_Certificate
-	print_CertificateChoices
-	print_CertificateList
-	print_CertificatePolicies
-	print_CertificateRevocationLists
-	print_Certificates
-	print_CertificateSerialNumber
-	print_CertificateSet
-	print_CertificationRequest
-	print_CertificationRequestInfo
-	print_CertPolicyId
-	print_ChangePasswdDataMS
-	print_Checksum
 	print_CKSUMTYPE
 	print_CMSAttributes
 	print_CMSCBCParameter
@@ -2380,25 +2485,45 @@ EXPORTS
 	print_CMSIdentifier
 	print_CMSRC2CBCParameter
 	print_CMSVersion
-	print_CommonCriteriaMeasures
-	print_CommunityIdentifier
-	print_CommunityIdentifiers
-	print_CompositePrincipal
-	print_ContentEncryptionAlgorithmIdentifier
-	print_ContentInfo
-	print_ContentType
 	print_CPSuri
 	print_CRIAttributeSet
 	print_CRIExtensions
 	print_CRLCertificateList
 	print_CRLDistributionPoints
 	print_CRLReason
+	print_CertPolicyId
+	print_Certificate
+	print_CertificateChoices
+	print_CertificateIdentifier
+	print_CertificateList
+	print_CertificatePolicies
+	print_CertificateRevocationLists
+	print_CertificateSerialNumber
+	print_CertificateSet
+	print_Certificates
+	print_CertificationRequest
+	print_CertificationRequestInfo
+	print_ChangePasswdDataMS
+	print_Checksum
+	print_CommonCriteriaMeasures
+	print_CommunityIdentifier
+	print_CommunityIdentifiers
+	print_ComponentAddress
+	print_ComponentClass
+	print_ComponentIdentifierV2
+	print_CompositePrincipal
+	print_ContentEncryptionAlgorithmIdentifier
+	print_ContentInfo
+	print_ContentType
 	print_CurrentFWConfig
-	print_DecryptKeyIdentifier
 	print_DHNonce
 	print_DHParameter
 	print_DHPublicKey
 	print_DHRepInfo
+	print_DSAParams
+	print_DSAPublicKey
+	print_DSASigValue
+	print_DecryptKeyIdentifier
 	print_DigestAlgorithmIdentifier
 	print_DigestAlgorithmIdentifiers
 	print_DigestError
@@ -2406,8 +2531,8 @@ EXPORTS
 	print_DigestInit
 	print_DigestInitReply
 	print_DigestREP
-	print_DigestRepInner
 	print_DigestREQ
+	print_DigestRepInner
 	print_DigestReqInner
 	print_DigestRequest
 	print_DigestResponse
@@ -2418,71 +2543,67 @@ EXPORTS
 	print_DistributionPointName
 	print_DistributionPointReasonFlags
 	print_DomainParameters
-	print_DSAParams
-	print_DSAPublicKey
-	print_DSASigValue
 	print_ECDSA_Sig_Value
 	print_ECParameters
 	print_ECPoint
 	print_EKCertificateGenerationLocation
 	print_EKGenerationLocation
 	print_EKGenerationType
+	print_ENCTYPE
+	print_ETYPE_INFO
+	print_ETYPE_INFO2
+	print_ETYPE_INFO2_ENTRY
+	print_ETYPE_INFO_ENTRY
 	print_EncAPRepPart
-	print_EncapsulatedContentInfo
 	print_EncASRepPart
 	print_EncKDCRepPart
 	print_EncKrbCredPart
 	print_EncKrbPrivPart
+	print_EncTGSRepPart
+	print_EncTicketPart
+	print_EncapsulatedContentInfo
 	print_EncryptedContent
 	print_EncryptedContentInfo
 	print_EncryptedData
 	print_EncryptedKey
 	print_EncryptionKey
-	print_EncTGSRepPart
-	print_EncTicketPart
-	print_ENCTYPE
 	print_EnvelopedData
-	print_ETYPE_INFO
-	print_ETYPE_INFO2
-	print_ETYPE_INFO2_ENTRY
-	print_ETYPE_INFO_ENTRY
 	print_EtypeList
 	print_EvaluationAssuranceLevel
 	print_EvaluationStatus
+	print_ExtKeyUsage
 	print_Extension
 	print_Extensions
 	print_ExternalPrincipalIdentifier
 	print_ExternalPrincipalIdentifiers
-	print_ExtKeyUsage
-	print_FastOptions
 	print_FIPSLevel
+	print_FWErrorVersion
+	print_FWReceiptVersion
+	print_FastOptions
 	print_FirmwarePackageIdentifier
 	print_FirmwarePackageInfo
 	print_FirmwarePackageLoadError
 	print_FirmwarePackageLoadErrorCode
 	print_FirmwarePackageLoadReceipt
 	print_FirmwarePkgData
-	print_FWErrorVersion
-	print_FWReceiptVersion
 	print_GeneralName
 	print_GeneralNames
 	print_GeneralSubtree
 	print_GeneralSubtrees
+	print_HEIM_ANY
+	print_HEIM_ANY_SET
 	print_HardwareModuleName
 	print_HardwareModules
 	print_HardwareSerialEntry
-	print_heim_any
-	print_HEIM_ANY
-	print_heim_any_set
-	print_HEIM_ANY_SET
 	print_HeimPkinitPrincMaxLifeSecs
 	print_HostAddress
 	print_HostAddresses
-	print_ImplementedCompressAlgorithms
-	print_ImplementedCryptoAlgorithms
 	print_IOSCertificationRequest
 	print_IOSCertificationRequestInfo
+	print_ImplementedCompressAlgorithms
+	print_ImplementedCryptoAlgorithms
 	print_IssuerAndSerialNumber
+	print_IssuerSerial
 	print_KDCDHKeyInfo
 	print_KDCDHKeyInfo_Win2k
 	print_KDCFastCookie
@@ -2497,53 +2618,54 @@ EXPORTS
 	print_KERB_AD_RESTRICTION_ENTRY
 	print_KERB_ARMOR_SERVICE_REPLY
 	print_KERB_CRED
-	print_KerberosString
-	print_KerberosTime
 	print_KERB_TGS_REP_IN
 	print_KERB_TGS_REP_OUT
 	print_KERB_TGS_REQ_IN
 	print_KERB_TGS_REQ_OUT
 	print_KERB_TIMES
+	print_KRB5PrincipalName
+	print_KRB_CRED
+	print_KRB_ERROR
+	print_KRB_PRIV
+	print_KRB_SAFE
+	print_KRB_SAFE_BODY
+	print_KX509_ERROR_CODE
+	print_KerberosString
+	print_KerberosTime
 	print_KeyEncryptionAlgorithmIdentifier
 	print_KeyIdentifier
 	print_KeyTransRecipientInfo
 	print_KeyUsage
 	print_Krb5Int32
-	print_KRB5PrincipalName
 	print_Krb5UInt32
-	print_KRB_CRED
 	print_KrbCredInfo
-	print_KRB_ERROR
 	print_KrbFastArmor
 	print_KrbFastArmoredRep
 	print_KrbFastArmoredReq
 	print_KrbFastFinished
 	print_KrbFastReq
 	print_KrbFastResponse
-	print_KRB_PRIV
-	print_KRB_SAFE
-	print_KRB_SAFE_BODY
 	print_Kx509CSRPlus
 	print_Kx509ErrorCode
-	print_KX509_ERROR_CODE
 	print_Kx509Request
 	print_Kx509Response
-	print_LastReq
 	print_LR_TYPE
-	print_MessageDigest
+	print_LastReq
 	print_MESSAGE_TYPE
 	print_METHOD_DATA
 	print_MS_UPN_SAN
-	print_Name
-	print_NameConstraints
+	print_MeasurementRootType
+	print_MessageDigest
 	print_NAME_TYPE
-	print_NoticeReference
 	print_NTLMInit
 	print_NTLMInitReply
 	print_NTLMReply
 	print_NTLMRequest
 	print_NTLMRequest2
 	print_NTLMResponse
+	print_Name
+	print_NameConstraints
+	print_NoticeReference
 	print_NullType
 	print_OCSPBasicOCSPResponse
 	print_OCSPCertID
@@ -2564,8 +2686,8 @@ EXPORTS
 	print_OriginatorInfo
 	print_OtherName
 	print_PAC_OPTIONS_FLAGS
-	print_PA_DATA
 	print_PADATA_TYPE
+	print_PA_DATA
 	print_PA_ENC_SAM_RESPONSE_ENC
 	print_PA_ENC_TS_ENC
 	print_PA_FX_FAST_REPLY
@@ -2579,7 +2701,6 @@ EXPORTS
 	print_PA_PK_AS_REP_Win2k
 	print_PA_PK_AS_REQ
 	print_PA_PK_AS_REQ_Win2k
-	print_ParamOptions
 	print_PA_S4U2Self
 	print_PA_S4U_X509_USER
 	print_PA_SAM_CHALLENGE_2
@@ -2587,12 +2708,11 @@ EXPORTS
 	print_PA_SAM_REDIRECT
 	print_PA_SAM_RESPONSE_2
 	print_PA_SAM_TYPE
-	print_PA_ServerReferralData
 	print_PA_SERVER_REFERRAL_DATA
+	print_PA_ServerReferralData
 	print_PA_SvrReferralData
 	print_PBES2_params
 	print_PBKDF2_params
-	print_PermanentIdentifier
 	print_PKAuthenticator
 	print_PKAuthenticator_Win2k
 	print_PKCS10_Version
@@ -2614,9 +2734,14 @@ EXPORTS
 	print_PKCS8PrivateKeyInfo
 	print_PKCS9_BMPString
 	print_PKCS9_friendlyName
+	print_PKIXXmppAddr
+	print_PROV_SRV_LOCATION
+	print_ParamOptions
+	print_PermanentIdentifier
 	print_PkinitSP80056AOtherInfo
 	print_PkinitSuppPubInfo
-	print_PKIXXmppAddr
+	print_PlatformConfigurationV2
+	print_PlatformPropertyV2
 	print_PolicyConstraints
 	print_PolicyInformation
 	print_PolicyMapping
@@ -2629,14 +2754,17 @@ EXPORTS
 	print_PreferredPackageIdentifier
 	print_Principal
 	print_PrincipalName
-	print_PrincipalNameAttrs
 	print_PrincipalNameAttrSrc
+	print_PrincipalNameAttrs
 	print_Principals
 	print_PrivateKeyUsagePeriod
-	print_PROV_SRV_LOCATION
 	print_ProxyCertInfo
 	print_ProxyPolicy
 	print_RDNSequence
+	print_RSAES_OAEP_params
+	print_RSAPrivateKey
+	print_RSAPublicKey
+	print_RSASSA_PSS_params
 	print_Realm
 	print_RecipientIdentifier
 	print_RecipientInfo
@@ -2644,12 +2772,9 @@ EXPORTS
 	print_RelativeDistinguishedName
 	print_ReplyKeyPack
 	print_ReplyKeyPack_Win2k
-	print_RSAES_OAEP_params
-	print_RSAPrivateKey
-	print_RSAPublicKey
-	print_RSASSA_PSS_params
 	print_S4UUserID
 	print_SAMFlags
+	print_SRVName
 	print_SecurityLevel
 	print_SignatureAlgorithmIdentifier
 	print_SignatureValue
@@ -2659,35 +2784,38 @@ EXPORTS
 	print_SignerInfos
 	print_SingleAttribute
 	print_SkipCerts
-	print_SRVName
 	print_StrengthOfFunction
 	print_SubjectDirectoryAttributes
 	print_SubjectInfoAccessSyntax
 	print_SubjectKeyIdentifier
 	print_SubjectPublicKeyInfo
 	print_SupportedKDFs
-	print_TargetHardwareIdentifiers
-	print_TBSCertificate
+	print_TBBSecurityAssertions
 	print_TBSCRLCertList
+	print_TBSCertificate
+	print_TCGCredentialType
+	print_TCGPlatformSpecification
+	print_TCGSpecificationVersion
 	print_TD_DH_PARAMETERS
 	print_TD_INVALID_CERTIFICATES
 	print_TD_TRUSTED_CERTIFIERS
 	print_TGS_REP
 	print_TGS_REQ
-	print_Ticket
-	print_TicketFlags
-	print_Time
 	print_TPMSecurityAssertions
 	print_TPMSpecification
 	print_TPMVersion
+	print_TYPED_DATA
+	print_TargetHardwareIdentifiers
+	print_Ticket
+	print_TicketFlags
+	print_Time
 	print_TransitedEncoding
 	print_TrustedCA
 	print_TrustedCA_Win2k
 	print_TypedData
-	print_TYPED_DATA
+	print_URIReference
 	print_UniqueIdentifier
 	print_UnprotectedAttributes
-	print_URIReference
 	print_UserNotice
 	print_ValidationParms
 	print_Validity
@@ -2696,14 +2824,16 @@ EXPORTS
 	print_WrappedFirmwareKey
 	print_X520CommonName
 	print_X520LocalityName
-	print_X520name
-	print_X520OrganizationalUnitName
 	print_X520OrganizationName
+	print_X520OrganizationalUnitName
 	print_X520StateOrProvinceName
+	print_X520name
+	print_heim_any
+	print_heim_any_set
 	remove_AuthorizationData
+	remove_CRLDistributionPoints
 	remove_CertificatePolicies
 	remove_Certificates
-	remove_CRLDistributionPoints
 	remove_DigestAlgorithmIdentifiers
 	remove_ETYPE_INFO
 	remove_ETYPE_INFO2
@@ -2716,5 +2846,3 @@ EXPORTS
 	remove_RDNSequence
 	remove_SupportedKDFs
 	remove_TD_DH_PARAMETERS
-	SAMFlags2int
-	TicketFlags2int

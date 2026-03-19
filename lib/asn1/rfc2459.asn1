@@ -829,12 +829,33 @@ tcg OBJECT IDENTIFIER ::= {joint-iso-itu-t(2) international-organizations(23) tc
 tcg-attribute                   OBJECT IDENTIFIER ::= {tcg 2}
 tcg-kp                          OBJECT IDENTIFIER ::= {tcg 8}
 
+-- TCG arcs (from TCG OID Registry and Platform Certificate Profile)
+tcg-platformClass               OBJECT IDENTIFIER ::= {tcg 5}
+tcg-ce                          OBJECT IDENTIFIER ::= {tcg 6}
+tcg-address                     OBJECT IDENTIFIER ::= {tcg 17}
+tcg-registry                    OBJECT IDENTIFIER ::= {tcg 18}
+
 --TCG Attribute OIDs
 tcg-at-tpmManufacturer          OBJECT IDENTIFIER ::= {tcg-attribute 1}
 tcg-at-tpmModel                 OBJECT IDENTIFIER ::= {tcg-attribute 2}
 tcg-at-tpmVersion               OBJECT IDENTIFIER ::= {tcg-attribute 3}
 tcg-at-tpmSpecification         OBJECT IDENTIFIER ::= {tcg-attribute 16}
 tcg-at-tpmSecurityAssertions    OBJECT IDENTIFIER ::= {tcg-attribute 18}
+tcg-at-tbbSecurityAssertions    OBJECT IDENTIFIER ::= {tcg-attribute 19}
+tcg-at-tcgPlatformSpecification OBJECT IDENTIFIER ::= {tcg-attribute 17}
+tcg-at-tcgCredentialSpecification OBJECT IDENTIFIER ::= {tcg-attribute 23}
+tcg-at-tcgCredentialType        OBJECT IDENTIFIER ::= {tcg-attribute 25}
+
+-- TCG platform class common attributes
+tcg-common                      OBJECT IDENTIFIER ::= {tcg-platformClass 1}
+tcg-at-platformManufacturerStr  OBJECT IDENTIFIER ::= {tcg-common 1}
+tcg-at-platformManufacturerId   OBJECT IDENTIFIER ::= {tcg-common 2}
+tcg-at-platformConfigUri        OBJECT IDENTIFIER ::= {tcg-common 3}
+tcg-at-platformModel            OBJECT IDENTIFIER ::= {tcg-common 4}
+tcg-at-platformVersion          OBJECT IDENTIFIER ::= {tcg-common 5}
+tcg-at-platformSerial           OBJECT IDENTIFIER ::= {tcg-common 6}
+tcg-at-platformConfiguration    OBJECT IDENTIFIER ::= {tcg-common 7}
+tcg-at-platformConfigurationV2  OBJECT IDENTIFIER ::= {tcg-at-platformConfiguration 2}
 
 --TCG Attribute objects
 at-TPMSecurityAssertions _ATTRIBUTE ::= { &Type TPMSecurityAssertions, &id tcg-at-tpmSecurityAssertions }
@@ -842,6 +863,18 @@ at-TPMManufacturer _ATTRIBUTE ::= { &Type AliasUTF8String, --(SIZE (1..STRMAX))-
 at-TPMModel _ATTRIBUTE ::= { &Type AliasUTF8String, --(SIZE (1..STRMAX))-- &id tcg-at-tpmModel }
 at-TPMVersion _ATTRIBUTE ::= { &Type AliasUTF8String, --(SIZE (1..STRMAX))-- &id tcg-at-tpmVersion }
 at-TPMSpecification _ATTRIBUTE ::= { &Type TPMSpecification, &id tcg-at-tpmSpecification }
+at-TBBSecurityAssertions _ATTRIBUTE ::= { &Type TBBSecurityAssertions, &id tcg-at-tbbSecurityAssertions }
+at-TCGPlatformSpecification _ATTRIBUTE ::= { &Type TCGPlatformSpecification, &id tcg-at-tcgPlatformSpecification }
+at-TCGCredentialSpecification _ATTRIBUTE ::= { &Type TCGSpecificationVersion, &id tcg-at-tcgCredentialSpecification }
+at-TCGCredentialType _ATTRIBUTE ::= { &Type TCGCredentialType, &id tcg-at-tcgCredentialType }
+at-PlatformManufacturerStr _ATTRIBUTE ::= { &Type AliasUTF8String, &id tcg-at-platformManufacturerStr }
+-- XXX OBJECT IDENTIFIER can't be used directly as &Type; needs an alias
+AliasOID ::= OBJECT IDENTIFIER
+at-PlatformManufacturerId _ATTRIBUTE ::= { &Type AliasOID, &id tcg-at-platformManufacturerId }
+at-PlatformModel _ATTRIBUTE ::= { &Type AliasUTF8String, &id tcg-at-platformModel }
+at-PlatformVersion _ATTRIBUTE ::= { &Type AliasUTF8String, &id tcg-at-platformVersion }
+at-PlatformSerial _ATTRIBUTE ::= { &Type AliasUTF8String, &id tcg-at-platformSerial }
+at-PlatformConfigurationV2 _ATTRIBUTE ::= { &Type PlatformConfigurationV2, &id tcg-at-platformConfigurationV2 }
 
 --TCG Extended Key Usage OIDs
 tcg-kp-EKCertificate            OBJECT IDENTIFIER ::= {tcg-kp 1}
@@ -854,6 +887,27 @@ tcg-on-ekPermIdSha256           OBJECT IDENTIFIER ::= {tcg 12 1} -- assigner val
 tcg-cap-verifiedTPMResidency    OBJECT IDENTIFIER ::= {tcg 11 1 1} -- policy OID
 tcg-cap-verifiedTPMFixed        OBJECT IDENTIFIER ::= {tcg 11 1 2} -- policy OID
 tcg-cap-verifiedTPMRestricted   OBJECT IDENTIFIER ::= {tcg 11 1 3} -- policy OID
+
+-- TCG key purposes
+tcg-kp-PlatformAttributeCertificate      OBJECT IDENTIFIER ::= {tcg-kp 2}
+tcg-kp-AIKCertificate                    OBJECT IDENTIFIER ::= {tcg-kp 3}
+tcg-kp-PlatformKeyCertificate            OBJECT IDENTIFIER ::= {tcg-kp 4}
+tcg-kp-DeltaPlatformAttributeCertificate OBJECT IDENTIFIER ::= {tcg-kp 5}
+
+-- TCG certificate extensions
+tcg-ce-relevantCredentials      OBJECT IDENTIFIER ::= {tcg-ce 2}
+tcg-ce-relevantManifests        OBJECT IDENTIFIER ::= {tcg-ce 3}
+
+-- TCG address types
+tcg-address-ethernetMac         OBJECT IDENTIFIER ::= {tcg-address 1}
+tcg-address-wlanMac             OBJECT IDENTIFIER ::= {tcg-address 2}
+tcg-address-bluetoothMac        OBJECT IDENTIFIER ::= {tcg-address 3}
+
+-- TCG registry component class
+tcg-registry-componentClass      OBJECT IDENTIFIER ::= {tcg-registry 3}
+tcg-registry-componentClass-tcg  OBJECT IDENTIFIER ::= {tcg-registry-componentClass 1}
+tcg-registry-componentClass-ietf OBJECT IDENTIFIER ::= {tcg-registry-componentClass 2}
+tcg-registry-componentClass-dmtf OBJECT IDENTIFIER ::= {tcg-registry-componentClass 3}
 
 EKGenerationType ::= ENUMERATED {
     ekgt-internal (0),
@@ -944,6 +998,99 @@ TPMSecurityAssertions ::= SEQUENCE {
     iso9000Certified [5] EXPLICIT BOOLEAN DEFAULT FALSE,
     iso9000Uri IA5String OPTIONAL, -- (SIZE (1..URIMAX))
     ...
+}
+
+-- TCG Platform Specification types (from TCG Platform Certificate Profile)
+TCGSpecificationVersion ::= SEQUENCE {
+    majorVersion INTEGER,
+    minorVersion INTEGER,
+    revision INTEGER
+}
+
+TCGPlatformSpecification ::= SEQUENCE {
+    version TCGSpecificationVersion,
+    platformClass OCTET STRING
+}
+
+-- TBB (Trusted Building Block) security assertions
+MeasurementRootType ::= ENUMERATED {
+    mrt-static (0),
+    mrt-dynamic (1),
+    mrt-nonHost (2),
+    mrt-hybrid (3),
+    mrt-physical (4),
+    mrt-virtual (5)
+}
+
+TBBSecurityAssertions ::= SEQUENCE {
+    version TPMVersion DEFAULT 0, -- v1
+    ccInfo [0] IMPLICIT CommonCriteriaMeasures OPTIONAL,
+    fipsLevel [1] IMPLICIT FIPSLevel OPTIONAL,
+    rtmType [2] IMPLICIT MeasurementRootType OPTIONAL,
+    iso9000Certified BOOLEAN DEFAULT FALSE,
+    iso9000Uri IA5String OPTIONAL,
+    ...
+}
+
+-- TCG Credential Type
+TCGCredentialType ::= SEQUENCE {
+    certificateType OBJECT IDENTIFIER
+}
+
+-- Platform certificate component types
+ComponentClass ::= SEQUENCE {
+    componentClassRegistry OBJECT IDENTIFIER,
+    componentClassValue OCTET STRING
+}
+
+ComponentAddress ::= SEQUENCE {
+    addressType OBJECT IDENTIFIER,
+    addressValue UTF8String
+}
+
+AttributeStatus ::= ENUMERATED {
+    as-added (0),
+    as-modified (1),
+    as-removed (2)
+}
+
+-- IssuerSerial from RFC 3281 (used in CertificateIdentifier)
+IssuerSerial ::= SEQUENCE {
+    issuer GeneralNames,
+    serial CertificateSerialNumber,
+    issuerUID UniqueIdentifier OPTIONAL
+}
+
+CertificateIdentifier ::= SEQUENCE {
+    attributeCertIdentifier [0] IMPLICIT IssuerSerial OPTIONAL,
+    genericCertIdentifier [1] IMPLICIT IssuerSerial OPTIONAL
+}
+
+PlatformPropertyV2 ::= SEQUENCE {
+    propertyName UTF8String,
+    propertyValue UTF8String,
+    status [0] IMPLICIT AttributeStatus OPTIONAL
+}
+
+ComponentIdentifierV2 ::= SEQUENCE {
+    componentClass ComponentClass,
+    componentManufacturer UTF8String,
+    componentModel UTF8String,
+    componentSerial [0] IMPLICIT UTF8String OPTIONAL,
+    componentRevision [1] IMPLICIT UTF8String OPTIONAL,
+    componentManufacturerId [2] IMPLICIT OBJECT IDENTIFIER OPTIONAL,
+    fieldReplaceable [3] IMPLICIT BOOLEAN OPTIONAL,
+    componentAddress [4] IMPLICIT SEQUENCE OF ComponentAddress OPTIONAL,
+    componentPlatformCert [5] IMPLICIT CertificateIdentifier OPTIONAL,
+    componentPlatformCertUri [6] IMPLICIT URIReference OPTIONAL,
+    status [7] IMPLICIT AttributeStatus OPTIONAL
+}
+
+PlatformConfigurationV2 ::= SEQUENCE {
+    componentIdentifiers [0] IMPLICIT SEQUENCE OF ComponentIdentifierV2 OPTIONAL,
+    componentIdentifiersUri [1] IMPLICIT URIReference OPTIONAL,
+    platformProperties [2] IMPLICIT SEQUENCE OF PlatformPropertyV2 OPTIONAL,
+    platformPropertiesUri [3] IMPLICIT URIReference OPTIONAL
 }
 
 -- Back to OtherName, SingleAttribute, AttributeSet, and Extension
@@ -1037,6 +1184,16 @@ SupportedAttributes _ATTRIBUTE ::= {
   | at-TPMModel
   | at-TPMVersion
   | at-TPMSpecification
+  | at-TBBSecurityAssertions
+  | at-TCGPlatformSpecification
+  | at-TCGCredentialSpecification
+  | at-TCGCredentialType
+  | at-PlatformManufacturerStr
+  | at-PlatformManufacturerId
+  | at-PlatformModel
+  | at-PlatformVersion
+  | at-PlatformSerial
+  | at-PlatformConfigurationV2
 }
 
 SingleAttribute ::= SingleAttribute{SupportedAttributes}
