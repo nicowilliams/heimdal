@@ -1201,6 +1201,31 @@ command = {
 	function = "pem_to_jwk"
 }
 command = {
+	name = "sda-dump"
+	option = {
+		long = "pass"
+		type = "strings"
+		argument = "password"
+		help = "password, prompter, or environment"
+	}
+	option = {
+		long = "out-directory"
+		type = "string"
+		argument = "directory"
+		help = "directory to write extracted certificates"
+	}
+	option = {
+		long = "raw-json"
+		type = "flag"
+		help = "print the SDA as JSON"
+	}
+	min_args = "1"
+	max_args = "1"
+	argument = "certificate"
+	help = "Dump SubjectDirectoryAttributes and extract embedded certificates"
+	function = "sda_dump"
+}
+command = {
 	name = "help"
 	name = "?"
 	argument = "[command]"

@@ -6,6 +6,7 @@ EXPORTS
 	_hx509_cert_private_key
 	_hx509_certs_keys_free
 	_hx509_certs_keys_get
+	_hx509_decode_subject_directory_attributes
 	_hx509_expr_eval
 	_hx509_expr_free
 	_hx509_expr_parse

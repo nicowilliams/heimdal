@@ -3513,6 +3513,324 @@ pem_to_jwk(struct pem_to_jwk_options *opt, int argc, char **argv)
 }
 
 /*
+ * Extract embedded base64 certificates from the raw SDA extension value.
+ *
+ * Dell SCV certificates store EK, IAK, and IDevID certificates as
+ * base64-encoded strings inside Dell-proprietary [9] tagged extensions
+ * of ComponentIdentifierV2 entries.  The structure inside [9] is:
+ *
+ *   [0] { UTF8String "location", UTF8String <location-value> }
+ *   [1] { UTF8String "certificate_identifier", UTF8String <base64-cert> }
+ *
+ * We scan the raw DER bytes for the pattern: the UTF8String
+ * "certificate_identifier" (tag 0x0C, length 0x16, then 22 bytes)
+ * immediately followed by a UTF8String whose content starts with "MIIB"
+ * or "MIIC" (base64-encoded certificate).  We also look backwards for
+ * the "location" string to get a label for the cert.
+ */
+
+static const unsigned char cert_id_pattern[] = {
+    0x0c, 0x16,  /* UTF8String, length 22 */
+    'c','e','r','t','i','f','i','c','a','t','e',
+    '_','i','d','e','n','t','i','f','i','e','r'
+};
+
+/*
+ * Scan backwards from `pos` in `data` (of length `len`) looking for
+ * a "location" UTF8String value.  Returns a malloc'd string or NULL.
+ */
+static char *
+find_location_label(const unsigned char *data, size_t pos)
+{
+    /*
+     * We expect the pattern:
+     *   0C 08 "location" 0C <len> <value>
+     * somewhere before the certificate_identifier.
+     *
+     * Search backwards for "location" (8 bytes).
+     */
+    static const unsigned char loc_pattern[] = {
+        0x0c, 0x08,
+        'l','o','c','a','t','i','o','n'
+    };
+    const unsigned char *p;
+    size_t search_start;
+
+    /* Don't search more than 256 bytes back */
+    search_start = pos > 256 ? pos - 256 : 0;
+
+    for (p = data + pos - 1; p >= data + search_start + sizeof(loc_pattern); p--) {
+        if (memcmp(p, loc_pattern, sizeof(loc_pattern)) == 0) {
+            /* Found "location" tag+value.  The next TLV should be the value. */
+            const unsigned char *val_start = p + sizeof(loc_pattern);
+            if (val_start + 2 <= data + pos && val_start[0] == 0x0c) {
+                size_t vlen = val_start[1];
+                if (val_start + 2 + vlen <= data + pos) {
+                    char *label = malloc(vlen + 1);
+                    if (label) {
+                        memcpy(label, val_start + 2, vlen);
+                        label[vlen] = '\0';
+                    }
+                    return label;
+                }
+            }
+            break;
+        }
+    }
+    return NULL;
+}
+
+static int
+extract_embedded_certs(const unsigned char *data, size_t len,
+                       const char *outdir)
+{
+    size_t i;
+    int count = 0;
+
+    for (i = 0; i + sizeof(cert_id_pattern) + 2 < len; i++) {
+        if (memcmp(data + i, cert_id_pattern, sizeof(cert_id_pattern)) != 0)
+            continue;
+
+        /* Found "certificate_identifier".  Next should be a UTF8String. */
+        i += sizeof(cert_id_pattern);
+        if (i >= len || data[i] != 0x0c)
+            continue;
+
+        /* Parse the length of the next UTF8String */
+        i++;
+        size_t cert_b64_len;
+        size_t hdr;
+        if (data[i] & 0x80) {
+            size_t n = data[i] & 0x7f;
+            if (n > 4 || i + 1 + n > len)
+                continue;
+            cert_b64_len = 0;
+            for (size_t j = 0; j < n; j++)
+                cert_b64_len = (cert_b64_len << 8) | data[i + 1 + j];
+            hdr = 1 + n;
+        } else {
+            cert_b64_len = data[i];
+            hdr = 1;
+        }
+        i += hdr;
+
+        if (i + cert_b64_len > len || cert_b64_len < 8)
+            continue;
+
+        /* Check if it looks like a base64 certificate */
+        if (memcmp(data + i, "MIIB", 4) != 0 &&
+            memcmp(data + i, "MIIC", 4) != 0 &&
+            memcmp(data + i, "MIID", 4) != 0 &&
+            memcmp(data + i, "MIIE", 4) != 0)
+            continue;
+
+        /* Find the location label */
+        char *label = find_location_label(data,
+            i - hdr - sizeof(cert_id_pattern));
+        const char *lbl = label ? label : "unknown";
+
+        /* Base64-decode the certificate */
+        int cert_der_len;
+        size_t der_alloc = (cert_b64_len * 3) / 4 + 4;
+        unsigned char *cert_der = malloc(der_alloc);
+
+        if (!cert_der) {
+            free(label);
+            continue;
+        }
+
+        /* Null-terminate the base64 string for decoding */
+        {
+            char *b64 = malloc(cert_b64_len + 1);
+            if (!b64) {
+                free(cert_der);
+                free(label);
+                continue;
+            }
+            memcpy(b64, data + i, cert_b64_len);
+            b64[cert_b64_len] = '\0';
+
+            cert_der_len = rk_base64_decode(b64, cert_der);
+            free(b64);
+        }
+
+        if (cert_der_len <= 0) {
+            free(cert_der);
+            free(label);
+            continue;
+        }
+
+        /* Print info about the embedded certificate */
+        printf("  Embedded certificate: location=%s, size=%d bytes\n",
+               lbl, cert_der_len);
+
+        if (outdir) {
+            char *path = NULL;
+
+            if (asprintf(&path, "%s/%s.pem", outdir, lbl) < 0 ||
+                path == NULL) {
+                warnx("Out of memory");
+            } else {
+                FILE *f = fopen(path, "w");
+                if (f == NULL) {
+                    warn("Could not open %s", path);
+                } else {
+                    int ret = hx509_pem_write(context, "CERTIFICATE",
+                                              NULL, f, cert_der,
+                                              cert_der_len);
+                    fclose(f);
+                    if (ret)
+                        warnx("hx509_pem_write failed: %d", ret);
+                    else
+                        printf("    Written to %s\n", path);
+                }
+                free(path);
+            }
+        }
+
+        free(cert_der);
+        free(label);
+        count++;
+        i += cert_b64_len - 1; /* Skip past this cert */
+    }
+    return count;
+}
+
+static void
+print_sda_attribute(const AttributeSet *a)
+{
+    char *oid_str = NULL;
+    char *json = NULL;
+
+    (void) der_print_heim_oid_sym(&a->type, '.', &oid_str);
+    printf("  Attribute: %s\n", oid_str ? oid_str : "<unknown>");
+    free(oid_str);
+
+    /*
+     * For PlatformConfigurationV2, print a summary of components.
+     * For other attributes, use the JSON printer.
+     */
+    if (a->_ioschoice_values.element ==
+        choice_AttributeSet_iosnum_tcg_at_platformConfigurationV2) {
+        printf("    (PlatformConfigurationV2 - see embedded certificates below)\n");
+    } else {
+        json = print_AttributeSet(a, ASN1_PRINT_INDENT);
+        if (json) {
+            printf("    %s\n", json);
+            free(json);
+        } else {
+            printf("    Values: %u (could not format)\n", a->values.len);
+        }
+    }
+}
+
+int
+sda_dump(struct sda_dump_options *opt, int argc, char **argv)
+{
+    SubjectDirectoryAttributes sda;
+    const Certificate *c;
+    const Extension *e = NULL;
+    hx509_certs certs;
+    hx509_cert cert = NULL;
+    hx509_cursor cursor;
+    hx509_lock lock;
+    size_t size;
+    char *sn;
+    int ret;
+
+    memset(&sda, 0, sizeof(sda));
+
+    hx509_lock_init(context, &lock);
+    lock_strings(lock, &opt->pass_strings);
+
+    sn = fix_store_name(context, argv[0], "FILE");
+    ret = hx509_certs_init(context, sn, 0, lock, &certs);
+    free(sn);
+    if (ret)
+        hx509_err(context, 1, ret, "hx509_certs_init");
+
+    ret = hx509_certs_start_seq(context, certs, &cursor);
+    if (ret)
+        hx509_err(context, 1, ret, "hx509_certs_start_seq");
+
+    ret = hx509_certs_next_cert(context, certs, cursor, &cert);
+    if (ret)
+        hx509_err(context, 1, ret, "hx509_certs_next_cert");
+
+    hx509_certs_end_seq(context, certs, cursor);
+
+    if (cert == NULL)
+        errx(1, "No certificate found");
+
+    c = _hx509_get_cert(cert);
+    if (c == NULL)
+        errx(1, "Could not get Certificate");
+
+    /* Find SubjectDirectoryAttributes extension */
+    {
+        const TBSCertificate *tbs = &c->tbsCertificate;
+        if (tbs->extensions) {
+            for (size_t i = 0; i < tbs->extensions->len; i++) {
+                if (der_heim_oid_cmp(&tbs->extensions->val[i].extnID,
+                    &asn1_oid_id_x509_ce_subjectDirectoryAttributes) == 0) {
+                    e = &tbs->extensions->val[i];
+                    break;
+                }
+            }
+        }
+    }
+    if (e == NULL)
+        errx(1, "Certificate has no SubjectDirectoryAttributes extension");
+
+    if (opt->raw_json_flag) {
+        /*
+         * Try to decode the SDA and print as JSON.
+         * Use the same approach as print --raw-json for certificates.
+         */
+        ret = _hx509_decode_subject_directory_attributes(
+            &e->extnValue, &sda, &size);
+        if (ret == 0) {
+            char *json = print_SubjectDirectoryAttributes(&sda, ASN1_PRINT_INDENT);
+            if (json) {
+                printf("%s\n", json);
+                free(json);
+            }
+            free_SubjectDirectoryAttributes(&sda);
+        } else {
+            warnx("Could not decode SDA: %d", ret);
+        }
+    } else {
+        ret = _hx509_decode_subject_directory_attributes(
+            &e->extnValue, &sda, &size);
+        if (ret)
+            errx(1, "Could not decode SubjectDirectoryAttributes: %d", ret);
+
+        printf("SubjectDirectoryAttributes: %u attribute(s)\n", sda.len);
+
+        for (unsigned i = 0; i < sda.len; i++)
+            print_sda_attribute(&sda.val[i]);
+
+        free_SubjectDirectoryAttributes(&sda);
+    }
+
+    /* Extract embedded certificates from raw extension bytes */
+    printf("\nEmbedded certificates:\n");
+    int ncerts = extract_embedded_certs(e->extnValue.data,
+                                        e->extnValue.length,
+                                        opt->out_directory_string);
+    if (ncerts == 0)
+        printf("  (none found)\n");
+    else
+        printf("  Total: %d certificate(s) found\n", ncerts);
+
+    hx509_cert_free(cert);
+    hx509_certs_free(&certs);
+    hx509_lock_free(lock);
+
+    return 0;
+}
+
+/*
  *
  */
 
