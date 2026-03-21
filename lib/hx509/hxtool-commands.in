@@ -1219,6 +1219,12 @@ command = {
 		type = "flag"
 		help = "print the SDA as JSON"
 	}
+	option = {
+		long = "out-der"
+		type = "string"
+		argument = "file"
+		help = "write the fixed-up SDA extension value as DER"
+	}
 	min_args = "1"
 	max_args = "1"
 	argument = "certificate"

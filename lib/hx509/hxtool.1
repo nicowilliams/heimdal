@@ -325,6 +325,15 @@
 .Op Fl o Ar file | Fl Fl output Ns = Ns Ar file
 .Ar Op Ar pem-file
 .Nm
+.Ic sda-dump
+.Op Fl Fl pass Ns = Ns Ar PASS:password
+.Op Fl Fl pass Ns = Ns Ar FILE:path
+.Op Fl Fl pass Ns = Ns Ar PROMPT
+.Op Fl Fl out-directory Ns = Ns Ar directory
+.Op Fl Fl raw-json
+.Op Fl Fl out-der Ns = Ns Ar file
+.Ar certificate
+.Nm
 .Ic help
 .Ar Op Ar command
 .Sh DESCRIPTION
@@ -454,6 +463,23 @@ Users who wish to implement Bearer token acceptors should use
 .Xr hx509_jws_verify 3 .
 .It Ic pem-to-jwk
 Convert PEM key to JWK format.
+.It Ic sda-dump
+Dump the SubjectDirectoryAttributes extension from a certificate and
+extract any embedded certificates (such as those found in TCG Platform
+Certificates).
+The
+.Fl Fl out-directory
+option specifies a directory to write extracted certificates as PEM
+files.
+The
+.Fl Fl raw-json
+option prints the decoded SDA as JSON.
+The
+.Fl Fl out-der
+option writes the fixed-up (re-encoded) SDA extension value as DER to
+the specified file.
+This is useful when the original certificate contains a non-standard
+flat encoding of the SDA that needs to be converted to proper ASN.1.
 .It Ic help , Ic \&?
 Show help.
 .El

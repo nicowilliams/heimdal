@@ -3782,36 +3782,44 @@ sda_dump(struct sda_dump_options *opt, int argc, char **argv)
     if (e == NULL)
         errx(1, "Certificate has no SubjectDirectoryAttributes extension");
 
+    ret = _hx509_decode_subject_directory_attributes(
+        &e->extnValue, &sda, &size);
+    if (ret)
+        errx(1, "Could not decode SubjectDirectoryAttributes: %d", ret);
+
+    if (opt->out_der_string) {
+        size_t der_len = length_SubjectDirectoryAttributes(&sda);
+        void *der_buf = malloc(der_len);
+        size_t der_actual;
+
+        if (der_buf == NULL)
+            err(1, "malloc");
+        ret = encode_SubjectDirectoryAttributes(
+            ((unsigned char *)der_buf) + der_len - 1, der_len,
+            &sda, &der_actual);
+        if (ret)
+            errx(1, "Could not re-encode SDA: %d", ret);
+
+        rk_dumpdata(opt->out_der_string, der_buf, der_actual);
+        printf("Wrote %lu bytes of DER to %s\n",
+               (unsigned long)der_actual, opt->out_der_string);
+        free(der_buf);
+    }
+
     if (opt->raw_json_flag) {
-        /*
-         * Try to decode the SDA and print as JSON.
-         * Use the same approach as print --raw-json for certificates.
-         */
-        ret = _hx509_decode_subject_directory_attributes(
-            &e->extnValue, &sda, &size);
-        if (ret == 0) {
-            char *json = print_SubjectDirectoryAttributes(&sda, ASN1_PRINT_INDENT);
-            if (json) {
-                printf("%s\n", json);
-                free(json);
-            }
-            free_SubjectDirectoryAttributes(&sda);
-        } else {
-            warnx("Could not decode SDA: %d", ret);
+        char *json = print_SubjectDirectoryAttributes(&sda, ASN1_PRINT_INDENT);
+        if (json) {
+            printf("%s\n", json);
+            free(json);
         }
     } else {
-        ret = _hx509_decode_subject_directory_attributes(
-            &e->extnValue, &sda, &size);
-        if (ret)
-            errx(1, "Could not decode SubjectDirectoryAttributes: %d", ret);
-
         printf("SubjectDirectoryAttributes: %u attribute(s)\n", sda.len);
 
         for (unsigned i = 0; i < sda.len; i++)
             print_sda_attribute(&sda.val[i]);
-
-        free_SubjectDirectoryAttributes(&sda);
     }
+
+    free_SubjectDirectoryAttributes(&sda);
 
     /* Extract embedded certificates from raw extension bytes */
     printf("\nEmbedded certificates:\n");
