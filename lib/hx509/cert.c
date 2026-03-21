@@ -1115,6 +1115,320 @@ _hx509_find_extension_subject_key_id(const Certificate *issuer,
 				       si, &size);
 }
 
+/*
+ * Some certificates (e.g., Dell SCV/iDRAC platform certificates) encode
+ * SubjectDirectoryAttributes using a flat format where each attribute's
+ * OID and values appear directly in the outer SEQUENCE without being
+ * wrapped in individual AttributeSet SEQUENCE tags:
+ *
+ *   Flat:     SEQUENCE { OID, SEQUENCE{SET{...}}, OID, SEQUENCE{SET{...}} }
+ *   Standard: SEQUENCE { SEQUENCE{OID, SET{...}}, SEQUENCE{OID, SET{...}} }
+ *
+ * This function rewrites the flat format into the standard format so
+ * that decode_SubjectDirectoryAttributes() can parse it.
+ */
+static int
+fixup_sda_flat_encoding(const unsigned char *data, size_t len,
+			heim_octet_string *out)
+{
+    size_t inner_offset, inner_len;
+    const unsigned char *p;
+    size_t plen;
+    unsigned char *fixed = NULL;
+    size_t fixed_len = 0;
+    size_t fixed_alloc = 0;
+
+    memset(out, 0, sizeof(*out));
+
+    /* Strip the outer SEQUENCE tag to get to the content */
+    if (len < 2 || data[0] != 0x30)
+	return ASN1_BAD_FORMAT;
+
+    inner_offset = 2;
+    if (data[1] & 0x80) {
+	size_t n = data[1] & 0x7f;
+	if (n > 4 || 2 + n > len)
+	    return ASN1_OVERRUN;
+	inner_len = 0;
+	for (size_t i = 0; i < n; i++)
+	    inner_len = (inner_len << 8) | data[2 + i];
+	inner_offset = 2 + n;
+    } else {
+	inner_len = data[1];
+    }
+    if (inner_offset + inner_len > len)
+	return ASN1_OVERRUN;
+
+    p = data + inner_offset;
+    plen = inner_len;
+
+    /* Check if this is a flat encoding (first byte is OID tag, not SEQUENCE) */
+    if (plen < 1 || p[0] != 0x06)
+	return ASN1_BAD_FORMAT; /* Not flat format, caller should try standard decode */
+
+    /*
+     * Parse pairs of (OID_TLV, SEQUENCE{SET{...}}) and rewrite as
+     * SEQUENCE{OID_TLV, SET{...}} (extracting the SET from inside
+     * the SEQUENCE wrapper).
+     */
+    while (plen > 0) {
+	size_t oid_total, seq_total, seq_hdr, seq_content_len;
+	size_t set_total;
+	const unsigned char *oid_start, *seq_start, *set_start;
+	size_t attr_content_len, attr_total;
+	unsigned char attr_hdr[4];
+	size_t attr_hdr_len;
+	size_t need;
+	unsigned char *tmp;
+
+	/* Read OID TLV */
+	if (p[0] != 0x06)
+	    break; /* Not an OID, stop parsing */
+	oid_start = p;
+	if (plen < 2)
+	    return ASN1_OVERRUN;
+	if (p[1] & 0x80) {
+	    size_t n = p[1] & 0x7f;
+	    if (n > 4 || 2 + n > plen)
+		return ASN1_OVERRUN;
+	    oid_total = 2 + n;
+	    for (size_t i = 0; i < n; i++)
+		oid_total += ((size_t)p[2 + i]) << (8 * (n - 1 - i));
+	    /* Actually recalculate properly */
+	    size_t oid_content = 0;
+	    for (size_t i = 0; i < n; i++)
+		oid_content = (oid_content << 8) | p[2 + i];
+	    oid_total = 2 + n + oid_content;
+	} else {
+	    oid_total = 2 + p[1];
+	}
+	if (oid_total > plen)
+	    return ASN1_OVERRUN;
+	p += oid_total;
+	plen -= oid_total;
+
+	/*
+	 * Read the next element. It could be:
+	 * - SEQUENCE{SET{...}} (flat format with extra wrapper)
+	 * - SET{...} (flat format without extra wrapper)
+	 */
+	if (plen < 2)
+	    return ASN1_OVERRUN;
+	seq_start = p;
+	if (p[0] == 0x30) {
+	    /* SEQUENCE - could be a wrapper around SET, or the value itself */
+	    seq_hdr = 2;
+	    if (p[1] & 0x80) {
+		size_t n = p[1] & 0x7f;
+		if (n > 4 || 2 + n > plen)
+		    return ASN1_OVERRUN;
+		seq_content_len = 0;
+		for (size_t i = 0; i < n; i++)
+		    seq_content_len = (seq_content_len << 8) | p[2 + i];
+		seq_hdr = 2 + n;
+	    } else {
+		seq_content_len = p[1];
+	    }
+	    seq_total = seq_hdr + seq_content_len;
+	    if (seq_total > plen)
+		return ASN1_OVERRUN;
+	    if (seq_content_len > 0 && p[seq_hdr] == 0x31) {
+		/*
+		 * SEQUENCE { SET {...} } - the SEQUENCE is an extra wrapper
+		 * around the SET.  Extract the SET content directly.
+		 */
+		set_start = p + seq_hdr;
+		set_total = seq_content_len;
+	    } else {
+		/*
+		 * SEQUENCE { other... } - the SEQUENCE IS the value itself
+		 * (e.g., PlatformConfigurationV2).  We need to wrap it in
+		 * a SET tag to form valid AttributeSet values.
+		 */
+		set_start = NULL;
+		set_total = seq_total; /* will build SET below */
+	    }
+	} else if (p[0] == 0x31) {
+	    /* SET directly (no extra wrapper) */
+	    seq_hdr = 2;
+	    if (p[1] & 0x80) {
+		size_t n = p[1] & 0x7f;
+		if (n > 4 || 2 + n > plen)
+		    return ASN1_OVERRUN;
+		size_t set_content = 0;
+		for (size_t i = 0; i < n; i++)
+		    set_content = (set_content << 8) | p[2 + i];
+		seq_total = 2 + n + set_content;
+	    } else {
+		seq_total = 2 + p[1];
+	    }
+	    if (seq_total > plen)
+		return ASN1_OVERRUN;
+	    set_start = p;
+	    set_total = seq_total;
+	} else {
+	    return ASN1_BAD_FORMAT;
+	}
+	p += seq_total;
+	plen -= seq_total;
+
+	/*
+	 * Build AttributeSet: SEQUENCE { OID_TLV, SET_TLV }
+	 *
+	 * If set_start is non-NULL, we already have a SET TLV to use directly.
+	 * If set_start is NULL, we need to wrap the value in a SET tag.
+	 */
+	{
+	    unsigned char set_hdr_buf[4];
+	    size_t set_hdr_len = 0;
+	    const unsigned char *set_data;
+	    size_t set_data_len;
+
+	    if (set_start) {
+		/* SET TLV already available */
+		set_data = set_start;
+		set_data_len = set_total;
+	    } else {
+		/* Need to wrap the SEQUENCE TLV in a SET tag */
+		if (seq_total < 0x80) {
+		    set_hdr_buf[0] = 0x31;
+		    set_hdr_buf[1] = (unsigned char)seq_total;
+		    set_hdr_len = 2;
+		} else if (seq_total < 0x100) {
+		    set_hdr_buf[0] = 0x31;
+		    set_hdr_buf[1] = 0x81;
+		    set_hdr_buf[2] = (unsigned char)seq_total;
+		    set_hdr_len = 3;
+		} else {
+		    set_hdr_buf[0] = 0x31;
+		    set_hdr_buf[1] = 0x82;
+		    set_hdr_buf[2] = (unsigned char)(seq_total >> 8);
+		    set_hdr_buf[3] = (unsigned char)(seq_total & 0xff);
+		    set_hdr_len = 4;
+		}
+		set_data = seq_start;  /* the SEQUENCE TLV */
+		set_data_len = seq_total;
+	    }
+
+	    attr_content_len = oid_total + set_hdr_len + set_data_len;
+	    if (attr_content_len < 0x80) {
+		attr_hdr[0] = 0x30;
+		attr_hdr[1] = (unsigned char)attr_content_len;
+		attr_hdr_len = 2;
+	    } else if (attr_content_len < 0x100) {
+		attr_hdr[0] = 0x30;
+		attr_hdr[1] = 0x81;
+		attr_hdr[2] = (unsigned char)attr_content_len;
+		attr_hdr_len = 3;
+	    } else {
+		attr_hdr[0] = 0x30;
+		attr_hdr[1] = 0x82;
+		attr_hdr[2] = (unsigned char)(attr_content_len >> 8);
+		attr_hdr[3] = (unsigned char)(attr_content_len & 0xff);
+		attr_hdr_len = 4;
+	    }
+	    attr_total = attr_hdr_len + attr_content_len;
+
+	    /* Grow output buffer */
+	    need = fixed_len + attr_total;
+	    if (need > fixed_alloc) {
+		fixed_alloc = need + 1024;
+		tmp = realloc(fixed, fixed_alloc);
+		if (tmp == NULL) {
+		    free(fixed);
+		    return ENOMEM;
+		}
+		fixed = tmp;
+	    }
+
+	    /* Write AttributeSet SEQUENCE header */
+	    memcpy(fixed + fixed_len, attr_hdr, attr_hdr_len);
+	    fixed_len += attr_hdr_len;
+
+	    /* Write OID TLV */
+	    memcpy(fixed + fixed_len, oid_start, oid_total);
+	    fixed_len += oid_total;
+
+	    /* Write SET header if we're wrapping */
+	    if (set_hdr_len) {
+		memcpy(fixed + fixed_len, set_hdr_buf, set_hdr_len);
+		fixed_len += set_hdr_len;
+	    }
+
+	    /* Write SET content (or the SET TLV directly if not wrapping) */
+	    memcpy(fixed + fixed_len, set_data, set_data_len);
+	    fixed_len += set_data_len;
+	}
+    }
+
+    /* Build outer SEQUENCE OF wrapper */
+    {
+	size_t outer_hdr_len;
+	unsigned char outer_hdr[4];
+
+	if (fixed_len < 0x80) {
+	    outer_hdr[0] = 0x30;
+	    outer_hdr[1] = (unsigned char)fixed_len;
+	    outer_hdr_len = 2;
+	} else if (fixed_len < 0x100) {
+	    outer_hdr[0] = 0x30;
+	    outer_hdr[1] = 0x81;
+	    outer_hdr[2] = (unsigned char)fixed_len;
+	    outer_hdr_len = 3;
+	} else {
+	    outer_hdr[0] = 0x30;
+	    outer_hdr[1] = 0x82;
+	    outer_hdr[2] = (unsigned char)(fixed_len >> 8);
+	    outer_hdr[3] = (unsigned char)(fixed_len & 0xff);
+	    outer_hdr_len = 4;
+	}
+
+	out->data = malloc(outer_hdr_len + fixed_len);
+	if (out->data == NULL) {
+	    free(fixed);
+	    return ENOMEM;
+	}
+	memcpy(out->data, outer_hdr, outer_hdr_len);
+	memcpy((unsigned char *)out->data + outer_hdr_len, fixed, fixed_len);
+	out->length = outer_hdr_len + fixed_len;
+    }
+
+    free(fixed);
+    return 0;
+}
+
+int
+_hx509_decode_subject_directory_attributes(const heim_octet_string *os,
+					   SubjectDirectoryAttributes *sda,
+					   size_t *size)
+{
+    int ret;
+
+    memset(sda, 0, sizeof(*sda));
+
+    /* Try standard decode first */
+    ret = decode_SubjectDirectoryAttributes(os->data, os->length, sda, size);
+    if (ret == 0)
+	return 0;
+
+    /* Standard decode failed; try flat format fixup */
+    {
+	heim_octet_string fixed;
+	size_t sz;
+
+	ret = fixup_sda_flat_encoding(os->data, os->length, &fixed);
+	if (ret)
+	    return ret;
+
+	ret = decode_SubjectDirectoryAttributes(fixed.data, fixed.length,
+						sda, &sz);
+	der_free_octet_string(&fixed);
+	if (size)
+	    *size = os->length; /* Report original length as consumed */
+    }
+    return ret;
+}
+
 static int
 find_extension_name_constraints(const Certificate *subject,
 				NameConstraints *nc)
