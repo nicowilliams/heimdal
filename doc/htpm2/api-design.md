@@ -6,7 +6,8 @@
 TPM 2.0 hardware and software TPMs.  It follows Heimdal's library conventions:
 opaque context objects, integer error codes with context-stored error strings,
 explicit resource management.  Its dependencies are `lib/roken/`, `lib/base/`,
-and `lib/hx509/` (for all cryptographic primitives via OpenSSL's `libcrypto`).
+and OpenSSL's `libcrypto` (used directly for cryptographic primitives, just as
+`lib/hx509/` and `lib/krb5/` each use `libcrypto` directly).
 
 The library handles TPM 2.0 command marshalling/unmarshalling, transport I/O,
 session management (HMAC, policy, trial), encrypted and authenticated sessions,
@@ -15,12 +16,13 @@ credential activation.
 
 ## Design Principles
 
-1. **Heimdal-internal dependencies only** -- `lib/roken/`, `lib/base/`, and
-   `lib/hx509/` (for all cryptographic primitives).  No Intel TSS, no direct
-   OpenSSL calls -- all crypto goes through `lib/hx509/` which wraps OpenSSL's
-   `libcrypto`.  If `lib/hx509/` is missing a primitive we need (e.g.,
-   standalone HMAC, AES-CFB, RSA OAEP, ECDH key agreement, KDFa), we add it
-   to `lib/hx509/` first and then consume it from `lib/htpm2/`.
+1. **Minimal dependencies** -- `lib/roken/`, `lib/base/`, and OpenSSL's
+   `libcrypto` (directly, for cryptographic primitives).  No Intel TSS, no
+   dependency on `lib/hx509/` or `lib/krb5/`.  This follows the same pattern
+   as `lib/hx509/` and `lib/krb5/`, which each have their own direct
+   `libcrypto` usage for the primitives they need.  The crypto primitives
+   needed (HMAC, AES-CFB, RSA OAEP, ECDH, SHA-2, KDFa) are implemented in
+   `lib/htpm2/` itself using OpenSSL's EVP APIs.
 
 2. **Opaque types** -- all public types are `typedef`'d pointers to internal
    structures.  Users never see structure layouts.
@@ -38,8 +40,8 @@ credential activation.
    active bus-level attackers.
 
 6. **Software-only where possible** -- operations like `MakeCredential` that
-   don't require TPM secrets are implemented in software using `lib/hx509/`
-   cryptographic primitives, avoiding a round-trip to the TPM.
+   don't require TPM secrets are implemented in software using `libcrypto`
+   primitives directly, avoiding a round-trip to the TPM.
 
 ## Public Header: `<htpm2.h>`
 
@@ -524,67 +526,27 @@ void htpm2_free(htpm2_context ctx, void *ptr);
 
 ## Internal Architecture (Not Exposed in Public API)
 
-### Cryptographic Primitives via `lib/hx509/`
+### Cryptographic Primitives (`crypto.c`)
 
-All cryptographic operations used internally by `lib/htpm2/` are provided by
-`lib/hx509/`, which wraps OpenSSL's `libcrypto`.  The following primitives are
-needed; those marked **[NEW]** must be added to `lib/hx509/` as part of this
-project:
+`lib/htpm2/` uses OpenSSL's `libcrypto` directly for all cryptographic
+operations, following the same pattern as `lib/hx509/` and `lib/krb5/`.
+This avoids creating a dependency on `lib/hx509/` (which is a PKI library,
+not a general crypto wrapper) and keeps `lib/htpm2/` self-contained.
 
-| Primitive | Status in hx509 | Used For |
-|-----------|-----------------|----------|
-| SHA-256/384/512 | Available (via `EVP_sha*()`) | Object names, policy digests, KDFa |
-| HMAC-SHA-256 | **[NEW]** standalone API needed | Session auth, KDFa, credential HMAC |
-| KDFa (SP 800-108 counter HMAC-KDF) | **[NEW]** | Session key derivation, param encrypt keys |
-| AES-128/256-CFB | **[NEW]** (only CBC exists) | Parameter encryption, credential encryption |
-| RSA OAEP | **[NEW]** (only PKCS#1 v1.5 exists) | Software MakeCredential (encrypt seed to EK) |
-| ECDH key agreement | **[NEW]** (EC exists but not ECDH derive) | Salted sessions with ECC EK |
-| Random bytes | Available (`RAND_bytes()`) | Nonce generation |
+The internal crypto module (`lib/htpm2/crypto.c`) provides:
 
-New `lib/hx509/` functions to add (representative signatures):
+| Primitive | OpenSSL API | Used For |
+|-----------|-------------|----------|
+| SHA-256/384/512 | `EVP_DigestInit/Update/Final` | Object names, policy digests, KDFa |
+| HMAC-SHA-256/384/512 | `EVP_MAC` or `HMAC()` | Session auth, KDFa, credential HMAC |
+| KDFa (SP 800-108 counter HMAC-KDF) | Built on HMAC | Session key derivation, param encrypt keys |
+| AES-128/256-CFB | `EVP_EncryptInit` with `EVP_aes_*_cfb128()` | Parameter encryption, credential encryption |
+| RSA OAEP | `EVP_PKEY_encrypt` with `RSA_PKCS1_OAEP_PADDING` | Software MakeCredential (encrypt seed to EK) |
+| ECDH key agreement | `EVP_PKEY_derive` | Salted sessions with ECC EK |
+| Random bytes | `RAND_bytes()` | Nonce generation |
 
-```c
-/* Standalone HMAC */
-int hx509_hmac(hx509_context, const EVP_MD *,
-               const void *key, size_t key_len,
-               const void *data, size_t data_len,
-               void *mac, size_t *mac_len);
-
-/* AES-CFB encrypt/decrypt */
-int hx509_aes_cfb_encrypt(hx509_context,
-                           const void *key, size_t key_len,
-                           const void *iv, size_t iv_len,
-                           const void *in, size_t in_len,
-                           void *out, size_t *out_len);
-int hx509_aes_cfb_decrypt(hx509_context,
-                           const void *key, size_t key_len,
-                           const void *iv, size_t iv_len,
-                           const void *in, size_t in_len,
-                           void *out, size_t *out_len);
-
-/* RSA OAEP encrypt with public key */
-int hx509_rsa_oaep_encrypt(hx509_context,
-                            hx509_cert ek_cert,  /* or raw public key */
-                            const EVP_MD *hash,
-                            const char *label,
-                            const void *plaintext, size_t plaintext_len,
-                            void *ciphertext, size_t *ciphertext_len);
-
-/* ECDH shared secret */
-int hx509_ecdh_derive(hx509_context,
-                      hx509_private_key local_key,
-                      const void *peer_pub, size_t peer_pub_len,
-                      void *shared_secret, size_t *secret_len);
-
-/* KDFa (TPM 2.0 KDF) -- could live in hx509 or htpm2 */
-int hx509_kdfa(hx509_context, const EVP_MD *hash,
-               const void *key, size_t key_len,
-               const char *label,
-               const void *context_u, size_t context_u_len,
-               const void *context_v, size_t context_v_len,
-               uint32_t bits,
-               void *out, size_t *out_len);
-```
+The context (`htpm2_context`) caches OpenSSL objects (like `EVP_MD` pointers)
+following the same pattern as `hx509_context` and `krb5_context`.
 
 ### Marshalling Layer (`marshal.c`)
 
@@ -607,16 +569,16 @@ Constructs full TPM command packets:
 
 ### Session Crypto (`session_crypto.c`)
 
-Uses `lib/hx509/` primitives for all crypto:
-- KDFa via `hx509_kdfa()` for session key derivation
-- HMAC via `hx509_hmac()` for command/response authorization
-- AES-CFB via `hx509_aes_cfb_encrypt/decrypt()` for parameter encryption
-- Random nonce generation via `hx509_random_bytes()` or `RAND_bytes()`
+Uses the internal crypto module (`crypto.c`) for all session crypto:
+- KDFa for session key derivation
+- HMAC for command/response authorization
+- AES-CFB for parameter encryption/decryption
+- `RAND_bytes()` for nonce generation
 
 ### Software Implementations (`soft.c`)
 
-- `htpm2_make_credential()` -- uses `hx509_rsa_oaep_encrypt()` +
-  `hx509_kdfa()` + `hx509_aes_cfb_encrypt()` + `hx509_hmac()`
+- `htpm2_make_credential()` -- RSA OAEP encrypt + KDFa + AES-CFB + HMAC,
+  all via the internal crypto module using `libcrypto` directly
 - Any other operations that can be done without TPM secrets
 
 ## Async I/O Future Path

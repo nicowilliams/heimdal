@@ -20,10 +20,11 @@ Wire into:
   `--enable-tpm2` / `--disable-tpm2` configure flag (default auto based on
   platform)
 
-Library target: `libhtpm2.la` linking against `libhx509.la`,
-`libheimbase.la`, and `$(LIBADD_roken)`.  No Intel TSS.  All crypto goes
-through `lib/hx509/` (which wraps OpenSSL `libcrypto`); `lib/htpm2/` never
-calls OpenSSL directly.
+Library target: `libhtpm2.la` linking against `libheimbase.la`,
+`$(LIBADD_roken)`, and `$(LIB_openssl_crypto)`.  No Intel TSS, no dependency
+on `lib/hx509/`.  `lib/htpm2/` uses OpenSSL's `libcrypto` directly for its
+cryptographic primitives, following the same pattern as `lib/hx509/` and
+`lib/krb5/`.
 
 ### 0.2 Storage/Marshalling Primitives
 
@@ -43,57 +44,45 @@ lib/htpm2/marshal.c     -- marshalling primitives
 lib/htpm2/marshal.h     -- internal marshalling header
 ```
 
-### 0.3 Crypto Primitives (Extensions to `lib/hx509/`)
+### 0.3 Crypto Primitives (Internal to `lib/htpm2/`)
 
-All cryptographic primitives needed by `lib/htpm2/` are provided through
-`lib/hx509/`, which wraps OpenSSL's `libcrypto`.  Several primitives that
-`lib/hx509/` currently lacks must be added there first.
+`lib/htpm2/` uses OpenSSL's `libcrypto` directly for all cryptographic
+primitives, following the same pattern as `lib/hx509/` and `lib/krb5/`.
+This is cleaner than routing through `lib/hx509/` (which is a PKI library,
+not a general crypto wrapper) and avoids creating an unnecessary dependency.
 
-**Already available in `lib/hx509/`:**
-- SHA-256/384/512 (via cached `EVP_MD` objects on `hx509_context`)
-- Random bytes (via `RAND_bytes()`)
-- RSA PKCS#1 v1.5 encrypt/decrypt
-- ECDSA sign/verify
-- AES-CBC encrypt/decrypt
+Implement in `lib/htpm2/crypto.c` (internal, not part of the public API):
 
-**Must be added to `lib/hx509/`** (new file `lib/hx509/crypto-tpm.c` or
-extensions to existing `crypto.c`):
+- **SHA-256/384/512** via `EVP_DigestInit/Update/Final` with `EVP_sha256()`
+  etc.  Cache `EVP_MD` pointers on the `htpm2_context`, same as hx509 and
+  krb5 do.  ~40 lines.
 
-- **Standalone HMAC** (`hx509_hmac()`): Currently HMAC is only used
-  internally for PBKDF2.  Expose a public standalone HMAC function using
-  OpenSSL's `HMAC()` or `EVP_MAC` API.  ~30 lines.
+- **Standalone HMAC** via OpenSSL's `EVP_MAC` API (OpenSSL 3.x) or the
+  legacy `HMAC()` function.  ~30 lines.
 
-- **AES-CFB mode** (`hx509_aes_cfb_encrypt/decrypt()`): Currently only
-  AES-CBC is available.  Add AES-128-CFB and AES-256-CFB using
-  `EVP_aes_128_cfb128()` / `EVP_aes_256_cfb128()`.  Extend the existing
-  cipher table in `crypto.c` or add dedicated functions.  ~80 lines.
+- **AES-128/256-CFB** via `EVP_EncryptInit_ex`/`EVP_DecryptInit_ex` with
+  `EVP_aes_128_cfb128()` / `EVP_aes_256_cfb128()`.  ~80 lines.
 
-- **RSA OAEP encryption** (`hx509_rsa_oaep_encrypt()`): The existing
-  `_hx509_public_encrypt()` uses `RSA_PKCS1_PADDING`; it even has a
-  `// XXX Want OEAP instead pls` comment.  Add OAEP support by using
+- **RSA OAEP encryption** via `EVP_PKEY_encrypt()` with
   `EVP_PKEY_CTX_set_rsa_padding(ctx, RSA_PKCS1_OAEP_PADDING)` and
   `EVP_PKEY_CTX_set_rsa_oaep_md()`.  The TPM uses OAEP with SHA-256 and
-  a label of `"IDENTITY\0"` for MakeCredential.  ~60 lines.
+  a label of `"IDENTITY\0"` for MakeCredential.  Need to parse the EK's
+  `TPM2B_PUBLIC` to construct an `EVP_PKEY` from the raw RSA modulus/exponent.
+  ~100 lines.
 
-- **ECDH key agreement** (`hx509_ecdh_derive()`): EC key operations exist
-  but ECDH shared-secret derivation is not exposed.  Add a wrapper around
-  `EVP_PKEY_derive()`.  ~50 lines.
+- **ECDH key agreement** via `EVP_PKEY_derive()`.  Need to construct
+  `EVP_PKEY` from raw ECC point in `TPM2B_PUBLIC`.  ~60 lines.
 
-- **KDFa** (`hx509_kdfa()`): TPM 2.0's key derivation function (NIST
-  SP 800-108 counter-mode HMAC-KDF).  Implemented on top of the new
-  `hx509_hmac()`.  ~40 lines.  This could alternatively live in
-  `lib/htpm2/` since it's TPM-specific, but putting it in `lib/hx509/`
-  keeps all crypto in one place.
+- **KDFa** (TPM 2.0's NIST SP 800-108 counter-mode HMAC-KDF).  Built on
+  top of the HMAC primitive above.  ~40 lines.
 
-Files to modify/create in `lib/hx509/`:
+- **Random bytes** via `RAND_bytes()`.  Trivial wrapper.
+
+Files:
 ```
-lib/hx509/crypto.c      -- extend with OAEP, standalone HMAC, AES-CFB
-lib/hx509/crypto-ec.c   -- add ECDH derive
-lib/hx509/hx509.h       -- declare new public functions
+lib/htpm2/crypto.c      -- all crypto primitives (internal)
+lib/htpm2/crypto.h      -- internal crypto header
 ```
-
-No new files are needed in `lib/htpm2/` for crypto -- it all comes from
-`lib/hx509/`.
 
 ## Phase 1: Transport Layer
 
@@ -178,7 +167,7 @@ Internal tracking of session state:
 Files:
 ```
 lib/htpm2/session.c      -- session start/close, HMAC compute, nonce mgmt
-lib/htpm2/session_crypto.c -- calls hx509 for KDFa, param encrypt/decrypt, HMAC
+lib/htpm2/session_crypto.c -- KDFa, param encrypt/decrypt, HMAC (via crypto.c)
 ```
 
 ### 2.3 Object Management
@@ -262,15 +251,13 @@ qualifying data, returns `TPMS_ATTEST` + signature.
 
 ### 4.5 MakeCredential (Software)
 
-Implement in software using `lib/hx509/` primitives:
-1. Generate random seed (`RAND_bytes()` via hx509)
+Implement in software using the internal crypto module (`crypto.c`):
+1. Generate random seed via `RAND_bytes()`
 2. RSA-OAEP encrypt seed with EK public key, label `"IDENTITY\0"`
-   (`hx509_rsa_oaep_encrypt()`)
+   (via `EVP_PKEY_encrypt` with OAEP padding)
 3. Derive symmetric key and HMAC key from seed via KDFa
-   (`hx509_kdfa()`)
-4. Encrypt credential with AES-CFB (`hx509_aes_cfb_encrypt()`)
+4. Encrypt credential with AES-CFB
 5. Compute HMAC over encrypted credential and object name
-   (`hx509_hmac()`)
 
 ### 4.6 ActivateCredential
 
@@ -348,15 +335,8 @@ Add doxygen comments to `htpm2.h` and generate API reference.
 
 ## Estimated File Count
 
-Changes to `lib/hx509/` (crypto primitive additions):
-```
-lib/hx509/
-  crypto.c               -- extend: standalone HMAC, AES-CFB, RSA OAEP, KDFa
-  crypto-ec.c            -- extend: ECDH key agreement
-  hx509.h                -- extend: declare new public functions
-```
+All files are in `lib/htpm2/` (no changes to `lib/hx509/` needed):
 
-New files in `lib/htpm2/`:
 ```
 lib/htpm2/
   Makefile.am
@@ -364,8 +344,10 @@ lib/htpm2/
   htpm2_locl.h            -- internal header
   htpm2_err.et            -- error table
   version-script.map      -- symbol export map
+  crypto.c / crypto.h     -- internal crypto (SHA, HMAC, AES-CFB, RSA OAEP,
+                              ECDH, KDFa) using libcrypto directly
   marshal.c / marshal.h   -- TPM2 structure marshalling
-  soft.c                  -- software MakeCredential (uses hx509 crypto)
+  soft.c                  -- software MakeCredential (uses crypto.c)
   transport.c             -- transport abstraction
   transport_device.c      -- /dev/tpm* transport
   transport_socket.c      -- Unix/TCP socket transport
@@ -373,7 +355,7 @@ lib/htpm2/
   transport_tbs.c         -- Windows TBS transport
   command.c               -- command build/execute/parse
   session.c               -- session lifecycle
-  session_crypto.c        -- session HMAC, param encrypt (via hx509)
+  session_crypto.c        -- session HMAC, param encrypt (uses crypto.c)
   object.c                -- object lifecycle, accessors
   key_templates.c         -- standard key templates
   create.c                -- CreatePrimary, Create
@@ -398,8 +380,8 @@ lib/htpm2/
 Implement in this order so each phase can be tested before moving on:
 
 1. **Phase 0.1-0.2**: Build system, marshalling
-2. **Phase 0.3**: Add missing crypto primitives to `lib/hx509/` (HMAC,
-   AES-CFB, RSA OAEP, ECDH, KDFa) -- with unit tests in `lib/hx509/`
+2. **Phase 0.3**: Internal crypto module (HMAC, AES-CFB, RSA OAEP, ECDH,
+   KDFa, SHA-2) using `libcrypto` directly -- with unit tests
 3. **Phase 1**: Transport (device + socket -- enough to talk to `swtpm`)
 4. **Phase 2**: Command infrastructure + sessions (test with `TPM2_GetRandom`)
 5. **Phase 3**: Key creation (test `CreatePrimary` + `Create` + `Load`)
@@ -423,12 +405,7 @@ Implement in this order so each phase can be tested before moving on:
 3. **Thread safety**: Per Heimdal convention, contexts are single-threaded.
    Should we document this or provide any locking?
 
-4. **KDFa location**: KDFa is TPM-specific but is a pure crypto function.
-   Should it live in `lib/hx509/` (keeping all crypto together) or in
-   `lib/htpm2/` (since it's TPM-specific)?  Leaning toward `lib/hx509/`
-   since it's just HMAC-based KDF and could be useful elsewhere.
-
-5. **hx509 API surface**: The new hx509 crypto functions (HMAC, AES-CFB,
-   RSA OAEP, ECDH) should be public API or private (`_hx509_` prefix)?
-   Public is cleaner for `lib/htpm2/` consumption and may be useful to
-   other Heimdal consumers.  Recommend public.
+4. **OpenSSL version floor**: The crypto module uses EVP APIs.  Should we
+   require OpenSSL 3.x (for `EVP_MAC`) or also support OpenSSL 1.1.x (using
+   the legacy `HMAC()` API)?  Heimdal currently supports both, so we should
+   probably `#ifdef` for both as `lib/hx509/` does.
