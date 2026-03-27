@@ -33,6 +33,7 @@ SUBDIRS = \
 	gss_preauth \
 	hdb \
 	kadm5 \
+	htpm2 \
 	$(dir_dce)
 
 EXTRA_DIST = NTMakefile heimdal

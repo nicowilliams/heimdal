@@ -746,6 +746,7 @@ AC_CONFIG_FILES(Makefile 		\
 	lib/vers/Makefile		\
 	lib/wind/Makefile		\
 	lib/gss_preauth/Makefile	\
+	lib/htpm2/Makefile		\
 	po/Makefile			\
 	kuser/Makefile			\
 	kpasswd/Makefile		\

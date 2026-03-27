@@ -1,0 +1,28 @@
+#
+# Error messages for the htpm2 library
+#
+# This might look like a com_err file, but is not
+#
+id "$Id$"
+
+error_table htpm
+prefix HTPM2
+
+error_code TRANSPORT_OPEN,	"Failed to open TPM transport"
+error_code TRANSPORT_IO,	"TPM transport I/O error"
+error_code TRANSPORT_PROTO,	"TPM transport protocol error"
+error_code MARSHAL,		"TPM command marshalling error"
+error_code UNMARSHAL,		"TPM response unmarshalling error"
+error_code TPM_ERROR,		"TPM returned an error"
+error_code SESSION_AUTH,	"TPM session authentication failed"
+error_code SESSION_ENCRYPT,	"TPM session parameter encryption failed"
+error_code BAD_PARAM,		"Invalid parameter"
+error_code NOMEM,		"Out of memory"
+error_code CRYPTO,		"Cryptographic operation failed"
+error_code KEY_TYPE,		"Unsupported key type"
+error_code OBJECT_FLUSHED,	"TPM object has been flushed"
+error_code SESSION_CLOSED,	"TPM session has been closed"
+error_code WOULDBLOCK,		"Operation would block (retry after poll)"
+error_code NOT_IMPLEMENTED,	"Not yet implemented"
+
+end
