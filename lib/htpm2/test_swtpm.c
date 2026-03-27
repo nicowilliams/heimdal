@@ -372,6 +372,59 @@ test_create_chain_monadic(htpm2_context ctx, htpm2_transport tp)
     htpm2_result_free(&r);
 }
 
+/* --- Session tests --- */
+
+static void
+test_start_hmac_session(htpm2_context ctx, htpm2_transport tp)
+{
+    htpm2_session session = NULL;
+    htpm2_result r;
+
+    r = htpm2_session_start(ctx, tp, HTPM2_OK,
+                            HTPM2_SESSION_HMAC,
+                            NULL, NULL, 0, &session);
+    CHECK_OK(r, "StartAuthSession HMAC (unbound, unsalted)");
+    CHECK(session != NULL, "session should be non-NULL");
+
+    htpm2_session_close(&session);
+    CHECK(session == NULL, "session should be NULL after close");
+    htpm2_result_free(&r);
+}
+
+static void
+test_start_encrypted_session(htpm2_context ctx, htpm2_transport tp)
+{
+    htpm2_session session = NULL;
+    htpm2_result r;
+
+    r = htpm2_session_start(ctx, tp, HTPM2_OK,
+                            HTPM2_SESSION_HMAC,
+                            NULL, NULL,
+                            HTPM2_SESSION_ENC_DEC,
+                            &session);
+    CHECK_OK(r, "StartAuthSession HMAC with encrypt/decrypt");
+    CHECK(session != NULL, "encrypted session should be non-NULL");
+
+    htpm2_session_close(&session);
+    htpm2_result_free(&r);
+}
+
+static void
+test_start_trial_session(htpm2_context ctx, htpm2_transport tp)
+{
+    htpm2_session session = NULL;
+    htpm2_result r;
+
+    r = htpm2_session_start(ctx, tp, HTPM2_OK,
+                            HTPM2_SESSION_TRIAL,
+                            NULL, NULL, 0, &session);
+    CHECK_OK(r, "StartAuthSession trial");
+    CHECK(session != NULL, "trial session should be non-NULL");
+
+    htpm2_session_close(&session);
+    htpm2_result_free(&r);
+}
+
 int
 main(int argc, char **argv)
 {
@@ -430,6 +483,11 @@ main(int argc, char **argv)
     test_create_and_load_child(ctx, tp);
     test_read_public(ctx, tp);
     test_create_chain_monadic(ctx, tp);
+
+    /* Session tests */
+    test_start_hmac_session(ctx, tp);
+    test_start_encrypted_session(ctx, tp);
+    test_start_trial_session(ctx, tp);
 
     /* Cleanup */
     htpm2_transport_close(&tp);

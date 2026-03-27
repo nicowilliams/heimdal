@@ -92,4 +92,33 @@ htpm2_transport htpm2_object_get_transport(htpm2_object obj);
 int htpm2_marshal_key_template(heim_storage *sp, htpm2_key_type type,
                                const void *policy, size_t policy_len);
 
+/* Internal session accessors */
+uint32_t htpm2_session_get_handle(htpm2_session session);
+const uint8_t *htpm2_session_get_nonce_caller(htpm2_session session,
+                                              size_t *len);
+const uint8_t *htpm2_session_get_nonce_tpm(htpm2_session session, size_t *len);
+void htpm2_session_set_nonce_tpm(htpm2_session session,
+                                 const uint8_t *nonce, size_t len);
+htpm2_result htpm2_session_refresh_nonce_caller(const htpm2_context ctx,
+                                                htpm2_session session);
+unsigned int htpm2_session_get_flags(htpm2_session session);
+
+/* Session crypto */
+htpm2_result htpm2_compute_cp_hash(const htpm2_context ctx,
+                                   uint32_t command_code,
+                                   const void *name1, size_t name1_len,
+                                   const void *name2, size_t name2_len,
+                                   const void *name3, size_t name3_len,
+                                   const void *cp_bytes, size_t cp_bytes_len,
+                                   uint8_t cp_hash[32]);
+htpm2_result htpm2_compute_rp_hash(const htpm2_context ctx,
+                                   uint32_t response_code,
+                                   uint32_t command_code,
+                                   const void *rp_bytes, size_t rp_bytes_len,
+                                   uint8_t rp_hash[32]);
+htpm2_result htpm2_marshal_auth_area(const htpm2_context ctx,
+                                     heim_storage *sp,
+                                     htpm2_session session,
+                                     const uint8_t *cp_hash);
+
 #endif /* __htpm2_locl_h__ */
