@@ -94,6 +94,7 @@ int htpm2_marshal_key_template(heim_storage *sp, htpm2_key_type type,
 
 /* Internal session accessors */
 uint32_t htpm2_session_get_handle(htpm2_session session);
+htpm2_transport htpm2_session_get_transport(htpm2_session session);
 const uint8_t *htpm2_session_get_nonce_caller(htpm2_session session,
                                               size_t *len);
 const uint8_t *htpm2_session_get_nonce_tpm(htpm2_session session, size_t *len);

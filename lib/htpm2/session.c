@@ -322,23 +322,7 @@ htpm2_session_close(htpm2_session *session)
     *session = NULL;
 }
 
-htpm2_result
-htpm2_session_get_policy_digest(htpm2_session session,
-                                htpm2_result prior,
-                                void *digest,
-                                size_t *digest_len)
-{
-    (void)session;
-    (void)digest;
-    (void)digest_len;
-
-    if (prior.code)
-        return prior;
-
-    /* TODO: implement TPM2_PolicyGetDigest */
-    return htpm2_result_local(ENOSYS, HTPM2_F_LOCAL, ENOSYS,
-                              "session_get_policy_digest: not yet implemented");
-}
+/* htpm2_session_get_policy_digest is implemented in policy.c */
 
 /* --- Internal accessors for the command layer --- */
 
@@ -346,6 +330,12 @@ uint32_t
 htpm2_session_get_handle(htpm2_session session)
 {
     return session ? session->handle : 0;
+}
+
+htpm2_transport
+htpm2_session_get_transport(htpm2_session session)
+{
+    return session ? session->tp : NULL;
 }
 
 const uint8_t *

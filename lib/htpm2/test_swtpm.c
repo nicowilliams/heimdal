@@ -573,6 +573,115 @@ test_quote(htpm2_context ctx, htpm2_transport tp)
     htpm2_result_free(&r);
 }
 
+/* --- Policy tests --- */
+
+static void
+test_trial_policy_pcr(htpm2_context ctx, htpm2_transport tp)
+{
+    htpm2_session trial = NULL;
+    htpm2_pcr_selection sel = NULL;
+    void *pcr_sel_encoded = NULL;
+    size_t pcr_sel_len = 0;
+    uint8_t digest[32];
+    size_t digest_len = 32;
+    htpm2_result r;
+
+    /* Start trial session */
+    r = htpm2_session_start(ctx, tp, HTPM2_OK,
+                            HTPM2_SESSION_TRIAL,
+                            NULL, NULL, 0, &trial);
+    CHECK_OK(r, "start trial session");
+
+    if (htpm2_is_ok(r)) {
+        /* PolicyPCR for PCR 0 (empty digest = use current values) */
+        r = htpm2_pcr_selection_create(ctx, TPM2_ALG_SHA256, &sel);
+        if (htpm2_is_ok(r)) {
+            htpm2_pcr_selection_add(sel, 0);
+            r = htpm2_pcr_selection_encode(sel, &pcr_sel_encoded, &pcr_sel_len);
+        }
+        if (htpm2_is_ok(r)) {
+            r = htpm2_policy_pcr(ctx, trial, HTPM2_OK,
+                                 pcr_sel_encoded, pcr_sel_len,
+                                 NULL, 0);
+            CHECK_OK(r, "PolicyPCR on trial session");
+        }
+    }
+
+    if (htpm2_is_ok(r)) {
+        /* PolicyCommandCode for TPM2_CC_Sign */
+        r = htpm2_policy_command_code(ctx, trial, HTPM2_OK, TPM2_CC_Sign);
+        CHECK_OK(r, "PolicyCommandCode on trial session");
+    }
+
+    if (htpm2_is_ok(r)) {
+        /* Get the policy digest */
+        r = htpm2_session_get_policy_digest(trial, HTPM2_OK,
+                                            digest, &digest_len);
+        CHECK_OK(r, "PolicyGetDigest");
+        CHECK(digest_len == 32, "digest should be 32 bytes");
+
+        /* Verify it's not all zeros (policy was extended) */
+        int all_zero = 1;
+        for (int i = 0; i < 32; i++)
+            if (digest[i] != 0) { all_zero = 0; break; }
+        CHECK(!all_zero, "policy digest should be non-zero");
+    }
+
+    free(pcr_sel_encoded);
+    htpm2_pcr_selection_free(&sel);
+    htpm2_session_close(&trial);
+    htpm2_result_free(&r);
+}
+
+/* --- MakeCredential test (software only, no TPM needed for make) --- */
+
+static void
+test_make_credential(htpm2_context ctx, htpm2_transport tp)
+{
+    htpm2_object ek = NULL;
+    htpm2_result r = HTPM2_OK;
+    const void *ek_pub;
+    size_t ek_pub_len;
+    const void *ek_name;
+    size_t ek_name_len;
+    void *cred_blob = NULL, *enc_secret = NULL;
+    size_t cred_blob_len = 0, enc_secret_len = 0;
+    const char *secret = "test-secret-42";
+
+    /* Create an EK (RSA-2048 decrypt key under endorsement hierarchy) */
+    r = htpm2_create_primary(ctx, tp, r, NULL,
+                             HTPM2_HIERARCHY_ENDORSEMENT,
+                             HTPM2_KEY_RSA_2048_DECRYPT,
+                             NULL, 0, NULL, 0, &ek);
+    CHECK_OK(r, "CreatePrimary EK for MakeCredential");
+
+    if (htpm2_is_ok(r)) {
+        htpm2_object_get_public(ek, &ek_pub, &ek_pub_len);
+        htpm2_object_get_name(ek, &ek_name, &ek_name_len);
+
+        CHECK(ek_pub != NULL && ek_pub_len > 0, "EK pub non-empty");
+        CHECK(ek_name != NULL && ek_name_len > 0, "EK name non-empty");
+
+        /* MakeCredential in software */
+        r = htpm2_make_credential(ctx,
+                                  ek_pub, ek_pub_len,
+                                  secret, strlen(secret),
+                                  ek_name, ek_name_len,
+                                  &cred_blob, &cred_blob_len,
+                                  &enc_secret, &enc_secret_len);
+        CHECK_OK(r, "MakeCredential (software)");
+        CHECK(cred_blob != NULL && cred_blob_len > 0,
+              "credential blob non-empty");
+        CHECK(enc_secret != NULL && enc_secret_len > 0,
+              "encrypted secret non-empty");
+    }
+
+    free(cred_blob);
+    free(enc_secret);
+    htpm2_object_close(&ek);
+    htpm2_result_free(&r);
+}
+
 int
 main(int argc, char **argv)
 {
@@ -641,6 +750,12 @@ main(int argc, char **argv)
     test_sign_rsa(ctx, tp);
     test_pcr_read(ctx, tp);
     test_quote(ctx, tp);
+
+    /* Policy tests */
+    test_trial_policy_pcr(ctx, tp);
+
+    /* Credential tests */
+    test_make_credential(ctx, tp);
 
     /* Cleanup */
     htpm2_transport_close(&tp);
