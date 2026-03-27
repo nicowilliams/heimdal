@@ -47,6 +47,20 @@ tests.
 
 ## Test Categories
 
+### T0. heim_storage Unit Tests
+
+**File**: `lib/base/test_storage.c`
+
+Tests for `heim_storage` (copied from `krb5_storage`).  No TPM required.
+
+| Test | Description |
+|------|-------------|
+| T0.1 | `heim_store_uint8/16/32()` + `heim_ret_uint8/16/32()` round-trip, verify big-endian |
+| T0.2 | `heim_storage_to_data()` -- write values, extract to `heim_octet_string`, verify bytes |
+| T0.3 | `heim_storage` from data -- create from byte buffer, read back values |
+| T0.4 | Seek/truncate operations |
+| T0.5 | EOF handling -- read past end returns `eof_code` |
+
 ### T1. Marshalling Unit Tests
 
 **File**: `test_marshal.c`
@@ -188,6 +202,7 @@ Requires `swtpm`.
 | T8.4 | `Certify` one key with another -- verify attestation structure |
 | T8.5 | `CertifyCreation` -- verify creation ticket validates |
 | T8.6 | Quote with encrypted session |
+| T8.7 | `CertifyX509` -- issue X.509 cert signed by TPM key, verify cert parses and signature validates |
 
 ### T9. Decryption Tests
 
@@ -261,20 +276,31 @@ Requires `swtpm`.
 | T13.2 | `Duplicate` a key to a new parent -- `Import` under new parent, verify usable |
 | T13.3 | `Import` with wrong parent -- verify failure |
 
-### T14. Error Handling Tests
+### T14. Error Handling and Result Type Tests
 
 **File**: `test_errors.c`
 
-Mix of with and without `swtpm`.
+Mix of with and without `swtpm`.  Tests the structured `htpm2_result` type,
+multi-dimensional error codes, and monadic chaining.
 
 | Test | Description |
 |------|-------------|
-| T14.1 | NULL context -- verify graceful failure |
-| T14.2 | Use object after flush -- verify error (not crash) |
-| T14.3 | Use session after close -- verify error |
-| T14.4 | Transport disconnected mid-operation -- verify error propagation |
-| T14.5 | TPM authorization failure -- verify meaningful error string |
-| T14.6 | Error string retrieval and clearing |
+| T14.1 | `HTPM2_OK` has `code == 0`, `flags == 0`, `message == NULL` |
+| T14.2 | `htpm2_result_free()` on OK result is a no-op |
+| T14.3 | `htpm2_result_free()` frees message and zeros struct |
+| T14.4 | `htpm2_result_prepend()` on OK result returns OK (no allocation) |
+| T14.5 | `htpm2_result_prepend()` on error prepends to message string |
+| T14.6 | Monadic chaining: pass error result to function, verify short-circuit (function not executed, same error returned) |
+| T14.7 | Monadic chaining: chain 5 OK calls, verify all execute |
+| T14.8 | Monadic chaining: error on 3rd of 5 calls, verify 4th and 5th not executed, error from 3rd preserved |
+| T14.9 | TPM error: `HTPM2_F_TPM_RC` flag set, `tpm_rc` populated, message includes decoded RC |
+| T14.10 | Transport error: `HTPM2_F_TRANSPORT` + `HTPM2_F_LOCAL` flags set, `local_err` has errno |
+| T14.11 | OpenSSL error: `HTPM2_F_OSSL` flag set, `ossl_err` populated |
+| T14.12 | Session auth failure: `HTPM2_F_SESSION` flag set |
+| T14.13 | NULL context -- verify graceful failure |
+| T14.14 | Use object after flush -- verify error (not crash) |
+| T14.15 | Use session after close -- verify error |
+| T14.16 | Transport disconnected mid-operation -- verify error with `HTPM2_F_TRANSPORT` |
 
 ### T15. Integration / Scenario Tests
 

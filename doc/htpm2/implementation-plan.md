@@ -26,27 +26,35 @@ on `lib/hx509/`.  `lib/htpm2/` uses OpenSSL's `libcrypto` directly for its
 cryptographic primitives, following the same pattern as `lib/hx509/` and
 `lib/krb5/`.
 
-### 0.2 Storage/Marshalling Primitives
+OpenSSL 3.0+ is the minimum supported version (use `EVP_MAC` API, not
+legacy `HMAC()`).
 
-Evaluate whether to:
-- **(a)** Move `krb5_storage` APIs to `lib/base/` as `heim_storage`, or
-- **(b)** Write a minimal marshalling layer directly in `lib/htpm2/`.
+### 0.2 Storage/Marshalling Primitives via `heim_storage` in `lib/base/`
 
-Option (b) is simpler and avoids cross-library churn.  The marshalling needs
-are limited: big-endian `uint8/16/32`, sized byte buffers (`TPM2B`), and
-composite structure pack/unpack.  Recommend **(b)** initially, with the option
-to refactor to a shared `heim_storage` later if other new libraries need the
-same thing.
+Copy `krb5_storage` from `lib/krb5/` into `lib/base/` as `heim_storage`,
+replacing the `krb5_` prefix with `heim_`.  This provides big-endian
+integer marshalling, sized byte buffers, seek, and the storage-to-data
+pattern that we need for TPM command/response marshalling.
 
-Files:
+`lib/krb5/` continues to use its own `krb5_storage` for now; migrating
+`lib/krb5/` to `heim_storage` is a separate, later project.
+
+Files to create:
 ```
-lib/htpm2/marshal.c     -- marshalling primitives
-lib/htpm2/marshal.h     -- internal marshalling header
+lib/base/heim_storage.c    -- copied from lib/krb5/store.c, prefix replaced
+lib/base/heim_storage.h    -- public header
+lib/base/store-int.h       -- internal storage structure (copied)
+```
+
+`lib/htpm2/` then builds TPM-specific wrappers on top:
+```
+lib/htpm2/marshal.c        -- htpm2_store_tpm2b(), per-structure marshal fns
+lib/htpm2/marshal.h        -- internal marshalling header
 ```
 
 ### 0.3 Crypto Primitives (Internal to `lib/htpm2/`)
 
-`lib/htpm2/` uses OpenSSL's `libcrypto` directly for all cryptographic
+`lib/htpm2/` uses OpenSSL 3.0+ `libcrypto` directly for all cryptographic
 primitives, following the same pattern as `lib/hx509/` and `lib/krb5/`.
 This is cleaner than routing through `lib/hx509/` (which is a PKI library,
 not a general crypto wrapper) and avoids creating an unnecessary dependency.
@@ -57,8 +65,7 @@ Implement in `lib/htpm2/crypto.c` (internal, not part of the public API):
   etc.  Cache `EVP_MD` pointers on the `htpm2_context`, same as hx509 and
   krb5 do.  ~40 lines.
 
-- **Standalone HMAC** via OpenSSL's `EVP_MAC` API (OpenSSL 3.x) or the
-  legacy `HMAC()` function.  ~30 lines.
+- **Standalone HMAC** via OpenSSL 3.0+ `EVP_MAC` API.  ~30 lines.
 
 - **AES-128/256-CFB** via `EVP_EncryptInit_ex`/`EVP_DecryptInit_ex` with
   `EVP_aes_128_cfb128()` / `EVP_aes_256_cfb128()`.  ~80 lines.
@@ -82,6 +89,25 @@ Files:
 ```
 lib/htpm2/crypto.c      -- all crypto primitives (internal)
 lib/htpm2/crypto.h      -- internal crypto header
+```
+
+### 0.4 Structured Result Type
+
+Implement `htpm2_result` -- the structured error type returned by value
+from all functions.  This is a departure from Heimdal's traditional
+integer-return-code pattern:
+
+- Multi-dimensional error codes via flags (TPM RC, local errno, OpenSSL
+  error, error layer flags)
+- Heap-allocated error message (only on error; success = no allocation)
+- Monadic chaining: every function takes a prior `htpm2_result` and
+  short-circuits if it's an error
+- Read-only context: errors live in the result, not on the context
+
+Files:
+```
+lib/htpm2/result.c      -- htpm2_result_free, htpm2_result_prepend,
+                            htpm2_result_create (internal helper)
 ```
 
 ## Phase 1: Transport Layer
@@ -147,6 +173,11 @@ The core loop for executing TPM commands:
 5. Verify response auth area HMAC (if session present)
 6. Decrypt response parameters (if encrypted session)
 7. Unmarshal response parameters
+8. Return `htpm2_result` with appropriate error dimension flags
+
+On TPM error, the result has `HTPM2_F_TPM_RC` set and `tpm_rc` populated
+with the raw TPM response code.  The `message` field includes a decoded
+human-readable description of the TPM error.
 
 Files:
 ```
@@ -244,10 +275,12 @@ qualifying data, returns `TPMS_ATTEST` + signature.
 `TPM2_RSA_Decrypt` -- RSA decryption.
 `TPM2_ECDH_ZGen` -- ECDH shared secret computation.
 
-### 4.4 Certify / CertifyCreation
+### 4.4 Certify / CertifyCreation / CertifyX509
 
 `TPM2_Certify` -- prove an object is loaded.
 `TPM2_CertifyCreation` -- prove creation data matches.
+`TPM2_CertifyX509` -- issue an X.509 certificate signed by a TPM key.
+Requires `lib/asn1/` for DER encoding of partial certificates.
 
 ### 4.5 MakeCredential (Software)
 
@@ -304,16 +337,17 @@ Logical OR of policy branches.
 
 ### 7.1 Error Table
 
-Define `htpm2_err.et` with error codes using Heimdal's `com_err` system:
+Define `htpm2_err.et` with error codes using Heimdal's `com_err` system.
+These provide the `code` values in `htpm2_result` for library-level errors:
 - Transport errors
 - Marshalling errors
 - Session errors
-- TPM response code translation
 
 ### 7.2 TPM RC Decoding
 
-Translate TPM2 response codes into human-readable error strings stored on
-the context via `heim_set_error_message()`.
+Translate TPM2 response codes into human-readable `message` strings in the
+`htpm2_result`.  The raw `TPM_RC` is preserved in `result.tpm_rc` with the
+`HTPM2_F_TPM_RC` flag set.
 
 ### 7.3 Logging
 
@@ -335,8 +369,15 @@ Add doxygen comments to `htpm2.h` and generate API reference.
 
 ## Estimated File Count
 
-All files are in `lib/htpm2/` (no changes to `lib/hx509/` needed):
+New files in `lib/base/` (heim_storage):
+```
+lib/base/
+  heim_storage.c          -- copied from krb5_storage, prefix replaced
+  heim_storage.h          -- public storage header
+  store-int.h             -- internal storage structure
+```
 
+All files in `lib/htpm2/`:
 ```
 lib/htpm2/
   Makefile.am
@@ -344,9 +385,10 @@ lib/htpm2/
   htpm2_locl.h            -- internal header
   htpm2_err.et            -- error table
   version-script.map      -- symbol export map
+  result.c                -- htpm2_result operations
   crypto.c / crypto.h     -- internal crypto (SHA, HMAC, AES-CFB, RSA OAEP,
                               ECDH, KDFa) using libcrypto directly
-  marshal.c / marshal.h   -- TPM2 structure marshalling
+  marshal.c / marshal.h   -- TPM2 structure marshalling (uses heim_storage)
   soft.c                  -- software MakeCredential (uses crypto.c)
   transport.c             -- transport abstraction
   transport_device.c      -- /dev/tpm* transport
@@ -365,7 +407,7 @@ lib/htpm2/
   context_mgmt.c          -- ContextSave/Load, FlushContext
   sign.c                  -- Sign, VerifySignature
   quote.c                 -- Quote
-  certify.c               -- Certify, CertifyCreation
+  certify.c               -- Certify, CertifyCreation, CertifyX509
   decrypt.c               -- RSA_Decrypt, ECDH_ZGen
   credential.c            -- ActivateCredential
   pcr.c                   -- PCR_Read, PCR_Extend
@@ -379,33 +421,31 @@ lib/htpm2/
 
 Implement in this order so each phase can be tested before moving on:
 
-1. **Phase 0.1-0.2**: Build system, marshalling
-2. **Phase 0.3**: Internal crypto module (HMAC, AES-CFB, RSA OAEP, ECDH,
-   KDFa, SHA-2) using `libcrypto` directly -- with unit tests
-3. **Phase 1**: Transport (device + socket -- enough to talk to `swtpm`)
-4. **Phase 2**: Command infrastructure + sessions (test with `TPM2_GetRandom`)
-5. **Phase 3**: Key creation (test `CreatePrimary` + `Create` + `Load`)
-6. **Phase 4**: Crypto operations (test `Sign` + `Quote`)
-7. **Phase 5**: PCR + utility ops
-8. **Phase 6**: Policy operations (test trial + real policy sessions)
-9. **Phase 4 cont.**: `MakeCredential` / `ActivateCredential` (depends on
-   policy for EK)
-10. **Phase 7**: Error handling polish, logging
-11. **Phase 8**: Documentation
+1. **Phase 0.1**: Build system setup
+2. **Phase 0.2**: `heim_storage` in `lib/base/` (copy from `krb5_storage`)
+3. **Phase 0.3**: Internal crypto module -- with unit tests
+4. **Phase 0.4**: `htpm2_result` type and monadic chaining
+5. **Phase 1**: Transport (device + socket -- enough to talk to `swtpm`)
+6. **Phase 2**: Command infrastructure + sessions (test with `TPM2_GetRandom`)
+7. **Phase 3**: Key creation (test `CreatePrimary` + `Create` + `Load`)
+8. **Phase 4.1-4.3**: Sign, Quote, RSA_Decrypt, ECDH_ZGen
+9. **Phase 5**: PCR + utility ops
+10. **Phase 6**: Policy operations (test trial + real policy sessions)
+11. **Phase 4.4-4.6**: Certify, CertifyX509, MakeCredential,
+    ActivateCredential (depends on policy for EK)
+12. **Phase 7**: Error handling polish, logging
+13. **Phase 8**: Documentation
 
-## Open Questions
+## Resolved Questions
 
-1. **heim_storage**: Should we invest in moving `krb5_storage` to `lib/base/`
-   now, or just write a small marshalling layer in `lib/htpm2/`?
+1. **Marshalling**: Copy `krb5_storage` to `lib/base/` as `heim_storage`.
+   Migrating `lib/krb5/` to use it is a later project.
 
-2. **ASN.1**: Some TPM attestation output may need to be wrapped in ASN.1
-   (e.g., for X.509 certificate issuance).  Should `lib/asn1/` be an optional
-   dependency?
+2. **ASN.1**: `lib/asn1/` will be a dependency for `TPM2_CertifyX509()`.
 
-3. **Thread safety**: Per Heimdal convention, contexts are single-threaded.
-   Should we document this or provide any locking?
+3. **Thread safety**: No locking in the library.  The context is read-only
+   after init (inherently thread-safe).  Mutable objects (transports,
+   sessions, object handles) are the caller's responsibility to protect.
 
-4. **OpenSSL version floor**: The crypto module uses EVP APIs.  Should we
-   require OpenSSL 3.x (for `EVP_MAC`) or also support OpenSSL 1.1.x (using
-   the legacy `HMAC()` API)?  Heimdal currently supports both, so we should
-   probably `#ifdef` for both as `lib/hx509/` does.
+4. **OpenSSL version floor**: OpenSSL 3.0+ is required.  Use `EVP_MAC`
+   (not legacy `HMAC()`).  No `#ifdef` for OpenSSL 1.1.x.
