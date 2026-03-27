@@ -68,4 +68,13 @@ htpm2_result htpm2_result_local(int code, uint32_t flags, int local_err,
 htpm2_result htpm2_result_tpm(uint32_t tpm_rc, const char *fmt, ...);
 htpm2_result htpm2_result_ossl(int code, const char *fmt, ...);
 
+/* Internal commands not in the public API */
+htpm2_result htpm2_startup(const htpm2_context ctx, htpm2_transport tp,
+                           htpm2_result prior, uint16_t startup_type);
+
+/* Internal transport send/recv for command layer */
+htpm2_result htpm2_transport_send_recv(htpm2_transport tp,
+                                       const void *cmd, size_t cmd_len,
+                                       void *rsp, size_t *rsp_len);
+
 #endif /* __htpm2_locl_h__ */

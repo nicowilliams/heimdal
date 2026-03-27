@@ -64,14 +64,20 @@ nodist_include_HEADERS = htpm2_err.h
 
 check_PROGRAMS = \
 	test_result \
-	test_crypto
+	test_crypto \
+	test_swtpm
 
 TESTS = \
 	test_result \
-	test_crypto
+	test_crypto \
+	test_swtpm
 
 test_result_SOURCES = test_result.c
 test_result_LDADD = libhtpm2.la $(LIB_openssl_crypto) $(LIBADD_roken)
 
 test_crypto_SOURCES = test_crypto.c
 test_crypto_LDADD = libhtpm2.la $(LIB_openssl_crypto) $(LIBADD_roken)
+
+test_swtpm_SOURCES = test_swtpm.c
+test_swtpm_LDADD = libhtpm2.la $(LIB_openssl_crypto) \
+	$(top_builddir)/lib/base/libheimbase.la $(LIBADD_roken)
