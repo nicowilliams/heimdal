@@ -66,24 +66,28 @@ isolation.
 | T1.8 | Round-trip: marshal then unmarshal every key template type |
 | T1.9 | Error cases: truncated input, oversized `TPM2B`, invalid sizes |
 
-### T2. Crypto Unit Tests (Software Primitives)
+### T2. Crypto Primitives Tests (hx509 extensions)
 
-**File**: `test_crypto.c`
+New crypto primitives are added to `lib/hx509/` for use by `lib/htpm2/`.
+These tests validate those additions against known test vectors.
 
-No TPM required.  Validates our SHA-256, HMAC, KDFa, AES-CFB implementations
-against known test vectors.
+**File**: `lib/hx509/test_tpm_crypto.c` (tests for the new hx509 primitives)
+**File**: `lib/htpm2/test_crypto.c` (tests for htpm2's use of them, e.g. KDFa)
+
+No TPM required.
 
 | Test | Description |
 |------|-------------|
-| T2.1 | SHA-256: NIST test vectors (empty string, "abc", 448-bit, 896-bit) |
-| T2.2 | SHA-384: NIST test vectors |
-| T2.3 | SHA-512: NIST test vectors |
-| T2.4 | HMAC-SHA-256: RFC 4231 test vectors |
-| T2.5 | KDFa: TPM 2.0 Part 4 sample vectors (derive session key) |
-| T2.6 | AES-128-CFB: NIST SP 800-38A test vectors |
-| T2.7 | AES-256-CFB: NIST SP 800-38A test vectors |
-| T2.8 | Parameter encryption round-trip: encrypt then decrypt, verify plaintext matches |
-| T2.9 | RSA OAEP (if implemented): known test vectors from NIST / PKCS#1 v2.2 |
+| T2.1 | `hx509_hmac()` with SHA-256: RFC 4231 test vectors |
+| T2.2 | `hx509_hmac()` with SHA-384: RFC 4231 test vectors |
+| T2.3 | `hx509_hmac()` with SHA-512: RFC 4231 test vectors |
+| T2.4 | `hx509_kdfa()`: TPM 2.0 Part 4 sample vectors (derive session key) |
+| T2.5 | `hx509_aes_cfb_encrypt/decrypt()` AES-128-CFB: NIST SP 800-38A test vectors |
+| T2.6 | `hx509_aes_cfb_encrypt/decrypt()` AES-256-CFB: NIST SP 800-38A test vectors |
+| T2.7 | AES-CFB round-trip: encrypt then decrypt, verify plaintext matches |
+| T2.8 | `hx509_rsa_oaep_encrypt()`: encrypt with known key, verify format; round-trip with `hx509_private_key_private_decrypt()` using OAEP |
+| T2.9 | `hx509_ecdh_derive()`: derive shared secret from two key pairs, verify both sides agree |
+| T2.10 | Parameter encryption round-trip: KDFa-derived key + AES-CFB encrypt/decrypt |
 
 ### T3. Transport Tests
 
@@ -362,9 +366,13 @@ HTPM2_TEST_TRANSPORT="socket:$SOCKET" \
 ## Files
 
 ```
+lib/hx509/
+  test_tpm_crypto.c    -- T2: tests for new hx509 crypto primitives (HMAC,
+                           AES-CFB, RSA OAEP, ECDH)
+
 lib/htpm2/
   test_marshal.c       -- T1: marshalling unit tests
-  test_crypto.c        -- T2: crypto unit tests
+  test_crypto.c        -- T2: KDFa and htpm2-level crypto integration tests
   test_transport.c     -- T3: transport tests
   test_commands.c      -- T4: basic command tests
   test_sessions.c      -- T5: session tests
