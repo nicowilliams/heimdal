@@ -724,6 +724,19 @@ AC_ARG_ENABLE(heimdal-documentation,
 		[if you want disable to heimdal documentation]))
 AM_CONDITIONAL(HEIMDAL_DOCUMENTATION, test "$enable_heimdal_documentation" != no)
 
+dnl
+dnl TPM 2.0 support (lib/htpm2)
+dnl
+
+AC_ARG_ENABLE(tpm2,
+	AS_HELP_STRING([--disable-tpm2],
+		[if you want to disable TPM 2.0 support]))
+AM_CONDITIONAL(TPM2, test "$enable_tpm2" != no)
+
+AC_CHECK_PROG(SWTPM, swtpm, [swtpm], [no])
+AC_CHECK_PROG(SWTPM_SETUP, swtpm_setup, [swtpm_setup], [no])
+AM_CONDITIONAL(HAVE_SWTPM, test "$SWTPM" != no -a "$SWTPM_SETUP" != no)
+
 AC_CONFIG_FILES(Makefile 		\
 	etc/Makefile			\
 	include/Makefile		\
