@@ -234,6 +234,144 @@ test_monadic_chain_error_propagation(htpm2_context ctx, htpm2_transport tp)
     htpm2_result_free(&r);
 }
 
+/* --- Key creation tests --- */
+
+static void
+test_create_primary_rsa(htpm2_context ctx, htpm2_transport tp)
+{
+    htpm2_object srk = NULL;
+    htpm2_result r;
+    const void *pub;
+    size_t pub_len;
+
+    r = htpm2_create_primary(ctx, tp, HTPM2_OK, NULL,
+                             HTPM2_HIERARCHY_OWNER,
+                             HTPM2_KEY_RSA_2048_STORAGE,
+                             NULL, 0, NULL, 0, &srk);
+    CHECK_OK(r, "CreatePrimary RSA-2048 storage");
+    CHECK(srk != NULL, "object should be non-NULL");
+
+    if (srk) {
+        r = htpm2_object_get_public(srk, &pub, &pub_len);
+        CHECK_OK(r, "get public");
+        CHECK(pub != NULL && pub_len > 0, "public blob should be non-empty");
+    }
+
+    htpm2_object_close(&srk);
+    CHECK(srk == NULL, "object should be NULL after close");
+    htpm2_result_free(&r);
+}
+
+static void
+test_create_primary_ecc(htpm2_context ctx, htpm2_transport tp)
+{
+    htpm2_object key = NULL;
+    htpm2_result r;
+
+    r = htpm2_create_primary(ctx, tp, HTPM2_OK, NULL,
+                             HTPM2_HIERARCHY_OWNER,
+                             HTPM2_KEY_ECC_P256_STORAGE,
+                             NULL, 0, NULL, 0, &key);
+    CHECK_OK(r, "CreatePrimary ECC P-256 storage");
+    CHECK(key != NULL, "ECC object should be non-NULL");
+
+    htpm2_object_close(&key);
+    htpm2_result_free(&r);
+}
+
+static void
+test_create_and_load_child(htpm2_context ctx, htpm2_transport tp)
+{
+    htpm2_object parent = NULL, child = NULL, loaded = NULL;
+    htpm2_result r = HTPM2_OK;
+    const void *pub, *priv;
+    size_t pub_len, priv_len;
+
+    /* Create storage parent */
+    r = htpm2_create_primary(ctx, tp, r, NULL,
+                             HTPM2_HIERARCHY_OWNER,
+                             HTPM2_KEY_RSA_2048_STORAGE,
+                             NULL, 0, NULL, 0, &parent);
+    CHECK_OK(r, "CreatePrimary parent");
+
+    /* Create signing child under parent */
+    r = htpm2_create(ctx, tp, r, NULL, parent,
+                     HTPM2_KEY_RSA_2048_SIGN,
+                     NULL, 0, NULL, 0, &child);
+    CHECK_OK(r, "Create child signing key");
+
+    if (htpm2_is_ok(r)) {
+        /* Child should have pub and priv blobs but no TPM handle yet */
+        r = htpm2_object_get_public(child, &pub, &pub_len);
+        CHECK_OK(r, "child get public");
+        CHECK(pub_len > 0, "child public should be non-empty");
+
+        r = htpm2_object_get_private(child, &priv, &priv_len);
+        CHECK_OK(r, "child get private");
+        CHECK(priv_len > 0, "child private should be non-empty");
+
+        /* Load the child */
+        r = htpm2_load(ctx, tp, HTPM2_OK, NULL, parent,
+                       pub, pub_len, priv, priv_len, &loaded);
+        CHECK_OK(r, "Load child");
+        CHECK(loaded != NULL, "loaded object should be non-NULL");
+    }
+
+    htpm2_object_close(&loaded);
+    htpm2_object_close(&child);
+    htpm2_object_close(&parent);
+    htpm2_result_free(&r);
+}
+
+static void
+test_read_public(htpm2_context ctx, htpm2_transport tp)
+{
+    htpm2_object key = NULL;
+    htpm2_result r;
+    void *pub = NULL, *name = NULL;
+    size_t pub_len = 0, name_len = 0;
+
+    r = htpm2_create_primary(ctx, tp, HTPM2_OK, NULL,
+                             HTPM2_HIERARCHY_OWNER,
+                             HTPM2_KEY_RSA_2048_STORAGE,
+                             NULL, 0, NULL, 0, &key);
+    CHECK_OK(r, "CreatePrimary for ReadPublic test");
+
+    if (htpm2_is_ok(r)) {
+        r = htpm2_read_public(ctx, tp, HTPM2_OK, key,
+                              &pub, &pub_len, &name, &name_len);
+        CHECK_OK(r, "ReadPublic");
+        CHECK(pub != NULL && pub_len > 0, "ReadPublic pub non-empty");
+        CHECK(name != NULL && name_len > 0, "ReadPublic name non-empty");
+    }
+
+    free(pub);
+    free(name);
+    htpm2_object_close(&key);
+    htpm2_result_free(&r);
+}
+
+static void
+test_create_chain_monadic(htpm2_context ctx, htpm2_transport tp)
+{
+    htpm2_object parent = NULL, child = NULL;
+    htpm2_result r = HTPM2_OK;
+
+    /* Monadic chain: CreatePrimary then Create -- all in one chain */
+    r = htpm2_create_primary(ctx, tp, r, NULL,
+                             HTPM2_HIERARCHY_OWNER,
+                             HTPM2_KEY_ECC_P256_STORAGE,
+                             NULL, 0, NULL, 0, &parent);
+    r = htpm2_create(ctx, tp, r, NULL, parent,
+                     HTPM2_KEY_ECC_P256_SIGN,
+                     NULL, 0, NULL, 0, &child);
+    CHECK_OK(r, "monadic chain CreatePrimary + Create");
+
+    htpm2_object_close(&child);
+    htpm2_object_close(&parent);
+    htpm2_result_free(&r);
+}
+
 int
 main(int argc, char **argv)
 {
@@ -285,6 +423,13 @@ main(int argc, char **argv)
     test_get_random_large(ctx, tp);
     test_monadic_chain_with_tpm(ctx, tp);
     test_monadic_chain_error_propagation(ctx, tp);
+
+    /* Key creation tests */
+    test_create_primary_rsa(ctx, tp);
+    test_create_primary_ecc(ctx, tp);
+    test_create_and_load_child(ctx, tp);
+    test_read_public(ctx, tp);
+    test_create_chain_monadic(ctx, tp);
 
     /* Cleanup */
     htpm2_transport_close(&tp);

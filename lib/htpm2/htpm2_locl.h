@@ -77,4 +77,19 @@ htpm2_result htpm2_transport_send_recv(htpm2_transport tp,
                                        const void *cmd, size_t cmd_len,
                                        void *rsp, size_t *rsp_len);
 
+/* Internal object management */
+htpm2_object htpm2_object_alloc(htpm2_transport tp, uint32_t handle);
+void htpm2_object_set_pub(htpm2_object obj, const void *pub, size_t pub_len);
+void htpm2_object_set_priv(htpm2_object obj, const void *priv, size_t priv_len);
+void htpm2_object_set_name(htpm2_object obj, const void *name, size_t name_len);
+void htpm2_object_set_auth(htpm2_object obj, const void *auth, size_t auth_len);
+void htpm2_object_set_creation_ticket(htpm2_object obj, const void *ticket,
+                                       size_t ticket_len);
+uint32_t htpm2_object_get_handle(htpm2_object obj);
+htpm2_transport htpm2_object_get_transport(htpm2_object obj);
+
+/* Internal key template marshalling */
+int htpm2_marshal_key_template(heim_storage *sp, htpm2_key_type type,
+                               const void *policy, size_t policy_len);
+
 #endif /* __htpm2_locl_h__ */

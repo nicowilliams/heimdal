@@ -1,6 +1,6 @@
 include $(top_srcdir)/Makefile.am.common
 
-AM_CPPFLAGS += $(INCLUDE_openssl_crypto)
+AM_CPPFLAGS += $(INCLUDE_openssl_crypto) -I$(top_srcdir)/lib/base
 
 lib_LTLIBRARIES = libhtpm2.la
 libhtpm2_la_LDFLAGS = -version-info 0:0:0
