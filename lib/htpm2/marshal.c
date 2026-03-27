@@ -224,3 +224,170 @@ htpm2_command_execute(const htpm2_context ctx,
     *rsp_sp = rsp;
     return HTPM2_OK;
 }
+
+/*
+ * Build and execute a command with a single authorization session.
+ *
+ * Command layout for TPM_ST_SESSIONS:
+ *   tag (uint16) = TPM_ST_SESSIONS
+ *   commandSize (uint32)
+ *   commandCode (uint32)
+ *   handles (uint32 each)
+ *   authorizationSize (uint32)
+ *   authArea (TPMS_AUTH_COMMAND)
+ *   parameters (command-specific)
+ *
+ * Response layout for TPM_ST_SESSIONS:
+ *   tag (uint16) = TPM_ST_SESSIONS
+ *   responseSize (uint32)
+ *   responseCode (uint32)
+ *   [handle if command creates one -- NOT for most commands]
+ *   parameterSize (uint32)
+ *   parameters
+ *   authArea (TPMS_AUTH_RESPONSE)
+ */
+htpm2_result
+htpm2_command_execute_with_auth(
+    const htpm2_context ctx,
+    htpm2_transport tp,
+    uint32_t command_code,
+    const uint32_t *handles, size_t num_handles,
+    htpm2_session session,
+    const void *param_bytes, size_t param_bytes_len,
+    heim_storage **rsp_sp,
+    uint32_t *rc)
+{
+    heim_storage *cmd, *auth_sp, *rsp;
+    void *auth_data = NULL, *cmd_data = NULL;
+    size_t auth_len = 0, cmd_len = 0;
+    uint8_t cp_hash[32];
+    uint16_t rsp_tag;
+    uint32_t rsp_size, param_size;
+    htpm2_result r;
+    int ret;
+    size_t i;
+
+    *rsp_sp = NULL;
+    *rc = 0;
+
+    /*
+     * Compute cpHash for the HMAC.
+     * cpHash = SHA-256(commandCode || name1 || name2 || ... || cpBytes)
+     *
+     * For now we pass handle values as "names" for handles that don't
+     * have a cached Name.  This is correct for hierarchy handles
+     * (their name is just the handle value as 4 bytes).
+     * For loaded objects, we should use the object's Name.
+     *
+     * TODO: use actual object Names from htpm2_object.
+     */
+    {
+        uint8_t name_bufs[3][4];
+        const void *names[3] = {NULL, NULL, NULL};
+        size_t name_lens[3] = {0, 0, 0};
+
+        for (i = 0; i < num_handles && i < 3; i++) {
+            name_bufs[i][0] = (handles[i] >> 24) & 0xff;
+            name_bufs[i][1] = (handles[i] >> 16) & 0xff;
+            name_bufs[i][2] = (handles[i] >> 8) & 0xff;
+            name_bufs[i][3] = handles[i] & 0xff;
+            names[i] = name_bufs[i];
+            name_lens[i] = 4;
+        }
+
+        r = htpm2_compute_cp_hash(ctx, command_code,
+                                  names[0], name_lens[0],
+                                  names[1], name_lens[1],
+                                  names[2], name_lens[2],
+                                  param_bytes, param_bytes_len,
+                                  cp_hash);
+        if (htpm2_is_err(r))
+            return htpm2_result_prepend(r, "command_with_auth: cpHash");
+    }
+
+    /* Marshal auth area */
+    auth_sp = heim_storage_emem();
+    if (auth_sp == NULL)
+        return htpm2_result_local(ENOMEM, HTPM2_F_LOCAL, ENOMEM,
+                                  "command_with_auth: alloc auth");
+
+    r = htpm2_marshal_auth_area(ctx, auth_sp, session, cp_hash);
+    if (htpm2_is_err(r)) {
+        heim_storage_free(auth_sp);
+        return r;
+    }
+
+    ret = heim_storage_to_data(auth_sp, &auth_data, &auth_len);
+    heim_storage_free(auth_sp);
+    if (ret)
+        return htpm2_result_local(ret, HTPM2_F_MARSHAL, ret,
+                                  "command_with_auth: auth to_data");
+
+    /* Build complete command */
+    cmd = heim_storage_emem();
+    if (cmd == NULL) {
+        free(auth_data);
+        return htpm2_result_local(ENOMEM, HTPM2_F_LOCAL, ENOMEM,
+                                  "command_with_auth: alloc cmd");
+    }
+
+    ret = htpm2_marshal_cmd_header(cmd, TPM_ST_SESSIONS, command_code);
+    if (ret) goto marshal_err;
+
+    /* Handles */
+    for (i = 0; i < num_handles; i++) {
+        ret = heim_store_uint32(cmd, handles[i]);
+        if (ret) goto marshal_err;
+    }
+
+    /* authorizationSize + auth area */
+    ret = heim_store_uint32(cmd, (uint32_t)auth_len);
+    if (ret) goto marshal_err;
+    ret = heim_store_bytes(cmd, auth_data, auth_len);
+    if (ret) goto marshal_err;
+    free(auth_data);
+    auth_data = NULL;
+
+    /* Parameters */
+    if (param_bytes_len > 0) {
+        ret = heim_store_bytes(cmd, param_bytes, param_bytes_len);
+        if (ret) goto marshal_err;
+    }
+
+    /* Execute */
+    r = htpm2_command_execute(ctx, tp, cmd, &rsp, rc);
+    heim_storage_free(cmd);
+    if (htpm2_is_err(r))
+        return r;
+
+    /*
+     * For TPM_ST_SESSIONS responses, after the 10-byte header comes
+     * parameterSize (uint32), then parameters, then auth area.
+     * We read parameterSize so the caller knows where params end.
+     */
+    rsp_tag = TPM_ST_SESSIONS;  /* we know this from the command */
+    ret = heim_ret_uint32(rsp, &param_size);
+    if (ret) {
+        heim_storage_free(rsp);
+        return htpm2_result_local(ret, HTPM2_F_MARSHAL, ret,
+                                  "command_with_auth: read parameterSize");
+    }
+
+    /* TODO: verify response HMAC from auth area after parameters */
+
+    /* Update session nonce from response auth area */
+    if (session) {
+        /* Refresh nonce_caller for next command */
+        htpm2_session_refresh_nonce_caller(ctx, session);
+        /* TODO: parse response auth area to get new nonceTPM */
+    }
+
+    *rsp_sp = rsp;
+    return HTPM2_OK;
+
+marshal_err:
+    free(auth_data);
+    heim_storage_free(cmd);
+    return htpm2_result_local(ret, HTPM2_F_MARSHAL, ret,
+                              "command_with_auth: marshal");
+}

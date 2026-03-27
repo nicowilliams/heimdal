@@ -425,6 +425,154 @@ test_start_trial_session(htpm2_context ctx, htpm2_transport tp)
     htpm2_result_free(&r);
 }
 
+/* --- Sign / Quote / PCR tests --- */
+
+static void
+test_sign_rsa(htpm2_context ctx, htpm2_transport tp)
+{
+    htpm2_object parent = NULL, sign_key = NULL, loaded = NULL;
+    htpm2_result r = HTPM2_OK;
+    const void *pub, *priv;
+    size_t pub_len, priv_len;
+    unsigned char digest[32];
+    void *sig = NULL;
+    size_t sig_len = 0;
+
+    /* Create parent SRK */
+    r = htpm2_create_primary(ctx, tp, r, NULL,
+                             HTPM2_HIERARCHY_OWNER,
+                             HTPM2_KEY_RSA_2048_STORAGE,
+                             NULL, 0, NULL, 0, &parent);
+    /* Create RSA signing key */
+    r = htpm2_create(ctx, tp, r, NULL, parent,
+                     HTPM2_KEY_RSA_2048_SIGN,
+                     NULL, 0, NULL, 0, &sign_key);
+    CHECK_OK(r, "create RSA signing key");
+
+    if (htpm2_is_ok(r)) {
+        htpm2_object_get_public(sign_key, &pub, &pub_len);
+        htpm2_object_get_private(sign_key, &priv, &priv_len);
+
+        r = htpm2_load(ctx, tp, HTPM2_OK, NULL, parent,
+                       pub, pub_len, priv, priv_len, &loaded);
+        CHECK_OK(r, "load signing key");
+    }
+
+    if (htpm2_is_ok(r)) {
+        /* Hash something to sign */
+        memset(digest, 0x42, 32);
+
+        r = htpm2_sign(ctx, tp, HTPM2_OK, NULL, loaded,
+                       digest, 32, &sig, &sig_len);
+        CHECK_OK(r, "Sign with RSA key");
+        CHECK(sig != NULL && sig_len > 0, "signature should be non-empty");
+    }
+
+    free(sig);
+    htpm2_object_close(&loaded);
+    htpm2_object_close(&sign_key);
+    htpm2_object_close(&parent);
+    htpm2_result_free(&r);
+}
+
+static void
+test_pcr_read(htpm2_context ctx, htpm2_transport tp)
+{
+    htpm2_pcr_selection sel = NULL;
+    void *pcr_sel_encoded = NULL;
+    size_t pcr_sel_len = 0;
+    void *pcr_values = NULL;
+    size_t pcr_values_len = 0;
+    uint32_t counter = 0;
+    htpm2_result r;
+
+    r = htpm2_pcr_selection_create(ctx, TPM2_ALG_SHA256, &sel);
+    CHECK_OK(r, "pcr_selection_create");
+
+    if (htpm2_is_ok(r)) {
+        htpm2_pcr_selection_add(sel, 0);  /* PCR 0 */
+        r = htpm2_pcr_selection_encode(sel, &pcr_sel_encoded, &pcr_sel_len);
+        CHECK_OK(r, "pcr_selection_encode");
+    }
+
+    if (htpm2_is_ok(r)) {
+        r = htpm2_pcr_read(ctx, tp, HTPM2_OK,
+                           pcr_sel_encoded, pcr_sel_len,
+                           &pcr_values, &pcr_values_len,
+                           &counter);
+        CHECK_OK(r, "PCR_Read");
+        CHECK(pcr_values != NULL, "pcr_values should be non-NULL");
+    }
+
+    free(pcr_sel_encoded);
+    free(pcr_values);
+    htpm2_pcr_selection_free(&sel);
+    htpm2_result_free(&r);
+}
+
+static void
+test_quote(htpm2_context ctx, htpm2_transport tp)
+{
+    htpm2_object parent = NULL, ak = NULL, loaded_ak = NULL;
+    htpm2_pcr_selection sel = NULL;
+    void *pcr_sel_encoded = NULL;
+    size_t pcr_sel_len = 0;
+    void *quoted = NULL, *sig = NULL;
+    size_t quoted_len = 0, sig_len = 0;
+    const void *pub, *priv;
+    size_t pub_len, priv_len;
+    htpm2_result r = HTPM2_OK;
+    const char *qdata = "test-nonce";
+
+    /* Create parent and signing key for quote */
+    r = htpm2_create_primary(ctx, tp, r, NULL,
+                             HTPM2_HIERARCHY_OWNER,
+                             HTPM2_KEY_RSA_2048_STORAGE,
+                             NULL, 0, NULL, 0, &parent);
+    r = htpm2_create(ctx, tp, r, NULL, parent,
+                     HTPM2_KEY_RSA_2048_SIGN,
+                     NULL, 0, NULL, 0, &ak);
+    CHECK_OK(r, "create AK for quote");
+
+    if (htpm2_is_ok(r)) {
+        htpm2_object_get_public(ak, &pub, &pub_len);
+        htpm2_object_get_private(ak, &priv, &priv_len);
+        r = htpm2_load(ctx, tp, HTPM2_OK, NULL, parent,
+                       pub, pub_len, priv, priv_len, &loaded_ak);
+        CHECK_OK(r, "load AK");
+    }
+
+    if (htpm2_is_ok(r)) {
+        r = htpm2_pcr_selection_create(ctx, TPM2_ALG_SHA256, &sel);
+        if (htpm2_is_ok(r)) {
+            htpm2_pcr_selection_add(sel, 0);
+            htpm2_pcr_selection_add(sel, 1);
+            htpm2_pcr_selection_add(sel, 2);
+            r = htpm2_pcr_selection_encode(sel, &pcr_sel_encoded, &pcr_sel_len);
+        }
+    }
+
+    if (htpm2_is_ok(r)) {
+        r = htpm2_quote(ctx, tp, HTPM2_OK, NULL, loaded_ak,
+                        pcr_sel_encoded, pcr_sel_len,
+                        qdata, strlen(qdata),
+                        &quoted, &quoted_len,
+                        &sig, &sig_len);
+        CHECK_OK(r, "Quote");
+        CHECK(quoted != NULL && quoted_len > 0, "quoted should be non-empty");
+        CHECK(sig != NULL && sig_len > 0, "quote signature should be non-empty");
+    }
+
+    free(quoted);
+    free(sig);
+    free(pcr_sel_encoded);
+    htpm2_pcr_selection_free(&sel);
+    htpm2_object_close(&loaded_ak);
+    htpm2_object_close(&ak);
+    htpm2_object_close(&parent);
+    htpm2_result_free(&r);
+}
+
 int
 main(int argc, char **argv)
 {
@@ -488,6 +636,11 @@ main(int argc, char **argv)
     test_start_hmac_session(ctx, tp);
     test_start_encrypted_session(ctx, tp);
     test_start_trial_session(ctx, tp);
+
+    /* Sign / Quote / PCR tests */
+    test_sign_rsa(ctx, tp);
+    test_pcr_read(ctx, tp);
+    test_quote(ctx, tp);
 
     /* Cleanup */
     htpm2_transport_close(&tp);

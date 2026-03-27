@@ -129,4 +129,27 @@ htpm2_result htpm2_command_execute(const htpm2_context ctx,
                                    heim_storage **rsp_sp,
                                    uint32_t *rc);
 
+/*
+ * Build and execute a command with a single authorization session.
+ *
+ * This handles the TPM_ST_SESSIONS framing:
+ *   header (tag=SESSIONS) | handles | authorizationSize | authArea | params
+ *
+ * `handles` is already marshalled into handle_sp.
+ * `params` is already marshalled into param_sp.
+ * `session` may be NULL for password auth (TPM_RS_PW).
+ *
+ * On success, *rsp_sp is positioned after the response header and
+ * parameterSize field, ready for response parameter unmarshalling.
+ */
+htpm2_result htpm2_command_execute_with_auth(
+    const htpm2_context ctx,
+    htpm2_transport tp,
+    uint32_t command_code,
+    const uint32_t *handles, size_t num_handles,
+    htpm2_session session,
+    const void *param_bytes, size_t param_bytes_len,
+    heim_storage **rsp_sp,
+    uint32_t *rc);
+
 #endif /* __htpm2_marshal_h__ */
