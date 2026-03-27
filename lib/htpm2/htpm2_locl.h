@@ -87,6 +87,8 @@ void htpm2_object_set_creation_ticket(htpm2_object obj, const void *ticket,
                                        size_t ticket_len);
 uint32_t htpm2_object_get_handle(htpm2_object obj);
 htpm2_transport htpm2_object_get_transport(htpm2_object obj);
+void htpm2_object_get_auth_internal(htpm2_object obj,
+                                    const uint8_t **auth, size_t *auth_len);
 
 /* Internal key template marshalling */
 int htpm2_marshal_key_template(heim_storage *sp, htpm2_key_type type,
@@ -103,6 +105,10 @@ void htpm2_session_set_nonce_tpm(htpm2_session session,
 htpm2_result htpm2_session_refresh_nonce_caller(const htpm2_context ctx,
                                                 htpm2_session session);
 unsigned int htpm2_session_get_flags(htpm2_session session);
+const uint8_t *htpm2_session_get_session_key(htpm2_session session,
+                                             size_t *len);
+void htpm2_session_get_bind_auth(htpm2_session session,
+                                 const uint8_t **auth, size_t *auth_len);
 
 /* Session crypto */
 htpm2_result htpm2_compute_cp_hash(const htpm2_context ctx,

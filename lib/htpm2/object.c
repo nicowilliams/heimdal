@@ -163,6 +163,19 @@ htpm2_object_get_transport(htpm2_object obj)
     return obj ? obj->tp : NULL;
 }
 
+void
+htpm2_object_get_auth_internal(htpm2_object obj,
+                               const uint8_t **auth, size_t *auth_len)
+{
+    if (obj == NULL || obj->auth_value == NULL) {
+        *auth = NULL;
+        *auth_len = 0;
+        return;
+    }
+    *auth = obj->auth_value;
+    *auth_len = obj->auth_value_len;
+}
+
 /* --- Public API --- */
 
 htpm2_result

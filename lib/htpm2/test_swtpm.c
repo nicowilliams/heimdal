@@ -410,6 +410,40 @@ test_start_encrypted_session(htpm2_context ctx, htpm2_transport tp)
 }
 
 static void
+test_salted_session(htpm2_context ctx, htpm2_transport tp)
+{
+    htpm2_object srk = NULL;
+    htpm2_session session = NULL;
+    unsigned char buf[16];
+    htpm2_result r = HTPM2_OK;
+
+    /* Create SRK for salting */
+    r = htpm2_create_primary(ctx, tp, r, NULL,
+                             HTPM2_HIERARCHY_OWNER,
+                             HTPM2_KEY_RSA_2048_STORAGE,
+                             NULL, 0, NULL, 0, &srk);
+    CHECK_OK(r, "CreatePrimary SRK for salted session");
+
+    if (htpm2_is_ok(r)) {
+        /* Start salted HMAC session */
+        r = htpm2_session_start(ctx, tp, HTPM2_OK,
+                                HTPM2_SESSION_HMAC,
+                                srk, NULL,
+                                HTPM2_SESSION_ENC_DEC,
+                                &session);
+        CHECK_OK(r, "StartAuthSession salted + encrypted");
+        CHECK(session != NULL, "salted session should be non-NULL");
+    }
+
+    /* TODO: Use the session for an authorized command once sessions
+     * are wired into the command path. For now just verify it started. */
+
+    htpm2_session_close(&session);
+    htpm2_object_close(&srk);
+    htpm2_result_free(&r);
+}
+
+static void
 test_start_trial_session(htpm2_context ctx, htpm2_transport tp)
 {
     htpm2_session session = NULL;
@@ -744,6 +778,7 @@ main(int argc, char **argv)
     /* Session tests */
     test_start_hmac_session(ctx, tp);
     test_start_encrypted_session(ctx, tp);
+    test_salted_session(ctx, tp);
     test_start_trial_session(ctx, tp);
 
     /* Sign / Quote / PCR tests */

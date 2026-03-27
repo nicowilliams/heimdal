@@ -277,3 +277,149 @@ htpm2_random_bytes(const htpm2_context ctx, void *buf, size_t len)
         return htpm2_result_ossl(1, "RAND_bytes failed");
     return HTPM2_OK;
 }
+
+htpm2_result
+htpm2_rsa_oaep_encrypt(const htpm2_context ctx,
+                       const void *rsa_modulus, size_t rsa_modulus_len,
+                       uint32_t exponent,
+                       const char *label, size_t label_len,
+                       const void *plaintext, size_t plaintext_len,
+                       void **ciphertext, size_t *ciphertext_len)
+{
+    OSSL_PARAM_BLD *bld = NULL;
+    OSSL_PARAM *params = NULL;
+    EVP_PKEY_CTX *kctx = NULL, *ectx = NULL;
+    EVP_PKEY *pkey = NULL;
+    BIGNUM *n = NULL, *e = NULL;
+    unsigned char *label_copy = NULL;
+    size_t outlen;
+    void *out = NULL;
+    htpm2_result r = HTPM2_OK;
+
+    (void)ctx;
+
+    *ciphertext = NULL;
+    *ciphertext_len = 0;
+
+    if (exponent == 0)
+        exponent = 65537;
+
+    n = BN_bin2bn(rsa_modulus, rsa_modulus_len, NULL);
+    e = BN_new();
+    if (n == NULL || e == NULL || !BN_set_word(e, exponent)) {
+        r = htpm2_result_ossl(1, "RSA-OAEP: BN setup");
+        goto out;
+    }
+
+    bld = OSSL_PARAM_BLD_new();
+    if (bld == NULL ||
+        !OSSL_PARAM_BLD_push_BN(bld, OSSL_PKEY_PARAM_RSA_N, n) ||
+        !OSSL_PARAM_BLD_push_BN(bld, OSSL_PKEY_PARAM_RSA_E, e)) {
+        r = htpm2_result_ossl(1, "RSA-OAEP: param build");
+        goto out;
+    }
+
+    params = OSSL_PARAM_BLD_to_param(bld);
+    if (params == NULL) {
+        r = htpm2_result_ossl(1, "RSA-OAEP: to_param");
+        goto out;
+    }
+
+    kctx = EVP_PKEY_CTX_new_from_name(NULL, "RSA", NULL);
+    if (kctx == NULL ||
+        EVP_PKEY_fromdata_init(kctx) != 1 ||
+        EVP_PKEY_fromdata(kctx, &pkey, EVP_PKEY_PUBLIC_KEY, params) != 1) {
+        r = htpm2_result_ossl(1, "RSA-OAEP: fromdata");
+        goto out;
+    }
+
+    /* Encrypt */
+    ectx = EVP_PKEY_CTX_new(pkey, NULL);
+    if (ectx == NULL ||
+        EVP_PKEY_encrypt_init(ectx) != 1 ||
+        EVP_PKEY_CTX_set_rsa_padding(ectx, RSA_PKCS1_OAEP_PADDING) != 1 ||
+        EVP_PKEY_CTX_set_rsa_oaep_md(ectx, EVP_sha256()) != 1) {
+        r = htpm2_result_ossl(1, "RSA-OAEP: encrypt init");
+        goto out;
+    }
+
+    /* Set label (OpenSSL takes ownership of this copy) */
+    if (label && label_len > 0) {
+        label_copy = OPENSSL_memdup(label, label_len);
+        if (label_copy == NULL) {
+            r = htpm2_result_local(ENOMEM, HTPM2_F_LOCAL, ENOMEM,
+                                   "RSA-OAEP: label alloc");
+            goto out;
+        }
+        if (EVP_PKEY_CTX_set0_rsa_oaep_label(ectx, label_copy,
+                                              label_len) != 1) {
+            OPENSSL_free(label_copy);
+            r = htpm2_result_ossl(1, "RSA-OAEP: set label");
+            goto out;
+        }
+        label_copy = NULL;  /* ownership transferred */
+    }
+
+    if (EVP_PKEY_encrypt(ectx, NULL, &outlen, plaintext, plaintext_len) != 1) {
+        r = htpm2_result_ossl(1, "RSA-OAEP: size query");
+        goto out;
+    }
+
+    out = malloc(outlen);
+    if (out == NULL) {
+        r = htpm2_result_local(ENOMEM, HTPM2_F_LOCAL, ENOMEM,
+                               "RSA-OAEP: alloc output");
+        goto out;
+    }
+
+    if (EVP_PKEY_encrypt(ectx, out, &outlen, plaintext, plaintext_len) != 1) {
+        free(out);
+        out = NULL;
+        r = htpm2_result_ossl(1, "RSA-OAEP: encrypt");
+        goto out;
+    }
+
+    *ciphertext = out;
+    *ciphertext_len = outlen;
+    out = NULL;
+
+out:
+    BN_free(n);
+    BN_free(e);
+    OSSL_PARAM_BLD_free(bld);
+    OSSL_PARAM_free(params);
+    EVP_PKEY_CTX_free(kctx);
+    EVP_PKEY_CTX_free(ectx);
+    EVP_PKEY_free(pkey);
+    return r;
+}
+
+htpm2_result
+htpm2_derive_param_key(const htpm2_context ctx,
+                       const uint8_t *session_key, size_t session_key_len,
+                       const uint8_t *nonce_newer, size_t nonce_newer_len,
+                       const uint8_t *nonce_older, size_t nonce_older_len,
+                       uint16_t key_bits,
+                       uint8_t *enc_key, size_t enc_key_len,
+                       uint8_t *iv, size_t iv_len)
+{
+    htpm2_result r;
+
+    /* Encryption key: KDFa(sessionKey, "CFB", nonceNewer, nonceOlder, keyBits) */
+    r = htpm2_kdfa(ctx, session_key, session_key_len, "CFB",
+                   nonce_newer, nonce_newer_len,
+                   nonce_older, nonce_older_len,
+                   key_bits, enc_key, enc_key_len);
+    if (htpm2_is_err(r))
+        return htpm2_result_prepend(r, "derive param key");
+
+    /* IV: KDFa(sessionKey, "CFB", nonceOlder, nonceNewer, 128) */
+    r = htpm2_kdfa(ctx, session_key, session_key_len, "CFB",
+                   nonce_older, nonce_older_len,
+                   nonce_newer, nonce_newer_len,
+                   128, iv, iv_len);
+    if (htpm2_is_err(r))
+        return htpm2_result_prepend(r, "derive param IV");
+
+    return HTPM2_OK;
+}

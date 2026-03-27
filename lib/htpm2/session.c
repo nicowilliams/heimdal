@@ -173,9 +173,104 @@ htpm2_session_start(const htpm2_context ctx,
     ret = htpm2_marshal_tpm2b(cmd, nonce_caller, NONCE_SIZE);
     if (ret) goto marshal_err;
 
-    /* encryptedSalt (TPM2B_ENCRYPTED_SECRET) -- empty for now (no salting) */
-    /* TODO: RSA OAEP encrypt a random salt with salt_key's public key */
-    ret = htpm2_marshal_tpm2b(cmd, NULL, 0);
+    /*
+     * encryptedSalt (TPM2B_ENCRYPTED_SECRET).
+     *
+     * If a salt key is provided, we generate a random 32-byte salt,
+     * RSA-OAEP encrypt it with the salt key's public key (label
+     * "SECRET\0"), and send the ciphertext.  The TPM decrypts it
+     * and uses the salt for session key derivation.
+     *
+     * For ECC salt keys, the protocol is different (ECDH) -- not yet
+     * supported.
+     */
+    uint8_t salt[32];
+    size_t salt_len = 0;
+    void *encrypted_salt = NULL;
+    size_t encrypted_salt_len = 0;
+
+    if (salt_key != NULL) {
+        const void *pub;
+        size_t pub_len;
+        heim_storage *pub_sp;
+        uint16_t alg_type;
+        htpm2_result sr;
+
+        sr = htpm2_object_get_public(salt_key, &pub, &pub_len);
+        if (htpm2_is_err(sr)) {
+            heim_storage_free(cmd);
+            return htpm2_result_prepend(sr, "StartAuthSession: get salt key pub");
+        }
+
+        /* Check if RSA by reading the first uint16 (algorithm type) */
+        pub_sp = heim_storage_from_readonly_mem(pub, pub_len);
+        if (pub_sp == NULL) {
+            heim_storage_free(cmd);
+            return htpm2_result_local(ENOMEM, HTPM2_F_LOCAL, ENOMEM,
+                                      "StartAuthSession: alloc pub parse");
+        }
+        heim_ret_uint16(pub_sp, &alg_type);
+
+        if (alg_type == TPM2_ALG_RSA) {
+            /* Parse RSA modulus from TPMT_PUBLIC */
+            uint16_t name_alg, auth_size, sym_alg, scheme_alg, key_bits;
+            uint32_t obj_attrs, exp;
+            void *modulus = NULL;
+            uint16_t mod_size;
+
+            heim_ret_uint16(pub_sp, &name_alg);
+            heim_ret_uint32(pub_sp, &obj_attrs);
+            heim_ret_uint16(pub_sp, &auth_size);
+            if (auth_size > 0)
+                heim_storage_seek(pub_sp, auth_size, SEEK_CUR);
+            heim_ret_uint16(pub_sp, &sym_alg);
+            if (sym_alg != TPM2_ALG_NULL) {
+                uint16_t dummy;
+                heim_ret_uint16(pub_sp, &dummy);
+                heim_ret_uint16(pub_sp, &dummy);
+            }
+            heim_ret_uint16(pub_sp, &scheme_alg);
+            if (scheme_alg != TPM2_ALG_NULL) {
+                uint16_t dummy;
+                heim_ret_uint16(pub_sp, &dummy);
+            }
+            heim_ret_uint16(pub_sp, &key_bits);
+            heim_ret_uint32(pub_sp, &exp);
+            htpm2_unmarshal_tpm2b(pub_sp, &modulus, &mod_size);
+            heim_storage_free(pub_sp);
+
+            if (modulus && mod_size > 0) {
+                r = htpm2_random_bytes(ctx, salt, 32);
+                if (htpm2_is_ok(r)) {
+                    r = htpm2_rsa_oaep_encrypt(ctx, modulus, mod_size,
+                                               exp == 0 ? 65537 : exp,
+                                               "SECRET", 7,
+                                               salt, 32,
+                                               &encrypted_salt,
+                                               &encrypted_salt_len);
+                }
+                free(modulus);
+                if (htpm2_is_err(r)) {
+                    heim_storage_free(cmd);
+                    return htpm2_result_prepend(r, "StartAuthSession: salt encrypt");
+                }
+                salt_len = 32;
+            } else {
+                heim_storage_free(pub_sp);
+                free(modulus);
+            }
+        } else {
+            heim_storage_free(pub_sp);
+            /* ECC salting not yet implemented; proceed unsalted */
+        }
+    }
+
+    if (encrypted_salt) {
+        ret = htpm2_marshal_tpm2b(cmd, encrypted_salt, encrypted_salt_len);
+        free(encrypted_salt);
+    } else {
+        ret = htpm2_marshal_tpm2b(cmd, NULL, 0);
+    }
     if (ret) goto marshal_err;
 
     /* sessionType */
@@ -247,28 +342,65 @@ htpm2_session_start(const htpm2_context ctx,
     }
 
     /*
-     * Derive session key if we have a bind entity.
+     * Derive session key.
+     *
      * sessionKey = KDFa(SHA256, (authValue || salt),
      *                   "ATH", nonceTPM, nonceCaller, 256)
      *
-     * For now: unbound unsalted sessions have no session key.
-     * The session still works for password-based auth; it just
-     * doesn't provide HMAC binding or parameter encryption.
-     *
-     * TODO: implement salted sessions (RSA OAEP encrypt random salt
-     * with salt_key, then derive session key from auth + salt).
+     * - authValue comes from the bind entity (if bound session)
+     * - salt comes from our random seed (if salted session)
+     * - If neither bind nor salt, there is no session key (the session
+     *   still works but can't authenticate or encrypt)
      */
     s->session_key_len = 0;
 
-    if (bind != NULL) {
-        /*
-         * For bound sessions, the session key is derived from the
-         * bind entity's authValue.
-         *
-         * sessionKey = KDFa(SHA256, authValue, "ATH",
-         *                   nonceTPM, nonceCaller, 256)
-         */
-        /* TODO: get bind entity's authValue from the object */
+    {
+        uint8_t kdf_key[96]; /* authValue(<=64) || salt(32) */
+        size_t kdf_key_len = 0;
+
+        /* Collect bind entity's authValue */
+        if (bind != NULL) {
+            const void *bauth;
+            size_t bauth_len;
+            htpm2_result ar = htpm2_object_get_public(bind, &bauth, &bauth_len);
+            (void)ar;
+            /* Get actual auth from object internals */
+            /* The object stores auth_value via htpm2_object_set_auth() */
+            /* We need an internal accessor for the raw auth bytes */
+            const uint8_t *auth_bytes;
+            size_t auth_bytes_len;
+            htpm2_object_get_auth_internal(bind, &auth_bytes, &auth_bytes_len);
+            if (auth_bytes && auth_bytes_len > 0 &&
+                auth_bytes_len <= sizeof(kdf_key)) {
+                memcpy(kdf_key + kdf_key_len, auth_bytes, auth_bytes_len);
+                kdf_key_len += auth_bytes_len;
+                /* Also store for HMAC computation */
+                memcpy(s->bind_auth, auth_bytes, auth_bytes_len);
+                s->bind_auth_len = auth_bytes_len;
+            }
+        }
+
+        /* Append salt */
+        if (salt_len > 0) {
+            memcpy(kdf_key + kdf_key_len, salt, salt_len);
+            kdf_key_len += salt_len;
+        }
+
+        /* Derive session key if we have either auth or salt */
+        if (kdf_key_len > 0) {
+            r = htpm2_kdfa(ctx, kdf_key, kdf_key_len, "ATH",
+                           s->nonce_tpm, s->nonce_tpm_len,
+                           s->nonce_caller, s->nonce_caller_len,
+                           256, s->session_key, 32);
+            memset(kdf_key, 0, sizeof(kdf_key));
+            if (htpm2_is_err(r)) {
+                memset(salt, 0, sizeof(salt));
+                free(s);
+                return htpm2_result_prepend(r, "StartAuthSession: derive key");
+            }
+            s->session_key_len = 32;
+        }
+        memset(salt, 0, sizeof(salt));
     }
 
     *session = s;
@@ -381,4 +513,28 @@ unsigned int
 htpm2_session_get_flags(htpm2_session session)
 {
     return session ? session->flags : 0;
+}
+
+const uint8_t *
+htpm2_session_get_session_key(htpm2_session session, size_t *len)
+{
+    if (session == NULL || session->session_key_len == 0) {
+        *len = 0;
+        return NULL;
+    }
+    *len = session->session_key_len;
+    return session->session_key;
+}
+
+void
+htpm2_session_get_bind_auth(htpm2_session session,
+                            const uint8_t **auth, size_t *auth_len)
+{
+    if (session == NULL || session->bind_auth_len == 0) {
+        *auth = NULL;
+        *auth_len = 0;
+        return;
+    }
+    *auth = session->bind_auth;
+    *auth_len = session->bind_auth_len;
 }

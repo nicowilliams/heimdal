@@ -47,4 +47,41 @@ htpm2_result htpm2_aes_cfb_decrypt(const htpm2_context ctx,
 htpm2_result htpm2_random_bytes(const htpm2_context ctx,
                                 void *buf, size_t len);
 
+/*
+ * RSA-OAEP encrypt with SHA-256 and a caller-specified label.
+ * `rsa_pub` is a raw RSA modulus, `rsa_pub_len` is its length.
+ * `exponent` is the public exponent (use 0 for default 65537).
+ * Returns allocated ciphertext; caller frees with free().
+ */
+htpm2_result htpm2_rsa_oaep_encrypt(const htpm2_context ctx,
+                                    const void *rsa_modulus,
+                                    size_t rsa_modulus_len,
+                                    uint32_t exponent,
+                                    const char *label, size_t label_len,
+                                    const void *plaintext,
+                                    size_t plaintext_len,
+                                    void **ciphertext,
+                                    size_t *ciphertext_len);
+
+/*
+ * Derive parameter encryption key and IV from session key + nonces.
+ *
+ * For AES-128-CFB:
+ *   key = KDFa(sessionKey, "CFB", nonceCaller || nonceTPM, 128)
+ *   iv  = KDFa(sessionKey, "CFB", nonceTPM || nonceCaller, 128)
+ *
+ * Note: for command encryption, nonceNewer=nonceCaller, nonceOlder=nonceTPM.
+ *       for response decryption, nonceNewer=nonceTPM, nonceOlder=nonceCaller.
+ */
+htpm2_result htpm2_derive_param_key(const htpm2_context ctx,
+                                    const uint8_t *session_key,
+                                    size_t session_key_len,
+                                    const uint8_t *nonce_newer,
+                                    size_t nonce_newer_len,
+                                    const uint8_t *nonce_older,
+                                    size_t nonce_older_len,
+                                    uint16_t key_bits,
+                                    uint8_t *enc_key, size_t enc_key_len,
+                                    uint8_t *iv, size_t iv_len);
+
 #endif /* __htpm2_crypto_h__ */

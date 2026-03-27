@@ -373,13 +373,131 @@ htpm2_command_execute_with_auth(
                                   "command_with_auth: read parameterSize");
     }
 
-    /* TODO: verify response HMAC from auth area after parameters */
+    /*
+     * Parse response auth area (after parameterSize bytes of params).
+     *
+     * TPMS_AUTH_RESPONSE:
+     *   nonce:            TPM2B_NONCE
+     *   sessionAttributes: uint8
+     *   hmac:             TPM2B_AUTH
+     *
+     * We need to:
+     *   1. Record current position (start of params)
+     *   2. Skip parameterSize bytes to reach auth area
+     *   3. Parse nonce, attrs, hmac
+     *   4. Verify response HMAC
+     *   5. Update session's nonceTPM
+     *   6. Seek back to start of params for the caller
+     */
+    if (session && htpm2_session_get_handle(session) != 0) {
+        off_t param_start = heim_storage_seek(rsp, 0, SEEK_CUR);
+        void *rsp_nonce_data = NULL;
+        uint16_t rsp_nonce_size;
+        uint8_t rsp_attrs;
+        void *rsp_hmac_data = NULL;
+        uint16_t rsp_hmac_size;
 
-    /* Update session nonce from response auth area */
-    if (session) {
-        /* Refresh nonce_caller for next command */
+        /* Skip to auth area */
+        heim_storage_seek(rsp, param_start + param_size, SEEK_SET);
+
+        /* Parse TPMS_AUTH_RESPONSE */
+        ret = htpm2_unmarshal_tpm2b(rsp, &rsp_nonce_data, &rsp_nonce_size);
+        if (ret == 0)
+            ret = heim_ret_uint8(rsp, &rsp_attrs);
+        if (ret == 0)
+            ret = htpm2_unmarshal_tpm2b(rsp, &rsp_hmac_data, &rsp_hmac_size);
+
+        if (ret) {
+            free(rsp_nonce_data);
+            free(rsp_hmac_data);
+            heim_storage_free(rsp);
+            return htpm2_result_local(ret, HTPM2_F_SESSION, ret,
+                                      "command_with_auth: parse response auth");
+        }
+
+        /* Update session nonceTPM */
+        if (rsp_nonce_data && rsp_nonce_size > 0)
+            htpm2_session_set_nonce_tpm(session, rsp_nonce_data, rsp_nonce_size);
+
+        /* Verify response HMAC if the session has a key */
+        {
+            size_t sk_len;
+            const uint8_t *sk = htpm2_session_get_session_key(session, &sk_len);
+            const uint8_t *ba;
+            size_t ba_len;
+            htpm2_session_get_bind_auth(session, &ba, &ba_len);
+
+            if (sk_len > 0 || ba_len > 0) {
+                uint8_t rp_hash[32];
+                uint8_t expected_hmac[32];
+                size_t expected_hmac_len = 32;
+                const void *rp_bytes;
+                size_t rp_bytes_len;
+
+                /* Read the param bytes for rpHash */
+                rp_bytes_len = param_size;
+                void *rp_buf = NULL;
+                if (rp_bytes_len > 0) {
+                    rp_buf = malloc(rp_bytes_len);
+                    if (rp_buf) {
+                        heim_storage_seek(rsp, param_start, SEEK_SET);
+                        heim_ret_bytes(rsp, rp_buf, rp_bytes_len);
+                    }
+                }
+
+                r = htpm2_compute_rp_hash(ctx, TPM2_RC_SUCCESS,
+                                          command_code,
+                                          rp_buf, rp_bytes_len,
+                                          rp_hash);
+                free(rp_buf);
+
+                if (htpm2_is_ok(r)) {
+                    size_t nc_len, nt_len;
+                    const uint8_t *nc = htpm2_session_get_nonce_caller(
+                        session, &nc_len);
+                    const uint8_t *nt = rsp_nonce_data;
+                    nt_len = rsp_nonce_size;
+
+                    r = htpm2_compute_session_hmac(
+                        ctx, sk, sk_len, ba, ba_len,
+                        rp_hash,
+                        nt, nt_len,       /* nonceTPM (newer for response) */
+                        nc, nc_len,       /* nonceCaller (older for response) */
+                        rsp_attrs,
+                        expected_hmac, &expected_hmac_len);
+                }
+
+                if (htpm2_is_ok(r)) {
+                    if (rsp_hmac_size != expected_hmac_len ||
+                        !rsp_hmac_data ||
+                        memcmp(rsp_hmac_data, expected_hmac,
+                               expected_hmac_len) != 0) {
+                        free(rsp_nonce_data);
+                        free(rsp_hmac_data);
+                        heim_storage_free(rsp);
+                        return htpm2_result_local(
+                            EACCES, HTPM2_F_SESSION, EACCES,
+                            "command_with_auth: response HMAC verification failed");
+                    }
+                }
+
+                if (htpm2_is_err(r)) {
+                    free(rsp_nonce_data);
+                    free(rsp_hmac_data);
+                    heim_storage_free(rsp);
+                    return htpm2_result_prepend(r, "response HMAC verify");
+                }
+            }
+        }
+
+        free(rsp_nonce_data);
+        free(rsp_hmac_data);
+
+        /* Seek back to start of params for the caller */
+        heim_storage_seek(rsp, param_start, SEEK_SET);
+
+        /* Refresh caller nonce for next command */
         htpm2_session_refresh_nonce_caller(ctx, session);
-        /* TODO: parse response auth area to get new nonceTPM */
     }
 
     *rsp_sp = rsp;
