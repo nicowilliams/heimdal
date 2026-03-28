@@ -348,15 +348,206 @@ bitclear -- all bits in operandB are clear in NV
 
 ## Implementation Plan
 
+### Internal C Representation
+
+The JSON is parsed via `heim_json_create()` into heim objects
+(`heim_dict_t`, `heim_array_t`, `heim_string_t`, `heim_number_t`),
+then validated and converted into internal C structures.  The
+internal structures are what the compiler and evaluator operate on.
+
+```c
+/* A parsed policy document */
+typedef struct htpm2_policy {
+    char *name;
+    char *description;
+    uint16_t hash_alg;
+    htpm2_policy_input *inputs;
+    size_t num_inputs;
+    htpm2_policy_node *nodes;
+    size_t num_nodes;
+} htpm2_policy;
+
+/* A declared input */
+typedef struct htpm2_policy_input {
+    char *name;          /* "$foo" */
+    char *description;
+    enum {
+        HTPM2_INPUT_SIGNATURE,
+        HTPM2_INPUT_TICKET,
+        HTPM2_INPUT_BYTES,
+        HTPM2_INPUT_ARRAY_INDEX,
+        HTPM2_INPUT_INTEGER,
+        HTPM2_INPUT_BOOLEAN
+    } value_type;
+} htpm2_policy_input;
+
+/* A policy node (one TPM2_Policy* command) */
+typedef struct htpm2_policy_node {
+    uint32_t cc;  /* TPM_CC for the policy command */
+    union {
+        struct { /* PolicyPCR */
+            uint16_t hash_alg;
+            uint32_t pcr_selections;  /* bitmask */
+            void *pcr_digest;
+            size_t pcr_digest_len;
+        } pcr;
+        struct { /* PolicyCommandCode */
+            uint32_t command_code;
+        } command_code;
+        struct { /* PolicySigned, PolicySecret */
+            htpm2_object_def *auth_object;
+            void *policy_ref;
+            size_t policy_ref_len;
+            int32_t expiration;
+            char *auth_input;  /* "$input_name" */
+        } signed_or_secret;
+        struct { /* PolicyAuthorize */
+            htpm2_object_def *key_sign;
+            char *approved_policy_input;  /* "$input_name" or hex */
+            void *policy_ref;
+            size_t policy_ref_len;
+            char *ticket_input;  /* "$input_name" */
+        } authorize;
+        struct { /* PolicyOr */
+            htpm2_policy_ref *alternatives;
+            size_t num_alternatives;
+            char *select_input;  /* "$input_name" */
+        } or;
+        struct { /* PolicyLocality */
+            uint8_t locality;
+        } locality;
+        struct { /* PolicyNV */
+            uint32_t nv_index;
+            void *operand_b;
+            size_t operand_b_len;
+            uint16_t offset;
+            uint16_t operation;  /* TPM2_EO_* */
+        } nv;
+        struct { /* PolicyCounterTimer */
+            void *operand_b;
+            size_t operand_b_len;
+            uint16_t offset;
+            uint16_t operation;
+        } counter_timer;
+        struct { /* PolicyCpHash, PolicyNameHash, PolicyTemplate */
+            void *hash;
+            size_t hash_len;
+        } hash;
+        struct { /* PolicyDuplicationSelect */
+            void *object_name;
+            size_t object_name_len;
+            void *new_parent_name;
+            size_t new_parent_name_len;
+            int include_object;
+        } duplication_select;
+        struct { /* PolicyNvWritten */
+            int written_set;
+        } nv_written;
+        struct { /* PolicyAuthorizeNV */
+            uint32_t nv_index;
+        } authorize_nv;
+        struct { /* PolicyTicket */
+            void *timeout;
+            size_t timeout_len;
+            void *cp_hash_a;
+            size_t cp_hash_a_len;
+            void *policy_ref;
+            size_t policy_ref_len;
+            void *auth_name;
+            size_t auth_name_len;
+            char *ticket_input;
+        } ticket;
+        /* PolicyAuthValue, PolicyPassword, PolicyPhysicalPresence:
+         * no parameters */
+    } u;
+} htpm2_policy_node;
+
+/* An object definition (how to load/find a TPM object) */
+typedef struct htpm2_object_def {
+    enum {
+        HTPM2_OBJDEF_PERSISTENT,   /* persistent handle */
+        HTPM2_OBJDEF_PRIMARY,      /* primary from template */
+        HTPM2_OBJDEF_LOAD,         /* load from blobs */
+        HTPM2_OBJDEF_NV,           /* NV index */
+        HTPM2_OBJDEF_WELLKNOWN     /* well-known key */
+    } strategy;
+    union {
+        uint32_t persistent_handle;
+        struct {
+            uint32_t hierarchy;
+            char *template_name;   /* or NULL if inline */
+            /* inline template fields if template_name is NULL */
+        } primary;
+        struct {
+            htpm2_object_def *parent;
+            void *pub;
+            size_t pub_len;
+            void *priv;
+            size_t priv_len;
+        } load;
+        uint32_t nv_index;
+        struct {
+            void *policy;
+            size_t policy_len;
+        } wellknown;
+    } u;
+} htpm2_object_def;
+
+/* A reference to another policy (for PolicyOr alternatives) */
+typedef struct htpm2_policy_ref {
+    char *name;                /* named reference */
+    char *uri;                 /* optional URI */
+    htpm2_policy *inline_policy;  /* or inline */
+} htpm2_policy_ref;
+```
+
+### Parsing (JSON -> internal structs)
+
+Using Heimdal's `lib/base/` JSON API:
+
+```c
+heim_object_t root = heim_json_create(json_text, 10, 0, &error);
+/* root is a heim_dict_t */
+
+heim_dict_t pol = heim_dict_get_value(root, HSTR("tpm2Policy"));
+/* HSTR() creates a constant heim_string_t */
+
+heim_string_t name = heim_dict_get_value(pol, HSTR("name"));
+const char *name_str = heim_string_get_utf8(name);
+
+heim_array_t nodes = heim_dict_get_value(pol, HSTR("policy"));
+size_t n = heim_array_get_length(nodes);
+for (size_t i = 0; i < n; i++) {
+    heim_dict_t node = heim_array_get_value(nodes, i);
+    heim_string_t cc = heim_dict_get_value(node, HSTR("cc"));
+    const char *cc_str = heim_string_get_utf8(cc);
+    /* dispatch on cc_str to parse node-specific fields */
+}
+
+heim_release(root);
+```
+
+Type checking via `heim_get_tid()`:
+- `HEIM_TID_DICT (130)` -- JSON object
+- `HEIM_TID_ARRAY (129)` -- JSON array
+- `HEIM_TID_STRING (131)` -- JSON string
+- `HEIM_TID_NUMBER (0)` -- JSON number
+- `HEIM_TID_BOOL (2)` -- JSON true/false
+- `HEIM_TID_NULL (1)` -- JSON null
+
 ### Phase 1: Schema and Parsing
 
-- Define C structures for parsed policy nodes
-- JSON parser (using Heimdal's JSON parser in `lib/base`)
-- Validate structure, resolve named templates
+- `htpm2_policy_parse(json_text, &policy)`:
+  Parse JSON via `heim_json_create()`, validate structure,
+  convert to internal `htpm2_policy` structs.
+- Validate: all referenced inputs are declared, cc values are
+  known, object definitions are complete.
+- Resolve named templates to internal representations.
+- Depth limit of 8 for nested PolicyOr/PolicyAuthorize references.
 
 ### Phase 2: Trial Compilation
 
-- `htpm2_policy_compile(ctx, json, &digest)`:
+- `htpm2_policy_compile(ctx, tp, policy, &digest)`:
   Start trial session, walk policy nodes, execute each
   `TPM2_Policy*()` command in trial mode, return policyDigest.
 - For PolicySigned/PolicyAuthorize: compute key Name from
@@ -365,11 +556,12 @@ bitclear -- all bits in operandB are clear in NV
 
 ### Phase 3: Evaluation
 
-- `htpm2_policy_evaluate(ctx, tp, json, inputs, &session)`:
+- `htpm2_policy_evaluate(ctx, tp, policy, inputs, &session)`:
   Start real policy session, walk policy nodes, execute each
   with real inputs.  For PolicyOr: use `select` input to pick
   the branch.  For PolicySigned: use signature from inputs.
 - Object loading: resolve objectDefs, load keys, manage handles.
+  Objects can be flushed after use to reclaim TPM memory.
 - Input validation: check all required inputs are provided.
 
 Note that objects loaded for the purpose of executing a policy command
