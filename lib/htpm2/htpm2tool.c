@@ -53,6 +53,7 @@
 #include "htpm2_locl.h"
 #include "marshal.h"
 #include "crypto.h"
+#include "pcrdb.h"
 
 #include <openssl/evp.h>
 #include <openssl/pem.h>
@@ -610,15 +611,120 @@ out:
  * discussion -- what format of eventlog, how to evaluate policy
  * against it, etc.
  */
+/*
+ * Sub-command: quote-verify
+ *
+ * Validate a TPM quote against an eventlog and PCR extension database.
+ *
+ * Usage: htpm2tool quote-verify --eventlog <file> --db <sqlite3-file>
+ *        --pcr-policy <spec> --nonce <file>
+ *        [--quote <file>] [--signature <file>] [--ak-pub <file>]
+ *
+ * Steps:
+ *   1. Parse the eventlog (TCG binary format)
+ *   2. Replay events to compute expected PCR values
+ *   3. Check each extension against the DB (verdict, expiry, CVEs)
+ *   4. Compare replayed PCR values against the quote
+ *   5. (TODO) Verify quote signature with AK public key
+ *   6. (TODO) Verify nonce in quote matches expected
+ *   7. Print validation report
+ *
+ * PCR policy is a command-line argument:
+ *   "0-7=validate,8=ignore,9=initial,10=validate,11-23=ignore"
+ */
 static int
 cmd_quote_verify(int argc, char **argv)
 {
-    (void)argc;
-    (void)argv;
+    const char *eventlog_file = NULL;
+    const char *db_file = NULL;
+    const char *pcr_policy_spec = NULL;
+    const char *nonce_file = NULL;
+    htpm2_context ctx = NULL;
+    htpm2_pcrdb db = NULL;
+    htpm2_eventlog_entry *events = NULL;
+    size_t num_events = 0;
+    htpm2_pcr_policy policy;
+    htpm2_validation_report report;
+    void *eventlog_data = NULL;
+    size_t eventlog_len;
+    htpm2_result r;
+    int i, rc = 1;
 
-    fprintf(stderr, "htpm2tool: quote-verify: not yet implemented\n");
-    fprintf(stderr, "  Needs eventlog parsing and PCR policy design.\n");
-    return 1;
+    for (i = 0; i < argc; i++) {
+        if (strcmp(argv[i], "--eventlog") == 0 && i + 1 < argc)
+            eventlog_file = argv[++i];
+        else if (strcmp(argv[i], "--db") == 0 && i + 1 < argc)
+            db_file = argv[++i];
+        else if (strcmp(argv[i], "--pcr-policy") == 0 && i + 1 < argc)
+            pcr_policy_spec = argv[++i];
+        else if (strcmp(argv[i], "--nonce") == 0 && i + 1 < argc)
+            nonce_file = argv[++i];
+    }
+
+    if (!eventlog_file) {
+        fprintf(stderr,
+                "Usage: htpm2tool quote-verify --eventlog <file>\n"
+                "       [--db <sqlite3-file>]\n"
+                "       [--pcr-policy <spec>]  (default: all validate)\n"
+                "       [--nonce <file>]\n"
+                "\n"
+                "PCR policy spec: \"0-7=validate,8=ignore,10=initial\"\n"
+                "  validate: replay eventlog, check extensions against DB\n"
+                "  initial:  PCR must be unextended (all zeros)\n"
+                "  ignore:   don't check this PCR\n");
+        return 1;
+    }
+
+    r = htpm2_context_init(&ctx);
+    if (htpm2_is_err(r)) die_result(r, "context_init");
+
+    /* Parse PCR policy */
+    r = htpm2_pcr_policy_parse(pcr_policy_spec, &policy);
+    if (htpm2_is_err(r)) die_result(r, "pcr_policy_parse");
+
+    /* Open DB if specified */
+    if (db_file) {
+        r = htpm2_pcrdb_open(db_file, &db);
+        if (htpm2_is_err(r)) die_result(r, "pcrdb_open");
+    }
+
+    /* Read and parse eventlog */
+    eventlog_data = read_file(eventlog_file, &eventlog_len);
+    if (!eventlog_data) goto out;
+
+    r = htpm2_eventlog_parse_tcg(eventlog_data, eventlog_len,
+                                  &events, &num_events);
+    if (htpm2_is_err(r)) die_result(r, "eventlog_parse");
+
+    printf("Parsed %zu eventlog entries\n", num_events);
+
+    /* Validate -- for now without a quote (just eventlog + DB) */
+    r = htpm2_eventlog_validate(ctx, events, num_events, &policy, db,
+                                 0x000B, /* SHA-256 */
+                                 NULL, 0, NULL, 0,  /* no quote data yet */
+                                 &report);
+    if (htpm2_is_err(r)) die_result(r, "eventlog_validate");
+
+    /* Print report */
+    printf("\nValidation report:\n");
+    printf("  Status:   %s\n", report.ok ? "PASS" : "FAIL");
+    printf("  Failures: %zu\n", report.num_failures);
+    printf("  Warnings: %zu\n", report.num_warnings);
+    printf("  Unknown:  %zu\n", report.num_unknown);
+
+    for (i = 0; (size_t)i < report.num_messages; i++)
+        printf("  %s\n", report.messages[i]);
+
+    rc = report.ok ? 0 : 1;
+
+    htpm2_validation_report_free(&report);
+
+out:
+    htpm2_eventlog_free(events, num_events);
+    free(eventlog_data);
+    htpm2_pcrdb_close(&db);
+    htpm2_context_free(&ctx);
+    return rc;
 }
 
 static void

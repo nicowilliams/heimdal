@@ -43,7 +43,11 @@ dist_libhtpm2_la_SOURCES = \
 	pcr.c \
 	random.c \
 	policy.c \
+	pcrdb.c \
+	pcrdb.h \
 	error.c
+
+libhtpm2_la_LIBADD += $(LIB_sqlite3)
 
 libhtpm2_la_LIBADD = \
 	$(LIB_com_err) \
