@@ -15,15 +15,20 @@ The same JSON document is used for:
 ## Design Principles
 
 1. **One JSON document = one policy**.  Alternatives (PolicyOr branches)
-   can be inline or referenced by name/URI.
+   can be inlined or referenced by name/URI.
 
 2. **Inputs are explicit**.  Runtime values (signatures, tickets, NV
    values, user choices) are declared as named inputs with types.
    The evaluator must supply them.
 
+   Some such inputs might have to be provided by users (e.g., via
+   function arguments or command-line options, interactive prompts,
+   or bath answers files).  Others will have to be obtained by code
+   rather than from users, such as tickets for PolicySigned commands.
+
 3. **Object references are descriptive**.  Any TPM object a policy
-   command needs (for PolicySigned, PolicySecret, PolicyNV, etc.)
-   is described by how to load it: persistent handle, primary
+   command needs (for PolicySigned, PolicySecret, PolicyNV, etc.) is
+   described by how to access or it: a persistent handle, primary
    template + hierarchy, or external pub/priv blobs.
 
 4. **Trial compilation ignores runtime inputs**.  PolicySigned in
@@ -32,7 +37,7 @@ The same JSON document is used for:
    object definitions.
 
 5. **Composition via references**.  A policy can reference another
-   policy by name or URI.  The resolver loads it and inlines it.
+   policy by name and/or URI.  The resolver loads it and inlines it.
    This enables a library of reusable sub-policies.
 
 ## JSON Schema
@@ -55,7 +60,7 @@ The same JSON document is used for:
 ### Inputs
 
 Inputs are runtime values that the policy evaluator must supply.
-They are referenced by name (`$name`) in policy nodes.
+They are referenced by name (`$item_name`) in policy nodes.
 
 ```json
 {
@@ -80,8 +85,8 @@ They are referenced by name (`$name`) in policy nodes.
 ```
 
 Value types:
-- `"signature"` -- TPMT_SIGNATURE blob
-- `"ticket"` -- TPMT_TK_VERIFIED blob
+- `"signature"` -- `TPMT_SIGNATURE` blob
+- `"ticket"` -- `TPMT_TK_VERIFIED` blob
 - `"bytes"` -- arbitrary byte string (hex-encoded)
 - `"arrayIndex"` -- integer selecting a PolicyOr branch
 - `"integer"` -- numeric value (for counter/timer comparisons)
@@ -218,14 +223,14 @@ described by how to find/load them.  Multiple strategies:
     // Strategy 2: Primary key from template
     "primary": {
       "hierarchy": "endorsement",
-      "template": "ek_rsa_2048_storage"  // named template
+      "template": "ek_rsa_2048_storage"  // template reference or an inlined template (see below)
     }
   }
 }
 
 {
   "objectDef": {
-    // Strategy 3: Load from blobs
+    // Strategy 3: Load from key save blobs
     "load": {
       "parent": { ... },  // recursive objectDef for parent
       "pub": "hex...",     // or file path
@@ -261,6 +266,23 @@ Standard key templates referenced by name:
 "srk_rsa_2048"          -- standard SRK (owner)
 "ak_rsa_2048_sign"      -- attestation key
 "wk_keyedhash"          -- well-known key
+```
+
+### Template Definitions
+
+Alternatively a template object could be inlined, something like:
+
+```
+{
+  "type": "ECC",
+  "nameAlg": "...",
+  "objectAttributes": ["fixedTPM", "fixedParent", "restricted"],
+  "authPolicy": ..., // a policy reference or inlined policy
+  "parameters": ...,
+  "userAuth": "auth value",
+  "data": "...", // for salting a primary key
+  "pcr": ..., // PCR selection
+}
 ```
 
 ### PolicyOr and Composition
@@ -329,14 +351,14 @@ bitclear -- all bits in operandB are clear in NV
 ### Phase 1: Schema and Parsing
 
 - Define C structures for parsed policy nodes
-- JSON parser (using a simple JSON library or hand-rolled)
+- JSON parser (using Heimdal's JSON parser in `lib/base`)
 - Validate structure, resolve named templates
 
 ### Phase 2: Trial Compilation
 
 - `htpm2_policy_compile(ctx, json, &digest)`:
   Start trial session, walk policy nodes, execute each
-  TPM2_Policy*() command in trial mode, return policyDigest.
+  `TPM2_Policy*()` command in trial mode, return policyDigest.
 - For PolicySigned/PolicyAuthorize: compute key Name from
   objectDef, use in trial (no actual signature needed).
 - For PolicyOr: compile each alternative, collect digests.
@@ -350,6 +372,9 @@ bitclear -- all bits in operandB are clear in NV
 - Object loading: resolve objectDefs, load keys, manage handles.
 - Input validation: check all required inputs are provided.
 
+Note that objects loaded for the purpose of executing a policy command
+can then be flushed to make room for other objects needed subsequently.
+
 ### Phase 4: CLI Integration
 
 - `htpm2tool policy compile --policy <json> [--transport <uri>]`
@@ -357,28 +382,37 @@ bitclear -- all bits in operandB are clear in NV
 - `htpm2tool policy evaluate --policy <json> --transport <uri> [--input key=value ...]`
   Evaluate policy, output satisfied session handle.
 - `htpm2tool policy info --policy <json>`
-  Print human-readable description of what the policy requires.
+  Print human-readable description of the policy and what inputs it
+  requires.
 
-## Open Questions
+## Open Questions / Guidance
 
-1. **JSON library**: Use an existing one (jansson, cJSON) or keep
-   it dependency-free with a minimal hand-rolled parser?
-   Recommendation: use cJSON (single .c/.h file, MIT license,
-   easily vendored into the tree).
+1. **JSON library**: Use Heimdal's JSON parser from `lib/base/`.
 
-2. **PolicyOr digest ordering**: The TPM requires PolicyOr digests
-   in a specific order.  The JSON alternatives array defines the
-   order.  This must be documented clearly.
+2. **PolicyOr digest ordering**: The JSON alternatives array order
+   corresponds to the order of the alternatives in the PolicyOr command,
+   and the number of them is limited to the number that the TPM limits
+   (typically 8).  In particular this compiler/evaluator will not
+   compile a too-long set of alternatives into a tree of PolicyOr
+   commands.
 
 3. **Policy signing**: For PolicyAuthorize, the approved policy
-   digest must be signed by the authorizing key.  The JSON format
-   should support embedding pre-computed signatures, or referencing
-   external signature files.
+   digest must be signed by the authorizing key.  These must be obtained
+   interactively and must be be provided externally (i.e., by the
+   caller/user).
 
 4. **NV index authorization**: PolicyNV and PolicyAuthorizeNV may
    need their own auth sessions for the NV index.  How does this
    compose with the policy session?
 
-5. **Recursion depth**: PolicyAuthorize can create recursive policy
-   structures (the authorized policy itself can contain
-   PolicyAuthorize).  Need a depth limit.
+   For PolicyNV there is no composition issue.  For PolicyAuthorizeNV
+   the situation is the same as with PolicyAuthorize: a policy that uses
+   either PolicyAuthorizeNV or PolicyAuthorize must start with that
+   command, and the policy session's current `policyDigest` must be a
+   policy that the TPM will accept because it's what is written in the
+   NV or by the external authorization provider.
+
+5. **Recursion depth**: PolicyOr, PolicyAuthorize, and PolicyAuthorizeNV
+   can create recursive policy structures (the substituted policy itself
+   can contain these commands).  Infinite cycles are possible, therefore
+   we need a depth limit.  Eight is a reasonable depth limit.
