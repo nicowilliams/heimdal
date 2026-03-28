@@ -29,6 +29,7 @@ HEIMDAL_TPM2_0.1 {
 		htpm2_context_load;
 		htpm2_import;
 		htpm2_duplicate;
+		htpm2_duplicate_software;
 		htpm2_sign;
 		htpm2_verify_signature;
 		htpm2_quote;

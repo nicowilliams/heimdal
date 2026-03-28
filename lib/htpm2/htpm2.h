@@ -255,6 +255,24 @@ htpm2_result htpm2_duplicate(const htpm2_context ctx,
                              void **encrypted_seed,
                              size_t *encrypted_seed_len);
 
+/* Software-only Duplicate: wrap a software key for import into a TPM.
+ * No TPM round-trip needed -- the caller provides the private key material
+ * and the new parent's public key.
+ */
+htpm2_result htpm2_duplicate_software(const htpm2_context ctx,
+                                      const void *parent_pub,
+                                      size_t parent_pub_len,
+                                      const void *key_pub,
+                                      size_t key_pub_len,
+                                      const void *sensitive,
+                                      size_t sensitive_len,
+                                      const void *key_name,
+                                      size_t key_name_len,
+                                      void **duplicate,
+                                      size_t *duplicate_len,
+                                      void **encrypted_seed,
+                                      size_t *encrypted_seed_len);
+
 /* --- Crypto operations --- */
 
 htpm2_result htpm2_sign(const htpm2_context ctx,
