@@ -556,7 +556,7 @@ htpm2_result htpm2_encrypt_to(const htpm2_context ctx,
 void htpm2_encrypt_to_result_free(htpm2_encrypt_to_result *result);
 
 /*
- * Recover plaintext from an EncryptTo envelope.
+ * Recover plaintext from an EncryptTo envelope (manual share assembly).
  *
  * The caller has ActivateCredential'd each share on the target TPM.
  * Pass the recovered shares (in order: wk, [iak], [owner]).  They are
@@ -567,6 +567,39 @@ htpm2_result htpm2_decrypt_from(const htpm2_context ctx,
                                 const void **shares, const size_t *share_lens,
                                 size_t num_shares,
                                 void **plaintext, size_t *plaintext_len);
+
+/*
+ * Recover plaintext from an EncryptTo envelope using the TPM.
+ *
+ * This is the TPM-side counterpart of htpm2_encrypt_to().  It:
+ *   1. ActivateCredential for each share (wk, optional iak, optional owner)
+ *   2. XORs the recovered shares to reconstruct the AES-256 key
+ *   3. Decrypts the ciphertext
+ *
+ * For each share, the corresponding loaded key object must be provided
+ * (the key whose Name was used in MakeCredential).  The EK is needed
+ * for all ActivateCredential calls.
+ *
+ * auth_session_ek: session (or NULL for password auth) for EK authorization.
+ *   Standard EKs require PolicySecret(ENDORSEMENT).
+ */
+htpm2_result htpm2_decrypt_from_tpm(
+    const htpm2_context ctx,
+    htpm2_transport tp,
+    htpm2_result prior,
+    htpm2_object ek,
+    htpm2_session auth_session_ek,
+    htpm2_object wk_key,
+    const void *wk_credential_blob, size_t wk_credential_blob_len,
+    const void *wk_encrypted_secret, size_t wk_encrypted_secret_len,
+    htpm2_object iak_key,             /* NULL if no IAK share */
+    const void *iak_credential_blob, size_t iak_credential_blob_len,
+    const void *iak_encrypted_secret, size_t iak_encrypted_secret_len,
+    htpm2_object owner_key,           /* NULL if no owner share */
+    const void *owner_credential_blob, size_t owner_credential_blob_len,
+    const void *owner_encrypted_secret, size_t owner_encrypted_secret_len,
+    const void *ciphertext, size_t ciphertext_len,
+    void **plaintext, size_t *plaintext_len);
 
 /* --- Memory --- */
 

@@ -448,3 +448,123 @@ htpm2_decrypt_from(const htpm2_context ctx,
     memset(key, 0, sizeof(key));
     return r;
 }
+
+/*
+ * Activate one credential share via the TPM.
+ */
+static htpm2_result
+activate_share(const htpm2_context ctx,
+               htpm2_transport tp,
+               htpm2_object ek,
+               htpm2_session auth_session_ek,
+               htpm2_object key,
+               const void *credential_blob, size_t credential_blob_len,
+               const void *encrypted_secret, size_t encrypted_secret_len,
+               uint8_t share_out[32])
+{
+    void *cred = NULL;
+    size_t cred_len = 0;
+    htpm2_result r;
+
+    r = htpm2_activate_credential(ctx, tp, HTPM2_OK,
+                                  NULL, /* AK auth -- password for now */
+                                  auth_session_ek,
+                                  key, ek,
+                                  credential_blob, credential_blob_len,
+                                  encrypted_secret, encrypted_secret_len,
+                                  &cred, &cred_len);
+    if (htpm2_is_err(r))
+        return r;
+
+    if (cred_len != 32) {
+        free(cred);
+        return htpm2_result_local(ERANGE, HTPM2_F_LOCAL, ERANGE,
+                                  "ActivateCredential: expected 32-byte share, "
+                                  "got %zu", cred_len);
+    }
+
+    memcpy(share_out, cred, 32);
+    free(cred);
+    return HTPM2_OK;
+}
+
+htpm2_result
+htpm2_decrypt_from_tpm(const htpm2_context ctx,
+                       htpm2_transport tp,
+                       htpm2_result prior,
+                       htpm2_object ek,
+                       htpm2_session auth_session_ek,
+                       htpm2_object wk_key,
+                       const void *wk_cred_blob, size_t wk_cred_blob_len,
+                       const void *wk_enc_secret, size_t wk_enc_secret_len,
+                       htpm2_object iak_key,
+                       const void *iak_cred_blob, size_t iak_cred_blob_len,
+                       const void *iak_enc_secret, size_t iak_enc_secret_len,
+                       htpm2_object owner_key,
+                       const void *owner_cred_blob, size_t owner_cred_blob_len,
+                       const void *owner_enc_secret, size_t owner_enc_secret_len,
+                       const void *ciphertext, size_t ciphertext_len,
+                       void **plaintext, size_t *plaintext_len)
+{
+    uint8_t shares[3][32];
+    const void *share_ptrs[3];
+    size_t share_lens[3];
+    size_t num_shares = 0;
+    htpm2_result r;
+
+    if (prior.code)
+        return prior;
+
+    *plaintext = NULL;
+    *plaintext_len = 0;
+
+    /* Share 0: well-known key (always required) */
+    r = activate_share(ctx, tp, ek, auth_session_ek, wk_key,
+                       wk_cred_blob, wk_cred_blob_len,
+                       wk_enc_secret, wk_enc_secret_len,
+                       shares[0]);
+    if (htpm2_is_err(r))
+        return htpm2_result_prepend(r, "DecryptFromTPM: wk share");
+    share_ptrs[0] = shares[0];
+    share_lens[0] = 32;
+    num_shares = 1;
+
+    /* Share 1: IAK (optional) */
+    if (iak_key != NULL && iak_cred_blob != NULL) {
+        r = activate_share(ctx, tp, ek, auth_session_ek, iak_key,
+                           iak_cred_blob, iak_cred_blob_len,
+                           iak_enc_secret, iak_enc_secret_len,
+                           shares[1]);
+        if (htpm2_is_err(r)) {
+            memset(shares, 0, sizeof(shares));
+            return htpm2_result_prepend(r, "DecryptFromTPM: iak share");
+        }
+        share_ptrs[num_shares] = shares[1];
+        share_lens[num_shares] = 32;
+        num_shares++;
+    }
+
+    /* Share 2: Owner hierarchy key (optional) */
+    if (owner_key != NULL && owner_cred_blob != NULL) {
+        size_t idx = num_shares;
+        r = activate_share(ctx, tp, ek, auth_session_ek, owner_key,
+                           owner_cred_blob, owner_cred_blob_len,
+                           owner_enc_secret, owner_enc_secret_len,
+                           shares[idx]);
+        if (htpm2_is_err(r)) {
+            memset(shares, 0, sizeof(shares));
+            return htpm2_result_prepend(r, "DecryptFromTPM: owner share");
+        }
+        share_ptrs[num_shares] = shares[idx];
+        share_lens[num_shares] = 32;
+        num_shares++;
+    }
+
+    /* Reconstruct key and decrypt */
+    r = htpm2_decrypt_from(ctx, ciphertext, ciphertext_len,
+                           share_ptrs, share_lens, num_shares,
+                           plaintext, plaintext_len);
+
+    memset(shares, 0, sizeof(shares));
+    return r;
+}

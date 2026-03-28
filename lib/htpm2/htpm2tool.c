@@ -1,0 +1,501 @@
+/*
+ * Copyright (c) 2026 Kungliga Tekniska Högskolan
+ * (Royal Institute of Technology, Stockholm, Sweden).
+ * All rights reserved.
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions
+ * are met:
+ *
+ * 1. Redistributions of source code must retain the above copyright
+ *    notice, this list of conditions and the following disclaimer.
+ *
+ * 2. Redistributions in binary form must reproduce the above copyright
+ *    notice, this list of conditions and the following disclaimer in the
+ *    documentation and/or other materials provided with the distribution.
+ *
+ * 3. Neither the name of the Institute nor the names of its contributors
+ *    may be used to endorse or promote products derived from this software
+ *    without specific prior written permission.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE INSTITUTE AND CONTRIBUTORS ``AS IS'' AND
+ * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+ * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+ * ARE DISCLAIMED.  IN NO EVENT SHALL THE INSTITUTE OR CONTRIBUTORS BE LIABLE
+ * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+ * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
+ * OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
+ * HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
+ * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
+ * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
+ * SUCH DAMAGE.
+ */
+
+/*
+ * htpm2tool -- command-line utility for TPM 2.0 operations.
+ *
+ * Sub-commands:
+ *   timestamp     Generate a signed timestamp for use as a quote nonce
+ *   encrypt-to    Encrypt a file to a target TPM (EncryptTo)
+ *   decrypt-from  Decrypt an EncryptTo ciphertext using the local TPM
+ *   quote-verify  Validate a TPM quote (stub -- needs eventlog work)
+ */
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
+#include <time.h>
+#include <sys/stat.h>
+#include <fcntl.h>
+
+#include "htpm2.h"
+#include "htpm2_locl.h"
+#include "marshal.h"
+#include "crypto.h"
+
+#include <openssl/evp.h>
+#include <openssl/pem.h>
+#include <openssl/err.h>
+
+static void
+die_result(htpm2_result r, const char *context)
+{
+    fprintf(stderr, "htpm2tool: %s: %s\n", context,
+            r.message ? r.message : "(unknown error)");
+    if (r.flags & HTPM2_F_TPM_RC)
+        fprintf(stderr, "  TPM RC: 0x%08x\n", r.tpm_rc);
+    if (r.flags & HTPM2_F_LOCAL)
+        fprintf(stderr, "  local error: %d\n", r.local_err);
+    htpm2_result_free(&r);
+    exit(1);
+}
+
+static void *
+read_file(const char *path, size_t *len)
+{
+    FILE *f;
+    struct stat st;
+    void *buf;
+
+    if (stat(path, &st) < 0) {
+        perror(path);
+        return NULL;
+    }
+
+    buf = malloc(st.st_size > 0 ? st.st_size : 1);
+    if (buf == NULL) {
+        perror("malloc");
+        return NULL;
+    }
+
+    f = fopen(path, "rb");
+    if (f == NULL) {
+        perror(path);
+        free(buf);
+        return NULL;
+    }
+
+    *len = fread(buf, 1, st.st_size, f);
+    fclose(f);
+    return buf;
+}
+
+static int
+write_file(const char *path, const void *data, size_t len)
+{
+    FILE *f = fopen(path, "wb");
+    if (f == NULL) {
+        perror(path);
+        return -1;
+    }
+    if (fwrite(data, 1, len, f) != len) {
+        perror(path);
+        fclose(f);
+        return -1;
+    }
+    fclose(f);
+    return 0;
+}
+
+/*
+ * Sub-command: timestamp
+ *
+ * Generate a signed timestamp for use as qualifying data (nonce) in a
+ * TPM quote.  The timestamp prevents replay of old quotes.
+ *
+ * Output format: timestamp(8 bytes, big-endian Unix time) || HMAC-SHA-256
+ *
+ * The HMAC key is derived from a secret or read from a file.  For
+ * simplicity, this initial implementation uses a random key written
+ * to a file, and the verifier reads the same file to verify.
+ *
+ * Usage: htpm2tool timestamp --key <keyfile> --out <outfile>
+ *        htpm2tool timestamp --key <keyfile> --verify <infile>
+ */
+static int
+cmd_timestamp(int argc, char **argv)
+{
+    const char *key_file = NULL;
+    const char *out_file = NULL;
+    const char *verify_file = NULL;
+    htpm2_context ctx = NULL;
+    htpm2_result r;
+    int i;
+
+    for (i = 0; i < argc; i++) {
+        if (strcmp(argv[i], "--key") == 0 && i + 1 < argc)
+            key_file = argv[++i];
+        else if (strcmp(argv[i], "--out") == 0 && i + 1 < argc)
+            out_file = argv[++i];
+        else if (strcmp(argv[i], "--verify") == 0 && i + 1 < argc)
+            verify_file = argv[++i];
+    }
+
+    if (key_file == NULL) {
+        fprintf(stderr, "Usage: htpm2tool timestamp --key <keyfile> "
+                "[--out <outfile> | --verify <infile>]\n");
+        return 1;
+    }
+
+    r = htpm2_context_init(&ctx);
+    if (htpm2_is_err(r))
+        die_result(r, "context_init");
+
+    if (verify_file) {
+        /* Verify a timestamp */
+        void *key_data, *ts_data;
+        size_t key_len, ts_len;
+        uint8_t expected_hmac[32];
+        size_t hmac_len = 32;
+        time_t ts_time;
+
+        key_data = read_file(key_file, &key_len);
+        ts_data = read_file(verify_file, &ts_len);
+        if (!key_data || !ts_data || ts_len != 40) {
+            fprintf(stderr, "htpm2tool: invalid timestamp file "
+                    "(expected 40 bytes, got %zu)\n", ts_len);
+            free(key_data);
+            free(ts_data);
+            htpm2_context_free(&ctx);
+            return 1;
+        }
+
+        r = htpm2_hmac_sha256(ctx, key_data, key_len,
+                              ts_data, 8, expected_hmac, &hmac_len);
+        free(key_data);
+        if (htpm2_is_err(r))
+            die_result(r, "HMAC verify");
+
+        if (memcmp(expected_hmac, (uint8_t *)ts_data + 8, 32) != 0) {
+            fprintf(stderr, "htpm2tool: timestamp HMAC verification FAILED\n");
+            free(ts_data);
+            htpm2_context_free(&ctx);
+            return 1;
+        }
+
+        /* Decode timestamp */
+        {
+            const uint8_t *p = ts_data;
+            ts_time = ((uint64_t)p[0] << 56) | ((uint64_t)p[1] << 48) |
+                      ((uint64_t)p[2] << 40) | ((uint64_t)p[3] << 32) |
+                      ((uint64_t)p[4] << 24) | ((uint64_t)p[5] << 16) |
+                      ((uint64_t)p[6] << 8) | (uint64_t)p[7];
+        }
+
+        printf("Timestamp valid: %s", ctime(&ts_time));
+        free(ts_data);
+    } else {
+        /* Generate a timestamp */
+        uint8_t ts_buf[40];  /* 8 bytes time + 32 bytes HMAC */
+        void *key_data;
+        size_t key_len;
+        size_t hmac_len = 32;
+        time_t now = time(NULL);
+
+        /* Check if key file exists; if not, generate one */
+        if (access(key_file, R_OK) != 0) {
+            uint8_t new_key[32];
+            r = htpm2_random_bytes(ctx, new_key, 32);
+            if (htpm2_is_err(r))
+                die_result(r, "generate key");
+            if (write_file(key_file, new_key, 32) < 0) {
+                htpm2_context_free(&ctx);
+                return 1;
+            }
+            fprintf(stderr, "Generated new HMAC key: %s\n", key_file);
+        }
+
+        key_data = read_file(key_file, &key_len);
+        if (!key_data) {
+            htpm2_context_free(&ctx);
+            return 1;
+        }
+
+        /* Encode timestamp as big-endian uint64 */
+        ts_buf[0] = (now >> 56) & 0xff;
+        ts_buf[1] = (now >> 48) & 0xff;
+        ts_buf[2] = (now >> 40) & 0xff;
+        ts_buf[3] = (now >> 32) & 0xff;
+        ts_buf[4] = (now >> 24) & 0xff;
+        ts_buf[5] = (now >> 16) & 0xff;
+        ts_buf[6] = (now >> 8) & 0xff;
+        ts_buf[7] = now & 0xff;
+
+        r = htpm2_hmac_sha256(ctx, key_data, key_len,
+                              ts_buf, 8, ts_buf + 8, &hmac_len);
+        free(key_data);
+        if (htpm2_is_err(r))
+            die_result(r, "HMAC");
+
+        if (out_file) {
+            if (write_file(out_file, ts_buf, 40) < 0) {
+                htpm2_context_free(&ctx);
+                return 1;
+            }
+        } else {
+            /* Write to stdout */
+            fwrite(ts_buf, 1, 40, stdout);
+        }
+    }
+
+    htpm2_context_free(&ctx);
+    return 0;
+}
+
+/*
+ * Sub-command: encrypt-to
+ *
+ * Encrypt a file to a target TPM.
+ *
+ * Usage: htpm2tool encrypt-to --ek-pub <file> --policy <file>
+ *        [--iak-name <file>] [--owner-name <file>]
+ *        --in <plaintext> --out <ciphertext>
+ *        --cred-out <prefix>
+ *
+ * Outputs:
+ *   <ciphertext>          -- encrypted data
+ *   <prefix>.wk.blob      -- well-known credential blob
+ *   <prefix>.wk.secret    -- well-known encrypted secret
+ *   <prefix>.iak.blob     -- IAK credential blob (if --iak-name)
+ *   <prefix>.iak.secret   -- IAK encrypted secret (if --iak-name)
+ *   <prefix>.owner.blob   -- owner credential blob (if --owner-name)
+ *   <prefix>.owner.secret -- owner encrypted secret (if --owner-name)
+ */
+static int
+cmd_encrypt_to(int argc, char **argv)
+{
+    const char *ek_pub_file = NULL;
+    const char *policy_file = NULL;
+    const char *iak_name_file = NULL;
+    const char *owner_name_file = NULL;
+    const char *in_file = NULL;
+    const char *out_file = NULL;
+    const char *cred_prefix = NULL;
+    void *ek_pub = NULL, *policy = NULL;
+    void *iak_name = NULL, *owner_name = NULL;
+    void *plaintext = NULL;
+    size_t ek_pub_len, policy_len;
+    size_t iak_name_len = 0, owner_name_len = 0;
+    size_t plaintext_len;
+    htpm2_encrypt_to_result result;
+    htpm2_context ctx = NULL;
+    htpm2_result r;
+    char path[1024];
+    int i, rc = 1;
+
+    for (i = 0; i < argc; i++) {
+        if (strcmp(argv[i], "--ek-pub") == 0 && i + 1 < argc)
+            ek_pub_file = argv[++i];
+        else if (strcmp(argv[i], "--policy") == 0 && i + 1 < argc)
+            policy_file = argv[++i];
+        else if (strcmp(argv[i], "--iak-name") == 0 && i + 1 < argc)
+            iak_name_file = argv[++i];
+        else if (strcmp(argv[i], "--owner-name") == 0 && i + 1 < argc)
+            owner_name_file = argv[++i];
+        else if (strcmp(argv[i], "--in") == 0 && i + 1 < argc)
+            in_file = argv[++i];
+        else if (strcmp(argv[i], "--out") == 0 && i + 1 < argc)
+            out_file = argv[++i];
+        else if (strcmp(argv[i], "--cred-out") == 0 && i + 1 < argc)
+            cred_prefix = argv[++i];
+    }
+
+    if (!ek_pub_file || !policy_file || !in_file || !out_file || !cred_prefix) {
+        fprintf(stderr, "Usage: htpm2tool encrypt-to --ek-pub <file> "
+                "--policy <file> --in <file> --out <file> "
+                "--cred-out <prefix>\n"
+                "  [--iak-name <file>] [--owner-name <file>]\n");
+        return 1;
+    }
+
+    ek_pub = read_file(ek_pub_file, &ek_pub_len);
+    policy = read_file(policy_file, &policy_len);
+    plaintext = read_file(in_file, &plaintext_len);
+    if (!ek_pub || !policy || !plaintext)
+        goto out;
+
+    if (iak_name_file) {
+        iak_name = read_file(iak_name_file, &iak_name_len);
+        if (!iak_name) goto out;
+    }
+    if (owner_name_file) {
+        owner_name = read_file(owner_name_file, &owner_name_len);
+        if (!owner_name) goto out;
+    }
+
+    r = htpm2_context_init(&ctx);
+    if (htpm2_is_err(r))
+        die_result(r, "context_init");
+
+    memset(&result, 0, sizeof(result));
+    r = htpm2_encrypt_to(ctx, plaintext, plaintext_len,
+                         ek_pub, ek_pub_len,
+                         policy, policy_len,
+                         iak_name, iak_name_len,
+                         owner_name, owner_name_len,
+                         &result);
+    if (htpm2_is_err(r))
+        die_result(r, "encrypt_to");
+
+    /* Write outputs */
+    if (write_file(out_file, result.ciphertext, result.ciphertext_len) < 0)
+        goto out;
+
+    snprintf(path, sizeof(path), "%s.wk.blob", cred_prefix);
+    if (write_file(path, result.wk_credential_blob,
+                   result.wk_credential_blob_len) < 0)
+        goto out;
+    snprintf(path, sizeof(path), "%s.wk.secret", cred_prefix);
+    if (write_file(path, result.wk_encrypted_secret,
+                   result.wk_encrypted_secret_len) < 0)
+        goto out;
+
+    if (result.iak_credential_blob) {
+        snprintf(path, sizeof(path), "%s.iak.blob", cred_prefix);
+        if (write_file(path, result.iak_credential_blob,
+                       result.iak_credential_blob_len) < 0)
+            goto out;
+        snprintf(path, sizeof(path), "%s.iak.secret", cred_prefix);
+        if (write_file(path, result.iak_encrypted_secret,
+                       result.iak_encrypted_secret_len) < 0)
+            goto out;
+    }
+
+    if (result.owner_credential_blob) {
+        snprintf(path, sizeof(path), "%s.owner.blob", cred_prefix);
+        if (write_file(path, result.owner_credential_blob,
+                       result.owner_credential_blob_len) < 0)
+            goto out;
+        snprintf(path, sizeof(path), "%s.owner.secret", cred_prefix);
+        if (write_file(path, result.owner_encrypted_secret,
+                       result.owner_encrypted_secret_len) < 0)
+            goto out;
+    }
+
+    printf("Encrypted %zu bytes -> %zu bytes, %zu share(s)\n",
+           plaintext_len, result.ciphertext_len, result.num_shares);
+    rc = 0;
+
+out:
+    htpm2_encrypt_to_result_free(&result);
+    free(ek_pub);
+    free(policy);
+    free(iak_name);
+    free(owner_name);
+    free(plaintext);
+    htpm2_context_free(&ctx);
+    return rc;
+}
+
+/*
+ * Sub-command: decrypt-from
+ *
+ * Decrypt an EncryptTo ciphertext using the local TPM.
+ *
+ * Usage: htpm2tool decrypt-from --transport <uri>
+ *        --cred-in <prefix> --in <ciphertext> --out <plaintext>
+ *
+ * The tool reads the credential blobs and secrets from files
+ * produced by encrypt-to.  It connects to the TPM, creates the
+ * necessary keys, runs ActivateCredential for each share, and
+ * decrypts the ciphertext.
+ *
+ * This is currently a stub -- the full implementation requires
+ * creating/loading the well-known key, EK, etc., which depends
+ * on the enrollment flow.
+ */
+static int
+cmd_decrypt_from(int argc, char **argv)
+{
+    (void)argc;
+    (void)argv;
+
+    fprintf(stderr, "htpm2tool: decrypt-from: not yet implemented\n");
+    fprintf(stderr, "  Requires enrollment flow to set up well-known key, "
+            "EK handle, etc.\n");
+    return 1;
+}
+
+/*
+ * Sub-command: quote-verify
+ *
+ * Validate a TPM quote.
+ *
+ * This requires:
+ *   - The quote (TPMS_ATTEST) and signature
+ *   - The AK's public key (for signature verification)
+ *   - The expected PCR values (from eventlog analysis)
+ *   - The qualifying data (timestamp nonce)
+ *
+ * The eventlog analysis part is complex and needs further design
+ * discussion -- what format of eventlog, how to evaluate policy
+ * against it, etc.
+ */
+static int
+cmd_quote_verify(int argc, char **argv)
+{
+    (void)argc;
+    (void)argv;
+
+    fprintf(stderr, "htpm2tool: quote-verify: not yet implemented\n");
+    fprintf(stderr, "  Needs eventlog parsing and PCR policy design.\n");
+    return 1;
+}
+
+static void
+usage(void)
+{
+    fprintf(stderr,
+            "Usage: htpm2tool <command> [options]\n"
+            "\n"
+            "Commands:\n"
+            "  timestamp      Generate/verify a signed timestamp for quote nonces\n"
+            "  encrypt-to     Encrypt a file to a target TPM\n"
+            "  decrypt-from   Decrypt an EncryptTo ciphertext using the local TPM\n"
+            "  quote-verify   Validate a TPM quote (not yet implemented)\n"
+            "\n"
+            "Run 'htpm2tool <command> --help' for command-specific usage.\n");
+}
+
+int
+main(int argc, char **argv)
+{
+    if (argc < 2) {
+        usage();
+        return 1;
+    }
+
+    if (strcmp(argv[1], "timestamp") == 0)
+        return cmd_timestamp(argc - 2, argv + 2);
+    if (strcmp(argv[1], "encrypt-to") == 0)
+        return cmd_encrypt_to(argc - 2, argv + 2);
+    if (strcmp(argv[1], "decrypt-from") == 0)
+        return cmd_decrypt_from(argc - 2, argv + 2);
+    if (strcmp(argv[1], "quote-verify") == 0)
+        return cmd_quote_verify(argc - 2, argv + 2);
+
+    fprintf(stderr, "htpm2tool: unknown command '%s'\n", argv[1]);
+    usage();
+    return 1;
+}
