@@ -561,36 +561,49 @@ Type checking via `heim_get_tid()`:
   `TPM2_Policy*()` command with real inputs.
 
   The `session` parameter may be NULL (create a new policy session)
-  or an existing session (continue evaluation in it).  This is
-  essential for PolicyOr, PolicyAuthorize, and PolicyAuthorizeNV,
-  where a sub-policy must be evaluated *before* the gating command:
+  or an existing session (continue evaluation in it).
 
   **PolicyOr execution flow:**
-  1. The evaluator creates (or receives) a policy session
-  2. It evaluates the selected alternative sub-policy in that session,
-     which sets `policyDigest` to the alternative's digest
-  3. It calls `TPM2_PolicyOr(all_alternative_digests)`, which verifies
+  The evaluator knows all alternatives (they're in the JSON document).
+  1. Evaluate all nodes *before* the PolicyOr node in the current
+     policy (if any)
+  2. Evaluate the selected alternative sub-policy in the same session,
+     setting `policyDigest` to that alternative's digest
+  3. Call `TPM2_PolicyOr(all_alternative_digests)`, which verifies
      that `policyDigest` matches one of the alternatives and replaces
      it with the combined PolicyOr digest
-  4. Evaluation continues with subsequent nodes
+  4. Continue with nodes after PolicyOr
 
-  **PolicyAuthorize execution flow:**
-  1. The evaluator creates (or receives) a policy session
-  2. It evaluates the approved sub-policy in that session, which sets
-     `policyDigest` to the approved policy's digest
-  3. It calls `TPM2_PolicyAuthorize(approvedPolicy, keySign, ticket)`,
-     which verifies `policyDigest == approvedPolicy`, verifies the
-     signature, and replaces `policyDigest` with one based on the
-     authorizing key's Name
-  4. Evaluation continues with subsequent nodes
+  PolicyOr does NOT have to be the first command in a policy.  The
+  evaluator handles the sub-policy evaluation internally since all
+  alternatives are defined in (or referenced from) the JSON document.
 
-  **PolicyAuthorizeNV** follows the same pattern: evaluate sub-policy
-  first, then PolicyAuthorizeNV checks that `policyDigest` matches the
-  NV-stored policy.
+  **PolicyAuthorize and PolicyAuthorizeNV:**
+  These are *indirection* commands -- the authorized sub-policy is
+  NOT known at policy definition time.  The whole point is that any
+  sub-policy approved by the authorizing key (or stored in NV) can
+  be substituted.  Therefore:
 
-  The recursion (sub-policy evaluation calling back into the evaluator)
-  is where the depth limit of 8 applies.  Each level of PolicyOr or
-  PolicyAuthorize nesting adds one level.
+  - At **compilation** time: we don't need the sub-policy.  We just
+    compute the digest extension for PolicyAuthorize itself (which
+    depends only on the authorizing key's Name and policyRef).
+  - At **evaluation** time: we assume the caller has *already*
+    evaluated some sub-policy in the session.  We just call
+    PolicyAuthorize/AuthorizeNV, which checks the current
+    `policyDigest` against the authorization and replaces it.
+  - Therefore **PolicyAuthorize and PolicyAuthorizeNV must be the
+    first command** in their policy document, because any preceding
+    commands would alter `policyDigest` away from whatever the
+    caller set up via the (unknown) sub-policy.
+
+  This is why `session` input is needed: the caller evaluates the
+  approved sub-policy in a session, then passes that session to us,
+  and we execute PolicyAuthorize as the first (and possibly only)
+  command.
+
+  The depth limit of 8 applies to PolicyOr nesting (alternatives
+  can contain PolicyOr).  PolicyAuthorize does not add recursion
+  depth in our evaluator since the sub-policy is evaluated externally.
 
 - Object loading: resolve objectDefs, load keys, manage handles.
   Objects can be flushed after use to reclaim TPM memory.
