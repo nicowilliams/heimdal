@@ -38,6 +38,7 @@ dist_libhtpm2_la_SOURCES = \
 	decrypt.c \
 	credential.c \
 	soft.c \
+	enrollment.c \
 	encrypt_to.c \
 	pcr.c \
 	random.c \

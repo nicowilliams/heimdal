@@ -174,98 +174,6 @@ aes256_cbc_decrypt(const uint8_t key[32],
     return HTPM2_OK;
 }
 
-/*
- * Construct the well-known key's TPMT_PUBLIC and compute its Name.
- *
- * The well-known key is a fixed HMAC key template whose only varying
- * part is the authPolicy.  Its purpose is to be a vehicle for the
- * policy: whoever activates this credential must satisfy the policy.
- *
- * The key template is:
- *   type = KEYEDHASH
- *   nameAlg = SHA-256
- *   objectAttributes = userWithAuth | sign | fixedTPM | fixedParent
- *   authPolicy = <the caller's policy>
- *   scheme = HMAC-SHA-256
- *   unique = empty (32 zero bytes -- deterministic, "well-known")
- *
- * Name = 0x000B || SHA-256(TPMT_PUBLIC)
- *   (0x000B is the uint16 for TPM2_ALG_SHA256)
- */
-static htpm2_result
-make_well_known_key_name(const htpm2_context ctx,
-                         const void *policy, size_t policy_len,
-                         uint8_t *name, size_t *name_len)
-{
-    heim_storage *sp;
-    void *pub_bytes = NULL;
-    size_t pub_bytes_len = 0;
-    uint8_t digest[32];
-    htpm2_result r;
-    int ret;
-
-    sp = heim_storage_emem();
-    if (sp == NULL)
-        return htpm2_result_local(ENOMEM, HTPM2_F_LOCAL, ENOMEM,
-                                  "well-known key: alloc");
-
-    /* type = KEYEDHASH */
-    ret = heim_store_uint16(sp, TPM2_ALG_KEYEDHASH);
-    if (ret) goto err;
-
-    /* nameAlg = SHA-256 */
-    ret = heim_store_uint16(sp, TPM2_ALG_SHA256);
-    if (ret) goto err;
-
-    /* objectAttributes:
-     *   fixedTPM(1) | fixedParent(4) | userWithAuth(6) | sign(18)
-     */
-    ret = heim_store_uint32(sp, (1U << 1) | (1U << 4) | (1U << 6) | (1U << 18));
-    if (ret) goto err;
-
-    /* authPolicy (TPM2B_DIGEST) */
-    ret = htpm2_marshal_tpm2b(sp, policy, policy_len);
-    if (ret) goto err;
-
-    /* TPMS_KEYEDHASH_PARMS: scheme = HMAC */
-    ret = heim_store_uint16(sp, TPM2_ALG_HMAC);  /* scheme */
-    if (ret) goto err;
-    ret = heim_store_uint16(sp, TPM2_ALG_SHA256); /* hashAlg */
-    if (ret) goto err;
-
-    /* unique (TPM2B) = 32 zero bytes (deterministic, "well-known") */
-    {
-        uint8_t zeros[32];
-        memset(zeros, 0, sizeof(zeros));
-        ret = htpm2_marshal_tpm2b(sp, zeros, 32);
-    }
-    if (ret) goto err;
-
-    ret = heim_storage_to_data(sp, &pub_bytes, &pub_bytes_len);
-    heim_storage_free(sp);
-    sp = NULL;
-    if (ret)
-        return htpm2_result_local(ret, HTPM2_F_MARSHAL, ret,
-                                  "well-known key: to_data");
-
-    /* Name = 0x000B || SHA-256(TPMT_PUBLIC) */
-    r = htpm2_sha256(ctx, pub_bytes, pub_bytes_len, digest);
-    free(pub_bytes);
-    if (htpm2_is_err(r))
-        return htpm2_result_prepend(r, "well-known key: hash");
-
-    name[0] = 0x00;
-    name[1] = 0x0B;  /* TPM2_ALG_SHA256 */
-    memcpy(name + 2, digest, 32);
-    *name_len = 34;
-    return HTPM2_OK;
-
-err:
-    heim_storage_free(sp);
-    return htpm2_result_local(ret, HTPM2_F_MARSHAL, ret,
-                              "well-known key: marshal");
-}
-
 htpm2_result
 htpm2_encrypt_to(const htpm2_context ctx,
                  const void *plaintext, size_t plaintext_len,
@@ -290,10 +198,21 @@ htpm2_encrypt_to(const htpm2_context ctx,
                                   "EncryptTo: policy is required");
 
     /* Compute well-known key Name from the policy */
-    r = make_well_known_key_name(ctx, policy, policy_len,
-                                 wk_name, &wk_name_len);
-    if (htpm2_is_err(r))
-        return htpm2_result_prepend(r, "EncryptTo");
+    {
+        void *wk_name_alloc = NULL;
+        r = htpm2_wellknown_key_template(ctx, policy, policy_len,
+                                         NULL, NULL,
+                                         &wk_name_alloc, &wk_name_len);
+        if (htpm2_is_err(r))
+            return htpm2_result_prepend(r, "EncryptTo");
+        if (wk_name_len > sizeof(wk_name)) {
+            free(wk_name_alloc);
+            return htpm2_result_local(ERANGE, HTPM2_F_LOCAL, ERANGE,
+                                      "EncryptTo: name too long");
+        }
+        memcpy(wk_name, wk_name_alloc, wk_name_len);
+        free(wk_name_alloc);
+    }
 
     /* Determine number of shares */
     num_shares = 1;

@@ -425,16 +425,174 @@ out:
  * creating/loading the well-known key, EK, etc., which depends
  * on the enrollment flow.
  */
+/*
+ * Sub-command: decrypt-from
+ *
+ * Decrypt an EncryptTo ciphertext using the local TPM.
+ *
+ * Usage: htpm2tool decrypt-from --transport <uri> --policy <file>
+ *        --cred-in <prefix> --in <ciphertext> --out <plaintext>
+ *        [--with-iak] [--with-owner]
+ *
+ * The tool:
+ *   1. Connects to the TPM
+ *   2. Creates the EK (endorsement hierarchy, RSA-2048 decrypt)
+ *   3. Creates the well-known key (NULL hierarchy, with policy)
+ *   4. If --with-iak: reads IAK credential blobs
+ *   5. If --with-owner: creates owner key and reads owner credential blobs
+ *   6. ActivateCredential for each share (using password auth)
+ *   7. XORs shares to recover AES-256 key
+ *   8. Decrypts ciphertext
+ *
+ * Note: ActivateCredential on a real EK requires PolicySecret(ENDORSEMENT).
+ * For now we use password auth which works when the endorsement hierarchy
+ * has an empty password (typical for swtpm and many default configurations).
+ */
 static int
 cmd_decrypt_from(int argc, char **argv)
 {
-    (void)argc;
-    (void)argv;
+    const char *transport_uri = NULL;
+    const char *policy_file = NULL;
+    const char *cred_prefix = NULL;
+    const char *in_file = NULL;
+    const char *out_file = NULL;
+    int with_iak = 0, with_owner = 0;
+    htpm2_context ctx = NULL;
+    htpm2_transport tp = NULL;
+    htpm2_object ek = NULL, wk = NULL, owner = NULL;
+    htpm2_result r;
+    void *policy = NULL, *ciphertext = NULL;
+    void *wk_blob = NULL, *wk_secret = NULL;
+    void *iak_blob = NULL, *iak_secret = NULL;
+    void *owner_blob = NULL, *owner_secret = NULL;
+    void *plaintext = NULL;
+    size_t policy_len, ciphertext_len;
+    size_t wk_blob_len, wk_secret_len;
+    size_t iak_blob_len = 0, iak_secret_len = 0;
+    size_t owner_blob_len = 0, owner_secret_len = 0;
+    size_t plaintext_len = 0;
+    char path[1024];
+    int i, rc = 1;
 
-    fprintf(stderr, "htpm2tool: decrypt-from: not yet implemented\n");
-    fprintf(stderr, "  Requires enrollment flow to set up well-known key, "
-            "EK handle, etc.\n");
-    return 1;
+    for (i = 0; i < argc; i++) {
+        if (strcmp(argv[i], "--transport") == 0 && i + 1 < argc)
+            transport_uri = argv[++i];
+        else if (strcmp(argv[i], "--policy") == 0 && i + 1 < argc)
+            policy_file = argv[++i];
+        else if (strcmp(argv[i], "--cred-in") == 0 && i + 1 < argc)
+            cred_prefix = argv[++i];
+        else if (strcmp(argv[i], "--in") == 0 && i + 1 < argc)
+            in_file = argv[++i];
+        else if (strcmp(argv[i], "--out") == 0 && i + 1 < argc)
+            out_file = argv[++i];
+        else if (strcmp(argv[i], "--with-iak") == 0)
+            with_iak = 1;
+        else if (strcmp(argv[i], "--with-owner") == 0)
+            with_owner = 1;
+    }
+
+    if (!transport_uri || !policy_file || !cred_prefix || !in_file || !out_file) {
+        fprintf(stderr,
+                "Usage: htpm2tool decrypt-from --transport <uri> "
+                "--policy <file>\n"
+                "       --cred-in <prefix> --in <ciphertext> "
+                "--out <plaintext>\n"
+                "       [--with-iak] [--with-owner]\n");
+        return 1;
+    }
+
+    /* Read input files */
+    policy = read_file(policy_file, &policy_len);
+    ciphertext = read_file(in_file, &ciphertext_len);
+    if (!policy || !ciphertext) goto out;
+
+    snprintf(path, sizeof(path), "%s.wk.blob", cred_prefix);
+    wk_blob = read_file(path, &wk_blob_len);
+    snprintf(path, sizeof(path), "%s.wk.secret", cred_prefix);
+    wk_secret = read_file(path, &wk_secret_len);
+    if (!wk_blob || !wk_secret) goto out;
+
+    if (with_iak) {
+        snprintf(path, sizeof(path), "%s.iak.blob", cred_prefix);
+        iak_blob = read_file(path, &iak_blob_len);
+        snprintf(path, sizeof(path), "%s.iak.secret", cred_prefix);
+        iak_secret = read_file(path, &iak_secret_len);
+        if (!iak_blob || !iak_secret) goto out;
+    }
+
+    if (with_owner) {
+        snprintf(path, sizeof(path), "%s.owner.blob", cred_prefix);
+        owner_blob = read_file(path, &owner_blob_len);
+        snprintf(path, sizeof(path), "%s.owner.secret", cred_prefix);
+        owner_secret = read_file(path, &owner_secret_len);
+        if (!owner_blob || !owner_secret) goto out;
+    }
+
+    /* Initialize context and connect to TPM */
+    r = htpm2_context_init(&ctx);
+    if (htpm2_is_err(r)) die_result(r, "context_init");
+
+    r = htpm2_transport_open(ctx, HTPM2_OK, transport_uri, &tp);
+    if (htpm2_is_err(r)) die_result(r, "transport_open");
+
+    /* Create EK */
+    r = htpm2_create_primary(ctx, tp, HTPM2_OK, NULL,
+                             HTPM2_HIERARCHY_ENDORSEMENT,
+                             HTPM2_KEY_RSA_2048_DECRYPT,
+                             NULL, 0, NULL, 0, &ek);
+    if (htpm2_is_err(r)) die_result(r, "create EK");
+
+    /* Create well-known key under NULL hierarchy */
+    r = htpm2_wellknown_key_create(ctx, tp, HTPM2_OK,
+                                   policy, policy_len, &wk);
+    if (htpm2_is_err(r)) die_result(r, "create well-known key");
+
+    /* Create owner key if needed */
+    if (with_owner) {
+        r = htpm2_owner_key_create(ctx, tp, HTPM2_OK, &owner);
+        if (htpm2_is_err(r)) die_result(r, "create owner key");
+    }
+
+    /* Decrypt using the TPM */
+    r = htpm2_decrypt_from_tpm(ctx, tp, HTPM2_OK,
+                               ek, NULL, /* EK auth: password */
+                               wk,
+                               wk_blob, wk_blob_len,
+                               wk_secret, wk_secret_len,
+                               NULL, /* IAK: TODO load if --with-iak */
+                               iak_blob, iak_blob_len,
+                               iak_secret, iak_secret_len,
+                               owner,
+                               owner_blob, owner_blob_len,
+                               owner_secret, owner_secret_len,
+                               ciphertext, ciphertext_len,
+                               &plaintext, &plaintext_len);
+    if (htpm2_is_err(r)) die_result(r, "decrypt_from_tpm");
+
+    /* Write plaintext */
+    if (write_file(out_file, plaintext, plaintext_len) < 0)
+        goto out;
+
+    printf("Decrypted %zu bytes -> %zu bytes\n",
+           ciphertext_len, plaintext_len);
+    rc = 0;
+
+out:
+    free(policy);
+    free(ciphertext);
+    free(wk_blob);
+    free(wk_secret);
+    free(iak_blob);
+    free(iak_secret);
+    free(owner_blob);
+    free(owner_secret);
+    free(plaintext);
+    htpm2_object_close(&ek);
+    htpm2_object_close(&wk);
+    htpm2_object_close(&owner);
+    htpm2_transport_close(&tp);
+    htpm2_context_free(&ctx);
+    return rc;
 }
 
 /*

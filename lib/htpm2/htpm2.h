@@ -496,6 +496,46 @@ htpm2_result htpm2_policy_or(const htpm2_context ctx,
                              const size_t *digest_lens,
                              size_t num_digests);
 
+/* --- Enrollment protocol support --- */
+
+/*
+ * Get the well-known key template and Name for a given policy.
+ *
+ * The well-known key is a constant KEYEDHASH key whose template is
+ * deterministic: same key on every TPM given the same policy.
+ * Security comes from the policy, not the key material.
+ *
+ * If pub_template is non-NULL, returns the serialized TPMT_PUBLIC.
+ * Always returns the Name (0x000B || SHA-256(TPMT_PUBLIC)).
+ */
+htpm2_result htpm2_wellknown_key_template(const htpm2_context ctx,
+                                          const void *policy,
+                                          size_t policy_len,
+                                          void **pub_template,
+                                          size_t *pub_template_len,
+                                          void **name, size_t *name_len);
+
+/*
+ * Create the well-known key on the TPM (under NULL hierarchy).
+ * Deterministic: same template always produces the same key.
+ */
+htpm2_result htpm2_wellknown_key_create(const htpm2_context ctx,
+                                        htpm2_transport tp,
+                                        htpm2_result prior,
+                                        const void *policy,
+                                        size_t policy_len,
+                                        htpm2_object *key);
+
+/*
+ * Create the owner-hierarchy key on the TPM.
+ * RSA-2048 storage key, fixedTPM/fixedParent, under Owner hierarchy.
+ * Invalidated when the owner seed is changed (decommissioning).
+ */
+htpm2_result htpm2_owner_key_create(const htpm2_context ctx,
+                                    htpm2_transport tp,
+                                    htpm2_result prior,
+                                    htpm2_object *key);
+
 /* --- EncryptTo / DecryptFrom --- */
 
 /*
