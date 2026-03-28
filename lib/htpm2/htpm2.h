@@ -496,6 +496,26 @@ htpm2_result htpm2_policy_or(const htpm2_context ctx,
                              const size_t *digest_lens,
                              size_t num_digests);
 
+/* --- Quote verification --- */
+
+/*
+ * Verify a TPM quote: check magic, type, signature, and nonce.
+ *
+ * `quoted` and `signature` are the raw blobs from htpm2_quote().
+ * `ak_pub` is the AK's TPMT_PUBLIC (from htpm2_object_get_public()).
+ * `expected_nonce` is the qualifying data that was passed to htpm2_quote().
+ *
+ * If pcr_digest is non-NULL, returns the PCR digest from the quote
+ * for comparison with replayed eventlog values.
+ */
+htpm2_result htpm2_quote_verify(const htpm2_context ctx,
+                                const void *quoted, size_t quoted_len,
+                                const void *signature, size_t signature_len,
+                                const void *ak_pub, size_t ak_pub_len,
+                                const void *expected_nonce,
+                                size_t expected_nonce_len,
+                                void **pcr_digest, size_t *pcr_digest_len);
+
 /* --- Enrollment protocol support --- */
 
 /*

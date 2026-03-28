@@ -457,10 +457,12 @@ cmd_decrypt_from(int argc, char **argv)
     const char *cred_prefix = NULL;
     const char *in_file = NULL;
     const char *out_file = NULL;
-    int with_iak = 0, with_owner = 0;
+    const char *iak_pub_file = NULL;
+    const char *iak_priv_file = NULL;
+    int with_owner = 0;
     htpm2_context ctx = NULL;
     htpm2_transport tp = NULL;
-    htpm2_object ek = NULL, wk = NULL, owner = NULL;
+    htpm2_object ek = NULL, wk = NULL, owner = NULL, srk = NULL, iak = NULL;
     htpm2_result r;
     void *policy = NULL, *ciphertext = NULL;
     void *wk_blob = NULL, *wk_secret = NULL;
@@ -486,8 +488,10 @@ cmd_decrypt_from(int argc, char **argv)
             in_file = argv[++i];
         else if (strcmp(argv[i], "--out") == 0 && i + 1 < argc)
             out_file = argv[++i];
-        else if (strcmp(argv[i], "--with-iak") == 0)
-            with_iak = 1;
+        else if (strcmp(argv[i], "--iak-pub") == 0 && i + 1 < argc)
+            iak_pub_file = argv[++i];
+        else if (strcmp(argv[i], "--iak-priv") == 0 && i + 1 < argc)
+            iak_priv_file = argv[++i];
         else if (strcmp(argv[i], "--with-owner") == 0)
             with_owner = 1;
     }
@@ -498,7 +502,8 @@ cmd_decrypt_from(int argc, char **argv)
                 "--policy <file>\n"
                 "       --cred-in <prefix> --in <ciphertext> "
                 "--out <plaintext>\n"
-                "       [--with-iak] [--with-owner]\n");
+                "       [--iak-pub <file> --iak-priv <file>] "
+                "[--with-owner]\n");
         return 1;
     }
 
@@ -513,7 +518,7 @@ cmd_decrypt_from(int argc, char **argv)
     wk_secret = read_file(path, &wk_secret_len);
     if (!wk_blob || !wk_secret) goto out;
 
-    if (with_iak) {
+    if (iak_pub_file && iak_priv_file) {
         snprintf(path, sizeof(path), "%s.iak.blob", cred_prefix);
         iak_blob = read_file(path, &iak_blob_len);
         snprintf(path, sizeof(path), "%s.iak.secret", cred_prefix);
@@ -548,6 +553,38 @@ cmd_decrypt_from(int argc, char **argv)
                                    policy, policy_len, &wk);
     if (htpm2_is_err(r)) die_result(r, "create well-known key");
 
+    /* Load IAK if provided */
+    if (iak_pub_file && iak_priv_file) {
+        void *iak_pub_data, *iak_priv_data;
+        size_t iak_pub_len, iak_priv_len;
+
+        iak_pub_data = read_file(iak_pub_file, &iak_pub_len);
+        iak_priv_data = read_file(iak_priv_file, &iak_priv_len);
+        if (!iak_pub_data || !iak_priv_data) {
+            free(iak_pub_data);
+            free(iak_priv_data);
+            goto out;
+        }
+
+        /* Create SRK to load IAK under */
+        r = htpm2_create_primary(ctx, tp, HTPM2_OK, NULL,
+                                 HTPM2_HIERARCHY_OWNER,
+                                 HTPM2_KEY_RSA_2048_STORAGE,
+                                 NULL, 0, NULL, 0, &srk);
+        if (htpm2_is_err(r)) {
+            free(iak_pub_data);
+            free(iak_priv_data);
+            die_result(r, "create SRK for IAK");
+        }
+
+        r = htpm2_load(ctx, tp, HTPM2_OK, NULL, srk,
+                       iak_pub_data, iak_pub_len,
+                       iak_priv_data, iak_priv_len, &iak);
+        free(iak_pub_data);
+        free(iak_priv_data);
+        if (htpm2_is_err(r)) die_result(r, "load IAK");
+    }
+
     /* Create owner key if needed */
     if (with_owner) {
         r = htpm2_owner_key_create(ctx, tp, HTPM2_OK, &owner);
@@ -560,7 +597,7 @@ cmd_decrypt_from(int argc, char **argv)
                                wk,
                                wk_blob, wk_blob_len,
                                wk_secret, wk_secret_len,
-                               NULL, /* IAK: TODO load if --with-iak */
+                               iak,
                                iak_blob, iak_blob_len,
                                iak_secret, iak_secret_len,
                                owner,
@@ -590,6 +627,8 @@ out:
     free(plaintext);
     htpm2_object_close(&ek);
     htpm2_object_close(&wk);
+    htpm2_object_close(&iak);
+    htpm2_object_close(&srk);
     htpm2_object_close(&owner);
     htpm2_transport_close(&tp);
     htpm2_context_free(&ctx);

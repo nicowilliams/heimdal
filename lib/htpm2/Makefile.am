@@ -34,6 +34,7 @@ dist_libhtpm2_la_SOURCES = \
 	context_mgmt.c \
 	sign.c \
 	quote.c \
+	quote_verify.c \
 	certify.c \
 	decrypt.c \
 	credential.c \

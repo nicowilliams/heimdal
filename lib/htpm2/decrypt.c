@@ -117,6 +117,16 @@ htpm2_rsa_decrypt(const htpm2_context ctx,
     return HTPM2_OK;
 }
 
+/*
+ * TPM2_ECDH_ZGen -- compute ECDH shared secret.
+ *
+ * Command (with session on keyHandle):
+ *   keyHandle:  uint32
+ *   inPoint:    TPM2B_ECC_POINT { TPMS_ECC_POINT { TPM2B x, TPM2B y } }
+ *
+ * Response:
+ *   outPoint:   TPM2B_ECC_POINT
+ */
 htpm2_result
 htpm2_ecdh_zgen(const htpm2_context ctx,
                 htpm2_transport tp,
@@ -128,9 +138,14 @@ htpm2_ecdh_zgen(const htpm2_context ctx,
                 void **shared_secret,
                 size_t *shared_secret_len)
 {
-    /* TODO: implement TPM2_ECDH_ZGen */
-    (void)ctx; (void)tp; (void)auth_session; (void)key;
-    (void)peer_point; (void)peer_point_len;
+    heim_storage *param_sp, *rsp;
+    uint32_t rc, handles[1];
+    void *param_data = NULL;
+    size_t param_len = 0;
+    void *out_data = NULL;
+    uint16_t out_size;
+    htpm2_result r;
+    int ret;
 
     if (prior.code)
         return prior;
@@ -138,6 +153,42 @@ htpm2_ecdh_zgen(const htpm2_context ctx,
     *shared_secret = NULL;
     *shared_secret_len = 0;
 
-    return htpm2_result_local(ENOSYS, HTPM2_F_LOCAL, ENOSYS,
-                              "ECDH_ZGen: not yet implemented");
+    handles[0] = htpm2_object_get_handle(key);
+
+    param_sp = heim_storage_emem();
+    if (param_sp == NULL)
+        return htpm2_result_local(ENOMEM, HTPM2_F_LOCAL, ENOMEM,
+                                  "ECDH_ZGen: alloc");
+
+    /* inPoint (TPM2B_ECC_POINT -- pre-encoded by caller) */
+    ret = htpm2_marshal_tpm2b(param_sp, peer_point, peer_point_len);
+    if (ret) {
+        heim_storage_free(param_sp);
+        return htpm2_result_local(ret, HTPM2_F_MARSHAL, ret,
+                                  "ECDH_ZGen: marshal");
+    }
+
+    ret = heim_storage_to_data(param_sp, &param_data, &param_len);
+    heim_storage_free(param_sp);
+    if (ret)
+        return htpm2_result_local(ret, HTPM2_F_MARSHAL, ret,
+                                  "ECDH_ZGen: to_data");
+
+    r = htpm2_command_execute_with_auth(ctx, tp, TPM2_CC_ECDH_ZGen,
+                                        handles, 1, auth_session,
+                                        param_data, param_len, &rsp, &rc);
+    free(param_data);
+    if (htpm2_is_err(r))
+        return htpm2_result_prepend(r, "ECDH_ZGen");
+
+    /* outPoint (TPM2B_ECC_POINT) */
+    ret = htpm2_unmarshal_tpm2b(rsp, &out_data, &out_size);
+    heim_storage_free(rsp);
+    if (ret)
+        return htpm2_result_local(ret, HTPM2_F_MARSHAL, ret,
+                                  "ECDH_ZGen: unmarshal");
+
+    *shared_secret = out_data;
+    *shared_secret_len = out_size;
+    return HTPM2_OK;
 }
