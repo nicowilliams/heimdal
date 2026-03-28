@@ -44,6 +44,8 @@ dist_libhtpm2_la_SOURCES = \
 	pcr.c \
 	random.c \
 	policy.c \
+	policy_parse.c \
+	policy_p.h \
 	pcrdb.c \
 	pcrdb.h \
 	error.c
@@ -72,11 +74,13 @@ nodist_include_HEADERS = htpm2_err.h
 check_PROGRAMS = \
 	test_result \
 	test_crypto \
+	test_policy_parse \
 	test_swtpm
 
 TESTS = \
 	test_result \
 	test_crypto \
+	test_policy_parse \
 	test_swtpm
 
 test_result_SOURCES = test_result.c
@@ -84,6 +88,10 @@ test_result_LDADD = libhtpm2.la $(LIB_openssl_crypto) $(LIBADD_roken)
 
 test_crypto_SOURCES = test_crypto.c
 test_crypto_LDADD = libhtpm2.la $(LIB_openssl_crypto) $(LIBADD_roken)
+
+test_policy_parse_SOURCES = test_policy_parse.c
+test_policy_parse_LDADD = libhtpm2.la $(LIB_openssl_crypto) \
+	$(top_builddir)/lib/base/libheimbase.la $(LIBADD_roken)
 
 test_swtpm_SOURCES = test_swtpm.c
 test_swtpm_LDADD = libhtpm2.la $(LIB_openssl_crypto) \
