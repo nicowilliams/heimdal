@@ -45,6 +45,7 @@ dist_libhtpm2_la_SOURCES = \
 	random.c \
 	policy.c \
 	policy_parse.c \
+	policy_compile.c \
 	policy_p.h \
 	pcrdb.c \
 	pcrdb.h \

@@ -582,3 +582,569 @@ marshal_err:
     return htpm2_result_local(ret, HTPM2_F_MARSHAL, ret,
                               "PolicyAuthorize: marshal");
 }
+
+/* --- PolicyLocality --- */
+
+htpm2_result
+htpm2_policy_locality(const htpm2_context ctx,
+                      htpm2_session session,
+                      htpm2_result prior,
+                      uint8_t locality)
+{
+    heim_storage *cmd, *rsp;
+    uint32_t rc;
+    htpm2_result r;
+    int ret;
+
+    if (prior.code) return prior;
+    (void)ctx;
+
+    cmd = heim_storage_emem();
+    if (cmd == NULL)
+        return htpm2_result_local(ENOMEM, HTPM2_F_LOCAL, ENOMEM,
+                                  "PolicyLocality: alloc");
+
+    ret = htpm2_marshal_cmd_header(cmd, TPM_ST_NO_SESSIONS, 0x0000016F);
+    if (ret) goto err;
+    ret = heim_store_uint32(cmd, htpm2_session_get_handle(session));
+    if (ret) goto err;
+    ret = heim_store_uint8(cmd, locality);
+    if (ret) goto err;
+
+    r = htpm2_command_execute(NULL, htpm2_session_get_transport(session),
+                              cmd, &rsp, &rc);
+    heim_storage_free(cmd);
+    if (htpm2_is_err(r))
+        return htpm2_result_prepend(r, "PolicyLocality");
+    heim_storage_free(rsp);
+    return HTPM2_OK;
+err:
+    heim_storage_free(cmd);
+    return htpm2_result_local(ret, HTPM2_F_MARSHAL, ret,
+                              "PolicyLocality: marshal");
+}
+
+/* --- PolicyNV --- */
+
+htpm2_result
+htpm2_policy_nv(const htpm2_context ctx,
+                htpm2_session session,
+                htpm2_result prior,
+                uint32_t nv_index,
+                const void *operand_b, size_t operand_b_len,
+                uint16_t offset,
+                uint16_t operation)
+{
+    heim_storage *param_sp;
+    uint32_t rc, handles[2];
+    void *param_data = NULL;
+    size_t param_len = 0;
+    heim_storage *rsp;
+    htpm2_result r;
+    int ret;
+
+    if (prior.code) return prior;
+    (void)ctx;
+
+    /* NV read requires auth on the NV index.  Use password auth. */
+    handles[0] = nv_index;  /* authHandle = NV index itself */
+    handles[1] = htpm2_session_get_handle(session);
+
+    param_sp = heim_storage_emem();
+    if (param_sp == NULL)
+        return htpm2_result_local(ENOMEM, HTPM2_F_LOCAL, ENOMEM,
+                                  "PolicyNV: alloc");
+
+    ret = htpm2_marshal_tpm2b(param_sp, operand_b, operand_b_len);
+    if (ret) goto err;
+    ret = heim_store_uint16(param_sp, offset);
+    if (ret) goto err;
+    ret = heim_store_uint16(param_sp, operation);
+    if (ret) goto err;
+
+    ret = heim_storage_to_data(param_sp, &param_data, &param_len);
+    heim_storage_free(param_sp);
+    if (ret)
+        return htpm2_result_local(ret, HTPM2_F_MARSHAL, ret,
+                                  "PolicyNV: to_data");
+
+    r = htpm2_command_execute_with_auth(NULL, htpm2_session_get_transport(session),
+                                        0x00000149, handles, 2, NULL,
+                                        param_data, param_len, &rsp, &rc);
+    free(param_data);
+    if (htpm2_is_err(r))
+        return htpm2_result_prepend(r, "PolicyNV");
+    heim_storage_free(rsp);
+    return HTPM2_OK;
+err:
+    heim_storage_free(param_sp);
+    return htpm2_result_local(ret, HTPM2_F_MARSHAL, ret,
+                              "PolicyNV: marshal");
+}
+
+/* --- PolicyCounterTimer --- */
+
+htpm2_result
+htpm2_policy_counter_timer(const htpm2_context ctx,
+                           htpm2_session session,
+                           htpm2_result prior,
+                           const void *operand_b, size_t operand_b_len,
+                           uint16_t offset,
+                           uint16_t operation)
+{
+    heim_storage *cmd, *rsp;
+    uint32_t rc;
+    htpm2_result r;
+    int ret;
+
+    if (prior.code) return prior;
+    (void)ctx;
+
+    cmd = heim_storage_emem();
+    if (cmd == NULL)
+        return htpm2_result_local(ENOMEM, HTPM2_F_LOCAL, ENOMEM,
+                                  "PolicyCounterTimer: alloc");
+
+    ret = htpm2_marshal_cmd_header(cmd, TPM_ST_NO_SESSIONS, 0x0000016D);
+    if (ret) goto err;
+    ret = heim_store_uint32(cmd, htpm2_session_get_handle(session));
+    if (ret) goto err;
+    ret = htpm2_marshal_tpm2b(cmd, operand_b, operand_b_len);
+    if (ret) goto err;
+    ret = heim_store_uint16(cmd, offset);
+    if (ret) goto err;
+    ret = heim_store_uint16(cmd, operation);
+    if (ret) goto err;
+
+    r = htpm2_command_execute(NULL, htpm2_session_get_transport(session),
+                              cmd, &rsp, &rc);
+    heim_storage_free(cmd);
+    if (htpm2_is_err(r))
+        return htpm2_result_prepend(r, "PolicyCounterTimer");
+    heim_storage_free(rsp);
+    return HTPM2_OK;
+err:
+    heim_storage_free(cmd);
+    return htpm2_result_local(ret, HTPM2_F_MARSHAL, ret,
+                              "PolicyCounterTimer: marshal");
+}
+
+/* --- PolicyPhysicalPresence --- */
+
+htpm2_result
+htpm2_policy_physical_presence(const htpm2_context ctx,
+                               htpm2_session session,
+                               htpm2_result prior)
+{
+    heim_storage *cmd, *rsp;
+    uint32_t rc;
+    htpm2_result r;
+    int ret;
+
+    if (prior.code) return prior;
+    (void)ctx;
+
+    cmd = heim_storage_emem();
+    if (cmd == NULL)
+        return htpm2_result_local(ENOMEM, HTPM2_F_LOCAL, ENOMEM,
+                                  "PolicyPhysicalPresence: alloc");
+
+    ret = htpm2_marshal_cmd_header(cmd, TPM_ST_NO_SESSIONS, 0x00000187);
+    if (ret) goto err;
+    ret = heim_store_uint32(cmd, htpm2_session_get_handle(session));
+    if (ret) goto err;
+
+    r = htpm2_command_execute(NULL, htpm2_session_get_transport(session),
+                              cmd, &rsp, &rc);
+    heim_storage_free(cmd);
+    if (htpm2_is_err(r))
+        return htpm2_result_prepend(r, "PolicyPhysicalPresence");
+    heim_storage_free(rsp);
+    return HTPM2_OK;
+err:
+    heim_storage_free(cmd);
+    return htpm2_result_local(ret, HTPM2_F_MARSHAL, ret,
+                              "PolicyPhysicalPresence: marshal");
+}
+
+/* --- PolicyCpHash --- */
+
+htpm2_result
+htpm2_policy_cp_hash(const htpm2_context ctx,
+                     htpm2_session session,
+                     htpm2_result prior,
+                     const void *cp_hash, size_t cp_hash_len)
+{
+    heim_storage *cmd, *rsp;
+    uint32_t rc;
+    htpm2_result r;
+    int ret;
+
+    if (prior.code) return prior;
+    (void)ctx;
+
+    cmd = heim_storage_emem();
+    if (cmd == NULL)
+        return htpm2_result_local(ENOMEM, HTPM2_F_LOCAL, ENOMEM,
+                                  "PolicyCpHash: alloc");
+
+    ret = htpm2_marshal_cmd_header(cmd, TPM_ST_NO_SESSIONS, 0x0000012C);
+    if (ret) goto err;
+    ret = heim_store_uint32(cmd, htpm2_session_get_handle(session));
+    if (ret) goto err;
+    ret = htpm2_marshal_tpm2b(cmd, cp_hash, cp_hash_len);
+    if (ret) goto err;
+
+    r = htpm2_command_execute(NULL, htpm2_session_get_transport(session),
+                              cmd, &rsp, &rc);
+    heim_storage_free(cmd);
+    if (htpm2_is_err(r))
+        return htpm2_result_prepend(r, "PolicyCpHash");
+    heim_storage_free(rsp);
+    return HTPM2_OK;
+err:
+    heim_storage_free(cmd);
+    return htpm2_result_local(ret, HTPM2_F_MARSHAL, ret,
+                              "PolicyCpHash: marshal");
+}
+
+/* --- PolicyNameHash --- */
+
+htpm2_result
+htpm2_policy_name_hash(const htpm2_context ctx,
+                       htpm2_session session,
+                       htpm2_result prior,
+                       const void *name_hash, size_t name_hash_len)
+{
+    heim_storage *cmd, *rsp;
+    uint32_t rc;
+    htpm2_result r;
+    int ret;
+
+    if (prior.code) return prior;
+    (void)ctx;
+
+    cmd = heim_storage_emem();
+    if (cmd == NULL)
+        return htpm2_result_local(ENOMEM, HTPM2_F_LOCAL, ENOMEM,
+                                  "PolicyNameHash: alloc");
+
+    ret = htpm2_marshal_cmd_header(cmd, TPM_ST_NO_SESSIONS, 0x00000170);
+    if (ret) goto err;
+    ret = heim_store_uint32(cmd, htpm2_session_get_handle(session));
+    if (ret) goto err;
+    ret = htpm2_marshal_tpm2b(cmd, name_hash, name_hash_len);
+    if (ret) goto err;
+
+    r = htpm2_command_execute(NULL, htpm2_session_get_transport(session),
+                              cmd, &rsp, &rc);
+    heim_storage_free(cmd);
+    if (htpm2_is_err(r))
+        return htpm2_result_prepend(r, "PolicyNameHash");
+    heim_storage_free(rsp);
+    return HTPM2_OK;
+err:
+    heim_storage_free(cmd);
+    return htpm2_result_local(ret, HTPM2_F_MARSHAL, ret,
+                              "PolicyNameHash: marshal");
+}
+
+/* --- PolicyDuplicationSelect --- */
+
+htpm2_result
+htpm2_policy_duplication_select(const htpm2_context ctx,
+                                htpm2_session session,
+                                htpm2_result prior,
+                                const void *object_name,
+                                size_t object_name_len,
+                                const void *new_parent_name,
+                                size_t new_parent_name_len,
+                                int include_object)
+{
+    heim_storage *cmd, *rsp;
+    uint32_t rc;
+    htpm2_result r;
+    int ret;
+
+    if (prior.code) return prior;
+    (void)ctx;
+
+    cmd = heim_storage_emem();
+    if (cmd == NULL)
+        return htpm2_result_local(ENOMEM, HTPM2_F_LOCAL, ENOMEM,
+                                  "PolicyDuplicationSelect: alloc");
+
+    ret = htpm2_marshal_cmd_header(cmd, TPM_ST_NO_SESSIONS, 0x00000188);
+    if (ret) goto err;
+    ret = heim_store_uint32(cmd, htpm2_session_get_handle(session));
+    if (ret) goto err;
+    ret = htpm2_marshal_tpm2b(cmd, object_name, object_name_len);
+    if (ret) goto err;
+    ret = htpm2_marshal_tpm2b(cmd, new_parent_name, new_parent_name_len);
+    if (ret) goto err;
+    ret = heim_store_uint8(cmd, include_object ? 1 : 0);
+    if (ret) goto err;
+
+    r = htpm2_command_execute(NULL, htpm2_session_get_transport(session),
+                              cmd, &rsp, &rc);
+    heim_storage_free(cmd);
+    if (htpm2_is_err(r))
+        return htpm2_result_prepend(r, "PolicyDuplicationSelect");
+    heim_storage_free(rsp);
+    return HTPM2_OK;
+err:
+    heim_storage_free(cmd);
+    return htpm2_result_local(ret, HTPM2_F_MARSHAL, ret,
+                              "PolicyDuplicationSelect: marshal");
+}
+
+/* --- PolicyAuthValue --- */
+
+htpm2_result
+htpm2_policy_auth_value(const htpm2_context ctx,
+                        htpm2_session session,
+                        htpm2_result prior)
+{
+    heim_storage *cmd, *rsp;
+    uint32_t rc;
+    htpm2_result r;
+    int ret;
+
+    if (prior.code) return prior;
+    (void)ctx;
+
+    cmd = heim_storage_emem();
+    if (cmd == NULL)
+        return htpm2_result_local(ENOMEM, HTPM2_F_LOCAL, ENOMEM,
+                                  "PolicyAuthValue: alloc");
+
+    ret = htpm2_marshal_cmd_header(cmd, TPM_ST_NO_SESSIONS, 0x0000016B);
+    if (ret) goto err;
+    ret = heim_store_uint32(cmd, htpm2_session_get_handle(session));
+    if (ret) goto err;
+
+    r = htpm2_command_execute(NULL, htpm2_session_get_transport(session),
+                              cmd, &rsp, &rc);
+    heim_storage_free(cmd);
+    if (htpm2_is_err(r))
+        return htpm2_result_prepend(r, "PolicyAuthValue");
+    heim_storage_free(rsp);
+    return HTPM2_OK;
+err:
+    heim_storage_free(cmd);
+    return htpm2_result_local(ret, HTPM2_F_MARSHAL, ret,
+                              "PolicyAuthValue: marshal");
+}
+
+/* --- PolicyPassword --- */
+/* PolicyPassword has the same digest extension as PolicyAuthValue */
+
+htpm2_result
+htpm2_policy_password(const htpm2_context ctx,
+                      htpm2_session session,
+                      htpm2_result prior)
+{
+    heim_storage *cmd, *rsp;
+    uint32_t rc;
+    htpm2_result r;
+    int ret;
+
+    if (prior.code) return prior;
+    (void)ctx;
+
+    cmd = heim_storage_emem();
+    if (cmd == NULL)
+        return htpm2_result_local(ENOMEM, HTPM2_F_LOCAL, ENOMEM,
+                                  "PolicyPassword: alloc");
+
+    /* TPM2_CC_PolicyPassword = 0x0000018C */
+    ret = htpm2_marshal_cmd_header(cmd, TPM_ST_NO_SESSIONS, 0x0000018C);
+    if (ret) goto err;
+    ret = heim_store_uint32(cmd, htpm2_session_get_handle(session));
+    if (ret) goto err;
+
+    r = htpm2_command_execute(NULL, htpm2_session_get_transport(session),
+                              cmd, &rsp, &rc);
+    heim_storage_free(cmd);
+    if (htpm2_is_err(r))
+        return htpm2_result_prepend(r, "PolicyPassword");
+    heim_storage_free(rsp);
+    return HTPM2_OK;
+err:
+    heim_storage_free(cmd);
+    return htpm2_result_local(ret, HTPM2_F_MARSHAL, ret,
+                              "PolicyPassword: marshal");
+}
+
+/* --- PolicyNvWritten --- */
+
+htpm2_result
+htpm2_policy_nv_written(const htpm2_context ctx,
+                        htpm2_session session,
+                        htpm2_result prior,
+                        int written_set)
+{
+    heim_storage *cmd, *rsp;
+    uint32_t rc;
+    htpm2_result r;
+    int ret;
+
+    if (prior.code) return prior;
+    (void)ctx;
+
+    cmd = heim_storage_emem();
+    if (cmd == NULL)
+        return htpm2_result_local(ENOMEM, HTPM2_F_LOCAL, ENOMEM,
+                                  "PolicyNvWritten: alloc");
+
+    ret = htpm2_marshal_cmd_header(cmd, TPM_ST_NO_SESSIONS, 0x0000018F);
+    if (ret) goto err;
+    ret = heim_store_uint32(cmd, htpm2_session_get_handle(session));
+    if (ret) goto err;
+    ret = heim_store_uint8(cmd, written_set ? 1 : 0);
+    if (ret) goto err;
+
+    r = htpm2_command_execute(NULL, htpm2_session_get_transport(session),
+                              cmd, &rsp, &rc);
+    heim_storage_free(cmd);
+    if (htpm2_is_err(r))
+        return htpm2_result_prepend(r, "PolicyNvWritten");
+    heim_storage_free(rsp);
+    return HTPM2_OK;
+err:
+    heim_storage_free(cmd);
+    return htpm2_result_local(ret, HTPM2_F_MARSHAL, ret,
+                              "PolicyNvWritten: marshal");
+}
+
+/* --- PolicyTemplate --- */
+
+htpm2_result
+htpm2_policy_template(const htpm2_context ctx,
+                      htpm2_session session,
+                      htpm2_result prior,
+                      const void *template_hash,
+                      size_t template_hash_len)
+{
+    heim_storage *cmd, *rsp;
+    uint32_t rc;
+    htpm2_result r;
+    int ret;
+
+    if (prior.code) return prior;
+    (void)ctx;
+
+    cmd = heim_storage_emem();
+    if (cmd == NULL)
+        return htpm2_result_local(ENOMEM, HTPM2_F_LOCAL, ENOMEM,
+                                  "PolicyTemplate: alloc");
+
+    ret = htpm2_marshal_cmd_header(cmd, TPM_ST_NO_SESSIONS, 0x00000190);
+    if (ret) goto err;
+    ret = heim_store_uint32(cmd, htpm2_session_get_handle(session));
+    if (ret) goto err;
+    ret = htpm2_marshal_tpm2b(cmd, template_hash, template_hash_len);
+    if (ret) goto err;
+
+    r = htpm2_command_execute(NULL, htpm2_session_get_transport(session),
+                              cmd, &rsp, &rc);
+    heim_storage_free(cmd);
+    if (htpm2_is_err(r))
+        return htpm2_result_prepend(r, "PolicyTemplate");
+    heim_storage_free(rsp);
+    return HTPM2_OK;
+err:
+    heim_storage_free(cmd);
+    return htpm2_result_local(ret, HTPM2_F_MARSHAL, ret,
+                              "PolicyTemplate: marshal");
+}
+
+/* --- PolicyAuthorizeNV --- */
+
+htpm2_result
+htpm2_policy_authorize_nv(const htpm2_context ctx,
+                          htpm2_session session,
+                          htpm2_result prior,
+                          uint32_t nv_index)
+{
+    heim_storage *param_sp;
+    uint32_t rc, handles[3];
+    void *param_data = NULL;
+    size_t param_len = 0;
+    heim_storage *rsp;
+    htpm2_result r;
+    int ret;
+
+    if (prior.code) return prior;
+    (void)ctx;
+
+    /* TPM2_PolicyAuthorizeNV: authHandle, nvIndex, policySession */
+    handles[0] = nv_index;   /* authHandle = NV index */
+    handles[1] = nv_index;   /* nvIndex */
+    handles[2] = htpm2_session_get_handle(session);
+
+    /* No command parameters beyond the handles */
+    r = htpm2_command_execute_with_auth(NULL,
+                                        htpm2_session_get_transport(session),
+                                        0x00000192, handles, 3, NULL,
+                                        NULL, 0, &rsp, &rc);
+    if (htpm2_is_err(r))
+        return htpm2_result_prepend(r, "PolicyAuthorizeNV");
+    heim_storage_free(rsp);
+    return HTPM2_OK;
+}
+
+/* --- PolicyTicket --- */
+
+htpm2_result
+htpm2_policy_ticket(const htpm2_context ctx,
+                    htpm2_session session,
+                    htpm2_result prior,
+                    const void *timeout, size_t timeout_len,
+                    const void *cp_hash_a, size_t cp_hash_a_len,
+                    const void *policy_ref, size_t policy_ref_len,
+                    const void *auth_name, size_t auth_name_len,
+                    const void *ticket, size_t ticket_len)
+{
+    heim_storage *cmd, *rsp;
+    uint32_t rc;
+    htpm2_result r;
+    int ret;
+
+    if (prior.code) return prior;
+    (void)ctx;
+
+    cmd = heim_storage_emem();
+    if (cmd == NULL)
+        return htpm2_result_local(ENOMEM, HTPM2_F_LOCAL, ENOMEM,
+                                  "PolicyTicket: alloc");
+
+    ret = htpm2_marshal_cmd_header(cmd, TPM_ST_NO_SESSIONS, 0x00000169);
+    if (ret) goto err;
+    ret = heim_store_uint32(cmd, htpm2_session_get_handle(session));
+    if (ret) goto err;
+    ret = htpm2_marshal_tpm2b(cmd, timeout, timeout_len);
+    if (ret) goto err;
+    ret = htpm2_marshal_tpm2b(cmd, cp_hash_a, cp_hash_a_len);
+    if (ret) goto err;
+    ret = htpm2_marshal_tpm2b(cmd, policy_ref, policy_ref_len);
+    if (ret) goto err;
+    ret = htpm2_marshal_tpm2b(cmd, auth_name, auth_name_len);
+    if (ret) goto err;
+    /* ticket is a TPMT_TK_AUTH -- raw bytes */
+    if (ticket && ticket_len > 0)
+        ret = heim_store_bytes(cmd, ticket, ticket_len);
+    if (ret) goto err;
+
+    r = htpm2_command_execute(NULL, htpm2_session_get_transport(session),
+                              cmd, &rsp, &rc);
+    heim_storage_free(cmd);
+    if (htpm2_is_err(r))
+        return htpm2_result_prepend(r, "PolicyTicket");
+    heim_storage_free(rsp);
+    return HTPM2_OK;
+err:
+    heim_storage_free(cmd);
+    return htpm2_result_local(ret, HTPM2_F_MARSHAL, ret,
+                              "PolicyTicket: marshal");
+}

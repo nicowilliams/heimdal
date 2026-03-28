@@ -22,6 +22,7 @@
 /* We need the internal startup function */
 #include "htpm2_locl.h"
 #include "marshal.h"
+#include "policy_p.h"
 
 static int failures = 0;
 static char tpm_state_dir[256];
@@ -698,6 +699,135 @@ test_encrypted_get_random(htpm2_context ctx, htpm2_transport tp)
     htpm2_result_free(&r);
 }
 
+/* --- Policy compiler tests --- */
+
+static void
+test_policy_compile_simple(htpm2_context ctx, htpm2_transport tp)
+{
+    const char *json =
+        "{"
+        "  \"tpm2Policy\": {"
+        "    \"name\": \"test_compile\","
+        "    \"policy\": ["
+        "      { \"cc\": \"PolicyCommandCode\", \"commandCode\": \"Sign\" },"
+        "      { \"cc\": \"PolicyAuthValue\" }"
+        "    ]"
+        "  }"
+        "}";
+
+    htpm2_policy_doc *doc = NULL;
+    uint8_t digest1[32], digest2[32];
+    size_t digest_len;
+    htpm2_result r;
+
+    r = htpm2_policy_parse(json, 0, &doc);
+    CHECK_OK(r, "parse for compile");
+
+    if (htpm2_is_ok(r) && doc) {
+        /* Compile twice -- should get the same digest */
+        digest_len = 32;
+        r = htpm2_policy_compile(ctx, tp, doc, digest1, &digest_len);
+        CHECK_OK(r, "compile pass 1");
+        CHECK(digest_len == 32, "digest should be 32 bytes");
+
+        /* Verify non-zero */
+        {
+            int all_zero = 1;
+            for (int i = 0; i < 32; i++)
+                if (digest1[i] != 0) { all_zero = 0; break; }
+            CHECK(!all_zero, "compiled digest should be non-zero");
+        }
+
+        digest_len = 32;
+        r = htpm2_policy_compile(ctx, tp, doc, digest2, &digest_len);
+        CHECK_OK(r, "compile pass 2");
+
+        CHECK(memcmp(digest1, digest2, 32) == 0,
+              "two compilations should produce the same digest");
+    }
+
+    htpm2_policy_doc_free(doc);
+    htpm2_result_free(&r);
+}
+
+static void
+test_policy_compile_pcr(htpm2_context ctx, htpm2_transport tp)
+{
+    /* PolicyPCR with empty digest (use current values) */
+    const char *json =
+        "{"
+        "  \"tpm2Policy\": {"
+        "    \"name\": \"test_pcr_compile\","
+        "    \"policy\": ["
+        "      {"
+        "        \"cc\": \"PolicyPCR\","
+        "        \"pcrs\": {"
+        "          \"hashAlg\": \"sha256\","
+        "          \"selections\": [ { \"pcr\": 0 } ]"
+        "        }"
+        "      }"
+        "    ]"
+        "  }"
+        "}";
+
+    htpm2_policy_doc *doc = NULL;
+    uint8_t digest[32];
+    size_t digest_len = 32;
+    htpm2_result r;
+
+    r = htpm2_policy_parse(json, 0, &doc);
+    CHECK_OK(r, "parse PCR policy for compile");
+
+    if (htpm2_is_ok(r) && doc) {
+        r = htpm2_policy_compile(ctx, tp, doc, digest, &digest_len);
+        CHECK_OK(r, "compile PCR policy");
+        CHECK(digest_len == 32, "digest 32 bytes");
+    }
+
+    htpm2_policy_doc_free(doc);
+    htpm2_result_free(&r);
+}
+
+static void
+test_policy_compile_differs(htpm2_context ctx, htpm2_transport tp)
+{
+    /* Two different policies should produce different digests */
+    const char *json1 =
+        "{ \"tpm2Policy\": { \"name\": \"a\", \"policy\": ["
+        "  { \"cc\": \"PolicyCommandCode\", \"commandCode\": \"Sign\" }"
+        "] } }";
+    const char *json2 =
+        "{ \"tpm2Policy\": { \"name\": \"b\", \"policy\": ["
+        "  { \"cc\": \"PolicyCommandCode\", \"commandCode\": \"Quote\" }"
+        "] } }";
+
+    htpm2_policy_doc *doc1 = NULL, *doc2 = NULL;
+    uint8_t dig1[32], dig2[32];
+    size_t dl = 32;
+    htpm2_result r;
+
+    r = htpm2_policy_parse(json1, 0, &doc1);
+    CHECK_OK(r, "parse policy 1");
+    r = htpm2_policy_parse(json2, 0, &doc2);
+    CHECK_OK(r, "parse policy 2");
+
+    if (doc1 && doc2) {
+        dl = 32;
+        r = htpm2_policy_compile(ctx, tp, doc1, dig1, &dl);
+        CHECK_OK(r, "compile policy 1");
+        dl = 32;
+        r = htpm2_policy_compile(ctx, tp, doc2, dig2, &dl);
+        CHECK_OK(r, "compile policy 2");
+
+        CHECK(memcmp(dig1, dig2, 32) != 0,
+              "different policies should have different digests");
+    }
+
+    htpm2_policy_doc_free(doc1);
+    htpm2_policy_doc_free(doc2);
+    htpm2_result_free(&r);
+}
+
 /* --- Policy tests --- */
 
 static void
@@ -1019,6 +1149,11 @@ main(int argc, char **argv)
     test_sign_rsa(ctx, tp);
     test_pcr_read(ctx, tp);
     test_quote(ctx, tp);
+
+    /* Policy compiler tests */
+    test_policy_compile_simple(ctx, tp);
+    test_policy_compile_pcr(ctx, tp);
+    test_policy_compile_differs(ctx, tp);
 
     /* Parameter encryption test */
     test_encrypted_get_random(ctx, tp);
