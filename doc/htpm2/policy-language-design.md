@@ -556,10 +556,42 @@ Type checking via `heim_get_tid()`:
 
 ### Phase 3: Evaluation
 
-- `htpm2_policy_evaluate(ctx, tp, policy, inputs, &session)`:
-  Start real policy session, walk policy nodes, execute each
-  with real inputs.  For PolicyOr: use `select` input to pick
-  the branch.  For PolicySigned: use signature from inputs.
+- `htpm2_policy_evaluate(ctx, tp, policy, inputs, session, &session_out)`:
+  Evaluate a policy in a policy session, executing each node's
+  `TPM2_Policy*()` command with real inputs.
+
+  The `session` parameter may be NULL (create a new policy session)
+  or an existing session (continue evaluation in it).  This is
+  essential for PolicyOr, PolicyAuthorize, and PolicyAuthorizeNV,
+  where a sub-policy must be evaluated *before* the gating command:
+
+  **PolicyOr execution flow:**
+  1. The evaluator creates (or receives) a policy session
+  2. It evaluates the selected alternative sub-policy in that session,
+     which sets `policyDigest` to the alternative's digest
+  3. It calls `TPM2_PolicyOr(all_alternative_digests)`, which verifies
+     that `policyDigest` matches one of the alternatives and replaces
+     it with the combined PolicyOr digest
+  4. Evaluation continues with subsequent nodes
+
+  **PolicyAuthorize execution flow:**
+  1. The evaluator creates (or receives) a policy session
+  2. It evaluates the approved sub-policy in that session, which sets
+     `policyDigest` to the approved policy's digest
+  3. It calls `TPM2_PolicyAuthorize(approvedPolicy, keySign, ticket)`,
+     which verifies `policyDigest == approvedPolicy`, verifies the
+     signature, and replaces `policyDigest` with one based on the
+     authorizing key's Name
+  4. Evaluation continues with subsequent nodes
+
+  **PolicyAuthorizeNV** follows the same pattern: evaluate sub-policy
+  first, then PolicyAuthorizeNV checks that `policyDigest` matches the
+  NV-stored policy.
+
+  The recursion (sub-policy evaluation calling back into the evaluator)
+  is where the depth limit of 8 applies.  Each level of PolicyOr or
+  PolicyAuthorize nesting adds one level.
+
 - Object loading: resolve objectDefs, load keys, manage handles.
   Objects can be flushed after use to reclaim TPM memory.
 - Input validation: check all required inputs are provided.
