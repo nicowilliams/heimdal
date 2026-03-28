@@ -496,6 +496,78 @@ htpm2_result htpm2_policy_or(const htpm2_context ctx,
                              const size_t *digest_lens,
                              size_t num_digests);
 
+/* --- EncryptTo / DecryptFrom --- */
+
+/*
+ * Result structure for htpm2_encrypt_to().
+ * Contains the ciphertext and 1-3 MakeCredential blobs.
+ */
+typedef struct htpm2_encrypt_to_result {
+    void  *ciphertext;
+    size_t ciphertext_len;
+
+    size_t num_shares;  /* 1, 2, or 3 */
+
+    /* Share 0: well-known key (always present) */
+    void  *wk_credential_blob;
+    size_t wk_credential_blob_len;
+    void  *wk_encrypted_secret;
+    size_t wk_encrypted_secret_len;
+
+    /* Share 1: IAK (optional) */
+    void  *iak_credential_blob;
+    size_t iak_credential_blob_len;
+    void  *iak_encrypted_secret;
+    size_t iak_encrypted_secret_len;
+
+    /* Share 2: Owner hierarchy key (optional) */
+    void  *owner_credential_blob;
+    size_t owner_credential_blob_len;
+    void  *owner_encrypted_secret;
+    size_t owner_encrypted_secret_len;
+} htpm2_encrypt_to_result;
+
+/*
+ * Encrypt data to a target TPM with 1-3 way key splitting.
+ *
+ * The plaintext is encrypted under a random AES-256 key.  The key is
+ * split into shares, each wrapped via MakeCredential (software) to the
+ * target's EK, bound to different key names:
+ *
+ *   policy (required): policy digest to enforce on ActivateCredential
+ *     of the well-known key share.  A well-known key template is
+ *     constructed internally with this policy, and its Name is
+ *     computed for the MakeCredential binding.
+ *
+ *   iak_name (optional, NULL to skip): IAK name -- identity binding
+ *   owner_name (optional, NULL to skip): owner hierarchy key name --
+ *     decommissioning (changing owner seed invalidates this key)
+ *
+ * This is a software-only operation (no TPM needed on the sender side).
+ */
+htpm2_result htpm2_encrypt_to(const htpm2_context ctx,
+                              const void *plaintext, size_t plaintext_len,
+                              const void *ek_pub, size_t ek_pub_len,
+                              const void *policy, size_t policy_len,
+                              const void *iak_name, size_t iak_name_len,
+                              const void *owner_name, size_t owner_name_len,
+                              htpm2_encrypt_to_result *result);
+
+void htpm2_encrypt_to_result_free(htpm2_encrypt_to_result *result);
+
+/*
+ * Recover plaintext from an EncryptTo envelope.
+ *
+ * The caller has ActivateCredential'd each share on the target TPM.
+ * Pass the recovered shares (in order: wk, [iak], [owner]).  They are
+ * XORed to reconstruct the AES-256 key, then the ciphertext is decrypted.
+ */
+htpm2_result htpm2_decrypt_from(const htpm2_context ctx,
+                                const void *ciphertext, size_t ciphertext_len,
+                                const void **shares, const size_t *share_lens,
+                                size_t num_shares,
+                                void **plaintext, size_t *plaintext_len);
+
 /* --- Memory --- */
 
 void htpm2_free(const htpm2_context ctx, void *ptr);

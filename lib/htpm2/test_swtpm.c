@@ -758,6 +758,149 @@ test_trial_policy_pcr(htpm2_context ctx, htpm2_transport tp)
     htpm2_result_free(&r);
 }
 
+/* --- EncryptTo test --- */
+
+static void
+test_encrypt_to(htpm2_context ctx, htpm2_transport tp)
+{
+    htpm2_object ek = NULL;
+    htpm2_result r = HTPM2_OK;
+    const void *ek_pub;
+    size_t ek_pub_len;
+    htpm2_encrypt_to_result enc_result;
+    const char *message = "Safeboot enrollment secret payload";
+
+    /* We need an EK for MakeCredential inside EncryptTo */
+    r = htpm2_create_primary(ctx, tp, r, NULL,
+                             HTPM2_HIERARCHY_ENDORSEMENT,
+                             HTPM2_KEY_RSA_2048_DECRYPT,
+                             NULL, 0, NULL, 0, &ek);
+    CHECK_OK(r, "CreatePrimary EK for EncryptTo");
+
+    if (htpm2_is_ok(r)) {
+        htpm2_object_get_public(ek, &ek_pub, &ek_pub_len);
+
+        /* A dummy policy digest (32 bytes) -- in practice this would
+         * come from a trial session running PolicyPCR etc. */
+        uint8_t policy[32];
+        memset(policy, 0x42, 32);
+
+        /* 1-share (well-known key only) */
+        memset(&enc_result, 0, sizeof(enc_result));
+        r = htpm2_encrypt_to(ctx, message, strlen(message),
+                             ek_pub, ek_pub_len,
+                             policy, 32,
+                             NULL, 0,   /* no IAK */
+                             NULL, 0,   /* no owner */
+                             &enc_result);
+        CHECK_OK(r, "EncryptTo (1 share, policy-only)");
+        CHECK(enc_result.num_shares == 1, "should be 1 share");
+        CHECK(enc_result.ciphertext != NULL, "ciphertext non-NULL");
+        CHECK(enc_result.wk_credential_blob != NULL, "wk blob non-NULL");
+        CHECK(enc_result.iak_credential_blob == NULL, "iak blob should be NULL");
+        CHECK(enc_result.owner_credential_blob == NULL, "owner blob should be NULL");
+        htpm2_encrypt_to_result_free(&enc_result);
+
+        /* 3-share (well-known + IAK + owner) */
+        uint8_t fake_iak_name[34] = {0x00, 0x0B};
+        memset(fake_iak_name + 2, 0x43, 32);
+        uint8_t fake_owner_name[34] = {0x00, 0x0B};
+        memset(fake_owner_name + 2, 0x44, 32);
+
+        memset(&enc_result, 0, sizeof(enc_result));
+        r = htpm2_encrypt_to(ctx, message, strlen(message),
+                             ek_pub, ek_pub_len,
+                             policy, 32,
+                             fake_iak_name, 34,
+                             fake_owner_name, 34,
+                             &enc_result);
+        CHECK_OK(r, "EncryptTo (3 shares)");
+        CHECK(enc_result.num_shares == 3, "should be 3 shares");
+        CHECK(enc_result.ciphertext != NULL, "ciphertext non-NULL");
+        CHECK(enc_result.wk_credential_blob != NULL, "wk blob non-NULL");
+        CHECK(enc_result.iak_credential_blob != NULL, "iak blob non-NULL");
+        CHECK(enc_result.owner_credential_blob != NULL, "owner blob non-NULL");
+        htpm2_encrypt_to_result_free(&enc_result);
+    }
+
+    htpm2_object_close(&ek);
+    htpm2_result_free(&r);
+}
+
+static void
+test_decrypt_from_roundtrip(htpm2_context ctx, htpm2_transport tp)
+{
+    /*
+     * Test the decrypt side with known shares (simulating what
+     * ActivateCredential would return).
+     */
+    uint8_t share1[32], share2[32], share3[32];
+    uint8_t key[32];
+    void *ciphertext = NULL;
+    size_t ciphertext_len = 0;
+    void *plaintext = NULL;
+    size_t plaintext_len = 0;
+    const char *message = "Hello from EncryptTo";
+    htpm2_result r;
+    size_t i;
+
+    (void)tp;
+
+    /* Generate a random key and split it */
+    r = htpm2_random_bytes(ctx, key, 32);
+    CHECK_OK(r, "generate key");
+
+    r = htpm2_random_bytes(ctx, share1, 32);
+    CHECK_OK(r, "generate share1");
+    r = htpm2_random_bytes(ctx, share2, 32);
+    CHECK_OK(r, "generate share2");
+    for (i = 0; i < 32; i++)
+        share3[i] = key[i] ^ share1[i] ^ share2[i];
+
+    /* Encrypt with the key directly (using internal AES-256-CBC) */
+    {
+        EVP_CIPHER_CTX *cctx;
+        uint8_t iv[16];
+        uint8_t *buf;
+        int outl = 0, final_outl = 0;
+
+        RAND_bytes(iv, 16);
+        buf = malloc(16 + strlen(message) + 16);
+        memcpy(buf, iv, 16);
+
+        cctx = EVP_CIPHER_CTX_new();
+        EVP_EncryptInit_ex(cctx, EVP_aes_256_cbc(), NULL, key, iv);
+        EVP_EncryptUpdate(cctx, buf + 16, &outl,
+                          (const unsigned char *)message,
+                          (int)strlen(message));
+        EVP_EncryptFinal_ex(cctx, buf + 16 + outl, &final_outl);
+        EVP_CIPHER_CTX_free(cctx);
+
+        ciphertext = buf;
+        ciphertext_len = 16 + outl + final_outl;
+    }
+
+    /* Decrypt with 3 shares */
+    {
+        const void *shares[3] = { share1, share2, share3 };
+        size_t share_lens[3] = { 32, 32, 32 };
+
+        r = htpm2_decrypt_from(ctx, ciphertext, ciphertext_len,
+                               shares, share_lens, 3,
+                               &plaintext, &plaintext_len);
+        CHECK_OK(r, "DecryptFrom (3 shares)");
+        CHECK(plaintext_len == strlen(message), "plaintext length match");
+        if (plaintext && plaintext_len == strlen(message))
+            CHECK(memcmp(plaintext, message, plaintext_len) == 0,
+                  "plaintext content match");
+    }
+
+    free(ciphertext);
+    free(plaintext);
+    memset(key, 0, sizeof(key));
+    htpm2_result_free(&r);
+}
+
 /* --- MakeCredential test (software only, no TPM needed for make) --- */
 
 static void
@@ -885,6 +1028,10 @@ main(int argc, char **argv)
 
     /* Credential tests */
     test_make_credential(ctx, tp);
+
+    /* EncryptTo / DecryptFrom tests */
+    test_encrypt_to(ctx, tp);
+    test_decrypt_from_roundtrip(ctx, tp);
 
     /* Cleanup */
     htpm2_transport_close(&tp);

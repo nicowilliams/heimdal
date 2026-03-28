@@ -54,6 +54,9 @@ HEIMDAL_TPM2_0.1 {
 		htpm2_policy_signed;
 		htpm2_policy_secret;
 		htpm2_policy_or;
+		htpm2_encrypt_to;
+		htpm2_encrypt_to_result_free;
+		htpm2_decrypt_from;
 		htpm2_free;
 	local:
 		*;
