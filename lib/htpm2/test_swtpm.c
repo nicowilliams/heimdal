@@ -607,6 +607,97 @@ test_quote(htpm2_context ctx, htpm2_transport tp)
     htpm2_result_free(&r);
 }
 
+/* --- Parameter encryption test --- */
+
+/*
+ * Test encrypted session by issuing GetRandom through an encrypted
+ * salted HMAC session.  GetRandom doesn't require auth, but we can
+ * still use a session with the encrypt attribute to encrypt the
+ * response parameter (the random bytes).
+ *
+ * We use htpm2_command_execute_with_auth directly since the public
+ * htpm2_get_random doesn't take a session parameter.
+ */
+static void
+test_encrypted_get_random(htpm2_context ctx, htpm2_transport tp)
+{
+    htpm2_object srk = NULL;
+    htpm2_session session = NULL;
+    htpm2_result r = HTPM2_OK;
+    heim_storage *param_sp = NULL;
+    heim_storage *rsp = NULL;
+    uint32_t rc;
+    void *param_data = NULL;
+    size_t param_len = 0;
+    void *random_data = NULL;
+    uint16_t random_len;
+
+    /* Create SRK for salting */
+    r = htpm2_create_primary(ctx, tp, r, NULL,
+                             HTPM2_HIERARCHY_OWNER,
+                             HTPM2_KEY_RSA_2048_STORAGE,
+                             NULL, 0, NULL, 0, &srk);
+    CHECK_OK(r, "CreatePrimary SRK for encrypted GetRandom");
+
+    if (htpm2_is_ok(r)) {
+        /* Start salted + encrypted HMAC session */
+        r = htpm2_session_start(ctx, tp, HTPM2_OK,
+                                HTPM2_SESSION_HMAC,
+                                srk, NULL,
+                                HTPM2_SESSION_ENCRYPT,
+                                &session);
+        CHECK_OK(r, "StartAuthSession salted+encrypt");
+    }
+
+    if (htpm2_is_ok(r)) {
+        /* Marshal GetRandom params: bytesRequested (uint16) = 32 */
+        param_sp = heim_storage_emem();
+        if (param_sp) {
+            heim_store_uint16(param_sp, 32);
+            heim_storage_to_data(param_sp, &param_data, &param_len);
+            heim_storage_free(param_sp);
+        }
+
+        /*
+         * GetRandom has no handles requiring auth, but we pass the
+         * session to get response encryption.  We pass 0 handles.
+         */
+        r = htpm2_command_execute_with_auth(ctx, tp, TPM2_CC_GetRandom,
+                                            NULL, 0, session,
+                                            param_data, param_len,
+                                            &rsp, &rc);
+        free(param_data);
+        CHECK_OK(r, "GetRandom with encrypted session");
+
+        if (htpm2_is_ok(r) && rsp) {
+            /* Unmarshal TPM2B_DIGEST response (should be decrypted) */
+            int ret = htpm2_unmarshal_tpm2b(rsp, &random_data, &random_len);
+            heim_storage_free(rsp);
+            rsp = NULL;
+
+            CHECK(ret == 0, "unmarshal encrypted GetRandom response");
+            CHECK(random_data != NULL && random_len > 0,
+                  "encrypted GetRandom should return data");
+
+            if (random_data && random_len > 0) {
+                int all_zero = 1;
+                for (int i = 0; i < random_len; i++)
+                    if (((uint8_t *)random_data)[i] != 0)
+                        { all_zero = 0; break; }
+                CHECK(!all_zero,
+                      "decrypted random bytes should be non-zero");
+            }
+            free(random_data);
+        }
+        if (rsp)
+            heim_storage_free(rsp);
+    }
+
+    htpm2_session_close(&session);
+    htpm2_object_close(&srk);
+    htpm2_result_free(&r);
+}
+
 /* --- Policy tests --- */
 
 static void
@@ -785,6 +876,9 @@ main(int argc, char **argv)
     test_sign_rsa(ctx, tp);
     test_pcr_read(ctx, tp);
     test_quote(ctx, tp);
+
+    /* Parameter encryption test */
+    test_encrypted_get_random(ctx, tp);
 
     /* Policy tests */
     test_trial_policy_pcr(ctx, tp);

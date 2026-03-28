@@ -348,10 +348,88 @@ htpm2_command_execute_with_auth(
     free(auth_data);
     auth_data = NULL;
 
-    /* Parameters */
+    /* Parameters -- possibly encrypt the first TPM2B */
     if (param_bytes_len > 0) {
-        ret = heim_store_bytes(cmd, param_bytes, param_bytes_len);
-        if (ret) goto marshal_err;
+        unsigned int sflags = session ? htpm2_session_get_flags(session) : 0;
+        size_t sk_len = 0;
+        const uint8_t *sk = session ?
+            htpm2_session_get_session_key(session, &sk_len) : NULL;
+
+        if ((sflags & HTPM2_SESSION_DECRYPT) && sk_len > 0 &&
+            param_bytes_len >= 2) {
+            /*
+             * Command parameter encryption (decrypt attribute):
+             * Encrypt the first TPM2B's data in-place.
+             *
+             * The first TPM2B starts at offset 0 in param_bytes:
+             *   size (uint16) + data (size bytes)
+             *
+             * We encrypt only the data portion, leaving the size prefix
+             * as plaintext (the TPM needs it to know how many bytes to
+             * decrypt).
+             */
+            uint16_t tpm2b_size = ((uint8_t *)param_bytes)[0] << 8 |
+                                  ((uint8_t *)param_bytes)[1];
+
+            if (tpm2b_size > 0 && 2 + tpm2b_size <= param_bytes_len) {
+                uint8_t enc_key[16], iv[16];
+                size_t nc_len, nt_len;
+                const uint8_t *nc = htpm2_session_get_nonce_caller(
+                    session, &nc_len);
+                const uint8_t *nt = htpm2_session_get_nonce_tpm(
+                    session, &nt_len);
+                uint8_t *enc_buf;
+
+                r = htpm2_derive_param_key(ctx, sk, sk_len,
+                                           nc, nc_len, nt, nt_len,
+                                           128, enc_key, 16, iv, 16);
+                if (htpm2_is_err(r)) {
+                    free(auth_data);
+                    heim_storage_free(cmd);
+                    return htpm2_result_prepend(r,
+                        "command_with_auth: derive cmd encrypt key");
+                }
+
+                /* Encrypt into a temporary buffer */
+                enc_buf = malloc(tpm2b_size);
+                if (enc_buf == NULL) {
+                    free(auth_data);
+                    heim_storage_free(cmd);
+                    return htpm2_result_local(ENOMEM, HTPM2_F_LOCAL, ENOMEM,
+                        "command_with_auth: alloc encrypt buf");
+                }
+
+                r = htpm2_aes_cfb_encrypt(ctx, enc_key, 16, iv, 16,
+                    (const uint8_t *)param_bytes + 2, tpm2b_size, enc_buf);
+                memset(enc_key, 0, sizeof(enc_key));
+                memset(iv, 0, sizeof(iv));
+
+                if (htpm2_is_err(r)) {
+                    free(enc_buf);
+                    free(auth_data);
+                    heim_storage_free(cmd);
+                    return htpm2_result_prepend(r,
+                        "command_with_auth: encrypt first param");
+                }
+
+                /* Write: size prefix (plaintext) + encrypted data + rest */
+                ret = heim_store_bytes(cmd, param_bytes, 2);
+                if (ret == 0)
+                    ret = heim_store_bytes(cmd, enc_buf, tpm2b_size);
+                if (ret == 0 && param_bytes_len > 2 + tpm2b_size)
+                    ret = heim_store_bytes(cmd,
+                        (const uint8_t *)param_bytes + 2 + tpm2b_size,
+                        param_bytes_len - 2 - tpm2b_size);
+                free(enc_buf);
+                if (ret) goto marshal_err;
+            } else {
+                ret = heim_store_bytes(cmd, param_bytes, param_bytes_len);
+                if (ret) goto marshal_err;
+            }
+        } else {
+            ret = heim_store_bytes(cmd, param_bytes, param_bytes_len);
+            if (ret) goto marshal_err;
+        }
     }
 
     /* Execute */
@@ -371,6 +449,157 @@ htpm2_command_execute_with_auth(
         heim_storage_free(rsp);
         return htpm2_result_local(ret, HTPM2_F_MARSHAL, ret,
                                   "command_with_auth: read parameterSize");
+    }
+
+    /*
+     * Response parameter decryption (encrypt attribute).
+     *
+     * If the session has the encrypt flag set, the TPM encrypted the
+     * first TPM2B in the response parameters.  We decrypt it in-place
+     * before HMAC verification (the HMAC is over plaintext params).
+     */
+    if (session && (htpm2_session_get_flags(session) & HTPM2_SESSION_ENCRYPT)) {
+        size_t sk_len = 0;
+        const uint8_t *sk = htpm2_session_get_session_key(session, &sk_len);
+
+        if (sk_len > 0 && param_size >= 2) {
+            off_t param_start = heim_storage_seek(rsp, 0, SEEK_CUR);
+            uint16_t tpm2b_size;
+
+            ret = heim_ret_uint16(rsp, &tpm2b_size);
+            if (ret == 0 && tpm2b_size > 0 && tpm2b_size <= param_size - 2) {
+                uint8_t enc_key[16], iv[16];
+                size_t nc_len, nt_len;
+                uint8_t *enc_data, *dec_data;
+
+                /*
+                 * For response decryption, the nonces are:
+                 *   nonceNewer = nonceTPM (from the response auth area)
+                 *   nonceOlder = nonceCaller
+                 *
+                 * But we haven't parsed the response auth area yet to get
+                 * the new nonceTPM.  For response encryption, the TPM uses
+                 * the *current* nonceTPM (which we already know from the
+                 * previous exchange or StartAuthSession).
+                 *
+                 * Actually: the TPM generates a new nonceTPM for the
+                 * response and uses it for encryption.  We need to peek
+                 * ahead to get it.  Let's parse the auth area nonce first.
+                 */
+                off_t saved = heim_storage_seek(rsp, 0, SEEK_CUR);
+                off_t auth_area_start = param_start + param_size;
+                void *peek_nonce = NULL;
+                uint16_t peek_nonce_len = 0;
+
+                heim_storage_seek(rsp, auth_area_start, SEEK_SET);
+                htpm2_unmarshal_tpm2b(rsp, &peek_nonce, &peek_nonce_len);
+                heim_storage_seek(rsp, saved, SEEK_SET);
+
+                const uint8_t *nc = htpm2_session_get_nonce_caller(
+                    session, &nc_len);
+                nt_len = peek_nonce_len;
+
+                r = htpm2_derive_param_key(ctx, sk, sk_len,
+                                           peek_nonce, nt_len,
+                                           nc, nc_len,
+                                           128, enc_key, 16, iv, 16);
+                free(peek_nonce);
+
+                if (htpm2_is_err(r)) {
+                    heim_storage_free(rsp);
+                    return htpm2_result_prepend(r,
+                        "command_with_auth: derive rsp decrypt key");
+                }
+
+                /* Read encrypted data */
+                enc_data = malloc(tpm2b_size);
+                dec_data = malloc(tpm2b_size);
+                if (!enc_data || !dec_data) {
+                    free(enc_data);
+                    free(dec_data);
+                    heim_storage_free(rsp);
+                    return htpm2_result_local(ENOMEM, HTPM2_F_LOCAL, ENOMEM,
+                        "command_with_auth: alloc decrypt buf");
+                }
+
+                ret = heim_ret_bytes(rsp, enc_data, tpm2b_size);
+                if (ret) {
+                    free(enc_data);
+                    free(dec_data);
+                    heim_storage_free(rsp);
+                    return htpm2_result_local(ret, HTPM2_F_MARSHAL, ret,
+                        "command_with_auth: read encrypted param");
+                }
+
+                r = htpm2_aes_cfb_decrypt(ctx, enc_key, 16, iv, 16,
+                                           enc_data, tpm2b_size, dec_data);
+                memset(enc_key, 0, sizeof(enc_key));
+                memset(iv, 0, sizeof(iv));
+                free(enc_data);
+
+                if (htpm2_is_err(r)) {
+                    free(dec_data);
+                    heim_storage_free(rsp);
+                    return htpm2_result_prepend(r,
+                        "command_with_auth: decrypt response param");
+                }
+
+                /*
+                 * Replace the response storage with one containing
+                 * the decrypted parameter.  We need to reconstruct:
+                 *   [already consumed: header(10) + parameterSize(4)]
+                 *   TPM2B_size(2, plaintext) + decrypted_data + rest_of_params
+                 *   + auth_area
+                 *
+                 * Simplest approach: build a new storage with everything
+                 * patched.  But that's expensive.  Instead, we create a
+                 * new emem storage with just the params portion replaced.
+                 */
+                {
+                    /* Read remaining params and auth area */
+                    off_t cur = heim_storage_seek(rsp, 0, SEEK_CUR);
+                    off_t end = heim_storage_seek(rsp, 0, SEEK_END);
+                    size_t rest_len = end - cur;
+                    void *rest = NULL;
+                    heim_storage *new_rsp;
+
+                    if (rest_len > 0) {
+                        rest = malloc(rest_len);
+                        if (rest) {
+                            heim_storage_seek(rsp, cur, SEEK_SET);
+                            heim_ret_bytes(rsp, rest, rest_len);
+                        }
+                    }
+
+                    heim_storage_free(rsp);
+
+                    new_rsp = heim_storage_emem();
+                    if (new_rsp == NULL) {
+                        free(dec_data);
+                        free(rest);
+                        return htpm2_result_local(ENOMEM, HTPM2_F_LOCAL,
+                            ENOMEM, "command_with_auth: alloc new rsp");
+                    }
+
+                    /* Write decrypted first TPM2B */
+                    heim_store_uint16(new_rsp, tpm2b_size);
+                    heim_store_bytes(new_rsp, dec_data, tpm2b_size);
+                    free(dec_data);
+
+                    /* Write remaining params + auth area */
+                    if (rest && rest_len > 0)
+                        heim_store_bytes(new_rsp, rest, rest_len);
+                    free(rest);
+
+                    /* Seek back to start */
+                    heim_storage_seek(new_rsp, 0, SEEK_SET);
+                    rsp = new_rsp;
+                }
+            } else {
+                /* No data to decrypt, seek back past the uint16 we read */
+                heim_storage_seek(rsp, param_start, SEEK_SET);
+            }
+        }
     }
 
     /*
