@@ -10,6 +10,7 @@ SUBDIRS = 					\
 	  gssmask				\
 	  test					\
 	  kf					\
+	  htpm2					\
 	  $(dir_dce)
 
 EXTRA_DIST = NTMakefile

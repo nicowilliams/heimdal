@@ -65,13 +65,7 @@ $(libhtpm2_la_OBJECTS): $(srcdir)/version-script.map
 
 nodist_libhtpm2_la_SOURCES = $(BUILT_SOURCES)
 
-dist_include_HEADERS = htpm2.h
-
-bin_PROGRAMS = htpm2tool
-
-htpm2tool_SOURCES = htpm2tool.c
-htpm2tool_LDADD = libhtpm2.la $(LIB_openssl_crypto) \
-	$(top_builddir)/lib/base/libheimbase.la $(LIBADD_roken)
+dist_include_HEADERS = htpm2.h pcrdb.h
 
 nodist_include_HEADERS = htpm2_err.h
 
