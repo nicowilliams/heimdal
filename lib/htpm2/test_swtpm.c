@@ -828,6 +828,95 @@ test_policy_compile_differs(htpm2_context ctx, htpm2_transport tp)
     htpm2_result_free(&r);
 }
 
+/* --- Policy evaluator tests --- */
+
+static void
+test_policy_evaluate_command_code(htpm2_context ctx, htpm2_transport tp)
+{
+    /*
+     * End-to-end policy evaluation test:
+     * 1. Compile a policy: PolicyCommandCode(Sign) + PolicyAuthValue
+     * 2. Create a signing key with that policy
+     * 3. Load the key
+     * 4. Evaluate the policy to get a satisfied session
+     * 5. Use the session to Sign (should succeed)
+     */
+    const char *json =
+        "{ \"tpm2Policy\": { \"name\": \"sign_policy\", \"policy\": ["
+        "  { \"cc\": \"PolicyCommandCode\", \"commandCode\": \"Sign\" },"
+        "  { \"cc\": \"PolicyAuthValue\" }"
+        "] } }";
+
+    htpm2_policy_doc *doc = NULL;
+    uint8_t policy_digest[32];
+    size_t digest_len = 32;
+    htpm2_object parent = NULL, child = NULL, loaded = NULL;
+    htpm2_session policy_session = NULL;
+    const void *pub, *priv;
+    size_t pub_len, priv_len;
+    void *sig = NULL;
+    size_t sig_len = 0;
+    unsigned char test_digest[32];
+    htpm2_result r;
+
+    /* Parse and compile the policy */
+    r = htpm2_policy_parse(json, 0, &doc);
+    CHECK_OK(r, "parse sign policy");
+    if (htpm2_is_err(r)) goto done;
+
+    r = htpm2_policy_compile(ctx, tp, doc, policy_digest, &digest_len);
+    CHECK_OK(r, "compile sign policy");
+    if (htpm2_is_err(r)) goto done;
+
+    /* Create parent SRK */
+    r = htpm2_create_primary(ctx, tp, HTPM2_OK, NULL,
+                             HTPM2_HIERARCHY_OWNER,
+                             HTPM2_KEY_RSA_2048_STORAGE,
+                             NULL, 0, NULL, 0, &parent);
+    CHECK_OK(r, "create SRK for policy test");
+    if (htpm2_is_err(r)) goto done;
+
+    /* Create signing key with the compiled policy */
+    r = htpm2_create(ctx, tp, HTPM2_OK, NULL, parent,
+                     HTPM2_KEY_RSA_2048_SIGN,
+                     NULL, 0,
+                     policy_digest, 32,
+                     &child);
+    CHECK_OK(r, "create key with policy");
+    if (htpm2_is_err(r)) goto done;
+
+    /* Load the key */
+    htpm2_object_get_public(child, &pub, &pub_len);
+    htpm2_object_get_private(child, &priv, &priv_len);
+    r = htpm2_load(ctx, tp, HTPM2_OK, NULL, parent,
+                   pub, pub_len, priv, priv_len, &loaded);
+    CHECK_OK(r, "load policy-bound key");
+    if (htpm2_is_err(r)) goto done;
+
+    /* Evaluate the policy to get a satisfied session */
+    r = htpm2_policy_evaluate(ctx, tp, doc, NULL, 0, NULL, &policy_session);
+    CHECK_OK(r, "evaluate sign policy");
+    if (htpm2_is_err(r)) goto done;
+
+    CHECK(policy_session != NULL, "policy session should be non-NULL");
+
+    /* Sign with the policy session */
+    memset(test_digest, 0x42, 32);
+    r = htpm2_sign(ctx, tp, HTPM2_OK, policy_session, loaded,
+                   test_digest, 32, &sig, &sig_len);
+    CHECK_OK(r, "sign with policy session");
+    CHECK(sig != NULL && sig_len > 0, "signature should be non-empty");
+
+done:
+    free(sig);
+    htpm2_session_close(&policy_session);
+    htpm2_object_close(&loaded);
+    htpm2_object_close(&child);
+    htpm2_object_close(&parent);
+    htpm2_policy_doc_free(doc);
+    htpm2_result_free(&r);
+}
+
 /* --- Policy tests --- */
 
 static void
@@ -1154,6 +1243,9 @@ main(int argc, char **argv)
     test_policy_compile_simple(ctx, tp);
     test_policy_compile_pcr(ctx, tp);
     test_policy_compile_differs(ctx, tp);
+
+    /* Policy evaluator tests */
+    test_policy_evaluate_command_code(ctx, tp);
 
     /* Parameter encryption test */
     test_encrypted_get_random(ctx, tp);

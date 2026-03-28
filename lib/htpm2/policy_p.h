@@ -224,4 +224,33 @@ htpm2_result htpm2_policy_compile(const htpm2_context ctx,
                                   const htpm2_policy_doc *doc,
                                   void *digest, size_t *digest_len);
 
+/*
+ * Runtime input values for policy evaluation.
+ * The evaluator matches these by name against the policy's declared inputs.
+ */
+typedef struct htpm2_policy_input_value {
+    const char *name;       /* must match a declared "$name" */
+    const void *value;      /* bytes, or pointer to int for arrayIndex */
+    size_t value_len;
+} htpm2_policy_input_value;
+
+/*
+ * Evaluate a policy -- satisfy it in a real policy session.
+ *
+ * `session_in` may be non-NULL for PolicyAuthorize/PolicyAuthorizeNV:
+ *   the caller has already evaluated a sub-policy in this session,
+ *   and we continue from there.
+ * `session_in` is NULL for normal policies: we create a new session.
+ *
+ * On success, `*session_out` is the satisfied policy session, ready
+ * to be used for authorization.  The caller must close it when done.
+ */
+htpm2_result htpm2_policy_evaluate(const htpm2_context ctx,
+                                   htpm2_transport tp,
+                                   const htpm2_policy_doc *doc,
+                                   const htpm2_policy_input_value *inputs,
+                                   size_t num_inputs,
+                                   htpm2_session session_in,
+                                   htpm2_session *session_out);
+
 #endif /* __htpm2_policy_p_h__ */

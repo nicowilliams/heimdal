@@ -306,3 +306,173 @@ htpm2_policy_compile(const htpm2_context ctx,
                                     doc->name ? doc->name : "");
     return HTPM2_OK;
 }
+
+/* ================================================================
+ * Policy evaluator -- satisfy a policy in a real session.
+ * ================================================================ */
+
+/*
+ * Look up an input value by name.
+ */
+static const htpm2_policy_input_value *
+find_input(const htpm2_policy_input_value *inputs, size_t num_inputs,
+           const char *name)
+{
+    size_t i;
+    if (name == NULL || inputs == NULL)
+        return NULL;
+    for (i = 0; i < num_inputs; i++)
+        if (inputs[i].name && strcmp(inputs[i].name, name) == 0)
+            return &inputs[i];
+    return NULL;
+}
+
+/*
+ * Evaluate a parsed policy document to satisfy it in a real session.
+ *
+ * For PolicyOr:
+ *   1. All nodes before the PolicyOr are executed first.
+ *   2. The selected alternative is evaluated (recursively) in the
+ *      same session, setting policyDigest to that alternative's value.
+ *   3. PolicyOr is called with all alternatives' compiled digests,
+ *      which checks that policyDigest matches one and replaces it.
+ *
+ * For PolicyAuthorize / PolicyAuthorizeNV:
+ *   Must be the first node.  The caller passes session_in with the
+ *   sub-policy already evaluated.  We just execute the authorize
+ *   command, which checks policyDigest and replaces it.
+ */
+htpm2_result
+htpm2_policy_evaluate(const htpm2_context ctx,
+                      htpm2_transport tp,
+                      const htpm2_policy_doc *doc,
+                      const htpm2_policy_input_value *inputs,
+                      size_t num_inputs,
+                      htpm2_session session_in,
+                      htpm2_session *session_out)
+{
+    htpm2_session session = NULL;
+    htpm2_result r = HTPM2_OK;
+    size_t i;
+
+    *session_out = NULL;
+
+    /* Use existing session or create a new one */
+    if (session_in != NULL) {
+        session = session_in;
+    } else {
+        r = htpm2_session_start(ctx, tp, HTPM2_OK,
+                                HTPM2_SESSION_POLICY,
+                                NULL, NULL, 0, &session);
+        if (htpm2_is_err(r))
+            return htpm2_result_prepend(r, "policy_evaluate: start session");
+    }
+
+    /* Walk nodes */
+    for (i = 0; i < doc->num_nodes; i++) {
+        const htpm2_policy_node *node = &doc->nodes[i];
+
+        if (node->cc == HTPM2_POL_OR) {
+            /*
+             * PolicyOr evaluation:
+             * 1. Determine which alternative the user selected
+             * 2. Evaluate that alternative in the current session
+             *    (sets policyDigest to the alternative's value)
+             * 3. Compile ALL alternatives to get their digests
+             * 4. Call PolicyOr with those digests
+             */
+            const htpm2_policy_input_value *sel_input;
+            size_t selected = 0;
+            size_t n = node->u.or_node.num_alternatives;
+            size_t j;
+            void *alt_digests[8];
+            size_t alt_digest_lens[8];
+
+            memset(alt_digests, 0, sizeof(alt_digests));
+
+            /* Find selected alternative index */
+            sel_input = find_input(inputs, num_inputs,
+                                   node->u.or_node.select_input);
+            if (sel_input && sel_input->value && sel_input->value_len >= sizeof(int)) {
+                selected = *(const int *)sel_input->value;
+            }
+            if (selected >= n) {
+                r = htpm2_result_local(EINVAL, HTPM2_F_LOCAL, EINVAL,
+                    "policy_evaluate: PolicyOr select %zu out of range "
+                    "(have %zu alternatives)", selected, n);
+                break;
+            }
+
+            /* Evaluate the selected alternative in this session */
+            {
+                htpm2_policy_ref *ref = &node->u.or_node.alternatives[selected];
+                if (ref->inline_policy) {
+                    /* Recurse: evaluate inline policy in same session */
+                    htpm2_session dummy_out = NULL;
+                    r = htpm2_policy_evaluate(ctx, tp, ref->inline_policy,
+                                              inputs, num_inputs,
+                                              session, &dummy_out);
+                    /* dummy_out == session (we passed session_in) */
+                } else if (ref->name) {
+                    r = htpm2_result_local(ENOSYS, HTPM2_F_LOCAL, ENOSYS,
+                        "policy_evaluate: PolicyOr reference '%s' "
+                        "resolution not yet implemented", ref->name);
+                }
+                if (htpm2_is_err(r)) break;
+            }
+
+            /* Compile all alternatives to get their digests */
+            for (j = 0; j < n; j++) {
+                htpm2_policy_ref *ref = &node->u.or_node.alternatives[j];
+                if (ref->inline_policy) {
+                    uint8_t alt_dig[32];
+                    size_t alt_dig_len = 32;
+                    r = htpm2_policy_compile(ctx, tp, ref->inline_policy,
+                                             alt_dig, &alt_dig_len);
+                    if (htpm2_is_err(r)) break;
+                    alt_digests[j] = malloc(32);
+                    if (!alt_digests[j]) {
+                        r = htpm2_result_local(ENOMEM, HTPM2_F_LOCAL, ENOMEM,
+                                               "policy_evaluate: alloc");
+                        break;
+                    }
+                    memcpy(alt_digests[j], alt_dig, 32);
+                    alt_digest_lens[j] = 32;
+                } else {
+                    r = htpm2_result_local(ENOSYS, HTPM2_F_LOCAL, ENOSYS,
+                        "policy_evaluate: need compiled digest for "
+                        "reference '%s'", ref->name ? ref->name : "?");
+                    break;
+                }
+            }
+
+            /* Call PolicyOr */
+            if (htpm2_is_ok(r)) {
+                r = htpm2_policy_or(ctx, session, HTPM2_OK,
+                                    (const void **)alt_digests,
+                                    alt_digest_lens, n);
+            }
+
+            for (j = 0; j < n; j++)
+                free(alt_digests[j]);
+
+            if (htpm2_is_err(r)) break;
+
+        } else {
+            /* Normal node -- execute it */
+            r = execute_node(ctx, tp, session, node, HTPM2_OK);
+            if (htpm2_is_err(r))
+                break;
+        }
+    }
+
+    if (htpm2_is_err(r)) {
+        if (session_in == NULL)
+            htpm2_session_close(&session);
+        return htpm2_result_prepend(r, "policy_evaluate '%s'",
+                                    doc->name ? doc->name : "");
+    }
+
+    *session_out = session;
+    return HTPM2_OK;
+}
