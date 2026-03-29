@@ -48,6 +48,8 @@
 #include <openssl/rand.h>
 #include <openssl/err.h>
 
+#include <heim_storage.h>
+
 #include "htpm2.h"
 
 /*
