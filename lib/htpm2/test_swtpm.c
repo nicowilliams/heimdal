@@ -19,8 +19,9 @@
 
 #include "htpm2.h"
 
-/* We need the internal startup function */
+/* We need internal functions */
 #include "htpm2_locl.h"
+#include "crypto.h"
 #include "marshal.h"
 #include "policy_p.h"
 

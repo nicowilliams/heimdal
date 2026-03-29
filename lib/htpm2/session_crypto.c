@@ -271,12 +271,15 @@ htpm2_marshal_auth_area(const htpm2_context ctx,
     }
 
     /* Build session attributes byte */
-    if (session->flags & HTPM2_SESSION_CONTINUE)
-        attrs |= 0x01;  /* continueSession */
-    if (session->flags & HTPM2_SESSION_DECRYPT)
-        attrs |= 0x20;  /* decrypt (caller->TPM param encryption) */
-    if (session->flags & HTPM2_SESSION_ENCRYPT)
-        attrs |= 0x40;  /* encrypt (TPM->caller param encryption) */
+    {
+        unsigned int sflags = htpm2_session_get_flags(session);
+        if (sflags & HTPM2_SESSION_CONTINUE)
+            attrs |= 0x01;
+        if (sflags & HTPM2_SESSION_DECRYPT)
+            attrs |= 0x20;
+        if (sflags & HTPM2_SESSION_ENCRYPT)
+            attrs |= 0x40;
+    }
 
     /* Always set continueSession for now */
     attrs |= 0x01;
@@ -285,16 +288,21 @@ htpm2_marshal_auth_area(const htpm2_context ctx,
     nonce_tpm = htpm2_session_get_nonce_tpm(session, &nonce_tpm_len);
 
     /* Compute HMAC */
-    r = htpm2_compute_session_hmac(ctx,
-                                   session->session_key,
-                                   session->session_key_len,
-                                   session->bind_auth,
-                                   session->bind_auth_len,
-                                   cp_hash,
-                                   nonce_caller, nonce_caller_len,
-                                   nonce_tpm, nonce_tpm_len,
-                                   attrs,
-                                   hmac, &hmac_len);
+    {
+        size_t sk_len = 0, ba_len = 0;
+        const uint8_t *sk = htpm2_session_get_session_key(session, &sk_len);
+        const uint8_t *ba;
+        htpm2_session_get_bind_auth(session, &ba, &ba_len);
+
+        r = htpm2_compute_session_hmac(ctx,
+                                       sk, sk_len,
+                                       ba, ba_len,
+                                       cp_hash,
+                                       nonce_caller, nonce_caller_len,
+                                       nonce_tpm, nonce_tpm_len,
+                                       attrs,
+                                       hmac, &hmac_len);
+    }
     if (htpm2_is_err(r))
         return htpm2_result_prepend(r, "marshal auth area");
 

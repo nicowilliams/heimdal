@@ -19,10 +19,22 @@
 
 /* --- Helpers for extracting typed values from heim dicts --- */
 
+/* Helper to look up a dict value by C string key */
+static heim_object_t
+dict_get(heim_dict_t d, const char *key)
+{
+    heim_string_t ks = heim_string_create(key);
+    heim_object_t v;
+    if (ks == NULL) return NULL;
+    v = heim_dict_get_value(d, ks);
+    heim_release(ks);
+    return v;
+}
+
 static const char *
 dict_get_string(heim_dict_t d, const char *key)
 {
-    heim_object_t v = heim_dict_get_value(d, HSTR(key));
+    heim_object_t v = dict_get(d, key);
     if (v == NULL || heim_get_tid(v) != HEIM_TID_STRING)
         return NULL;
     return heim_string_get_utf8((heim_string_t)v);
@@ -31,7 +43,7 @@ dict_get_string(heim_dict_t d, const char *key)
 static int64_t
 dict_get_int(heim_dict_t d, const char *key, int64_t dflt)
 {
-    heim_object_t v = heim_dict_get_value(d, HSTR(key));
+    heim_object_t v = dict_get(d, key);
     if (v == NULL || heim_get_tid(v) != HEIM_TID_NUMBER)
         return dflt;
     return heim_number_get_long((heim_number_t)v);
@@ -40,7 +52,7 @@ dict_get_int(heim_dict_t d, const char *key, int64_t dflt)
 static int
 dict_get_bool(heim_dict_t d, const char *key, int dflt)
 {
-    heim_object_t v = heim_dict_get_value(d, HSTR(key));
+    heim_object_t v = dict_get(d, key);
     if (v == NULL || heim_get_tid(v) != HEIM_TID_BOOL)
         return dflt;
     return heim_bool_val(v);
@@ -49,7 +61,7 @@ dict_get_bool(heim_dict_t d, const char *key, int dflt)
 static heim_dict_t
 dict_get_dict(heim_dict_t d, const char *key)
 {
-    heim_object_t v = heim_dict_get_value(d, HSTR(key));
+    heim_object_t v = dict_get(d, key);
     if (v == NULL || heim_get_tid(v) != HEIM_TID_DICT)
         return NULL;
     return (heim_dict_t)v;
@@ -58,7 +70,7 @@ dict_get_dict(heim_dict_t d, const char *key)
 static heim_array_t
 dict_get_array(heim_dict_t d, const char *key)
 {
-    heim_object_t v = heim_dict_get_value(d, HSTR(key));
+    heim_object_t v = dict_get(d, key);
     if (v == NULL || heim_get_tid(v) != HEIM_TID_ARRAY)
         return NULL;
     return (heim_array_t)v;
@@ -574,15 +586,18 @@ parse_policy_dict(heim_dict_t pol, htpm2_policy_doc **doc, int depth)
 
     /* Validate: PolicyAuthorize/PolicyAuthorizeNV must be first */
     if (d->num_nodes > 0) {
-        uint32_t first_cc = d->nodes[0].cc;
         for (i = 1; i < d->num_nodes; i++) {
             if (d->nodes[i].cc == HTPM2_POL_AUTHORIZE ||
                 d->nodes[i].cc == HTPM2_POL_AUTHORIZE_NV) {
+                char *saved_name = d->name ? strdup(d->name) : NULL;
                 htpm2_policy_doc_free(d);
-                return htpm2_result_local(EINVAL, HTPM2_F_LOCAL, EINVAL,
+                htpm2_result er = htpm2_result_local(EINVAL,
+                    HTPM2_F_LOCAL, EINVAL,
                     "policy '%s': PolicyAuthorize/PolicyAuthorizeNV "
                     "must be the first command (found at node %zu)",
-                    d->name ? d->name : "", i);
+                    saved_name ? saved_name : "", i);
+                free(saved_name);
+                return er;
             }
         }
     }

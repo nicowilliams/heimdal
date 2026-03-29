@@ -38,6 +38,7 @@
 
 #include "htpm2_locl.h"
 #include "marshal.h"
+#include "crypto.h"
 
 int
 htpm2_marshal_tpm2b(heim_storage *sp, const void *data, size_t len)

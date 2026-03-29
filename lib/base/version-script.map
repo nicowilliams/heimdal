@@ -206,6 +206,28 @@ HEIMDAL_BASE_1.0 {
 		heim_warnx;
 		initialize_heim_error_table;
 		initialize_heim_error_table_r;
+		heim_storage_emem;
+		heim_storage_from_mem;
+		heim_storage_from_readonly_mem;
+		heim_storage_free;
+		heim_storage_seek;
+		heim_storage_truncate;
+		heim_storage_read;
+		heim_storage_write;
+		heim_storage_set_eof_code;
+		heim_storage_get_eof_code;
+		heim_storage_set_max_alloc;
+		heim_storage_to_data;
+		heim_store_uint8;
+		heim_store_uint16;
+		heim_store_uint32;
+		heim_ret_uint8;
+		heim_ret_uint16;
+		heim_ret_uint32;
+		heim_store_bytes;
+		heim_ret_bytes;
+		heim_store_data;
+		heim_ret_data;
 	local:
 		*;
 };

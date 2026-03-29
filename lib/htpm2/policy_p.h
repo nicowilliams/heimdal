@@ -16,7 +16,7 @@
 #define HTPM2_POL_PCR               0x0000017F
 #define HTPM2_POL_COMMAND_CODE      0x0000016C
 #define HTPM2_POL_AUTH_VALUE        0x0000016B
-#define HTPM2_POL_PASSWORD          0x0000016C  /* same digest as AuthValue */
+#define HTPM2_POL_PASSWORD          0x0000018C
 #define HTPM2_POL_SIGNED            0x00000160
 #define HTPM2_POL_SECRET            0x00000151
 #define HTPM2_POL_AUTHORIZE         0x0000016A

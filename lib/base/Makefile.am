@@ -60,7 +60,8 @@ dist_libheimbase_la_SOURCES =	\
 	plugin.c		\
 	roken_rename.h		\
 	string.c		\
-	warn.c
+	warn.c			\
+	heim_storage.c
 
 nodist_libheimbase_la_SOURCES = $(ES) $(ERR_FILES)
 
