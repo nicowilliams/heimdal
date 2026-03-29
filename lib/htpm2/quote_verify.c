@@ -200,7 +200,7 @@ ak_pub_to_evp_pkey(const void *ak_pub, size_t ak_pub_len, EVP_PKEY **pkey)
         free(x_data); free(y_data);
 
         bld = OSSL_PARAM_BLD_new();
-        OSSL_PARAM_BLD_push_utf8_string(bld, OSSL_PKEY_PARAM_GROUP_NAME, group_name, 0);
+        OSSL_PARAM_BLD_push_utf8_string(bld, OSSL_PKEY_PARAM_GROUP_NAME, (char *)group_name, 0);
         OSSL_PARAM_BLD_push_octet_string(bld, OSSL_PKEY_PARAM_PUB_KEY, pub_point, pub_point_len);
         params = OSSL_PARAM_BLD_to_param(bld);
 

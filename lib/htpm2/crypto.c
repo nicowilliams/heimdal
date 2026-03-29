@@ -44,6 +44,7 @@
 #include <openssl/err.h>
 #include <openssl/core_names.h>
 #include <openssl/params.h>
+#include <openssl/param_build.h>
 
 htpm2_result
 htpm2_sha256(const htpm2_context ctx,
@@ -94,7 +95,7 @@ htpm2_hmac_sha256(const htpm2_context ctx,
     }
 
     params[0] = OSSL_PARAM_construct_utf8_string(OSSL_MAC_PARAM_DIGEST,
-                                                  "SHA256", 0);
+                                                  (char *)"SHA256", 0);
     params[1] = OSSL_PARAM_construct_end();
 
     if (EVP_MAC_init(mctx, key, key_len, params) != 1) {
