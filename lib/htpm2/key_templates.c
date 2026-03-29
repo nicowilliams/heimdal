@@ -168,8 +168,6 @@ marshal_ecc_template(heim_storage *sp, uint16_t curve_id,
                      const void *policy, size_t policy_len)
 {
     int ret;
-    uint16_t coord_size;
-
     /* type = TPM2_ALG_ECC */
     ret = heim_store_uint16(sp, TPM2_ALG_ECC);
     if (ret) return ret;
@@ -219,7 +217,6 @@ marshal_ecc_template(heim_storage *sp, uint16_t curve_id,
 
     /* --- unique (TPMS_ECC_POINT) --- */
     /* Empty x and y for creation template */
-    coord_size = (curve_id == 0x0003) ? 32 : 48;  /* P-256=32, P-384=48 */
     ret = htpm2_marshal_tpm2b(sp, NULL, 0);  /* x */
     if (ret) return ret;
     ret = htpm2_marshal_tpm2b(sp, NULL, 0);  /* y */

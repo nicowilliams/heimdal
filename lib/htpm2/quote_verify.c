@@ -161,7 +161,7 @@ ak_pub_to_evp_pkey(const void *ak_pub, size_t ak_pub_len, EVP_PKEY **pkey)
         uint16_t curve_id;
         void *x_data = NULL, *y_data = NULL;
         uint16_t x_len, y_len;
-        const char *group_name;
+        char group_name[8];
         OSSL_PARAM_BLD *bld;
         OSSL_PARAM *params;
         EVP_PKEY_CTX *kctx;
@@ -183,8 +183,8 @@ ak_pub_to_evp_pkey(const void *ak_pub, size_t ak_pub_len, EVP_PKEY **pkey)
         }
 
         switch (curve_id) {
-        case 0x0003: group_name = "P-256"; break;
-        case 0x0004: group_name = "P-384"; break;
+        case 0x0003: strlcpy(group_name, "P-256", sizeof(group_name)); break;
+        case 0x0004: strlcpy(group_name, "P-384", sizeof(group_name)); break;
         default:
             free(x_data); free(y_data);
             return htpm2_result_local(EINVAL, HTPM2_F_LOCAL, EINVAL,
@@ -201,7 +201,7 @@ ak_pub_to_evp_pkey(const void *ak_pub, size_t ak_pub_len, EVP_PKEY **pkey)
         free(x_data); free(y_data);
 
         bld = OSSL_PARAM_BLD_new();
-        OSSL_PARAM_BLD_push_utf8_string(bld, OSSL_PKEY_PARAM_GROUP_NAME, (char *)group_name, 0);
+        OSSL_PARAM_BLD_push_utf8_string(bld, OSSL_PKEY_PARAM_GROUP_NAME, group_name, 0);
         OSSL_PARAM_BLD_push_octet_string(bld, OSSL_PKEY_PARAM_PUB_KEY, pub_point, pub_point_len);
         params = OSSL_PARAM_BLD_to_param(bld);
 

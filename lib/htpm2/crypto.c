@@ -95,8 +95,15 @@ htpm2_hmac_sha256(const htpm2_context ctx,
         goto out;
     }
 
-    params[0] = OSSL_PARAM_construct_utf8_string(OSSL_MAC_PARAM_DIGEST,
-                                                  (char *)"SHA256", 0);
+    /*
+     * OSSL_PARAM_construct_utf8_string takes char* (not const char*).
+     * Use a static mutable buffer to avoid cast-qual warnings.
+     */
+    {
+        static char sha256_name[] = "SHA256";
+        params[0] = OSSL_PARAM_construct_utf8_string(OSSL_MAC_PARAM_DIGEST,
+                                                      sha256_name, 0);
+    }
     params[1] = OSSL_PARAM_construct_end();
 
     if (EVP_MAC_init(mctx, key, key_len, params) != 1) {

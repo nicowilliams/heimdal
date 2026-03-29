@@ -369,8 +369,8 @@ htpm2_command_execute_with_auth(
              * as plaintext (the TPM needs it to know how many bytes to
              * decrypt).
              */
-            uint16_t tpm2b_size = ((uint8_t *)param_bytes)[0] << 8 |
-                                  ((uint8_t *)param_bytes)[1];
+            const uint8_t *pb = param_bytes;
+            uint16_t tpm2b_size = (uint16_t)(pb[0] << 8 | pb[1]);
 
             if (tpm2b_size > 0 && 2 + tpm2b_size <= param_bytes_len) {
                 uint8_t enc_key[16], iv[16];
