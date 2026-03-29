@@ -287,7 +287,7 @@ mem_seek(heim_storage *sp, off_t offset, int whence)
             offset = 0;
         if ((size_t)offset > s->len)
             offset = s->len;
-        s->ptr = (unsigned char *)s->base + offset;
+        s->ptr = ((unsigned char *)(uintptr_t)s->base) + offset;
         break;
     case SEEK_CUR:
         return mem_seek(sp, s->ptr - s->base + offset, SEEK_SET);
@@ -311,7 +311,7 @@ mem_trunc(heim_storage *sp, off_t offset)
         return ERANGE;
     s->len = offset;
     if ((off_t)(s->ptr - s->base) > offset)
-        s->ptr = (unsigned char *)s->base + offset;
+        s->ptr = ((unsigned char *)(uintptr_t)s->base) + offset;
     return 0;
 }
 
