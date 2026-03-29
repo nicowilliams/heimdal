@@ -58,10 +58,10 @@
 #define bindtextdomain(package, localedir)
 #endif
 
-#include "heimqueue.h"
 #include "heim_threads.h"
 #include "heimbase.h"
 #include "heimbasepriv.h"
+#include "heimqueue.h"
 
 #ifdef HAVE_DISPATCH_DISPATCH_H
 #include <dispatch/dispatch.h>

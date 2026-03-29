@@ -369,6 +369,8 @@ void _bsearch_file_close(bsearch_file_handle *bfh);
 
 typedef struct heim_svc_req_desc_common_s *heim_svc_req_desc;
 
+#include <heim_storage.h>
+
 #include <heimbase-protos.h>
 
 #endif /* HEIM_BASE_H */
