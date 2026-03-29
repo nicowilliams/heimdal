@@ -51,11 +51,10 @@ dist_libhtpm2_la_SOURCES = \
 	pcrdb.h \
 	error.c
 
-libhtpm2_la_LIBADD += $(LIB_sqlite3)
-
 libhtpm2_la_LIBADD = \
 	$(LIB_com_err) \
 	$(LIB_openssl_crypto) \
+	$(LIB_sqlite3) \
 	$(top_builddir)/lib/base/libheimbase.la \
 	$(LIBADD_roken)
 
