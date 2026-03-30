@@ -73,6 +73,115 @@ die_result(htpm2_result r, const char *context)
     exit(1);
 }
 
+/*
+ * Parse --policy-input arguments: "key=hexvalue" pairs.
+ * Returns allocated array of htpm2_policy_input_value.
+ * Caller frees with free_policy_inputs().
+ */
+static int
+parse_policy_inputs(int argc, char **argv,
+                    htpm2_policy_input_value **out, size_t *out_count)
+{
+    htpm2_policy_input_value *inputs = NULL;
+    size_t count = 0, capacity = 0;
+    int i;
+
+    for (i = 0; i < argc; i++) {
+        if (strcmp(argv[i], "--policy-input") == 0 && i + 1 < argc) {
+            char *arg = argv[++i];
+            char *eq = strchr(arg, '=');
+            htpm2_policy_input_value inp;
+
+            if (eq == NULL) {
+                fprintf(stderr, "htpm2tool: bad --policy-input '%s' "
+                        "(expected key=hexvalue)\n", arg);
+                free(inputs);
+                return -1;
+            }
+
+            *eq = '\0';
+            inp.name = arg;  /* points into argv, not copied */
+
+            /* Hex-decode the value */
+            {
+                const char *hex = eq + 1;
+                size_t hex_len = strlen(hex);
+                size_t bin_len = hex_len / 2;
+                uint8_t *buf;
+                size_t j;
+
+                if (hex_len % 2 != 0) {
+                    fprintf(stderr, "htpm2tool: odd hex length in "
+                            "--policy-input '%s'\n", arg);
+                    free(inputs);
+                    return -1;
+                }
+                buf = malloc(bin_len > 0 ? bin_len : 1);
+                for (j = 0; j < bin_len; j++) {
+                    unsigned int byte;
+                    sscanf(hex + j * 2, "%02x", &byte);
+                    buf[j] = (uint8_t)byte;
+                }
+                inp.value = buf;
+                inp.value_len = bin_len;
+            }
+
+            if (count >= capacity) {
+                capacity = capacity ? capacity * 2 : 8;
+                inputs = realloc(inputs, capacity * sizeof(*inputs));
+            }
+            inputs[count++] = inp;
+        }
+    }
+
+    *out = inputs;
+    *out_count = count;
+    return 0;
+}
+
+static void
+free_policy_inputs(htpm2_policy_input_value *inputs, size_t count)
+{
+    size_t i;
+    if (inputs == NULL) return;
+    for (i = 0; i < count; i++)
+        free((void *)inputs[i].value);
+    free(inputs);
+}
+
+/*
+ * Evaluate a policy JSON file with inputs to get a satisfied session.
+ */
+static htpm2_result
+evaluate_policy_file(const htpm2_context ctx,
+                     htpm2_transport tp,
+                     const char *policy_json_file,
+                     const htpm2_policy_input_value *inputs,
+                     size_t num_inputs,
+                     htpm2_session session_in,
+                     htpm2_session *session_out)
+{
+    void *json_data;
+    size_t json_len;
+    htpm2_policy_doc *doc = NULL;
+    htpm2_result r;
+
+    json_data = read_file(policy_json_file, &json_len);
+    if (json_data == NULL)
+        return htpm2_result_local(EIO, HTPM2_F_LOCAL, EIO,
+                                  "read policy JSON: %s", policy_json_file);
+
+    r = htpm2_policy_parse(json_data, json_len, &doc);
+    free(json_data);
+    if (htpm2_is_err(r))
+        return htpm2_result_prepend(r, "parse policy %s", policy_json_file);
+
+    r = htpm2_policy_evaluate(ctx, tp, doc, inputs, num_inputs,
+                              session_in, session_out);
+    htpm2_policy_doc_free(doc);
+    return r;
+}
+
 static void *
 read_file(const char *path, size_t *len)
 {
@@ -1130,14 +1239,18 @@ cmd_key_duplicate(int argc, char **argv)
     const char *key_pub_file = NULL;
     const char *key_priv_file = NULL;
     const char *parent_handle_str = NULL;
-    const char *new_parent_pub_file = NULL;
-    const char *policy_file = NULL;
+    const char *new_parent_handle_str = NULL;
+    const char *policy_json_file = NULL;
     const char *out_dup = NULL;
     const char *out_seed = NULL;
+    htpm2_policy_input_value *policy_inputs = NULL;
+    size_t num_policy_inputs = 0;
     htpm2_context ctx = NULL;
     htpm2_transport tp = NULL;
+    htpm2_object parent_obj = NULL, key_obj = NULL, np_obj = NULL;
+    htpm2_session policy_session = NULL;
     htpm2_result r;
-    int i;
+    int i, rc = 1;
 
     for (i = 0; i < argc; i++) {
         if (strcmp(argv[i], "--transport") == 0 && i + 1 < argc)
@@ -1148,90 +1261,100 @@ cmd_key_duplicate(int argc, char **argv)
             key_priv_file = argv[++i];
         else if (strcmp(argv[i], "--parent-handle") == 0 && i + 1 < argc)
             parent_handle_str = argv[++i];
-        else if (strcmp(argv[i], "--new-parent-pub") == 0 && i + 1 < argc)
-            new_parent_pub_file = argv[++i];
+        else if (strcmp(argv[i], "--new-parent-handle") == 0 && i + 1 < argc)
+            new_parent_handle_str = argv[++i];
+        else if (strcmp(argv[i], "--policy-json") == 0 && i + 1 < argc)
+            policy_json_file = argv[++i];
         else if (strcmp(argv[i], "--out-dup") == 0 && i + 1 < argc)
             out_dup = argv[++i];
         else if (strcmp(argv[i], "--out-seed") == 0 && i + 1 < argc)
             out_seed = argv[++i];
+        /* --policy-input handled by parse_policy_inputs */
     }
 
-    if (!transport_uri || !new_parent_pub_file || !out_dup || !out_seed) {
+    if (!transport_uri || !key_pub_file || !key_priv_file ||
+        !parent_handle_str || !new_parent_handle_str ||
+        !out_dup || !out_seed) {
         fprintf(stderr,
             "Usage: htpm2tool key-duplicate --transport <uri>\n"
-            "       --new-parent-pub <file>\n"
+            "       --key-pub <file> --key-priv <file>\n"
+            "       --parent-handle <handle>\n"
+            "       --new-parent-handle <handle>\n"
             "       --out-dup <file> --out-seed <file>\n"
-            "       [--key-pub <file> --key-priv <file> "
-            "--parent-handle <handle>]\n"
-            "\n"
-            "If --key-pub and --key-priv are given, loads the key first.\n"
-            "Otherwise performs software-only duplication using\n"
-            "--new-parent-pub.\n");
+            "       [--policy-json <file>]\n"
+            "       [--policy-input name=hexvalue ...]\n");
         return 1;
     }
+
+    if (parse_policy_inputs(argc, argv, &policy_inputs,
+                            &num_policy_inputs) < 0)
+        return 1;
 
     r = htpm2_context_init(&ctx);
     if (htpm2_is_err(r)) die_result(r, "context_init");
 
-    if (key_pub_file && new_parent_pub_file && !transport_uri) {
-        /* Software-only duplicate */
-        void *key_pub, *np_pub, *dup_data, *seed_data;
-        size_t key_pub_len, np_pub_len, dup_len, seed_len;
-
-        key_pub = read_file(key_pub_file, &key_pub_len);
-        np_pub = read_file(new_parent_pub_file, &np_pub_len);
-        if (!key_pub || !np_pub) goto sw_out;
-
-        /* TODO: need key_name and sensitive for software duplicate */
-        fprintf(stderr, "htpm2tool: software duplicate requires "
-                "--key-sensitive (not yet implemented)\n");
-    sw_out:
-        htpm2_context_free(&ctx);
-        return 1;
-    }
-
-    /* TPM-side duplicate */
     r = htpm2_transport_open(ctx, HTPM2_OK, transport_uri, &tp);
     if (htpm2_is_err(r)) die_result(r, "transport_open");
 
     {
-        htpm2_object parent_obj, key_obj, np_obj;
-        void *key_pub, *key_priv, *dup_out, *seed_out;
-        size_t key_pub_len, key_priv_len, dup_len, seed_len;
-        uint32_t parent_handle;
-
-        if (!key_pub_file || !key_priv_file || !parent_handle_str) {
-            fprintf(stderr, "htpm2tool: TPM duplicate requires "
-                    "--key-pub, --key-priv, --parent-handle\n");
-            htpm2_transport_close(&tp);
-            htpm2_context_free(&ctx);
-            return 1;
-        }
+        void *key_pub, *key_priv, *dup_out = NULL, *seed_out = NULL;
+        size_t key_pub_len, key_priv_len, dup_len = 0, seed_len = 0;
+        uint32_t parent_handle, np_handle;
 
         key_pub = read_file(key_pub_file, &key_pub_len);
         key_priv = read_file(key_priv_file, &key_priv_len);
+        if (!key_pub || !key_priv) goto dup_out;
+
         parent_handle = (uint32_t)strtoul(parent_handle_str, NULL, 0);
+        np_handle = (uint32_t)strtoul(new_parent_handle_str, NULL, 0);
 
         parent_obj = htpm2_object_alloc(tp, parent_handle);
+        np_obj = htpm2_object_alloc(tp, np_handle);
+
+        /* Load the key */
         r = htpm2_load(ctx, tp, HTPM2_OK, NULL, parent_obj,
                        key_pub, key_pub_len,
                        key_priv, key_priv_len, &key_obj);
         if (htpm2_is_err(r)) die_result(r, "load key for dup");
 
-        /* TODO: load new parent, evaluate policy, duplicate */
-        /* For now this is a placeholder */
-        fprintf(stderr, "htpm2tool: TPM-side duplicate with policy evaluation "
-                "not yet fully wired\n");
+        /* Evaluate duplication policy if provided */
+        if (policy_json_file) {
+            r = evaluate_policy_file(ctx, tp, policy_json_file,
+                                     policy_inputs, num_policy_inputs,
+                                     NULL, &policy_session);
+            if (htpm2_is_err(r))
+                die_result(r, "evaluate duplication policy");
+        }
 
-        htpm2_object_close(&key_obj);
-        htpm2_object_close(&parent_obj);
+        /* Duplicate */
+        r = htpm2_duplicate(ctx, tp, HTPM2_OK,
+                            policy_session, /* NULL = password auth */
+                            key_obj, np_obj,
+                            &dup_out, &dup_len,
+                            &seed_out, &seed_len);
+        if (htpm2_is_err(r)) die_result(r, "Duplicate");
+
+        write_file(out_dup, dup_out, dup_len);
+        write_file(out_seed, seed_out, seed_len);
+        printf("Duplicated key: %zu dup bytes, %zu seed bytes\n",
+               dup_len, seed_len);
+        rc = 0;
+
+    dup_out:
         free(key_pub);
         free(key_priv);
+        free(dup_out);
+        free(seed_out);
     }
 
+    htpm2_session_close(&policy_session);
+    htpm2_object_close(&key_obj);
+    htpm2_object_close(&np_obj);
+    htpm2_object_close(&parent_obj);
+    free_policy_inputs(policy_inputs, num_policy_inputs);
     htpm2_transport_close(&tp);
     htpm2_context_free(&ctx);
-    return 1;
+    return rc;
 }
 
 /*
@@ -1246,9 +1369,13 @@ cmd_key_import(int argc, char **argv)
     const char *seed_file = NULL;
     const char *pub_file = NULL;
     const char *out_priv = NULL;
+    const char *policy_json_file = NULL;
+    htpm2_policy_input_value *policy_inputs = NULL;
+    size_t num_policy_inputs = 0;
     htpm2_context ctx = NULL;
     htpm2_transport tp = NULL;
     htpm2_object parent_obj = NULL;
+    htpm2_session policy_session = NULL;
     htpm2_result r;
     int i;
 
@@ -1265,6 +1392,8 @@ cmd_key_import(int argc, char **argv)
             pub_file = argv[++i];
         else if (strcmp(argv[i], "--out-priv") == 0 && i + 1 < argc)
             out_priv = argv[++i];
+        else if (strcmp(argv[i], "--policy-json") == 0 && i + 1 < argc)
+            policy_json_file = argv[++i];
     }
 
     if (!transport_uri || !parent_handle_str || !dup_file ||
@@ -1273,9 +1402,15 @@ cmd_key_import(int argc, char **argv)
             "Usage: htpm2tool key-import --transport <uri>\n"
             "       --parent-handle <handle>\n"
             "       --dup <file> --seed <file> --pub <file>\n"
-            "       --out-priv <file>\n");
+            "       --out-priv <file>\n"
+            "       [--policy-json <file>] "
+            "[--policy-input name=hexvalue ...]\n");
         return 1;
     }
+
+    if (parse_policy_inputs(argc, argv, &policy_inputs,
+                            &num_policy_inputs) < 0)
+        return 1;
 
     r = htpm2_context_init(&ctx);
     if (htpm2_is_err(r)) die_result(r, "context_init");
@@ -1297,7 +1432,15 @@ cmd_key_import(int argc, char **argv)
 
         parent_obj = htpm2_object_alloc(tp, parent_handle);
 
-        r = htpm2_import(ctx, tp, HTPM2_OK, NULL, parent_obj,
+        /* Evaluate parent's policy if provided */
+        if (policy_json_file) {
+            r = evaluate_policy_file(ctx, tp, policy_json_file,
+                                     policy_inputs, num_policy_inputs,
+                                     NULL, &policy_session);
+            if (htpm2_is_err(r)) die_result(r, "evaluate parent policy");
+        }
+
+        r = htpm2_import(ctx, tp, HTPM2_OK, policy_session, parent_obj,
                          pub_data, pub_len,
                          dup_data, dup_len,
                          seed_data, seed_len,
@@ -1316,7 +1459,9 @@ cmd_key_import(int argc, char **argv)
         free(pub_data);
     }
 
+    htpm2_session_close(&policy_session);
     htpm2_object_close(&parent_obj);
+    free_policy_inputs(policy_inputs, num_policy_inputs);
     htpm2_transport_close(&tp);
     htpm2_context_free(&ctx);
     return htpm2_is_err(r) ? 1 : 0;
