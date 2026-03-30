@@ -17,43 +17,6 @@
 #include "marshal.h"
 #include "crypto.h"
 
-/* Forward declarations for policy commands in policy.c */
-htpm2_result htpm2_policy_locality(const htpm2_context, htpm2_session,
-                                   htpm2_result, uint8_t);
-htpm2_result htpm2_policy_nv(const htpm2_context, htpm2_session,
-                              htpm2_result, uint32_t, const void *, size_t,
-                              uint16_t, uint16_t);
-htpm2_result htpm2_policy_counter_timer(const htpm2_context, htpm2_session,
-                                         htpm2_result, const void *, size_t,
-                                         uint16_t, uint16_t);
-htpm2_result htpm2_policy_physical_presence(const htpm2_context, htpm2_session,
-                                             htpm2_result);
-htpm2_result htpm2_policy_cp_hash(const htpm2_context, htpm2_session,
-                                   htpm2_result, const void *, size_t);
-htpm2_result htpm2_policy_name_hash(const htpm2_context, htpm2_session,
-                                     htpm2_result, const void *, size_t);
-htpm2_result htpm2_policy_duplication_select(const htpm2_context, htpm2_session,
-                                              htpm2_result,
-                                              const void *, size_t,
-                                              const void *, size_t, int);
-htpm2_result htpm2_policy_auth_value(const htpm2_context, htpm2_session,
-                                      htpm2_result);
-htpm2_result htpm2_policy_password(const htpm2_context, htpm2_session,
-                                    htpm2_result);
-htpm2_result htpm2_policy_nv_written(const htpm2_context, htpm2_session,
-                                      htpm2_result, int);
-htpm2_result htpm2_policy_template(const htpm2_context, htpm2_session,
-                                    htpm2_result, const void *, size_t);
-htpm2_result htpm2_policy_authorize_nv(const htpm2_context, htpm2_session,
-                                        htpm2_result, uint32_t);
-htpm2_result htpm2_policy_ticket(const htpm2_context, htpm2_session,
-                                  htpm2_result,
-                                  const void *, size_t,
-                                  const void *, size_t,
-                                  const void *, size_t,
-                                  const void *, size_t,
-                                  const void *, size_t);
-
 /*
  * Execute a single policy node in a session (trial or real).
  */

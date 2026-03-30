@@ -83,8 +83,7 @@ htpm2_activate_credential(const htpm2_context ctx,
     size_t auth_len = 0;
     uint32_t rc;
     uint32_t ak_handle, ek_handle;
-    uint16_t rsp_tag;
-    uint32_t rsp_size, param_size;
+    uint32_t param_size;
     void *cred_data = NULL;
     uint16_t cred_size;
     htpm2_result r;

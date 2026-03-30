@@ -677,7 +677,7 @@ cmd_quote_verify(int argc, char **argv)
     const char *eventlog_file = NULL;
     const char *db_file = NULL;
     const char *pcr_policy_spec = NULL;
-    const char *nonce_file = NULL;
+    /* const char *nonce_file = NULL; -- TODO: use for quote nonce check */
     htpm2_context ctx = NULL;
     htpm2_pcrdb db = NULL;
     htpm2_eventlog_entry *events = NULL;
@@ -697,7 +697,7 @@ cmd_quote_verify(int argc, char **argv)
         else if (strcmp(argv[i], "--pcr-policy") == 0 && i + 1 < argc)
             pcr_policy_spec = argv[++i];
         else if (strcmp(argv[i], "--nonce") == 0 && i + 1 < argc)
-            nonce_file = argv[++i];
+            i++; /* TODO: use nonce for quote validation */
     }
 
     if (!eventlog_file) {

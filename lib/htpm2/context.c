@@ -91,7 +91,8 @@ htpm2_result_local(int code, uint32_t flags, int local_err,
     r.local_err = local_err;
     if (fmt) {
         va_start(ap, fmt);
-        vasprintf(&r.message, fmt, ap);
+        if (vasprintf(&r.message, fmt, ap) < 0)
+            r.message = NULL;
         va_end(ap);
     }
     return r;
@@ -108,7 +109,8 @@ htpm2_result_tpm(uint32_t tpm_rc, const char *fmt, ...)
     r.tpm_rc = tpm_rc;
     if (fmt) {
         va_start(ap, fmt);
-        vasprintf(&r.message, fmt, ap);
+        if (vasprintf(&r.message, fmt, ap) < 0)
+            r.message = NULL;
         va_end(ap);
     }
     return r;
@@ -128,7 +130,8 @@ htpm2_result_ossl(int code, const char *fmt, ...)
     r.ossl_err = (uint32_t)ossl_err;
     if (fmt) {
         va_start(ap, fmt);
-        vasprintf(&r.message, fmt, ap);
+        if (vasprintf(&r.message, fmt, ap) < 0)
+            r.message = NULL;
         va_end(ap);
     }
     return r;

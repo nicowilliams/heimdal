@@ -1067,13 +1067,9 @@ htpm2_policy_authorize_nv(const htpm2_context ctx,
                           htpm2_result prior,
                           uint32_t nv_index)
 {
-    heim_storage *param_sp;
     uint32_t rc, handles[3];
-    void *param_data = NULL;
-    size_t param_len = 0;
     heim_storage *rsp;
     htpm2_result r;
-    int ret;
 
     if (prior.code) return prior;
     (void)ctx;

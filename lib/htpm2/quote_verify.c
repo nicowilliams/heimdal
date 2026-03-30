@@ -244,7 +244,6 @@ verify_quote_signature(const htpm2_context ctx,
     uint16_t sig_alg, hash_alg;
     EVP_MD_CTX *mdctx = NULL;
     htpm2_result r = HTPM2_OK;
-    int ret;
 
     sig_sp = heim_storage_from_readonly_mem(signature, signature_len);
     if (sig_sp == NULL)
