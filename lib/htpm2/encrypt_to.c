@@ -60,8 +60,13 @@
  * The recipient must ActivateCredential for each share, XOR them
  * together to recover K, then decrypt the ciphertext.
  *
- * The ciphertext format is:
+ * The ciphertext format (Encrypt-then-MAC):
  *   iv (16 bytes) || AES-256-CBC ciphertext (PKCS7 padded)
+ *   || HMAC-SHA-256(K_mac, iv || ciphertext) (32 bytes)
+ *
+ * The master key K is split via KDF:
+ *   K_enc = KDFa(SHA256, K, "ENCRYPTION", "", "", 256)
+ *   K_mac = KDFa(SHA256, K, "INTEGRITY", "", "", 256)
  *
  * This is a software-only operation -- no TPM round-trip needed.
  */
@@ -74,100 +79,181 @@
 #include <openssl/rand.h>
 
 /*
- * AES-256-CBC encrypt with random IV and PKCS7 padding.
- * Output: iv (16 bytes) || ciphertext
+ * Derive encryption and MAC keys from a master key via KDFa.
  */
 static htpm2_result
-aes256_cbc_encrypt(const htpm2_context ctx,
-                   const uint8_t key[32],
-                   const void *plaintext, size_t plaintext_len,
-                   void **out, size_t *out_len)
+derive_enc_mac_keys(const htpm2_context ctx,
+                    const uint8_t master_key[32],
+                    uint8_t k_enc[32], uint8_t k_mac[32])
+{
+    htpm2_result r;
+
+    r = htpm2_kdfa(ctx, master_key, 32, "ENCRYPTION",
+                   NULL, 0, NULL, 0, 256, k_enc, 32);
+    if (htpm2_is_err(r))
+        return r;
+    r = htpm2_kdfa(ctx, master_key, 32, "INTEGRITY",
+                   NULL, 0, NULL, 0, 256, k_mac, 32);
+    return r;
+}
+
+/*
+ * Encrypt-then-MAC.
+ * Output: iv (16) || AES-256-CBC ciphertext || HMAC-SHA-256 (32)
+ */
+static htpm2_result
+envelope_encrypt(const htpm2_context ctx,
+                 const uint8_t master_key[32],
+                 const void *plaintext, size_t plaintext_len,
+                 void **out, size_t *out_len)
 {
     EVP_CIPHER_CTX *cctx;
     uint8_t iv[16];
+    uint8_t k_enc[32], k_mac[32];
+    uint8_t hmac[32];
+    size_t hmac_len = 32;
     uint8_t *buf;
     int outl = 0, final_outl = 0;
-    size_t max_ct_len;
+    size_t max_ct_len, ct_and_iv_len;
     htpm2_result r;
+
+    r = derive_enc_mac_keys(ctx, master_key, k_enc, k_mac);
+    if (htpm2_is_err(r))
+        return r;
 
     r = htpm2_random_bytes(ctx, iv, 16);
     if (htpm2_is_err(r))
         return r;
 
-    /* Max ciphertext = plaintext + one block of padding */
-    max_ct_len = plaintext_len + 16;
-    buf = malloc(16 + max_ct_len);  /* iv + ciphertext */
-    if (buf == NULL)
+    /* iv + ciphertext + hmac */
+    max_ct_len = plaintext_len + 16; /* PKCS7 padding */
+    buf = malloc(16 + max_ct_len + 32);
+    if (buf == NULL) {
+        memset(k_enc, 0, sizeof(k_enc));
+        memset(k_mac, 0, sizeof(k_mac));
         return htpm2_result_local(ENOMEM, HTPM2_F_LOCAL, ENOMEM,
-                                  "EncryptTo: alloc ciphertext");
+                                  "EncryptTo: alloc");
+    }
 
     memcpy(buf, iv, 16);
 
     cctx = EVP_CIPHER_CTX_new();
     if (cctx == NULL) {
         free(buf);
+        memset(k_enc, 0, sizeof(k_enc));
+        memset(k_mac, 0, sizeof(k_mac));
         return htpm2_result_ossl(1, "EncryptTo: cipher ctx");
     }
 
-    if (EVP_EncryptInit_ex(cctx, EVP_aes_256_cbc(), NULL, key, iv) != 1 ||
+    if (EVP_EncryptInit_ex(cctx, EVP_aes_256_cbc(), NULL, k_enc, iv) != 1 ||
         EVP_EncryptUpdate(cctx, buf + 16, &outl,
                           plaintext, (int)plaintext_len) != 1 ||
         EVP_EncryptFinal_ex(cctx, buf + 16 + outl, &final_outl) != 1) {
         EVP_CIPHER_CTX_free(cctx);
         free(buf);
+        memset(k_enc, 0, sizeof(k_enc));
+        memset(k_mac, 0, sizeof(k_mac));
         return htpm2_result_ossl(1, "EncryptTo: encrypt");
     }
-
     EVP_CIPHER_CTX_free(cctx);
+    memset(k_enc, 0, sizeof(k_enc));
+
+    ct_and_iv_len = 16 + outl + final_outl;
+
+    /* MAC over iv || ciphertext */
+    r = htpm2_hmac_sha256(ctx, k_mac, 32, buf, ct_and_iv_len,
+                          hmac, &hmac_len);
+    memset(k_mac, 0, sizeof(k_mac));
+    if (htpm2_is_err(r)) {
+        free(buf);
+        return r;
+    }
+
+    memcpy(buf + ct_and_iv_len, hmac, 32);
 
     *out = buf;
-    *out_len = 16 + outl + final_outl;
+    *out_len = ct_and_iv_len + 32;
     return HTPM2_OK;
 }
 
 /*
- * AES-256-CBC decrypt.  Input: iv (16 bytes) || ciphertext.
+ * Verify MAC then decrypt.
+ * Input: iv (16) || AES-256-CBC ciphertext || HMAC-SHA-256 (32)
  */
 static htpm2_result
-aes256_cbc_decrypt(const uint8_t key[32],
-                   const void *in, size_t in_len,
-                   void **out, size_t *out_len)
+envelope_decrypt(const htpm2_context ctx,
+                 const uint8_t master_key[32],
+                 const void *in, size_t in_len,
+                 void **out, size_t *out_len)
 {
     EVP_CIPHER_CTX *cctx;
-    const uint8_t *iv;
-    const uint8_t *ct;
-    size_t ct_len;
+    uint8_t k_enc[32], k_mac[32];
+    uint8_t expected_hmac[32];
+    size_t hmac_len = 32;
+    const uint8_t *iv, *ct, *received_hmac;
+    size_t ct_len, ct_and_iv_len;
     uint8_t *buf;
     int outl = 0, final_outl = 0;
+    htpm2_result r;
 
-    if (in_len < 16 + 1)
+    /* Minimum: iv(16) + 1 block(16) + hmac(32) = 64 */
+    if (in_len < 16 + 16 + 32)
         return htpm2_result_local(EINVAL, HTPM2_F_LOCAL, EINVAL,
-                                  "DecryptFrom: ciphertext too short");
+                                  "EnvelopeOpen: ciphertext too short "
+                                  "(%zu bytes)", in_len);
 
+    r = derive_enc_mac_keys(ctx, master_key, k_enc, k_mac);
+    if (htpm2_is_err(r))
+        return r;
+
+    ct_and_iv_len = in_len - 32;
+    received_hmac = (const uint8_t *)in + ct_and_iv_len;
+
+    /* Verify MAC first (Encrypt-then-MAC: verify before decrypt) */
+    r = htpm2_hmac_sha256(ctx, k_mac, 32, in, ct_and_iv_len,
+                          expected_hmac, &hmac_len);
+    memset(k_mac, 0, sizeof(k_mac));
+    if (htpm2_is_err(r)) {
+        memset(k_enc, 0, sizeof(k_enc));
+        return r;
+    }
+
+    if (memcmp(expected_hmac, received_hmac, 32) != 0) {
+        memset(k_enc, 0, sizeof(k_enc));
+        return htpm2_result_local(EACCES, HTPM2_F_LOCAL, EACCES,
+                                  "EnvelopeOpen: MAC verification failed "
+                                  "(tampered or wrong key)");
+    }
+
+    /* MAC valid -- now decrypt */
     iv = in;
     ct = (const uint8_t *)in + 16;
-    ct_len = in_len - 16;
+    ct_len = ct_and_iv_len - 16;
 
     buf = malloc(ct_len);
-    if (buf == NULL)
+    if (buf == NULL) {
+        memset(k_enc, 0, sizeof(k_enc));
         return htpm2_result_local(ENOMEM, HTPM2_F_LOCAL, ENOMEM,
-                                  "DecryptFrom: alloc");
+                                  "EnvelopeOpen: alloc");
+    }
 
     cctx = EVP_CIPHER_CTX_new();
     if (cctx == NULL) {
         free(buf);
-        return htpm2_result_ossl(1, "DecryptFrom: cipher ctx");
+        memset(k_enc, 0, sizeof(k_enc));
+        return htpm2_result_ossl(1, "EnvelopeOpen: cipher ctx");
     }
 
-    if (EVP_DecryptInit_ex(cctx, EVP_aes_256_cbc(), NULL, key, iv) != 1 ||
+    if (EVP_DecryptInit_ex(cctx, EVP_aes_256_cbc(), NULL, k_enc, iv) != 1 ||
         EVP_DecryptUpdate(cctx, buf, &outl, ct, (int)ct_len) != 1 ||
         EVP_DecryptFinal_ex(cctx, buf + outl, &final_outl) != 1) {
         EVP_CIPHER_CTX_free(cctx);
         free(buf);
-        return htpm2_result_ossl(1, "DecryptFrom: decrypt");
+        memset(k_enc, 0, sizeof(k_enc));
+        return htpm2_result_ossl(1, "EnvelopeOpen: decrypt");
     }
-
     EVP_CIPHER_CTX_free(cctx);
+    memset(k_enc, 0, sizeof(k_enc));
 
     *out = buf;
     *out_len = outl + final_outl;
@@ -227,7 +313,7 @@ htpm2_encrypt_to(const htpm2_context ctx,
         return htpm2_result_prepend(r, "EncryptTo: generate key");
 
     /* Encrypt plaintext */
-    r = aes256_cbc_encrypt(ctx, key, plaintext, plaintext_len,
+    r = envelope_encrypt(ctx, key, plaintext, plaintext_len,
                            &result->ciphertext, &result->ciphertext_len);
     if (htpm2_is_err(r)) {
         memset(key, 0, sizeof(key));
@@ -362,7 +448,7 @@ htpm2_envelope_open(const htpm2_context ctx,
             key[j] ^= s[j];
     }
 
-    htpm2_result r = aes256_cbc_decrypt(key, ciphertext, ciphertext_len,
+    htpm2_result r = envelope_decrypt(ctx, key, ciphertext, ciphertext_len,
                                          plaintext, plaintext_len);
     memset(key, 0, sizeof(key));
     return r;

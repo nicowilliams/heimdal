@@ -133,13 +133,22 @@ write_file(const char *path, const void *data, size_t len)
  *
  * Usage: htpm2tool timestamp --key <keyfile> --out <outfile>
  *        htpm2tool timestamp --key <keyfile> --verify <infile>
+ *
+ * Timestamp format (44 bytes):
+ *   key_version (4 bytes, big-endian uint32)
+ *   unix_time   (8 bytes, big-endian uint64)
+ *   HMAC-SHA-256(key, key_version || unix_time) (32 bytes)
  */
+#define TIMESTAMP_SIZE 44  /* 4 + 8 + 32 */
+#define TIMESTAMP_HEADER_SIZE 12  /* 4 + 8 */
+
 static int
 cmd_timestamp(int argc, char **argv)
 {
     const char *key_file = NULL;
     const char *out_file = NULL;
     const char *verify_file = NULL;
+    uint32_t key_version = 1;
     htpm2_context ctx = NULL;
     htpm2_result r;
     int i;
@@ -151,10 +160,13 @@ cmd_timestamp(int argc, char **argv)
             out_file = argv[++i];
         else if (strcmp(argv[i], "--verify") == 0 && i + 1 < argc)
             verify_file = argv[++i];
+        else if (strcmp(argv[i], "--key-version") == 0 && i + 1 < argc)
+            key_version = (uint32_t)atoi(argv[++i]);
     }
 
     if (key_file == NULL) {
         fprintf(stderr, "Usage: htpm2tool timestamp --key <keyfile> "
+                "[--key-version <n>] "
                 "[--out <outfile> | --verify <infile>]\n");
         return 1;
     }
@@ -171,44 +183,84 @@ cmd_timestamp(int argc, char **argv)
         size_t hmac_len = 32;
         time_t ts_time;
 
-        key_data = read_file(key_file, &key_len);
         ts_data = read_file(verify_file, &ts_len);
-        if (!key_data || !ts_data || ts_len != 40) {
+        if (!ts_data || ts_len != TIMESTAMP_SIZE) {
             fprintf(stderr, "htpm2tool: invalid timestamp file "
-                    "(expected 40 bytes, got %zu)\n", ts_len);
-            free(key_data);
+                    "(expected %d bytes, got %zu)\n",
+                    TIMESTAMP_SIZE, ts_len);
+            free(ts_data);
+            htpm2_context_free(&ctx);
+            return 1;
+        }
+
+        /*
+         * Extract key version from the timestamp, then load the
+         * corresponding key.  If --key is a directory, look for
+         * <dir>/v<version>.  If it's a file, use it directly
+         * (single-key mode).
+         */
+        {
+            const uint8_t *p = ts_data;
+            uint32_t ver = ((uint32_t)p[0] << 24) | ((uint32_t)p[1] << 16) |
+                           ((uint32_t)p[2] << 8) | p[3];
+            struct stat st;
+            char versioned_path[1024];
+
+            if (stat(key_file, &st) == 0 && S_ISDIR(st.st_mode)) {
+                snprintf(versioned_path, sizeof(versioned_path),
+                         "%s/v%u", key_file, ver);
+                key_data = read_file(versioned_path, &key_len);
+                if (!key_data) {
+                    fprintf(stderr, "htpm2tool: no key for version %u "
+                            "(tried %s)\n", ver, versioned_path);
+                    free(ts_data);
+                    htpm2_context_free(&ctx);
+                    return 1;
+                }
+            } else {
+                key_data = read_file(key_file, &key_len);
+            }
+        }
+
+        if (!key_data) {
             free(ts_data);
             htpm2_context_free(&ctx);
             return 1;
         }
 
         r = htpm2_hmac_sha256(ctx, key_data, key_len,
-                              ts_data, 8, expected_hmac, &hmac_len);
+                              ts_data, TIMESTAMP_HEADER_SIZE,
+                              expected_hmac, &hmac_len);
         free(key_data);
         if (htpm2_is_err(r))
             die_result(r, "HMAC verify");
 
-        if (memcmp(expected_hmac, (uint8_t *)ts_data + 8, 32) != 0) {
+        if (memcmp(expected_hmac,
+                   (uint8_t *)ts_data + TIMESTAMP_HEADER_SIZE, 32) != 0) {
             fprintf(stderr, "htpm2tool: timestamp HMAC verification FAILED\n");
             free(ts_data);
             htpm2_context_free(&ctx);
             return 1;
         }
 
-        /* Decode timestamp */
+        /* Decode key version and timestamp */
         {
             const uint8_t *p = ts_data;
+            uint32_t ver = ((uint32_t)p[0] << 24) | ((uint32_t)p[1] << 16) |
+                           ((uint32_t)p[2] << 8) | p[3];
+            p += 4;
             ts_time = ((uint64_t)p[0] << 56) | ((uint64_t)p[1] << 48) |
                       ((uint64_t)p[2] << 40) | ((uint64_t)p[3] << 32) |
                       ((uint64_t)p[4] << 24) | ((uint64_t)p[5] << 16) |
                       ((uint64_t)p[6] << 8) | (uint64_t)p[7];
+            printf("Timestamp valid (key version %u): %s",
+                   ver, ctime(&ts_time));
         }
 
-        printf("Timestamp valid: %s", ctime(&ts_time));
         free(ts_data);
     } else {
         /* Generate a timestamp */
-        uint8_t ts_buf[40];  /* 8 bytes time + 32 bytes HMAC */
+        uint8_t ts_buf[TIMESTAMP_SIZE];
         void *key_data;
         size_t key_len;
         size_t hmac_len = 32;
@@ -233,30 +285,35 @@ cmd_timestamp(int argc, char **argv)
             return 1;
         }
 
-        /* Encode timestamp as big-endian uint64 */
-        ts_buf[0] = (now >> 56) & 0xff;
-        ts_buf[1] = (now >> 48) & 0xff;
-        ts_buf[2] = (now >> 40) & 0xff;
-        ts_buf[3] = (now >> 32) & 0xff;
-        ts_buf[4] = (now >> 24) & 0xff;
-        ts_buf[5] = (now >> 16) & 0xff;
-        ts_buf[6] = (now >> 8) & 0xff;
-        ts_buf[7] = now & 0xff;
+        /* Encode key_version (4 bytes) + timestamp (8 bytes) */
+        ts_buf[0] = (key_version >> 24) & 0xff;
+        ts_buf[1] = (key_version >> 16) & 0xff;
+        ts_buf[2] = (key_version >> 8) & 0xff;
+        ts_buf[3] = key_version & 0xff;
+        ts_buf[4] = (now >> 56) & 0xff;
+        ts_buf[5] = (now >> 48) & 0xff;
+        ts_buf[6] = (now >> 40) & 0xff;
+        ts_buf[7] = (now >> 32) & 0xff;
+        ts_buf[8] = (now >> 24) & 0xff;
+        ts_buf[9] = (now >> 16) & 0xff;
+        ts_buf[10] = (now >> 8) & 0xff;
+        ts_buf[11] = now & 0xff;
 
         r = htpm2_hmac_sha256(ctx, key_data, key_len,
-                              ts_buf, 8, ts_buf + 8, &hmac_len);
+                              ts_buf, TIMESTAMP_HEADER_SIZE,
+                              ts_buf + TIMESTAMP_HEADER_SIZE, &hmac_len);
         free(key_data);
         if (htpm2_is_err(r))
             die_result(r, "HMAC");
 
         if (out_file) {
-            if (write_file(out_file, ts_buf, 40) < 0) {
+            if (write_file(out_file, ts_buf, TIMESTAMP_SIZE) < 0) {
                 htpm2_context_free(&ctx);
                 return 1;
             }
         } else {
             /* Write to stdout */
-            fwrite(ts_buf, 1, 40, stdout);
+            fwrite(ts_buf, 1, TIMESTAMP_SIZE, stdout);
         }
     }
 
