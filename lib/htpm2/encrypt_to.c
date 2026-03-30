@@ -461,7 +461,6 @@ static htpm2_result
 activate_share(const htpm2_context ctx,
                htpm2_transport tp,
                htpm2_object ek,
-               htpm2_session auth_session_ek,
                htpm2_object key,
                const void *credential_blob, size_t credential_blob_len,
                const void *encrypted_secret, size_t encrypted_secret_len,
@@ -472,8 +471,8 @@ activate_share(const htpm2_context ctx,
     htpm2_result r;
 
     r = htpm2_activate_credential(ctx, tp, HTPM2_OK,
-                                  NULL, /* AK auth -- password for now */
-                                  auth_session_ek,
+                                  NULL, /* AK auth: password (empty) */
+                                  NULL, /* EK auth: auto PolicySecret(ENDORSEMENT) */
                                   key, ek,
                                   credential_blob, credential_blob_len,
                                   encrypted_secret, encrypted_secret_len,
@@ -498,7 +497,6 @@ htpm2_envelope_open_tpm(const htpm2_context ctx,
                        htpm2_transport tp,
                        htpm2_result prior,
                        htpm2_object ek,
-                       htpm2_session auth_session_ek,
                        htpm2_object wk_key,
                        const void *wk_cred_blob, size_t wk_cred_blob_len,
                        const void *wk_enc_secret, size_t wk_enc_secret_len,
@@ -524,7 +522,7 @@ htpm2_envelope_open_tpm(const htpm2_context ctx,
     *plaintext_len = 0;
 
     /* Share 0: well-known key (always required) */
-    r = activate_share(ctx, tp, ek, auth_session_ek, wk_key,
+    r = activate_share(ctx, tp, ek, wk_key,
                        wk_cred_blob, wk_cred_blob_len,
                        wk_enc_secret, wk_enc_secret_len,
                        shares[0]);
@@ -536,7 +534,7 @@ htpm2_envelope_open_tpm(const htpm2_context ctx,
 
     /* Share 1: IAK (optional) */
     if (iak_key != NULL && iak_cred_blob != NULL) {
-        r = activate_share(ctx, tp, ek, auth_session_ek, iak_key,
+        r = activate_share(ctx, tp, ek, iak_key,
                            iak_cred_blob, iak_cred_blob_len,
                            iak_enc_secret, iak_enc_secret_len,
                            shares[1]);
@@ -552,7 +550,7 @@ htpm2_envelope_open_tpm(const htpm2_context ctx,
     /* Share 2: Owner hierarchy key (optional) */
     if (owner_key != NULL && owner_cred_blob != NULL) {
         size_t idx = num_shares;
-        r = activate_share(ctx, tp, ek, auth_session_ek, owner_key,
+        r = activate_share(ctx, tp, ek, owner_key,
                            owner_cred_blob, owner_cred_blob_len,
                            owner_enc_secret, owner_enc_secret_len,
                            shares[idx]);

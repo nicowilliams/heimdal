@@ -650,7 +650,7 @@ cmd_envelope_open(int argc, char **argv)
 
     /* Decrypt using the TPM */
     r = htpm2_envelope_open_tpm(ctx, tp, HTPM2_OK,
-                               ek, NULL, /* EK auth: password */
+                               ek,
                                wk,
                                wk_blob, wk_blob_len,
                                wk_secret, wk_secret_len,

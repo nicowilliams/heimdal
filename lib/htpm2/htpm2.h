@@ -640,15 +640,14 @@ htpm2_result htpm2_envelope_open(const htpm2_context ctx,
  * (the key whose Name was used in MakeCredential).  The EK is needed
  * for all ActivateCredential calls.
  *
- * auth_session_ek: session (or NULL for password auth) for EK authorization.
- *   Standard EKs require PolicySecret(ENDORSEMENT).
+ * EK authorization is handled automatically via
+ * PolicySecret(ENDORSEMENT) with an empty endorsement password.
  */
 htpm2_result htpm2_envelope_open_tpm(
     const htpm2_context ctx,
     htpm2_transport tp,
     htpm2_result prior,
     htpm2_object ek,
-    htpm2_session auth_session_ek,
     htpm2_object wk_key,
     const void *wk_credential_blob, size_t wk_credential_blob_len,
     const void *wk_encrypted_secret, size_t wk_encrypted_secret_len,
