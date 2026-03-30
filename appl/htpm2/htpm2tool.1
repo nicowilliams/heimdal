@@ -61,29 +61,47 @@ Generate or verify a signed timestamp for use as qualifying data
 (nonce) in TPM quotes.
 The timestamp prevents replay of old quotes.
 .Pp
+The timestamp format is 44 bytes:
+key version (4 bytes, big-endian uint32),
+Unix time (8 bytes, big-endian uint64),
+HMAC-SHA-256 of the version and time (32 bytes).
+.Pp
 To generate:
 .Bd -literal -offset indent
-htpm2tool timestamp --key keyfile --out timestamp.bin
+htpm2tool timestamp --key keyfile [--key-version N] --out timestamp.bin
 .Ed
 .Pp
 If
 .Ar keyfile
 does not exist, a random 32-byte HMAC key is generated and written
 to it.
-The output is 40 bytes: 8 bytes of big-endian Unix time followed by
-32 bytes of HMAC-SHA-256.
+The default key version is 1.
 .Pp
 To verify:
 .Bd -literal -offset indent
 htpm2tool timestamp --key keyfile --verify timestamp.bin
 .Ed
 .Pp
-Prints the decoded time if the HMAC is valid; exits non-zero otherwise.
+The key version is read from the timestamp.
+If
+.Fl -key
+is a directory, the verifier loads
+.Pa <dir>/v<version>
+as the HMAC key, enabling key rotation.
+If
+.Fl -key
+is a single file, it is used regardless of version.
+.Pp
+Prints the decoded time and key version if the HMAC is valid;
+exits non-zero otherwise.
 .It Cm encrypt-to
 Encrypt a file to a target TPM using the EncryptTo protocol.
-The plaintext is encrypted under a random AES-256 key, which is
-split into 1\(en3 shares, each wrapped via MakeCredential to the
-target's Endorsement Key (EK).
+The plaintext is encrypted using Encrypt-then-MAC: AES-256-CBC
+with HMAC-SHA-256 over the IV and ciphertext.
+The encryption and MAC keys are derived from a random master key
+via KDFa.
+The master key is split into 1\(en3 XOR shares, each wrapped via
+MakeCredential to the target's Endorsement Key (EK).
 .Pp
 .Bd -literal -offset indent
 htpm2tool encrypt-to \\
@@ -100,12 +118,22 @@ Options:
 .Bl -tag -width Ds -compact
 .It Fl -ek-pub Ar file
 Target TPM's EK public area (TPMT_PUBLIC, binary).
+Compatible with
+.Xr tpm2_readpublic 1
+.Fl o
+output and
+.Xr tpm2_createek 1
+.Fl u
+output.
 .It Fl -policy Ar file
 Policy digest (32 bytes) to enforce on the well-known key share.
 .It Fl -in Ar file
 Plaintext input file.
 .It Fl -out Ar file
-Ciphertext output file (IV + AES-256-CBC).
+Ciphertext output file.
+Format: IV (16 bytes) || AES-256-CBC ciphertext (PKCS7 padded) ||
+HMAC-SHA-256 (32 bytes).
+Encryption and MAC keys are derived from the master key via KDFa.
 .It Fl -cred-out Ar prefix
 Output prefix for credential files.
 Produces
@@ -226,6 +254,36 @@ htpm2tool envelope-open --transport device:/dev/tpmrm0 \\
     --policy boot_policy.bin --cred-in enrollment \\
     --in secret.enc --out secret.key
 .Ed
+.Sh INTEROPERABILITY
+.Nm
+uses the raw TPM marshalled format (TPM2B_PUBLIC, TPM2B_NAME) for
+all key and name files.
+This is the same format produced by Intel's
+.Xr tpm2-tools 7
+suite:
+.Bl -bullet -compact
+.It
+.Ic tpm2_readpublic Fl c Ar handle Fl o Ar pub.bin
+produces a file compatible with
+.Fl -ek-pub
+and
+.Fl -ak-pub .
+.It
+.Ic tpm2_createek Fl G Ar rsa Fl u Ar ek_pub.bin
+produces a compatible EK public file.
+.It
+.Ic tpm2_readpublic Fl c Ar handle Fl n Ar name.bin
+produces a Name file compatible with
+.Fl -iak-name
+and
+.Fl -owner-name .
+.El
+.Pp
+There is no dependency on
+.Xr tpm2-tools 7 ;
+.Nm
+can produce all these files itself.
+However, files from either tool are interchangeable.
 .Sh SEE ALSO
 .Xr swtpm 8 ,
 .Xr tpm2_quote 1 ,
