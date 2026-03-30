@@ -1,0 +1,646 @@
+{
+  "$comment": "TPM 2.0 Duplicable Key Policies — htpm2 JSON Policy Language",
+  "$comment2": "See policy-language-design.md for schema reference.",
+
+  "policies": {
+
+    "$comment": "=================================================================",
+    "$comment": "Policy 1: Static Ring, Duplication-Only",
+    "$comment": "=================================================================",
+    "$comment": "A key that can only be duplicated (never used in place) and only",
+    "$comment": "to one of a fixed, enumerated set of destination parent keys.",
+    "$comment": "One branch per destination; no use branch.",
+    "$comment": "",
+    "$comment": "In jq terms: supply $new_parent_name_0 .. $new_parent_name_N and",
+    "$comment": "$object_name to instantiate a concrete policy.",
+    "$comment": "=================================================================",
+
+    "policy1_static_ring_dup_only": {
+      "tpm2Policy": {
+        "version": 1,
+        "name": "static_ring_dup_only",
+        "description": "Duplication-only key; destinations are a fixed enumerated ring. No use branch. Supply objectName and one newParentName per ring member.",
+        "hashAlg": "sha256",
+        "inputs": [
+          {
+            "input": "$object_name",
+            "description": "TPM Name (nameAlg || digest) of the key being duplicated, hex-encoded. Use all-zeros if computing authPolicy before key creation.",
+            "valueType": "bytes"
+          },
+          {
+            "input": "$new_parent_name_0",
+            "description": "TPM Name of ring member 0's migration parent key, hex-encoded.",
+            "valueType": "bytes"
+          },
+          {
+            "input": "$new_parent_name_1",
+            "description": "TPM Name of ring member 1's migration parent key, hex-encoded.",
+            "valueType": "bytes"
+          },
+          {
+            "$comment": "Add $new_parent_name_2 .. $new_parent_name_N as needed, up to 7 total (8 branches max per PolicyOR)."
+          },
+          {
+            "input": "$alt",
+            "description": "Index of the PolicyOR branch to evaluate: 0 for member 0, 1 for member 1, etc.",
+            "valueType": "arrayIndex"
+          }
+        ],
+        "policy": [
+          {
+            "cc": "PolicyOR",
+            "select": "$alt",
+            "alternatives": [
+              {
+                "tpm2Policy": {
+                  "name": "dup_to_member_0",
+                  "description": "Authorize duplication to ring member 0.",
+                  "policy": [
+                    {
+                      "cc": "PolicyCommandCode",
+                      "commandCode": "Duplicate"
+                    },
+                    {
+                      "cc": "PolicyDuplicationSelect",
+                      "objectName": "$object_name",
+                      "newParentName": "$new_parent_name_0",
+                      "includeObject": true
+                    }
+                  ]
+                }
+              },
+              {
+                "tpm2Policy": {
+                  "name": "dup_to_member_1",
+                  "description": "Authorize duplication to ring member 1.",
+                  "policy": [
+                    {
+                      "cc": "PolicyCommandCode",
+                      "commandCode": "Duplicate"
+                    },
+                    {
+                      "cc": "PolicyDuplicationSelect",
+                      "objectName": "$object_name",
+                      "newParentName": "$new_parent_name_1",
+                      "includeObject": true
+                    }
+                  ]
+                }
+              },
+              {
+                "$comment": "Replicate the above block for each additional ring member, substituting $new_parent_name_N."
+              }
+            ]
+          }
+        ]
+      }
+    },
+
+    "$comment": "=================================================================",
+    "$comment": "Policy 2: Static Ring, Usable and Duplicable",
+    "$comment": "=================================================================",
+    "$comment": "A key that can be used normally (e.g., for signing) on the source",
+    "$comment": "TPM AND duplicated to one of a fixed enumerated set of destination",
+    "$comment": "parent keys. The top-level PolicyOR separates the use branch from",
+    "$comment": "the per-destination duplication branches.",
+    "$comment": "",
+    "$comment": "The use branch here requires PolicyAuthValue (caller knows the",
+    "$comment": "key's authValue). Substitute or extend for PCR, locality, etc.",
+    "$comment": "=================================================================",
+
+    "policy2_static_ring_use_and_dup": {
+      "tpm2Policy": {
+        "version": 1,
+        "name": "static_ring_use_and_dup",
+        "description": "Key usable on source TPM and duplicable to a fixed enumerated ring. Top-level PolicyOR separates use branch from duplication branches.",
+        "hashAlg": "sha256",
+        "inputs": [
+          {
+            "input": "$object_name",
+            "description": "TPM Name of the key being duplicated, hex-encoded.",
+            "valueType": "bytes"
+          },
+          {
+            "input": "$new_parent_name_0",
+            "description": "TPM Name of ring member 0's migration parent key, hex-encoded.",
+            "valueType": "bytes"
+          },
+          {
+            "input": "$new_parent_name_1",
+            "description": "TPM Name of ring member 1's migration parent key, hex-encoded.",
+            "valueType": "bytes"
+          },
+          {
+            "$comment": "Add $new_parent_name_2 .. $new_parent_name_N as needed. Total branches including use_branch <= 8."
+          },
+          {
+            "input": "$alt",
+            "description": "PolicyOR branch index: 0 = use, 1 = dup to member 0, 2 = dup to member 1, etc.",
+            "valueType": "arrayIndex"
+          }
+        ],
+        "policy": [
+          {
+            "cc": "PolicyOR",
+            "select": "$alt",
+            "alternatives": [
+              {
+                "tpm2Policy": {
+                  "name": "use_branch",
+                  "description": "Authorize normal use of the key on the source TPM. Caller must know the key's authValue.",
+                  "policy": [
+                    {
+                      "cc": "PolicyAuthValue"
+                    }
+                  ]
+                }
+              },
+              {
+                "tpm2Policy": {
+                  "name": "dup_to_member_0",
+                  "description": "Authorize duplication to ring member 0.",
+                  "policy": [
+                    {
+                      "cc": "PolicyCommandCode",
+                      "commandCode": "Duplicate"
+                    },
+                    {
+                      "cc": "PolicyDuplicationSelect",
+                      "objectName": "$object_name",
+                      "newParentName": "$new_parent_name_0",
+                      "includeObject": true
+                    }
+                  ]
+                }
+              },
+              {
+                "tpm2Policy": {
+                  "name": "dup_to_member_1",
+                  "description": "Authorize duplication to ring member 1.",
+                  "policy": [
+                    {
+                      "cc": "PolicyCommandCode",
+                      "commandCode": "Duplicate"
+                    },
+                    {
+                      "cc": "PolicyDuplicationSelect",
+                      "objectName": "$object_name",
+                      "newParentName": "$new_parent_name_1",
+                      "includeObject": true
+                    }
+                  ]
+                }
+              },
+              {
+                "$comment": "Replicate the dup block for each additional ring member."
+              }
+            ]
+          }
+        ]
+      }
+    },
+
+    "$comment": "=================================================================",
+    "$comment": "Policy 3: Dynamic Ring via PolicyAuthorize, Usable and Duplicable",
+    "$comment": "=================================================================",
+    "$comment": "Ring membership is managed by an external authority. The authority",
+    "$comment": "holds a signing key ($auth_key) whose Name is baked into authPolicy.",
+    "$comment": "For each destination, the authority signs an approved sub-policy",
+    "$comment": "digest (a PolicyCommandCode + PolicyDuplicationSelect chain for",
+    "$comment": "that destination) and issues the ticket to the destination TPM.",
+    "$comment": "",
+    "$comment": "At duplication time, the caller:",
+    "$comment": "  1. Evaluates the approved sub-policy in a session externally",
+    "$comment": "     (PolicyCommandCode + PolicyDuplicationSelect for destination j)",
+    "$comment": "  2. Passes that session + ticket into PolicyAuthorize",
+    "$comment": "",
+    "$comment": "Per design-doc note: PolicyAuthorize must be FIRST in its branch",
+    "$comment": "because any preceding commands would alter policyDigest away from",
+    "$comment": "what the approved sub-policy established. The sub-policy is",
+    "$comment": "evaluated externally (by the caller) before this policy runs.",
+    "$comment": "",
+    "$comment": "Inputs: $auth_key_handle — how to find the authorizing key on the",
+    "$comment": "source TPM (e.g., persistent handle). $approved_policy — the digest",
+    "$comment": "of the sub-policy the authority signed. $auth_ticket — the",
+    "$comment": "TPMT_TK_VERIFIED ticket from TPM2_VerifySignature.",
+    "$comment": "$policy_ref — label scoping what the authority key can approve.",
+    "$comment": "=================================================================",
+
+    "policy3_dynamic_ring_authorize": {
+      "tpm2Policy": {
+        "version": 1,
+        "name": "dynamic_ring_authorize",
+        "description": "Key usable on source TPM and duplicable to any destination approved by the membership authority. Authority signs per-destination policy digests; no key recreation needed for ring changes.",
+        "hashAlg": "sha256",
+        "inputs": [
+          {
+            "input": "$approved_policy",
+            "description": "The policyDigest of the authority-approved sub-policy for the intended destination (hex). Computed as: H(H(zeros || CC_PolicyCommandCode || CC_Duplicate) || CC_PolicyDuplicationSelect || objectName || newParentName_j || 0x01). Provided by the destination TPM along with its ticket.",
+            "valueType": "bytes"
+          },
+          {
+            "input": "$auth_ticket",
+            "description": "TPMT_TK_VERIFIED ticket from TPM2_VerifySignature(authKeyHandle, approvedPolicy, authoritySignature). The source TPM produces this after verifying the authority's signature.",
+            "valueType": "ticket"
+          },
+          {
+            "input": "$alt",
+            "description": "PolicyOR branch index: 0 = use, 1 = dup (PolicyAuthorize).",
+            "valueType": "arrayIndex"
+          }
+        ],
+        "policy": [
+          {
+            "cc": "PolicyOR",
+            "select": "$alt",
+            "alternatives": [
+              {
+                "tpm2Policy": {
+                  "name": "use_branch",
+                  "description": "Authorize normal use of the key on the source TPM.",
+                  "policy": [
+                    {
+                      "cc": "PolicyAuthValue"
+                    }
+                  ]
+                }
+              },
+              {
+                "tpm2Policy": {
+                  "name": "dup_branch_authorize",
+                  "description": "Authorize duplication to any authority-approved destination. PolicyAuthorize is first per spec: the caller evaluates the approved sub-policy (PolicyCommandCode + PolicyDuplicationSelect for destination j) externally in the session, then passes that session here.",
+                  "policy": [
+                    {
+                      "$comment": "PolicyAuthorize MUST be first in this branch. The session's current policyDigest at entry must equal $approved_policy, set by the caller's external sub-policy evaluation.",
+                      "cc": "PolicyAuthorize",
+                      "keySign": {
+                        "objectDef": {
+                          "$comment": "The authorizing key must be loadable on the source TPM. Use persistent handle, or load from blobs. Its Name is what gets baked into authPolicy at compile time.",
+                          "persistent": "$auth_key_handle"
+                        }
+                      },
+                      "approvedPolicy": "$approved_policy",
+                      "policyRef": "$policy_ref",
+                      "ticket": "$auth_ticket"
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+
+    "$comment": "=================================================================",
+    "$comment": "Policy 3 — Approved Sub-Policy Template (for authority use)",
+    "$comment": "=================================================================",
+    "$comment": "This is the sub-policy the authority signs for each destination.",
+    "$comment": "It is NOT set as the key's authPolicy; it is evaluated externally",
+    "$comment": "by the caller before invoking PolicyAuthorize. The authority",
+    "$comment": "computes its digest and signs (digest || policyRef) with auth key.",
+    "$comment": "=================================================================",
+
+    "policy3_approved_subpolicy_template": {
+      "tpm2Policy": {
+        "version": 1,
+        "name": "dup_approved_subpolicy",
+        "description": "Approved sub-policy template for Policy 3. The authority signs this digest for each destination TPM j. Caller evaluates this in a session before calling PolicyAuthorize. Supply $object_name and $new_parent_name_j per destination.",
+        "hashAlg": "sha256",
+        "inputs": [
+          {
+            "input": "$object_name",
+            "description": "TPM Name of the key being duplicated, hex-encoded.",
+            "valueType": "bytes"
+          },
+          {
+            "input": "$new_parent_name_j",
+            "description": "TPM Name of destination TPM j's migration parent key, hex-encoded.",
+            "valueType": "bytes"
+          }
+        ],
+        "policy": [
+          {
+            "cc": "PolicyCommandCode",
+            "commandCode": "Duplicate"
+          },
+          {
+            "cc": "PolicyDuplicationSelect",
+            "objectName": "$object_name",
+            "newParentName": "$new_parent_name_j",
+            "includeObject": true
+          }
+        ]
+      }
+    },
+
+    "$comment": "=================================================================",
+    "$comment": "Policy 4: Self-Sovereign Ring via PolicySigned, Usable and Duplicable",
+    "$comment": "=================================================================",
+    "$comment": "Ring membership is conferred by possession of a membership signing",
+    "$comment": "key (MK). Any TPM that has MK loaded can authorize duplication by",
+    "$comment": "signing the source TPM's session nonce. No online authority needed",
+    "$comment": "at duplication time.",
+    "$comment": "",
+    "$comment": "The destination TPM j holds MK and signs:",
+    "$comment": "  (nonceTPM || expiration || cpHashA || policyRef)",
+    "$comment": "The source TPM calls PolicySigned with that signature.",
+    "$comment": "",
+    "$comment": "Destination pinning: PolicyDuplicationSelect is evaluated BEFORE",
+    "$comment": "PolicySigned in the dup branch. This pins the destination at",
+    "$comment": "session time (runtime) without enumerating it in authPolicy.",
+    "$comment": "PolicySigned gates WHO can receive; PolicyDuplicationSelect gates",
+    "$comment": "WHERE it goes.",
+    "$comment": "",
+    "$comment": "Variant A (below): destination pinned at session time (recommended).",
+    "$comment": "Variant B: omit PolicyDuplicationSelect for fully open destination.",
+    "$comment": "=================================================================",
+
+    "policy4_selfsovereign_ring_signed": {
+      "tpm2Policy": {
+        "version": 1,
+        "name": "selfsovereign_ring_signed",
+        "description": "Key usable on source TPM and duplicable to any TPM possessing the membership signing key (MK). Destination is pinned at session time by PolicyDuplicationSelect. No online authority required at duplication time.",
+        "hashAlg": "sha256",
+        "inputs": [
+          {
+            "input": "$object_name",
+            "description": "TPM Name of the key being duplicated, hex-encoded. Provided at duplication time.",
+            "valueType": "bytes"
+          },
+          {
+            "input": "$new_parent_name_j",
+            "description": "TPM Name of the destination TPM's migration parent key, hex-encoded. Determined at duplication time by negotiation with destination.",
+            "valueType": "bytes"
+          },
+          {
+            "input": "$mk_signature",
+            "description": "TPMT_SIGNATURE from the destination TPM's membership key (MK) over (nonceTPM || expiration || cpHashA || policyRef). The destination TPM produces this and transmits it to the source TPM out-of-band.",
+            "valueType": "signature"
+          },
+          {
+            "input": "$alt",
+            "description": "PolicyOR branch index: 0 = use, 1 = dup (PolicySigned).",
+            "valueType": "arrayIndex"
+          }
+        ],
+        "policy": [
+          {
+            "cc": "PolicyOR",
+            "select": "$alt",
+            "alternatives": [
+              {
+                "tpm2Policy": {
+                  "name": "use_branch",
+                  "description": "Authorize normal use of the key on the source TPM.",
+                  "policy": [
+                    {
+                      "cc": "PolicyAuthValue"
+                    }
+                  ]
+                }
+              },
+              {
+                "tpm2Policy": {
+                  "name": "dup_branch_signed",
+                  "description": "Authorize duplication to any TPM that possesses the membership key MK. PolicyDuplicationSelect runs first to pin the destination, then PolicySigned verifies the destination holds MK.",
+                  "policy": [
+                    {
+                      "cc": "PolicyCommandCode",
+                      "commandCode": "Duplicate"
+                    },
+                    {
+                      "$comment": "Pin destination at session time. newParentName is supplied at runtime ($new_parent_name_j), not baked into authPolicy, so any MK-holding TPM can be a destination.",
+                      "cc": "PolicyDuplicationSelect",
+                      "objectName": "$object_name",
+                      "newParentName": "$new_parent_name_j",
+                      "includeObject": true
+                    },
+                    {
+                      "$comment": "Gate on possession of membership key MK. The destination TPM signs the session nonce with MK; the source TPM verifies here. MK's Name is baked into authPolicy at compile time.",
+                      "cc": "PolicySigned",
+                      "authObject": {
+                        "objectDef": {
+                          "$comment": "The membership key MK must be loadable on the source TPM for signature verification. If MK is shared among all members, load it here from blobs or a persistent handle. Its Name (nameAlg || H(publicArea)) is what gets baked into the authPolicy digest.",
+                          "persistent": "$mk_handle"
+                        }
+                      },
+                      "policyRef": "$policy_ref",
+                      "expiration": 0,
+                      "auth": "$mk_signature"
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+
+    "$comment": "=================================================================",
+    "$comment": "Policy 4B: Self-Sovereign Ring, No Destination Pinning",
+    "$comment": "=================================================================",
+    "$comment": "Variant of Policy 4 without PolicyDuplicationSelect in the dup",
+    "$comment": "branch. Any MK-holding TPM can receive the key under any parent.",
+    "$comment": "Simpler, but does not enforce WHERE the key lands — only WHO can",
+    "$comment": "initiate receipt. Use only if MK possession is a sufficient gate.",
+    "$comment": "=================================================================",
+
+    "policy4b_selfsovereign_ring_open_dest": {
+      "tpm2Policy": {
+        "version": 1,
+        "name": "selfsovereign_ring_open_dest",
+        "description": "Like policy4 but without destination pinning. Any TPM holding MK can receive the key under any migration parent. MK possession is the sole membership gate.",
+        "hashAlg": "sha256",
+        "inputs": [
+          {
+            "input": "$mk_signature",
+            "description": "TPMT_SIGNATURE from the destination TPM's MK over (nonceTPM || expiration || cpHashA || policyRef).",
+            "valueType": "signature"
+          },
+          {
+            "input": "$alt",
+            "description": "PolicyOR branch index: 0 = use, 1 = dup.",
+            "valueType": "arrayIndex"
+          }
+        ],
+        "policy": [
+          {
+            "cc": "PolicyOR",
+            "select": "$alt",
+            "alternatives": [
+              {
+                "tpm2Policy": {
+                  "name": "use_branch",
+                  "description": "Authorize normal use of the key on the source TPM.",
+                  "policy": [
+                    {
+                      "cc": "PolicyAuthValue"
+                    }
+                  ]
+                }
+              },
+              {
+                "tpm2Policy": {
+                  "name": "dup_branch_open",
+                  "description": "Authorize duplication to any MK-holding TPM. No destination pinning.",
+                  "policy": [
+                    {
+                      "cc": "PolicyCommandCode",
+                      "commandCode": "Duplicate"
+                    },
+                    {
+                      "cc": "PolicySigned",
+                      "authObject": {
+                        "objectDef": {
+                          "persistent": "$mk_handle"
+                        }
+                      },
+                      "policyRef": "$policy_ref",
+                      "expiration": 0,
+                      "auth": "$mk_signature"
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+
+    "$comment": "=================================================================",
+    "$comment": "Policy 4C: Self-Sovereign Ring, Per-Member MK with PolicyOR",
+    "$comment": "=================================================================",
+    "$comment": "Each ring member holds a distinct membership key MK_i with its own",
+    "$comment": "Name. The dup_branch is a PolicyOR over per-member PolicySigned",
+    "$comment": "assertions. This allows individual member revocation (by omitting",
+    "$comment": "MK_i from the branch list) at the cost of key recreation on ring",
+    "$comment": "change, recovering toward Policy 1/2 structure.",
+    "$comment": "",
+    "$comment": "PolicyDuplicationSelect with runtime $new_parent_name_j still pins",
+    "$comment": "the destination at session time.",
+    "$comment": "=================================================================",
+
+    "policy4c_selfsovereign_ring_per_member": {
+      "tpm2Policy": {
+        "version": 1,
+        "name": "selfsovereign_ring_per_member",
+        "description": "Self-sovereign ring where each member holds a distinct MK_i. Inner PolicyOR over PolicySigned assertions enables per-member identity and revocation. Outer PolicyOR separates use from dup.",
+        "hashAlg": "sha256",
+        "inputs": [
+          {
+            "input": "$object_name",
+            "description": "TPM Name of the key being duplicated, hex-encoded.",
+            "valueType": "bytes"
+          },
+          {
+            "input": "$new_parent_name_j",
+            "description": "TPM Name of the destination TPM's migration parent key, hex-encoded.",
+            "valueType": "bytes"
+          },
+          {
+            "input": "$mk_signature",
+            "description": "TPMT_SIGNATURE from destination TPM j's MK_j over (nonceTPM || expiration || cpHashA || policyRef).",
+            "valueType": "signature"
+          },
+          {
+            "input": "$alt",
+            "description": "Outer PolicyOR branch index: 0 = use, 1 = dup.",
+            "valueType": "arrayIndex"
+          },
+          {
+            "input": "$member_alt",
+            "description": "Inner PolicyOR branch index: which member's MK is being used (0 = MK_0, 1 = MK_1, etc.).",
+            "valueType": "arrayIndex"
+          }
+        ],
+        "policy": [
+          {
+            "cc": "PolicyOR",
+            "select": "$alt",
+            "alternatives": [
+              {
+                "tpm2Policy": {
+                  "name": "use_branch",
+                  "description": "Authorize normal use of the key on the source TPM.",
+                  "policy": [
+                    {
+                      "cc": "PolicyAuthValue"
+                    }
+                  ]
+                }
+              },
+              {
+                "tpm2Policy": {
+                  "name": "dup_branch_per_member",
+                  "description": "Authorize duplication to a destination identified by its member-specific MK_i. PolicyCommandCode and PolicyDuplicationSelect run first; then inner PolicyOR selects which member's PolicySigned to satisfy.",
+                  "policy": [
+                    {
+                      "cc": "PolicyCommandCode",
+                      "commandCode": "Duplicate"
+                    },
+                    {
+                      "cc": "PolicyDuplicationSelect",
+                      "objectName": "$object_name",
+                      "newParentName": "$new_parent_name_j",
+                      "includeObject": true
+                    },
+                    {
+                      "cc": "PolicyOR",
+                      "select": "$member_alt",
+                      "alternatives": [
+                        {
+                          "tpm2Policy": {
+                            "name": "member_0",
+                            "description": "Membership via MK_0 (ring member 0).",
+                            "policy": [
+                              {
+                                "cc": "PolicySigned",
+                                "authObject": {
+                                  "objectDef": {
+                                    "persistent": "$mk0_handle"
+                                  }
+                                },
+                                "policyRef": "$policy_ref",
+                                "expiration": 0,
+                                "auth": "$mk_signature"
+                              }
+                            ]
+                          }
+                        },
+                        {
+                          "tpm2Policy": {
+                            "name": "member_1",
+                            "description": "Membership via MK_1 (ring member 1).",
+                            "policy": [
+                              {
+                                "cc": "PolicySigned",
+                                "authObject": {
+                                  "objectDef": {
+                                    "persistent": "$mk1_handle"
+                                  }
+                                },
+                                "policyRef": "$policy_ref",
+                                "expiration": 0,
+                                "auth": "$mk_signature"
+                              }
+                            ]
+                          }
+                        },
+                        {
+                          "$comment": "Add member_2 .. member_N blocks as needed (up to 8 per inner PolicyOR level; nest if more)."
+                        }
+                      ]
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        ]
+      }
+    }
+  }
+}
