@@ -232,7 +232,8 @@ htpm2_policy_compile(const htpm2_context ctx,
              * then call PolicyOr with the collected digests. */
             size_t j;
             size_t n = node->u.or_node.num_alternatives;
-            void *alt_digests[8];
+            uint8_t alt_digest_bufs[8][32];
+            const void *alt_digests[8];
             size_t alt_digest_lens[8];
 
             if (n > 8) {
@@ -241,27 +242,20 @@ htpm2_policy_compile(const htpm2_context ctx,
                 break;
             }
 
-            memset(alt_digests, 0, sizeof(alt_digests));
+            memset(alt_digest_bufs, 0, sizeof(alt_digest_bufs));
+            for (j = 0; j < 8; j++)
+                alt_digests[j] = alt_digest_bufs[j];
 
             for (j = 0; j < n; j++) {
                 htpm2_policy_ref *ref = &node->u.or_node.alternatives[j];
 
                 if (ref->inline_policy) {
-                    /* Compile inline alternative */
-                    uint8_t alt_dig[32];
                     size_t alt_dig_len = 32;
 
                     r = htpm2_policy_compile(ctx, tp, ref->inline_policy,
-                                             alt_dig, &alt_dig_len);
+                                             alt_digest_bufs[j],
+                                             &alt_dig_len);
                     if (htpm2_is_err(r)) break;
-
-                    alt_digests[j] = malloc(32);
-                    if (alt_digests[j] == NULL) {
-                        r = htpm2_result_local(ENOMEM, HTPM2_F_LOCAL, ENOMEM,
-                                               "policy_compile: alloc alt");
-                        break;
-                    }
-                    memcpy(alt_digests[j], alt_dig, 32);
                     alt_digest_lens[j] = 32;
                 } else if (ref->name) {
                     /* Referenced policy -- need resolver.
@@ -276,12 +270,11 @@ htpm2_policy_compile(const htpm2_context ctx,
             if (htpm2_is_ok(r)) {
                 /* Execute PolicyOr with the collected digests */
                 r = htpm2_policy_or(ctx, trial, HTPM2_OK,
-                                    (const void **)alt_digests,
+                                    alt_digests,
                                     alt_digest_lens, n);
             }
 
-            for (j = 0; j < n; j++)
-                free(alt_digests[j]);
+            /* alt_digest_bufs are stack-allocated, no free needed */
 
             if (htpm2_is_err(r))
                 break;
@@ -385,7 +378,8 @@ htpm2_policy_evaluate(const htpm2_context ctx,
             size_t selected = 0;
             size_t n = node->u.or_node.num_alternatives;
             size_t j;
-            void *alt_digests[8];
+            uint8_t alt_digest_bufs[8][32];
+            const void *alt_digests[8];
             size_t alt_digest_lens[8];
 
             memset(alt_digests, 0, sizeof(alt_digests));
@@ -425,18 +419,11 @@ htpm2_policy_evaluate(const htpm2_context ctx,
             for (j = 0; j < n; j++) {
                 htpm2_policy_ref *ref = &node->u.or_node.alternatives[j];
                 if (ref->inline_policy) {
-                    uint8_t alt_dig[32];
                     size_t alt_dig_len = 32;
                     r = htpm2_policy_compile(ctx, tp, ref->inline_policy,
-                                             alt_dig, &alt_dig_len);
+                                             alt_digest_bufs[j],
+                                             &alt_dig_len);
                     if (htpm2_is_err(r)) break;
-                    alt_digests[j] = malloc(32);
-                    if (!alt_digests[j]) {
-                        r = htpm2_result_local(ENOMEM, HTPM2_F_LOCAL, ENOMEM,
-                                               "policy_evaluate: alloc");
-                        break;
-                    }
-                    memcpy(alt_digests[j], alt_dig, 32);
                     alt_digest_lens[j] = 32;
                 } else {
                     r = htpm2_result_local(ENOSYS, HTPM2_F_LOCAL, ENOSYS,
@@ -449,12 +436,9 @@ htpm2_policy_evaluate(const htpm2_context ctx,
             /* Call PolicyOr */
             if (htpm2_is_ok(r)) {
                 r = htpm2_policy_or(ctx, session, HTPM2_OK,
-                                    (const void **)alt_digests,
+                                    alt_digests,
                                     alt_digest_lens, n);
             }
-
-            for (j = 0; j < n; j++)
-                free(alt_digests[j]);
 
             if (htpm2_is_err(r)) break;
 

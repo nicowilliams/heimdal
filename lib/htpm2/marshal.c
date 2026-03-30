@@ -259,11 +259,10 @@ htpm2_command_execute_with_auth(
     uint32_t *rc)
 {
     heim_storage *cmd, *auth_sp, *rsp;
-    void *auth_data = NULL, *cmd_data = NULL;
-    size_t auth_len = 0, cmd_len = 0;
+    void *auth_data = NULL;
+    size_t auth_len = 0;
     uint8_t cp_hash[32];
-    uint16_t rsp_tag;
-    uint32_t rsp_size, param_size;
+    uint32_t param_size;
     htpm2_result r;
     int ret;
     size_t i;
@@ -444,7 +443,6 @@ htpm2_command_execute_with_auth(
      * parameterSize (uint32), then parameters, then auth area.
      * We read parameterSize so the caller knows where params end.
      */
-    rsp_tag = TPM_ST_SESSIONS;  /* we know this from the command */
     ret = heim_ret_uint32(rsp, &param_size);
     if (ret) {
         heim_storage_free(rsp);
@@ -661,7 +659,6 @@ htpm2_command_execute_with_auth(
                 uint8_t rp_hash[32];
                 uint8_t expected_hmac[32];
                 size_t expected_hmac_len = 32;
-                const void *rp_bytes;
                 size_t rp_bytes_len;
 
                 /* Read the param bytes for rpHash */

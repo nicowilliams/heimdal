@@ -183,8 +183,8 @@ ak_pub_to_evp_pkey(const void *ak_pub, size_t ak_pub_len, EVP_PKEY **pkey)
         }
 
         switch (curve_id) {
-        case 0x0003: strlcpy(group_name, "P-256", sizeof(group_name)); break;
-        case 0x0004: strlcpy(group_name, "P-384", sizeof(group_name)); break;
+        case 0x0003: snprintf(group_name, sizeof(group_name), "P-256"); break;
+        case 0x0004: snprintf(group_name, sizeof(group_name), "P-384"); break;
         default:
             free(x_data); free(y_data);
             return htpm2_result_local(EINVAL, HTPM2_F_LOCAL, EINVAL,

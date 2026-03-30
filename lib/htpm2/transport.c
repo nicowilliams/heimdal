@@ -200,7 +200,6 @@ socket_open(const htpm2_context ctx, const char *arg, htpm2_transport *tp)
 {
     struct htpm2_transport_data *t;
     int fd = -1;
-    htpm2_result r;
 
     (void)ctx;
 
@@ -223,7 +222,7 @@ socket_open(const htpm2_context ctx, const char *arg, htpm2_transport *tp)
 
         memset(&sun, 0, sizeof(sun));
         sun.sun_family = AF_UNIX;
-        strlcpy(sun.sun_path, arg, sizeof(sun.sun_path));
+        snprintf(sun.sun_path, sizeof(sun.sun_path), "%s", arg);
 
         if (connect(fd, (struct sockaddr *)&sun, sizeof(sun)) < 0) {
             int e = errno;
