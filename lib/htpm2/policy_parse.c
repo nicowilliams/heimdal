@@ -235,6 +235,9 @@ parse_object_def(heim_dict_t d, htpm2_object_def **out)
         return htpm2_result_local(ENOMEM, HTPM2_F_LOCAL, ENOMEM,
                                   "policy: alloc objectDef");
 
+    /* Pre-computed Name (optional -- allows compilation without TPM) */
+    hex_decode(dict_get_string(od, "name"), &def->name, &def->name_len);
+
     s = dict_get_string(od, "persistent");
     if (s) {
         def->strategy = HTPM2_OBJDEF_PERSISTENT;
@@ -656,6 +659,7 @@ static void
 free_object_def(htpm2_object_def *def)
 {
     if (def == NULL) return;
+    free(def->name);
     switch (def->strategy) {
     case HTPM2_OBJDEF_PRIMARY:
         free(def->u.primary.template_name);

@@ -152,4 +152,21 @@ htpm2_result htpm2_command_execute_with_auth(
     heim_storage **rsp_sp,
     uint32_t *rc);
 
+/*
+ * Like htpm2_command_execute_with_auth but with multiple sessions
+ * (up to 3).  Each auth-requiring handle gets its own session.
+ *
+ * sessions[0] authorizes handles[0], sessions[1] authorizes handles[1], etc.
+ * NULL entries use password auth (TPM_RS_PW).
+ */
+htpm2_result htpm2_command_execute_with_auths(
+    const htpm2_context ctx,
+    htpm2_transport tp,
+    uint32_t command_code,
+    const uint32_t *handles, size_t num_handles,
+    htpm2_session *sessions, size_t num_sessions,
+    const void *param_bytes, size_t param_bytes_len,
+    heim_storage **rsp_sp,
+    uint32_t *rc);
+
 #endif /* __htpm2_marshal_h__ */

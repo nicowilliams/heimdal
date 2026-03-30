@@ -736,3 +736,133 @@ marshal_err:
     return htpm2_result_local(ret, HTPM2_F_MARSHAL, ret,
                               "command_with_auth: marshal");
 }
+
+/*
+ * Multi-session variant.  Builds auth area with one TPMS_AUTH_COMMAND
+ * per session.  For now, only the first session gets full HMAC/encrypt
+ * treatment; additional sessions use password auth.
+ *
+ * TODO: full HMAC + response verification for all sessions.
+ */
+htpm2_result
+htpm2_command_execute_with_auths(
+    const htpm2_context ctx,
+    htpm2_transport tp,
+    uint32_t command_code,
+    const uint32_t *handles, size_t num_handles,
+    htpm2_session *sessions, size_t num_sessions,
+    const void *param_bytes, size_t param_bytes_len,
+    heim_storage **rsp_sp,
+    uint32_t *rc)
+{
+    heim_storage *cmd, *auth_sp, *rsp;
+    void *auth_data = NULL;
+    size_t auth_len = 0;
+    uint8_t cp_hash[32];
+    uint32_t param_size;
+    htpm2_result r;
+    int ret;
+    size_t i;
+
+    *rsp_sp = NULL;
+    *rc = 0;
+
+    /* Compute cpHash (same as single-session) */
+    {
+        uint8_t name_bufs[3][4];
+        const void *names[3] = {NULL, NULL, NULL};
+        size_t name_lens[3] = {0, 0, 0};
+
+        for (i = 0; i < num_handles && i < 3; i++) {
+            name_bufs[i][0] = (handles[i] >> 24) & 0xff;
+            name_bufs[i][1] = (handles[i] >> 16) & 0xff;
+            name_bufs[i][2] = (handles[i] >> 8) & 0xff;
+            name_bufs[i][3] = handles[i] & 0xff;
+            names[i] = name_bufs[i];
+            name_lens[i] = 4;
+        }
+
+        r = htpm2_compute_cp_hash(ctx, command_code,
+                                  names[0], name_lens[0],
+                                  names[1], name_lens[1],
+                                  names[2], name_lens[2],
+                                  param_bytes, param_bytes_len,
+                                  cp_hash);
+        if (htpm2_is_err(r))
+            return htpm2_result_prepend(r, "command_with_auths: cpHash");
+    }
+
+    /* Marshal auth area with multiple sessions */
+    auth_sp = heim_storage_emem();
+    if (auth_sp == NULL)
+        return htpm2_result_local(ENOMEM, HTPM2_F_LOCAL, ENOMEM,
+                                  "command_with_auths: alloc auth");
+
+    for (i = 0; i < num_sessions; i++) {
+        r = htpm2_marshal_auth_area(ctx, auth_sp,
+                                    sessions ? sessions[i] : NULL,
+                                    cp_hash);
+        if (htpm2_is_err(r)) {
+            heim_storage_free(auth_sp);
+            return r;
+        }
+    }
+
+    ret = heim_storage_to_data(auth_sp, &auth_data, &auth_len);
+    heim_storage_free(auth_sp);
+    if (ret)
+        return htpm2_result_local(ret, HTPM2_F_MARSHAL, ret,
+                                  "command_with_auths: auth to_data");
+
+    /* Build command */
+    cmd = heim_storage_emem();
+    if (cmd == NULL) {
+        free(auth_data);
+        return htpm2_result_local(ENOMEM, HTPM2_F_LOCAL, ENOMEM,
+                                  "command_with_auths: alloc cmd");
+    }
+
+    ret = htpm2_marshal_cmd_header(cmd, TPM_ST_SESSIONS, command_code);
+    if (ret) goto marshal_err;
+
+    for (i = 0; i < num_handles; i++) {
+        ret = heim_store_uint32(cmd, handles[i]);
+        if (ret) goto marshal_err;
+    }
+
+    ret = heim_store_uint32(cmd, (uint32_t)auth_len);
+    if (ret) goto marshal_err;
+    ret = heim_store_bytes(cmd, auth_data, auth_len);
+    if (ret) goto marshal_err;
+    free(auth_data);
+    auth_data = NULL;
+
+    if (param_bytes_len > 0) {
+        ret = heim_store_bytes(cmd, param_bytes, param_bytes_len);
+        if (ret) goto marshal_err;
+    }
+
+    r = htpm2_command_execute(ctx, tp, cmd, &rsp, rc);
+    heim_storage_free(cmd);
+    if (htpm2_is_err(r))
+        return r;
+
+    /* Read parameterSize */
+    ret = heim_ret_uint32(rsp, &param_size);
+    if (ret) {
+        heim_storage_free(rsp);
+        return htpm2_result_local(ret, HTPM2_F_MARSHAL, ret,
+                                  "command_with_auths: read parameterSize");
+    }
+
+    /* TODO: parse and verify response auth area for each session */
+
+    *rsp_sp = rsp;
+    return HTPM2_OK;
+
+marshal_err:
+    free(auth_data);
+    heim_storage_free(cmd);
+    return htpm2_result_local(ret, HTPM2_F_MARSHAL, ret,
+                              "command_with_auths: marshal");
+}

@@ -88,6 +88,7 @@ HEIMDAL_TPM2_0.1 {
 		htpm2_policy_evaluate;
 		htpm2_command_execute;
 		htpm2_command_execute_with_auth;
+		htpm2_command_execute_with_auths;
 		htpm2_marshal_cmd_header;
 		htpm2_marshal_fixup_size;
 		htpm2_marshal_tpm2b;

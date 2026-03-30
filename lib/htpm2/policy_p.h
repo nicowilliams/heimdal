@@ -62,6 +62,11 @@ typedef enum {
 /* --- Object definition --- */
 
 typedef struct htpm2_object_def {
+    /* Pre-computed Name (hex-decoded).  If present, the compiler can
+     * use this directly without loading the object on a TPM. */
+    void *name;
+    size_t name_len;
+
     enum {
         HTPM2_OBJDEF_PERSISTENT,
         HTPM2_OBJDEF_PRIMARY,
