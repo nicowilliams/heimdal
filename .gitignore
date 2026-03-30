@@ -720,3 +720,14 @@ asn1_*_asn1.c
 /tools/krb5-gssapi.pc
 /tools/krb5.pc
 /tools/krb5-config
+/appl/htpm2/htpm2tool
+/lib/htpm2/test_crypto
+/lib/htpm2/test_policy_parse
+/lib/htpm2/test_result
+/lib/htpm2/test_swtpm
+/appl/test/kinit_auditdns
+/kdc/test_jwt_validator
+/lib/base/fuzz_json
+/lib/hx509/fuzz_jose
+/lib/krb5/socksdrawer
+/lib/roken/timeval
