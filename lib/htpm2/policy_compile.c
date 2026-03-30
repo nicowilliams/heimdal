@@ -25,6 +25,8 @@ execute_node(const htpm2_context ctx,
              htpm2_transport tp,
              htpm2_session session,
              const htpm2_policy_node *node,
+             const htpm2_policy_input_value *inputs,
+             size_t num_inputs,
              htpm2_result prior)
 {
     if (prior.code)
@@ -107,13 +109,34 @@ execute_node(const htpm2_context ctx,
                                      node->u.hash.hash,
                                      node->u.hash.hash_len);
 
-    case HTPM2_POL_DUPLICATION_SELECT:
+    case HTPM2_POL_DUPLICATION_SELECT: {
+        const void *obj_name, *np_name;
+        size_t obj_name_len, np_name_len;
+        int rv;
+
+        rv = htpm2_policy_value_resolve(
+            &node->u.duplication_select.object_name,
+            inputs, num_inputs, &obj_name, &obj_name_len);
+        if (rv)
+            return htpm2_result_local(rv, HTPM2_F_LOCAL, rv,
+                "PolicyDuplicationSelect: unresolved objectName '%s'",
+                node->u.duplication_select.object_name.var_name ?
+                node->u.duplication_select.object_name.var_name : "?");
+
+        rv = htpm2_policy_value_resolve(
+            &node->u.duplication_select.new_parent_name,
+            inputs, num_inputs, &np_name, &np_name_len);
+        if (rv)
+            return htpm2_result_local(rv, HTPM2_F_LOCAL, rv,
+                "PolicyDuplicationSelect: unresolved newParentName '%s'",
+                node->u.duplication_select.new_parent_name.var_name ?
+                node->u.duplication_select.new_parent_name.var_name : "?");
+
         return htpm2_policy_duplication_select(ctx, session, HTPM2_OK,
-            node->u.duplication_select.object_name,
-            node->u.duplication_select.object_name_len,
-            node->u.duplication_select.new_parent_name,
-            node->u.duplication_select.new_parent_name_len,
+            obj_name, obj_name_len,
+            np_name, np_name_len,
             node->u.duplication_select.include_object);
+    }
 
     case HTPM2_POL_NV_WRITTEN:
         return htpm2_policy_nv_written(ctx, session, HTPM2_OK,
@@ -169,6 +192,8 @@ htpm2_result
 htpm2_policy_compile(const htpm2_context ctx,
                      htpm2_transport tp,
                      const htpm2_policy_doc *doc,
+                     const htpm2_policy_input_value *inputs,
+                     size_t num_inputs,
                      void *digest, size_t *digest_len)
 {
     htpm2_session trial = NULL;
@@ -216,6 +241,7 @@ htpm2_policy_compile(const htpm2_context ctx,
                     size_t alt_dig_len = 32;
 
                     r = htpm2_policy_compile(ctx, tp, ref->inline_policy,
+                                             inputs, num_inputs,
                                              alt_digest_bufs[j],
                                              &alt_dig_len);
                     if (htpm2_is_err(r)) break;
@@ -243,7 +269,7 @@ htpm2_policy_compile(const htpm2_context ctx,
                 break;
         } else {
             /* Execute nodes before PolicyOr (or all nodes if no PolicyOr) */
-            r = execute_node(ctx, tp, trial, node, HTPM2_OK);
+            r = execute_node(ctx, tp, trial, node, inputs, num_inputs, HTPM2_OK);
             if (htpm2_is_err(r))
                 break;
         }
@@ -384,6 +410,7 @@ htpm2_policy_evaluate(const htpm2_context ctx,
                 if (ref->inline_policy) {
                     size_t alt_dig_len = 32;
                     r = htpm2_policy_compile(ctx, tp, ref->inline_policy,
+                                             inputs, num_inputs,
                                              alt_digest_bufs[j],
                                              &alt_dig_len);
                     if (htpm2_is_err(r)) break;
@@ -407,7 +434,7 @@ htpm2_policy_evaluate(const htpm2_context ctx,
 
         } else {
             /* Normal node -- execute it */
-            r = execute_node(ctx, tp, session, node, HTPM2_OK);
+            r = execute_node(ctx, tp, session, node, inputs, num_inputs, HTPM2_OK);
             if (htpm2_is_err(r))
                 break;
         }

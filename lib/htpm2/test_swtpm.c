@@ -756,7 +756,7 @@ test_policy_compile_simple(htpm2_context ctx, htpm2_transport tp)
     if (htpm2_is_ok(r) && doc) {
         /* Compile twice -- should get the same digest */
         digest_len = 32;
-        r = htpm2_policy_compile(ctx, tp, doc, digest1, &digest_len);
+        r = htpm2_policy_compile(ctx, tp, doc, NULL, 0, digest1, &digest_len);
         CHECK_OK(r, "compile pass 1");
         CHECK(digest_len == 32, "digest should be 32 bytes");
 
@@ -769,7 +769,7 @@ test_policy_compile_simple(htpm2_context ctx, htpm2_transport tp)
         }
 
         digest_len = 32;
-        r = htpm2_policy_compile(ctx, tp, doc, digest2, &digest_len);
+        r = htpm2_policy_compile(ctx, tp, doc, NULL, 0, digest2, &digest_len);
         CHECK_OK(r, "compile pass 2");
 
         CHECK(memcmp(digest1, digest2, 32) == 0,
@@ -809,7 +809,7 @@ test_policy_compile_pcr(htpm2_context ctx, htpm2_transport tp)
     CHECK_OK(r, "parse PCR policy for compile");
 
     if (htpm2_is_ok(r) && doc) {
-        r = htpm2_policy_compile(ctx, tp, doc, digest, &digest_len);
+        r = htpm2_policy_compile(ctx, tp, doc, NULL, 0, digest, &digest_len);
         CHECK_OK(r, "compile PCR policy");
         CHECK(digest_len == 32, "digest 32 bytes");
     }
@@ -843,10 +843,10 @@ test_policy_compile_differs(htpm2_context ctx, htpm2_transport tp)
 
     if (doc1 && doc2) {
         dl = 32;
-        r = htpm2_policy_compile(ctx, tp, doc1, dig1, &dl);
+        r = htpm2_policy_compile(ctx, tp, doc1, NULL, 0, dig1, &dl);
         CHECK_OK(r, "compile policy 1");
         dl = 32;
-        r = htpm2_policy_compile(ctx, tp, doc2, dig2, &dl);
+        r = htpm2_policy_compile(ctx, tp, doc2, NULL, 0, dig2, &dl);
         CHECK_OK(r, "compile policy 2");
 
         CHECK(memcmp(dig1, dig2, 32) != 0,
@@ -894,7 +894,7 @@ test_policy_evaluate_command_code(htpm2_context ctx, htpm2_transport tp)
     CHECK_OK(r, "parse sign policy");
     if (htpm2_is_err(r)) goto done;
 
-    r = htpm2_policy_compile(ctx, tp, doc, policy_digest, &digest_len);
+    r = htpm2_policy_compile(ctx, tp, doc, NULL, 0, policy_digest, &digest_len);
     CHECK_OK(r, "compile sign policy");
     if (htpm2_is_err(r)) goto done;
 

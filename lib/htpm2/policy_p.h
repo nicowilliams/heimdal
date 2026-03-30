@@ -46,6 +46,26 @@ typedef enum {
 
 /* --- NV comparison operations (TPM2_EO) --- */
 
+/*
+ * A value that is either a literal byte buffer or a $variable reference.
+ * At parse time, if the JSON string starts with '$', it's stored as a
+ * variable name.  At compile/evaluate time, the variable is resolved
+ * against the input values.
+ */
+typedef struct htpm2_policy_value {
+    char *var_name;     /* "$foo" -- non-NULL if this is a variable ref */
+    void *data;         /* literal bytes -- non-NULL if this is a literal */
+    size_t data_len;
+} htpm2_policy_value;
+
+/* Resolve a policy_value against inputs.  Returns pointer to data and
+ * length.  The returned pointer is valid for the lifetime of the
+ * inputs array (for variable refs) or the policy_value (for literals). */
+int htpm2_policy_value_resolve(const htpm2_policy_value *pv,
+                               const struct htpm2_policy_input_value *inputs,
+                               size_t num_inputs,
+                               const void **out, size_t *out_len);
+
 #define HTPM2_EO_EQ        0x0000
 #define HTPM2_EO_NEQ       0x0001
 #define HTPM2_EO_SIGNED_GT 0x0002
@@ -174,10 +194,8 @@ typedef struct htpm2_policy_node {
         } hash;
 
         struct { /* PolicyDuplicationSelect */
-            void *object_name;
-            size_t object_name_len;
-            void *new_parent_name;
-            size_t new_parent_name_len;
+            htpm2_policy_value object_name;
+            htpm2_policy_value new_parent_name;
             int include_object;
         } duplication_select;
 
@@ -227,6 +245,8 @@ void htpm2_policy_doc_free(htpm2_policy_doc *doc);
 htpm2_result htpm2_policy_compile(const htpm2_context ctx,
                                   htpm2_transport tp,
                                   const htpm2_policy_doc *doc,
+                                  const htpm2_policy_input_value *inputs,
+                                  size_t num_inputs,
                                   void *digest, size_t *digest_len);
 
 /*

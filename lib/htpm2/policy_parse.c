@@ -118,6 +118,59 @@ hex_decode(const char *hex, void **out, size_t *out_len)
     return 0;
 }
 
+/*
+ * Parse a policy_value: if the string starts with '$', store as a
+ * variable reference.  Otherwise, hex-decode as literal bytes.
+ */
+static int
+parse_policy_value(const char *s, htpm2_policy_value *pv)
+{
+    memset(pv, 0, sizeof(*pv));
+    if (s == NULL || *s == '\0')
+        return 0;
+    if (s[0] == '$') {
+        pv->var_name = xstrdup(s);
+        return pv->var_name ? 0 : ENOMEM;
+    }
+    return hex_decode(s, &pv->data, &pv->data_len);
+}
+
+static void
+free_policy_value(htpm2_policy_value *pv)
+{
+    free(pv->var_name);
+    free(pv->data);
+    memset(pv, 0, sizeof(*pv));
+}
+
+/*
+ * Resolve a policy_value against runtime inputs.
+ */
+int
+htpm2_policy_value_resolve(const htpm2_policy_value *pv,
+                           const htpm2_policy_input_value *inputs,
+                           size_t num_inputs,
+                           const void **out, size_t *out_len)
+{
+    if (pv->var_name) {
+        size_t i;
+        for (i = 0; i < num_inputs; i++) {
+            if (inputs[i].name &&
+                strcmp(inputs[i].name, pv->var_name) == 0) {
+                *out = inputs[i].value;
+                *out_len = inputs[i].value_len;
+                return 0;
+            }
+        }
+        *out = NULL;
+        *out_len = 0;
+        return ENOENT; /* variable not found in inputs */
+    }
+    *out = pv->data;
+    *out_len = pv->data_len;
+    return 0;
+}
+
 /* --- Lookup tables --- */
 
 static uint16_t
@@ -456,12 +509,10 @@ parse_node(heim_dict_t nd, htpm2_policy_node *node, int depth)
         break;
 
     case HTPM2_POL_DUPLICATION_SELECT:
-        hex_decode(dict_get_string(nd, "objectName"),
-                   &node->u.duplication_select.object_name,
-                   &node->u.duplication_select.object_name_len);
-        hex_decode(dict_get_string(nd, "newParentName"),
-                   &node->u.duplication_select.new_parent_name,
-                   &node->u.duplication_select.new_parent_name_len);
+        parse_policy_value(dict_get_string(nd, "objectName"),
+                           &node->u.duplication_select.object_name);
+        parse_policy_value(dict_get_string(nd, "newParentName"),
+                           &node->u.duplication_select.new_parent_name);
         node->u.duplication_select.include_object =
             dict_get_bool(nd, "includeObject", 1);
         break;
@@ -722,8 +773,8 @@ free_node(htpm2_policy_node *node)
         free(node->u.hash.hash);
         break;
     case HTPM2_POL_DUPLICATION_SELECT:
-        free(node->u.duplication_select.object_name);
-        free(node->u.duplication_select.new_parent_name);
+        free_policy_value(&node->u.duplication_select.object_name);
+        free_policy_value(&node->u.duplication_select.new_parent_name);
         break;
     case HTPM2_POL_TICKET:
         free(node->u.ticket.timeout);
