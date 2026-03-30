@@ -185,8 +185,6 @@ htpm2_create_primary(const htpm2_context ctx,
     if (prior.code)
         return prior;
 
-    (void)auth_session;  /* TODO: use for authorized hierarchy access */
-
     *key = NULL;
 
     cmd = heim_storage_emem();
@@ -194,14 +192,40 @@ htpm2_create_primary(const htpm2_context ctx,
         return htpm2_result_local(ENOMEM, HTPM2_F_LOCAL, ENOMEM,
                                   "CreatePrimary: alloc");
 
-    /* Command header (no sessions for now) */
-    ret = htpm2_marshal_cmd_header(cmd, TPM_ST_NO_SESSIONS,
+    /*
+     * CreatePrimary requires authorization for the hierarchy handle.
+     * Use TPM_ST_SESSIONS with password auth (TPM_RS_PW).
+     */
+    ret = htpm2_marshal_cmd_header(cmd, TPM_ST_SESSIONS,
                                    TPM2_CC_CreatePrimary);
     if (ret) goto marshal_err;
 
     /* primaryHandle (hierarchy) */
     ret = heim_store_uint32(cmd, hierarchy);
     if (ret) goto marshal_err;
+
+    /* Authorization area size + password auth session */
+    {
+        /*
+         * TPMS_AUTH_COMMAND for password auth:
+         *   sessionHandle  = TPM_RS_PW (0x40000009)
+         *   nonceCaller    = empty TPM2B (size=0)
+         *   sessionAttributes = 0x01 (continueSession)
+         *   hmac           = empty TPM2B (empty password)
+         *
+         * Total: 4 + 2 + 1 + 2 = 9 bytes
+         */
+        ret = heim_store_uint32(cmd, 9); /* authorizationSize */
+        if (ret) goto marshal_err;
+        ret = heim_store_uint32(cmd, 0x40000009); /* TPM_RS_PW */
+        if (ret) goto marshal_err;
+        ret = heim_store_uint16(cmd, 0); /* nonceCaller (empty) */
+        if (ret) goto marshal_err;
+        ret = heim_store_uint8(cmd, 0x01); /* sessionAttributes: continueSession */
+        if (ret) goto marshal_err;
+        ret = heim_store_uint16(cmd, 0); /* hmac (empty password) */
+        if (ret) goto marshal_err;
+    }
 
     /* inSensitive */
     ret = marshal_sensitive_create(cmd, auth_value, auth_value_len);
@@ -222,12 +246,20 @@ htpm2_create_primary(const htpm2_context ctx,
     /* Execute */
     r = htpm2_command_execute(ctx, tp, cmd, &rsp, &rc);
     heim_storage_free(cmd);
+    cmd = NULL;
     if (htpm2_is_err(r))
         return htpm2_result_prepend(r, "CreatePrimary");
 
     /* Response: objectHandle */
     ret = heim_ret_uint32(rsp, &handle);
     if (ret) goto unmarshal_err;
+
+    /* parameterSize (TPM_ST_SESSIONS response) */
+    {
+        uint32_t param_size;
+        ret = heim_ret_uint32(rsp, &param_size);
+        if (ret) goto unmarshal_err;
+    }
 
     /* outPublic (TPM2B_PUBLIC) */
     ret = read_tpm2b_alloc(rsp, &pub_data, &pub_len);
@@ -334,8 +366,6 @@ htpm2_create(const htpm2_context ctx,
     if (prior.code)
         return prior;
 
-    (void)auth_session;  /* TODO */
-
     if (parent == NULL)
         return htpm2_result_local(EINVAL, HTPM2_F_LOCAL, EINVAL,
                                   "Create: NULL parent");
@@ -347,10 +377,23 @@ htpm2_create(const htpm2_context ctx,
         return htpm2_result_local(ENOMEM, HTPM2_F_LOCAL, ENOMEM,
                                   "Create: alloc");
 
-    ret = htpm2_marshal_cmd_header(cmd, TPM_ST_NO_SESSIONS, TPM2_CC_Create);
+    /* Create requires authorization for the parent handle */
+    ret = htpm2_marshal_cmd_header(cmd, TPM_ST_SESSIONS, TPM2_CC_Create);
     if (ret) goto marshal_err;
 
     ret = heim_store_uint32(cmd, parent_handle);
+    if (ret) goto marshal_err;
+
+    /* Password auth for parent */
+    ret = heim_store_uint32(cmd, 9); /* authorizationSize */
+    if (ret) goto marshal_err;
+    ret = heim_store_uint32(cmd, 0x40000009); /* TPM_RS_PW */
+    if (ret) goto marshal_err;
+    ret = heim_store_uint16(cmd, 0); /* nonceCaller */
+    if (ret) goto marshal_err;
+    ret = heim_store_uint8(cmd, 0x01); /* continueSession */
+    if (ret) goto marshal_err;
+    ret = heim_store_uint16(cmd, 0); /* hmac (empty password) */
     if (ret) goto marshal_err;
 
     ret = marshal_sensitive_create(cmd, auth_value, auth_value_len);
@@ -367,8 +410,16 @@ htpm2_create(const htpm2_context ctx,
 
     r = htpm2_command_execute(ctx, tp, cmd, &rsp, &rc);
     heim_storage_free(cmd);
+    cmd = NULL;
     if (htpm2_is_err(r))
         return htpm2_result_prepend(r, "Create");
+
+    /* Create response (TPM_ST_SESSIONS): parameterSize then params */
+    {
+        uint32_t param_size;
+        ret = heim_ret_uint32(rsp, &param_size);
+        if (ret) goto unmarshal_err;
+    }
 
     /* outPrivate (TPM2B_PRIVATE) */
     ret = read_tpm2b_alloc(rsp, &priv_data, &priv_len);

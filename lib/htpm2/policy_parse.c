@@ -632,9 +632,12 @@ parse_policy_dict(heim_dict_t pol, htpm2_policy_doc **doc, int depth)
 
         r = parse_node(nd, &d->nodes[i], depth);
         if (htpm2_is_err(r)) {
+            char *saved_name = d->name ? strdup(d->name) : NULL;
             htpm2_policy_doc_free(d);
-            return htpm2_result_prepend(r, "policy '%s' node %zu",
-                                        d->name ? d->name : "", i);
+            r = htpm2_result_prepend(r, "policy '%s' node %zu",
+                                     saved_name ? saved_name : "", i);
+            free(saved_name);
+            return r;
         }
     }
 

@@ -241,12 +241,24 @@ htpm2_wellknown_key_create(const htpm2_context ctx,
                                   "wellknown_key_create: alloc");
     }
 
-    ret = htpm2_marshal_cmd_header(cmd, TPM_ST_NO_SESSIONS,
+    ret = htpm2_marshal_cmd_header(cmd, TPM_ST_SESSIONS,
                                    TPM2_CC_CreatePrimary);
     if (ret) goto marshal_err;
 
     /* primaryHandle = NULL hierarchy */
     ret = heim_store_uint32(cmd, HTPM2_HIERARCHY_NULL);
+    if (ret) goto marshal_err;
+
+    /* Password auth for hierarchy */
+    ret = heim_store_uint32(cmd, 9); /* authorizationSize */
+    if (ret) goto marshal_err;
+    ret = heim_store_uint32(cmd, 0x40000009); /* TPM_RS_PW */
+    if (ret) goto marshal_err;
+    ret = heim_store_uint16(cmd, 0); /* nonceCaller */
+    if (ret) goto marshal_err;
+    ret = heim_store_uint8(cmd, 0x01); /* continueSession */
+    if (ret) goto marshal_err;
+    ret = heim_store_uint16(cmd, 0); /* hmac (empty password) */
     if (ret) goto marshal_err;
 
     /* inSensitive: empty auth, empty data */

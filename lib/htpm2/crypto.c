@@ -38,6 +38,7 @@
 
 #include "htpm2_locl.h"
 #include "crypto.h"
+#include "marshal.h"
 
 #include <openssl/evp.h>
 #include <openssl/rand.h>
@@ -525,12 +526,10 @@ htpm2_ecc_salt(const htpm2_context ctx,
     size_t peer_point_len;
     unsigned char *shared_secret = NULL;
     size_t shared_len = 0;
-    BIGNUM *ephem_x = NULL, *ephem_y = NULL;
     uint8_t ephem_x_buf[66], ephem_y_buf[66]; /* up to P-521 */
     size_t ephem_x_len, ephem_y_len;
     size_t coord_len;
     heim_storage *sp;
-    const char *group_name;
     htpm2_result r = HTPM2_OK;
 
     (void)ctx;
@@ -539,8 +538,8 @@ htpm2_ecc_salt(const htpm2_context ctx,
     *encrypted_salt_len = 0;
 
     switch (nid) {
-    case NID_X9_62_prime256v1: group_name = "P-256"; coord_len = 32; break;
-    case NID_secp384r1:        group_name = "P-384"; coord_len = 48; break;
+    case NID_X9_62_prime256v1: coord_len = 32; break;
+    case NID_secp384r1:        coord_len = 48; break;
     default:
         return htpm2_result_local(EINVAL, HTPM2_F_LOCAL, EINVAL,
                                   "ecc_salt: unsupported curve NID %d", nid);

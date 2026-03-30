@@ -79,7 +79,10 @@ htpm2_result htpm2_kdfe(const htpm2_context ctx,
                         const void *party_v, size_t party_v_len,
                         uint32_t bits,
                         void *out, size_t out_len);
- * `rsa_pub` is a raw RSA modulus, `rsa_pub_len` is its length.
+
+/*
+ * RSA OAEP encryption (for session salting).
+ * `rsa_modulus` is a raw RSA modulus, `rsa_modulus_len` is its length.
  * `exponent` is the public exponent (use 0 for default 65537).
  * Returns allocated ciphertext; caller frees with free().
  */

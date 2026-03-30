@@ -60,6 +60,10 @@
 #include <openssl/pem.h>
 #include <openssl/err.h>
 
+/* Forward declarations */
+static void *read_file(const char *path, size_t *len);
+static int write_file(const char *path, const void *data, size_t len);
+
 static void
 die_result(htpm2_result r, const char *context)
 {
@@ -144,8 +148,11 @@ free_policy_inputs(htpm2_policy_input_value *inputs, size_t count)
 {
     size_t i;
     if (inputs == NULL) return;
-    for (i = 0; i < count; i++)
-        free((void *)inputs[i].value);
+    for (i = 0; i < count; i++) {
+        void *p;
+        memcpy(&p, &inputs[i].value, sizeof(p));
+        free(p);
+    }
     free(inputs);
 }
 
@@ -715,10 +722,24 @@ cmd_envelope_open(int argc, char **argv)
                              NULL, 0, NULL, 0, &ek);
     if (htpm2_is_err(r)) die_result(r, "create EK");
 
-    /* Create well-known key under NULL hierarchy */
-    r = htpm2_wellknown_key_create(ctx, tp, HTPM2_OK,
-                                   policy, policy_len, &wk);
-    if (htpm2_is_err(r)) die_result(r, "create well-known key");
+    /* Compile policy JSON to get the trial digest for the well-known key */
+    {
+        htpm2_policy_doc *doc = NULL;
+        uint8_t policy_digest[32];
+        size_t digest_len = 32;
+
+        r = htpm2_policy_parse(policy, policy_len, &doc);
+        if (htpm2_is_err(r)) die_result(r, "parse policy JSON");
+
+        r = htpm2_policy_compile(ctx, tp, doc, NULL, 0,
+                                 policy_digest, &digest_len);
+        htpm2_policy_doc_free(doc);
+        if (htpm2_is_err(r)) die_result(r, "compile policy digest");
+
+        r = htpm2_wellknown_key_create(ctx, tp, HTPM2_OK,
+                                       policy_digest, digest_len, &wk);
+        if (htpm2_is_err(r)) die_result(r, "create well-known key");
+    }
 
     /* Load IAK if provided */
     if (iak_pub_file && iak_priv_file) {
@@ -1145,9 +1166,15 @@ cmd_key_create(int argc, char **argv)
         heim_storage_free(sens_sp);
 
         cmd_sp = heim_storage_emem();
-        htpm2_marshal_cmd_header(cmd_sp, TPM_ST_NO_SESSIONS,
+        htpm2_marshal_cmd_header(cmd_sp, TPM_ST_SESSIONS,
                                  TPM2_CC_CreatePrimary);
         heim_store_uint32(cmd_sp, hierarchy);
+        /* Password auth for hierarchy */
+        heim_store_uint32(cmd_sp, 9); /* authorizationSize */
+        heim_store_uint32(cmd_sp, 0x40000009); /* TPM_RS_PW */
+        heim_store_uint16(cmd_sp, 0); /* nonceCaller */
+        heim_store_uint8(cmd_sp, 0x01); /* continueSession */
+        heim_store_uint16(cmd_sp, 0); /* hmac (empty password) */
         htpm2_marshal_tpm2b(cmd_sp, sens_bytes, sens_bytes_len); /* inSensitive */
         free(sens_bytes);
         htpm2_marshal_tpm2b(cmd_sp, pub_bytes, pub_bytes_len); /* inPublic */
@@ -1160,6 +1187,7 @@ cmd_key_create(int argc, char **argv)
         if (htpm2_is_err(r)) die_result(r, "CreatePrimary");
 
         heim_ret_uint32(rsp, &handle);
+        { uint32_t ps; heim_ret_uint32(rsp, &ps); } /* parameterSize */
 
         /* Read outPublic */
         {
@@ -1173,7 +1201,7 @@ cmd_key_create(int argc, char **argv)
             /* Read name */
             { void *tmp; uint16_t tl; htpm2_unmarshal_tpm2b(rsp, &tmp, &tl); free(tmp); } /* creationData */
             { void *tmp; uint16_t tl; htpm2_unmarshal_tpm2b(rsp, &tmp, &tl); free(tmp); } /* creationHash */
-            { uint16_t tt; uint32_t th; htpm2_unmarshal_tpm2b(rsp, &out_pub_data, &out_pub_size); /* ticket digest - skip structure */  }
+            { htpm2_unmarshal_tpm2b(rsp, &out_pub_data, &out_pub_size); free(out_pub_data); out_pub_data = NULL; } /* ticket */
 
             {
                 void *name_data;
@@ -1188,18 +1216,44 @@ cmd_key_create(int argc, char **argv)
         }
         heim_storage_free(rsp);
 
+        /* Flush the transient handle to free object slot */
+        {
+            heim_storage *flush_sp = heim_storage_emem();
+            heim_storage *flush_rsp;
+            uint32_t flush_rc;
+            htpm2_marshal_cmd_header(flush_sp, TPM_ST_NO_SESSIONS,
+                                     TPM2_CC_FlushContext);
+            heim_store_uint32(flush_sp, handle);
+            htpm2_command_execute(ctx, tp, flush_sp, &flush_rsp, &flush_rc);
+            heim_storage_free(flush_sp);
+            heim_storage_free(flush_rsp);
+        }
+
         printf("Created primary key: handle 0x%08x\n", handle);
 
     } else if (parent_handle_str) {
         /* Create child key under parent */
-        uint32_t parent_handle = (uint32_t)strtoul(parent_handle_str, NULL, 0);
+        uint32_t parent_handle;
         const void *pub, *priv;
         size_t pub_len, priv_len;
 
-        /* We need the parent loaded.  For simplicity, assume it's a
-         * persistent handle or the caller has already loaded it. */
-        parent = htpm2_object_alloc(tp, parent_handle);
-        if (parent == NULL) die_result(htpm2_result_local(ENOMEM, HTPM2_F_LOCAL, ENOMEM, "alloc"), "key-create");
+        /*
+         * If the parent handle looks like a hierarchy name,
+         * create a storage primary first, then use it as parent.
+         */
+        parent_handle = parse_hierarchy_arg(parent_handle_str);
+        if (parent_handle >= 0x40000001 && parent_handle <= 0x4000000C) {
+            /* It's a hierarchy -- create a storage primary first */
+            r = htpm2_create_primary(ctx, tp, HTPM2_OK, NULL,
+                                     parent_handle,
+                                     HTPM2_KEY_RSA_2048_STORAGE,
+                                     NULL, 0, NULL, 0, &parent);
+            if (htpm2_is_err(r)) die_result(r, "create parent SRK");
+        } else {
+            parent_handle = (uint32_t)strtoul(parent_handle_str, NULL, 0);
+            parent = htpm2_object_alloc(tp, parent_handle);
+            if (parent == NULL) die_result(htpm2_result_local(ENOMEM, HTPM2_F_LOCAL, ENOMEM, "alloc"), "key-create");
+        }
 
         r = htpm2_create(ctx, tp, HTPM2_OK, NULL, parent,
                          parse_key_type(type_str),
@@ -1515,11 +1569,21 @@ cmd_key_load(int argc, char **argv)
 
         pub_data = read_file(pub_file, &pub_len);
         priv_data = read_file(priv_file, &priv_len);
-        parent_handle = (uint32_t)strtoul(parent_handle_str, NULL, 0);
 
         if (!pub_data || !priv_data) goto ld_out;
 
-        parent_obj = htpm2_object_alloc(tp, parent_handle);
+        /* If parent-handle is a hierarchy name, create storage primary */
+        parent_handle = parse_hierarchy_arg(parent_handle_str);
+        if (parent_handle >= 0x40000001 && parent_handle <= 0x4000000C) {
+            r = htpm2_create_primary(ctx, tp, HTPM2_OK, NULL,
+                                     parent_handle,
+                                     HTPM2_KEY_RSA_2048_STORAGE,
+                                     NULL, 0, NULL, 0, &parent_obj);
+            if (htpm2_is_err(r)) die_result(r, "create parent SRK");
+        } else {
+            parent_handle = (uint32_t)strtoul(parent_handle_str, NULL, 0);
+            parent_obj = htpm2_object_alloc(tp, parent_handle);
+        }
 
         r = htpm2_load(ctx, tp, HTPM2_OK, NULL, parent_obj,
                        pub_data, pub_len,

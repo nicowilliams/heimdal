@@ -16,5 +16,8 @@ htpm2tool_LDADD = \
 	$(LIB_sqlite3) \
 	$(LIBADD_roken)
 
+check_SCRIPTS = check-htpm2tool.sh
+TESTS = $(check_SCRIPTS)
+
 man_MANS = htpm2tool.1
-EXTRA_DIST = htpm2tool.1
+EXTRA_DIST = htpm2tool.1 check-htpm2tool.sh

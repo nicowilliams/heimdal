@@ -118,6 +118,10 @@ HEIMDAL_TPM2_0.1 {
 		htpm2_compute_session_hmac;
 		htpm2_marshal_auth_area;
 		htpm2_marshal_key_template;
+		htpm2_marshal_key_template_attrs;
+		htpm2_result_local;
+		htpm2_result_tpm;
+		htpm2_result_ossl;
 		htpm2_wellknown_key_template;
 	local:
 		*;

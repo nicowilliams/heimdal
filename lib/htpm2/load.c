@@ -78,8 +78,6 @@ htpm2_load(const htpm2_context ctx,
     if (prior.code)
         return prior;
 
-    (void)auth_session;  /* TODO */
-
     if (parent == NULL || pub_blob == NULL || priv_blob == NULL)
         return htpm2_result_local(EINVAL, HTPM2_F_LOCAL, EINVAL,
                                   "Load: NULL argument");
@@ -92,10 +90,23 @@ htpm2_load(const htpm2_context ctx,
         return htpm2_result_local(ENOMEM, HTPM2_F_LOCAL, ENOMEM,
                                   "Load: alloc");
 
-    ret = htpm2_marshal_cmd_header(cmd, TPM_ST_NO_SESSIONS, TPM2_CC_Load);
+    /* Load requires authorization for the parent handle */
+    ret = htpm2_marshal_cmd_header(cmd, TPM_ST_SESSIONS, TPM2_CC_Load);
     if (ret) goto marshal_err;
 
     ret = heim_store_uint32(cmd, parent_handle);
+    if (ret) goto marshal_err;
+
+    /* Password auth for parent */
+    ret = heim_store_uint32(cmd, 9); /* authorizationSize */
+    if (ret) goto marshal_err;
+    ret = heim_store_uint32(cmd, 0x40000009); /* TPM_RS_PW */
+    if (ret) goto marshal_err;
+    ret = heim_store_uint16(cmd, 0); /* nonceCaller */
+    if (ret) goto marshal_err;
+    ret = heim_store_uint8(cmd, 0x01); /* continueSession */
+    if (ret) goto marshal_err;
+    ret = heim_store_uint16(cmd, 0); /* hmac (empty password) */
     if (ret) goto marshal_err;
 
     /* inPrivate (TPM2B_PRIVATE) */
@@ -108,12 +119,20 @@ htpm2_load(const htpm2_context ctx,
 
     r = htpm2_command_execute(ctx, tp, cmd, &rsp, &rc);
     heim_storage_free(cmd);
+    cmd = NULL;
     if (htpm2_is_err(r))
         return htpm2_result_prepend(r, "Load");
 
     /* objectHandle */
     ret = heim_ret_uint32(rsp, &handle);
     if (ret) goto unmarshal_err;
+
+    /* parameterSize (TPM_ST_SESSIONS response) */
+    {
+        uint32_t param_size;
+        ret = heim_ret_uint32(rsp, &param_size);
+        if (ret) goto unmarshal_err;
+    }
 
     /* name (TPM2B_NAME) */
     ret = htpm2_unmarshal_tpm2b(rsp, &name_data, &name_len);

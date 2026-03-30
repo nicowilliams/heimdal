@@ -52,6 +52,16 @@ typedef enum {
  * variable name.  At compile/evaluate time, the variable is resolved
  * against the input values.
  */
+/*
+ * Runtime input values for policy evaluation.
+ * The evaluator matches these by name against the policy's declared inputs.
+ */
+typedef struct htpm2_policy_input_value {
+    const char *name;       /* must match a declared "$name" */
+    const void *value;      /* bytes, or pointer to int for arrayIndex */
+    size_t value_len;
+} htpm2_policy_input_value;
+
 typedef struct htpm2_policy_value {
     char *var_name;     /* "$foo" -- non-NULL if this is a variable ref */
     void *data;         /* literal bytes -- non-NULL if this is a literal */
@@ -62,7 +72,7 @@ typedef struct htpm2_policy_value {
  * length.  The returned pointer is valid for the lifetime of the
  * inputs array (for variable refs) or the policy_value (for literals). */
 int htpm2_policy_value_resolve(const htpm2_policy_value *pv,
-                               const struct htpm2_policy_input_value *inputs,
+                               const htpm2_policy_input_value *inputs,
                                size_t num_inputs,
                                const void **out, size_t *out_len);
 
@@ -248,16 +258,6 @@ htpm2_result htpm2_policy_compile(const htpm2_context ctx,
                                   const htpm2_policy_input_value *inputs,
                                   size_t num_inputs,
                                   void *digest, size_t *digest_len);
-
-/*
- * Runtime input values for policy evaluation.
- * The evaluator matches these by name against the policy's declared inputs.
- */
-typedef struct htpm2_policy_input_value {
-    const char *name;       /* must match a declared "$name" */
-    const void *value;      /* bytes, or pointer to int for arrayIndex */
-    size_t value_len;
-} htpm2_policy_input_value;
 
 /*
  * Evaluate a policy -- satisfy it in a real policy session.

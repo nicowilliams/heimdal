@@ -118,28 +118,6 @@ htpm2_session_get_policy_digest(htpm2_session session,
 
     ret = htpm2_marshal_cmd_header(cmd, TPM_ST_NO_SESSIONS, 0x0000017D);
     if (ret) goto marshal_err;
-
-    ret = heim_store_uint32(cmd, sess_handle);
-    if (ret) goto marshal_err;
-
-    r = htpm2_command_execute(NULL, htpm2_object_get_transport(NULL),
-                              cmd, &rsp, &rc);
-
-    /*
-     * We don't have the transport on the session easily.  Let's use the
-     * internal accessor we added.  Actually, sessions store their transport.
-     */
-    heim_storage_free(cmd);
-
-    /* Re-do with proper transport access */
-    cmd = heim_storage_emem();
-    if (cmd == NULL)
-        return htpm2_result_local(ENOMEM, HTPM2_F_LOCAL, ENOMEM,
-                                  "PolicyGetDigest: alloc");
-
-    /* TPM2_CC_PolicyGetDigest = 0x0000017D */
-    ret = htpm2_marshal_cmd_header(cmd, TPM_ST_NO_SESSIONS, 0x0000017D);
-    if (ret) goto marshal_err;
     ret = heim_store_uint32(cmd, sess_handle);
     if (ret) goto marshal_err;
 
