@@ -1134,7 +1134,7 @@ test_decrypt_from_roundtrip(htpm2_context ctx, htpm2_transport tp)
         const void *shares[3] = { share1, share2, share3 };
         size_t share_lens[3] = { 32, 32, 32 };
 
-        r = htpm2_decrypt_from(ctx, ciphertext, ciphertext_len,
+        r = htpm2_envelope_open(ctx, ciphertext, ciphertext_len,
                                shares, share_lens, 3,
                                &plaintext, &plaintext_len);
         CHECK_OK(r, "DecryptFrom (3 shares)");

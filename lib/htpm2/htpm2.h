@@ -622,7 +622,7 @@ void htpm2_encrypt_to_result_free(htpm2_encrypt_to_result *result);
  * Pass the recovered shares (in order: wk, [iak], [owner]).  They are
  * XORed to reconstruct the AES-256 key, then the ciphertext is decrypted.
  */
-htpm2_result htpm2_decrypt_from(const htpm2_context ctx,
+htpm2_result htpm2_envelope_open(const htpm2_context ctx,
                                 const void *ciphertext, size_t ciphertext_len,
                                 const void **shares, const size_t *share_lens,
                                 size_t num_shares,
@@ -643,7 +643,7 @@ htpm2_result htpm2_decrypt_from(const htpm2_context ctx,
  * auth_session_ek: session (or NULL for password auth) for EK authorization.
  *   Standard EKs require PolicySecret(ENDORSEMENT).
  */
-htpm2_result htpm2_decrypt_from_tpm(
+htpm2_result htpm2_envelope_open_tpm(
     const htpm2_context ctx,
     htpm2_transport tp,
     htpm2_result prior,

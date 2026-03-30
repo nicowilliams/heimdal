@@ -37,7 +37,7 @@
  * Sub-commands:
  *   timestamp     Generate a signed timestamp for use as a quote nonce
  *   encrypt-to    Encrypt a file to a target TPM (EncryptTo)
- *   decrypt-from  Decrypt an EncryptTo ciphertext using the local TPM
+ *   envelope-open  Decrypt an EncryptTo ciphertext using the local TPM
  *   quote-verify  Validate a TPM quote (stub -- needs eventlog work)
  */
 
@@ -410,11 +410,11 @@ out:
 }
 
 /*
- * Sub-command: decrypt-from
+ * Sub-command: envelope-open
  *
  * Decrypt an EncryptTo ciphertext using the local TPM.
  *
- * Usage: htpm2tool decrypt-from --transport <uri>
+ * Usage: htpm2tool envelope-open --transport <uri>
  *        --cred-in <prefix> --in <ciphertext> --out <plaintext>
  *
  * The tool reads the credential blobs and secrets from files
@@ -427,11 +427,11 @@ out:
  * on the enrollment flow.
  */
 /*
- * Sub-command: decrypt-from
+ * Sub-command: envelope-open
  *
  * Decrypt an EncryptTo ciphertext using the local TPM.
  *
- * Usage: htpm2tool decrypt-from --transport <uri> --policy <file>
+ * Usage: htpm2tool envelope-open --transport <uri> --policy <file>
  *        --cred-in <prefix> --in <ciphertext> --out <plaintext>
  *        [--with-iak] [--with-owner]
  *
@@ -450,7 +450,7 @@ out:
  * has an empty password (typical for swtpm and many default configurations).
  */
 static int
-cmd_decrypt_from(int argc, char **argv)
+cmd_envelope_open(int argc, char **argv)
 {
     const char *transport_uri = NULL;
     const char *policy_file = NULL;
@@ -498,7 +498,7 @@ cmd_decrypt_from(int argc, char **argv)
 
     if (!transport_uri || !policy_file || !cred_prefix || !in_file || !out_file) {
         fprintf(stderr,
-                "Usage: htpm2tool decrypt-from --transport <uri> "
+                "Usage: htpm2tool envelope-open --transport <uri> "
                 "--policy <file>\n"
                 "       --cred-in <prefix> --in <ciphertext> "
                 "--out <plaintext>\n"
@@ -592,7 +592,7 @@ cmd_decrypt_from(int argc, char **argv)
     }
 
     /* Decrypt using the TPM */
-    r = htpm2_decrypt_from_tpm(ctx, tp, HTPM2_OK,
+    r = htpm2_envelope_open_tpm(ctx, tp, HTPM2_OK,
                                ek, NULL, /* EK auth: password */
                                wk,
                                wk_blob, wk_blob_len,
@@ -677,15 +677,19 @@ cmd_quote_verify(int argc, char **argv)
     const char *eventlog_file = NULL;
     const char *db_file = NULL;
     const char *pcr_policy_spec = NULL;
-    /* const char *nonce_file = NULL; -- TODO: use for quote nonce check */
+    const char *nonce_file = NULL;
+    const char *quote_file = NULL;
+    const char *sig_file = NULL;
+    const char *ak_pub_file = NULL;
     htpm2_context ctx = NULL;
     htpm2_pcrdb db = NULL;
     htpm2_eventlog_entry *events = NULL;
     size_t num_events = 0;
     htpm2_pcr_policy policy;
     htpm2_validation_report report;
-    void *eventlog_data = NULL;
-    size_t eventlog_len;
+    void *eventlog_data = NULL, *quote_data = NULL, *sig_data = NULL;
+    void *ak_pub_data = NULL, *nonce_data = NULL;
+    size_t eventlog_len, quote_len, sig_len, ak_pub_len, nonce_len;
     htpm2_result r;
     int i, rc = 1;
 
@@ -697,20 +701,24 @@ cmd_quote_verify(int argc, char **argv)
         else if (strcmp(argv[i], "--pcr-policy") == 0 && i + 1 < argc)
             pcr_policy_spec = argv[++i];
         else if (strcmp(argv[i], "--nonce") == 0 && i + 1 < argc)
-            i++; /* TODO: use nonce for quote validation */
+            nonce_file = argv[++i];
+        else if (strcmp(argv[i], "--quote") == 0 && i + 1 < argc)
+            quote_file = argv[++i];
+        else if (strcmp(argv[i], "--signature") == 0 && i + 1 < argc)
+            sig_file = argv[++i];
+        else if (strcmp(argv[i], "--ak-pub") == 0 && i + 1 < argc)
+            ak_pub_file = argv[++i];
     }
 
-    if (!eventlog_file) {
+    if (!eventlog_file && !quote_file) {
         fprintf(stderr,
-                "Usage: htpm2tool quote-verify --eventlog <file>\n"
-                "       [--db <sqlite3-file>]\n"
-                "       [--pcr-policy <spec>]  (default: all validate)\n"
-                "       [--nonce <file>]\n"
+                "Usage: htpm2tool quote-verify\n"
+                "       [--eventlog <file>]  [--db <sqlite3-file>]\n"
+                "       [--pcr-policy <spec>]\n"
+                "       [--quote <file>] [--signature <file>]\n"
+                "       [--ak-pub <file>] [--nonce <file>]\n"
                 "\n"
-                "PCR policy spec: \"0-7=validate,8=ignore,10=initial\"\n"
-                "  validate: replay eventlog, check extensions against DB\n"
-                "  initial:  PCR must be unextended (all zeros)\n"
-                "  ignore:   don't check this PCR\n");
+                "PCR policy spec: \"0-7=validate,8=ignore,10=initial\"\n");
         return 1;
     }
 
@@ -721,6 +729,40 @@ cmd_quote_verify(int argc, char **argv)
     r = htpm2_pcr_policy_parse(pcr_policy_spec, &policy);
     if (htpm2_is_err(r)) die_result(r, "pcr_policy_parse");
 
+    /* Verify quote signature if provided */
+    if (quote_file && sig_file && ak_pub_file) {
+        void *pcr_digest = NULL;
+        size_t pcr_digest_len = 0;
+
+        quote_data = read_file(quote_file, &quote_len);
+        sig_data = read_file(sig_file, &sig_len);
+        ak_pub_data = read_file(ak_pub_file, &ak_pub_len);
+        if (!quote_data || !sig_data || !ak_pub_data) goto out;
+
+        if (nonce_file) {
+            nonce_data = read_file(nonce_file, &nonce_len);
+            if (!nonce_data) goto out;
+        }
+
+        r = htpm2_quote_verify(ctx,
+                               quote_data, quote_len,
+                               sig_data, sig_len,
+                               ak_pub_data, ak_pub_len,
+                               nonce_data, nonce_data ? nonce_len : 0,
+                               &pcr_digest, &pcr_digest_len);
+        if (htpm2_is_err(r))
+            die_result(r, "quote signature verification");
+
+        printf("Quote signature: VALID\n");
+        if (nonce_data)
+            printf("Quote nonce:     VALID\n");
+        free(pcr_digest);
+    } else if (quote_file) {
+        fprintf(stderr, "htpm2tool: --quote requires --signature and "
+                "--ak-pub\n");
+        goto out;
+    }
+
     /* Open DB if specified */
     if (db_file) {
         r = htpm2_pcrdb_open(db_file, &db);
@@ -728,39 +770,44 @@ cmd_quote_verify(int argc, char **argv)
     }
 
     /* Read and parse eventlog */
-    eventlog_data = read_file(eventlog_file, &eventlog_len);
-    if (!eventlog_data) goto out;
+    if (eventlog_file) {
+        eventlog_data = read_file(eventlog_file, &eventlog_len);
+        if (!eventlog_data) goto out;
 
-    r = htpm2_eventlog_parse_tcg(eventlog_data, eventlog_len,
-                                  &events, &num_events);
-    if (htpm2_is_err(r)) die_result(r, "eventlog_parse");
+        r = htpm2_eventlog_parse_tcg(eventlog_data, eventlog_len,
+                                      &events, &num_events);
+        if (htpm2_is_err(r)) die_result(r, "eventlog_parse");
 
-    printf("Parsed %zu eventlog entries\n", num_events);
+        printf("Parsed %zu eventlog entries\n", num_events);
 
-    /* Validate -- for now without a quote (just eventlog + DB) */
-    r = htpm2_eventlog_validate(ctx, events, num_events, &policy, db,
-                                 0x000B, /* SHA-256 */
-                                 NULL, 0, NULL, 0,  /* no quote data yet */
-                                 &report);
-    if (htpm2_is_err(r)) die_result(r, "eventlog_validate");
+        r = htpm2_eventlog_validate(ctx, events, num_events, &policy, db,
+                                     0x000B, /* SHA-256 */
+                                     NULL, 0, NULL, 0,
+                                     &report);
+        if (htpm2_is_err(r)) die_result(r, "eventlog_validate");
 
-    /* Print report */
-    printf("\nValidation report:\n");
-    printf("  Status:   %s\n", report.ok ? "PASS" : "FAIL");
-    printf("  Failures: %zu\n", report.num_failures);
-    printf("  Warnings: %zu\n", report.num_warnings);
-    printf("  Unknown:  %zu\n", report.num_unknown);
+        printf("\nEventlog validation:\n");
+        printf("  Status:   %s\n", report.ok ? "PASS" : "FAIL");
+        printf("  Failures: %zu\n", report.num_failures);
+        printf("  Warnings: %zu\n", report.num_warnings);
+        printf("  Unknown:  %zu\n", report.num_unknown);
 
-    for (i = 0; (size_t)i < report.num_messages; i++)
-        printf("  %s\n", report.messages[i]);
+        for (i = 0; (size_t)i < report.num_messages; i++)
+            printf("  %s\n", report.messages[i]);
 
-    rc = report.ok ? 0 : 1;
-
-    htpm2_validation_report_free(&report);
+        rc = report.ok ? 0 : 1;
+        htpm2_validation_report_free(&report);
+    } else {
+        rc = 0; /* quote-only verification passed */
+    }
 
 out:
     htpm2_eventlog_free(events, num_events);
     free(eventlog_data);
+    free(quote_data);
+    free(sig_data);
+    free(ak_pub_data);
+    free(nonce_data);
     htpm2_pcrdb_close(&db);
     htpm2_context_free(&ctx);
     return rc;
@@ -775,7 +822,7 @@ usage(void)
             "Commands:\n"
             "  timestamp      Generate/verify a signed timestamp for quote nonces\n"
             "  encrypt-to     Encrypt a file to a target TPM\n"
-            "  decrypt-from   Decrypt an EncryptTo ciphertext using the local TPM\n"
+            "  envelope-open   Decrypt an EncryptTo ciphertext using the local TPM\n"
             "  quote-verify   Validate a TPM quote (not yet implemented)\n"
             "\n"
             "Run 'htpm2tool <command> --help' for command-specific usage.\n");
@@ -793,8 +840,8 @@ main(int argc, char **argv)
         return cmd_timestamp(argc - 2, argv + 2);
     if (strcmp(argv[1], "encrypt-to") == 0)
         return cmd_encrypt_to(argc - 2, argv + 2);
-    if (strcmp(argv[1], "decrypt-from") == 0)
-        return cmd_decrypt_from(argc - 2, argv + 2);
+    if (strcmp(argv[1], "envelope-open") == 0)
+        return cmd_envelope_open(argc - 2, argv + 2);
     if (strcmp(argv[1], "quote-verify") == 0)
         return cmd_quote_verify(argc - 2, argv + 2);
 

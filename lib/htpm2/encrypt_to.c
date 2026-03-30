@@ -327,7 +327,7 @@ htpm2_encrypt_to_result_free(htpm2_encrypt_to_result *result)
  * shares[2] is the owner share (if present).
  */
 htpm2_result
-htpm2_decrypt_from(const htpm2_context ctx,
+htpm2_envelope_open(const htpm2_context ctx,
                    const void *ciphertext, size_t ciphertext_len,
                    const void **shares, const size_t *share_lens,
                    size_t num_shares,
@@ -408,7 +408,7 @@ activate_share(const htpm2_context ctx,
 }
 
 htpm2_result
-htpm2_decrypt_from_tpm(const htpm2_context ctx,
+htpm2_envelope_open_tpm(const htpm2_context ctx,
                        htpm2_transport tp,
                        htpm2_result prior,
                        htpm2_object ek,
@@ -480,7 +480,7 @@ htpm2_decrypt_from_tpm(const htpm2_context ctx,
     }
 
     /* Reconstruct key and decrypt */
-    r = htpm2_decrypt_from(ctx, ciphertext, ciphertext_len,
+    r = htpm2_envelope_open(ctx, ciphertext, ciphertext_len,
                            share_ptrs, share_lens, num_shares,
                            plaintext, plaintext_len);
 

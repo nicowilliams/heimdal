@@ -63,7 +63,7 @@ Tests: `test_result` (unit), `test_crypto` (unit), `test_policy_parse`
 ```
 htpm2tool timestamp     -- generate/verify signed nonces for quotes
 htpm2tool encrypt-to    -- encrypt a file to a target TPM
-htpm2tool decrypt-from  -- decrypt using the local TPM
+htpm2tool envelope-open  -- decrypt using the local TPM
 htpm2tool quote-verify  -- validate a TPM quote + eventlog
 ```
 
@@ -100,7 +100,7 @@ lib/htpm2/
   credential.c         -- ActivateCredential
   soft.c               -- software MakeCredential
   enrollment.c         -- well-known key, owner key
-  encrypt_to.c         -- EncryptTo/DecryptFrom with key splitting
+  encrypt_to.c         -- EncryptTo/EnvelopeOpen with key splitting
   import.c             -- Import, Duplicate (TPM + software)
   evict.c              -- EvictControl
   context_mgmt.c       -- ContextSave, ContextLoad

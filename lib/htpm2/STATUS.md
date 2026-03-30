@@ -90,8 +90,8 @@ and ~1,500 lines of design documents.
 | Policy evaluator (JSON → satisfied session) | Done |
 | PolicyOr reference resolution (name/URI) | Not implemented |
 | EncryptTo (1-3 way key split) | Done |
-| DecryptFrom (manual share assembly) | Done |
-| DecryptFrom (TPM-side, ActivateCredential) | Done |
+| EnvelopeOpen (manual share assembly) | Done |
+| EnvelopeOpen (TPM-side, ActivateCredential) | Done |
 | Well-known key (hardcoded template) | Done |
 | Owner hierarchy key (decommissioning) | Done |
 | Quote verification (signature + nonce) | Done (RSA + ECC) |
@@ -106,7 +106,7 @@ and ~1,500 lines of design documents.
 |-------------|--------|
 | `timestamp` | Done (generate + verify) |
 | `encrypt-to` | Done |
-| `decrypt-from` | Done |
+| `envelope-open` | Done |
 | `quote-verify` | Done (eventlog + DB; no quote signature check yet) |
 | `policy compile` | Not implemented |
 | `policy evaluate` | Not implemented |
@@ -137,7 +137,7 @@ ReadPublic, sessions (HMAC, encrypted, salted, trial), Sign, Quote,
 PCR_Read, policy trial (PolicyPCR + PolicyCommandCode + GetDigest),
 policy compilation (deterministic digests), policy evaluation
 (end-to-end: compile → create key → evaluate → sign), MakeCredential,
-EncryptTo, DecryptFrom, encrypted GetRandom (parameter decryption).
+EncryptTo, EnvelopeOpen, encrypted GetRandom (parameter decryption).
 
 ## Known Limitations
 
