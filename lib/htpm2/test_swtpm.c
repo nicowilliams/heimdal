@@ -446,6 +446,35 @@ test_salted_session(htpm2_context ctx, htpm2_transport tp)
 }
 
 static void
+test_ecc_salted_session(htpm2_context ctx, htpm2_transport tp)
+{
+    htpm2_object ecc_key = NULL;
+    htpm2_session session = NULL;
+    htpm2_result r = HTPM2_OK;
+
+    /* Create ECC P-256 storage key for salting */
+    r = htpm2_create_primary(ctx, tp, r, NULL,
+                             HTPM2_HIERARCHY_OWNER,
+                             HTPM2_KEY_ECC_P256_STORAGE,
+                             NULL, 0, NULL, 0, &ecc_key);
+    CHECK_OK(r, "CreatePrimary ECC P-256 for salted session");
+
+    if (htpm2_is_ok(r)) {
+        r = htpm2_session_start(ctx, tp, HTPM2_OK,
+                                HTPM2_SESSION_HMAC,
+                                ecc_key, NULL,
+                                HTPM2_SESSION_ENC_DEC,
+                                &session);
+        CHECK_OK(r, "StartAuthSession ECC salted + encrypted");
+        CHECK(session != NULL, "ECC salted session should be non-NULL");
+    }
+
+    htpm2_session_close(&session);
+    htpm2_object_close(&ecc_key);
+    htpm2_result_free(&r);
+}
+
+static void
 test_start_trial_session(htpm2_context ctx, htpm2_transport tp)
 {
     htpm2_session session = NULL;
@@ -1233,6 +1262,7 @@ main(int argc, char **argv)
     test_start_hmac_session(ctx, tp);
     test_start_encrypted_session(ctx, tp);
     test_salted_session(ctx, tp);
+    test_ecc_salted_session(ctx, tp);
     test_start_trial_session(ctx, tp);
 
     /* Sign / Quote / PCR tests */

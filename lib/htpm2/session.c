@@ -67,6 +67,8 @@
 #include "marshal.h"
 #include "crypto.h"
 
+#include <openssl/ec.h>
+
 #define TPM_RH_NULL     0x40000007
 #define TPM2_SE_HMAC    0x00
 #define TPM2_SE_POLICY  0x01
@@ -259,9 +261,64 @@ htpm2_session_start(const htpm2_context ctx,
                 heim_storage_free(pub_sp);
                 free(modulus);
             }
+        } else if (alg_type == TPM2_ALG_ECC) {
+            /* Parse ECC public point from TPMT_PUBLIC */
+            uint16_t name_alg, auth_size, sym_alg, scheme_alg, curve_id;
+            uint32_t obj_attrs;
+            uint16_t kdf_alg;
+            void *x_data = NULL, *y_data = NULL;
+            uint16_t x_len, y_len;
+            int nid;
+
+            heim_ret_uint16(pub_sp, &name_alg);
+            heim_ret_uint32(pub_sp, &obj_attrs);
+            heim_ret_uint16(pub_sp, &auth_size);
+            if (auth_size > 0)
+                heim_storage_seek(pub_sp, auth_size, SEEK_CUR);
+            heim_ret_uint16(pub_sp, &sym_alg);
+            if (sym_alg != TPM2_ALG_NULL) {
+                uint16_t dummy;
+                heim_ret_uint16(pub_sp, &dummy);
+                heim_ret_uint16(pub_sp, &dummy);
+            }
+            heim_ret_uint16(pub_sp, &scheme_alg);
+            if (scheme_alg != TPM2_ALG_NULL) {
+                uint16_t dummy;
+                heim_ret_uint16(pub_sp, &dummy);
+            }
+            heim_ret_uint16(pub_sp, &curve_id);
+            heim_ret_uint16(pub_sp, &kdf_alg); /* kdf scheme */
+            htpm2_unmarshal_tpm2b(pub_sp, &x_data, &x_len);
+            htpm2_unmarshal_tpm2b(pub_sp, &y_data, &y_len);
+            heim_storage_free(pub_sp);
+
+            /* Map TPM curve ID to OpenSSL NID */
+            switch (curve_id) {
+            case 0x0003: nid = NID_X9_62_prime256v1; break; /* P-256 */
+            case 0x0004: nid = NID_secp384r1; break;        /* P-384 */
+            default: nid = 0; break;
+            }
+
+            if (nid != 0 && x_data && y_data && x_len > 0 && y_len > 0) {
+                r = htpm2_ecc_salt(ctx, nid,
+                                   x_data, x_len, y_data, y_len,
+                                   x_data, x_len, /* salt_key_x for KDFe */
+                                   salt,
+                                   &encrypted_salt, &encrypted_salt_len);
+                if (htpm2_is_err(r)) {
+                    free(x_data);
+                    free(y_data);
+                    heim_storage_free(cmd);
+                    return htpm2_result_prepend(r,
+                        "StartAuthSession: ECC salt");
+                }
+                salt_len = 32;
+            }
+            free(x_data);
+            free(y_data);
         } else {
             heim_storage_free(pub_sp);
-            /* ECC salting not yet implemented; proceed unsalted */
+            /* Unknown key type; proceed unsalted */
         }
     }
 

@@ -71,6 +71,8 @@ HEIMDAL_TPM2_0.1 {
 		htpm2_aes_cfb_decrypt;
 		htpm2_rsa_oaep_encrypt;
 		htpm2_derive_param_key;
+		htpm2_ecc_salt;
+		htpm2_kdfe;
 		htpm2_pcrdb_open;
 		htpm2_pcrdb_close;
 		htpm2_pcrdb_lookup;

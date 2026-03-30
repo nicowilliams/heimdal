@@ -43,6 +43,8 @@
 #include <openssl/rand.h>
 #include <openssl/err.h>
 #include <openssl/rsa.h>
+#include <openssl/ec.h>
+#include <openssl/bn.h>
 #include <openssl/core_names.h>
 #include <openssl/params.h>
 #include <openssl/param_build.h>
@@ -431,4 +433,295 @@ htpm2_derive_param_key(const htpm2_context ctx,
         return htpm2_result_prepend(r, "derive param IV");
 
     return HTPM2_OK;
+}
+
+/*
+ * KDFe -- TPM 2.0 ECDH key derivation.
+ *
+ * KDFe(hashAlg, Z, label, partyU, partyV, bits):
+ *   for counter = 1..:
+ *     K(i) = Hash(counter(4) || Z || label || 0x00 || partyU || partyV)
+ */
+htpm2_result
+htpm2_kdfe(const htpm2_context ctx,
+           const void *z, size_t z_len,
+           const char *label,
+           const void *party_u, size_t party_u_len,
+           const void *party_v, size_t party_v_len,
+           uint32_t bits,
+           void *out, size_t out_len)
+{
+    uint32_t counter = 1;
+    size_t label_len = label ? strlen(label) : 0;
+    size_t done = 0;
+
+    while (done < out_len) {
+        EVP_MD_CTX *mdctx;
+        uint8_t ctr_buf[4];
+        uint8_t zero = 0;
+        unsigned char hash[32];
+        unsigned int hash_len = 32;
+        size_t chunk;
+
+        ctr_buf[0] = (counter >> 24) & 0xff;
+        ctr_buf[1] = (counter >> 16) & 0xff;
+        ctr_buf[2] = (counter >> 8) & 0xff;
+        ctr_buf[3] = counter & 0xff;
+
+        mdctx = EVP_MD_CTX_new();
+        if (mdctx == NULL)
+            return htpm2_result_ossl(1, "KDFe: alloc");
+
+        if (EVP_DigestInit_ex(mdctx, ctx->md_sha256, NULL) != 1 ||
+            EVP_DigestUpdate(mdctx, ctr_buf, 4) != 1 ||
+            EVP_DigestUpdate(mdctx, z, z_len) != 1 ||
+            (label_len > 0 &&
+             EVP_DigestUpdate(mdctx, label, label_len) != 1) ||
+            EVP_DigestUpdate(mdctx, &zero, 1) != 1 ||
+            (party_u_len > 0 &&
+             EVP_DigestUpdate(mdctx, party_u, party_u_len) != 1) ||
+            (party_v_len > 0 &&
+             EVP_DigestUpdate(mdctx, party_v, party_v_len) != 1) ||
+            EVP_DigestFinal_ex(mdctx, hash, &hash_len) != 1) {
+            EVP_MD_CTX_free(mdctx);
+            return htpm2_result_ossl(1, "KDFe: hash");
+        }
+        EVP_MD_CTX_free(mdctx);
+
+        chunk = out_len - done;
+        if (chunk > 32)
+            chunk = 32;
+        memcpy((unsigned char *)out + done, hash, chunk);
+        done += chunk;
+        counter++;
+    }
+    return HTPM2_OK;
+}
+
+/*
+ * ECC session salting.
+ *
+ * 1. Generate ephemeral EC key pair on the same curve
+ * 2. ECDH: shared_secret = ECDH(ephemeral_priv, salt_key_pub)
+ * 3. salt = KDFe(SHA256, Z.x, "SECRET", ephemeral.x, salt_key.x, 256)
+ * 4. Encode ephemeral public as TPMS_ECC_POINT { TPM2B x, TPM2B y }
+ *    wrapped in a TPM2B for the encryptedSalt field
+ */
+htpm2_result
+htpm2_ecc_salt(const htpm2_context ctx,
+               int nid,
+               const void *peer_x, size_t peer_x_len,
+               const void *peer_y, size_t peer_y_len,
+               const void *salt_key_x, size_t salt_key_x_len,
+               uint8_t salt_out[32],
+               void **encrypted_salt,
+               size_t *encrypted_salt_len)
+{
+    EVP_PKEY_CTX *pctx = NULL, *dctx = NULL;
+    EVP_PKEY *ephemeral_key = NULL, *peer_key = NULL;
+    OSSL_PARAM_BLD *bld = NULL;
+    OSSL_PARAM *params = NULL;
+    uint8_t *peer_point = NULL;
+    size_t peer_point_len;
+    unsigned char *shared_secret = NULL;
+    size_t shared_len = 0;
+    BIGNUM *ephem_x = NULL, *ephem_y = NULL;
+    uint8_t ephem_x_buf[66], ephem_y_buf[66]; /* up to P-521 */
+    size_t ephem_x_len, ephem_y_len;
+    size_t coord_len;
+    heim_storage *sp;
+    const char *group_name;
+    htpm2_result r = HTPM2_OK;
+
+    (void)ctx;
+
+    *encrypted_salt = NULL;
+    *encrypted_salt_len = 0;
+
+    switch (nid) {
+    case NID_X9_62_prime256v1: group_name = "P-256"; coord_len = 32; break;
+    case NID_secp384r1:        group_name = "P-384"; coord_len = 48; break;
+    default:
+        return htpm2_result_local(EINVAL, HTPM2_F_LOCAL, EINVAL,
+                                  "ecc_salt: unsupported curve NID %d", nid);
+    }
+
+    /* Generate ephemeral key */
+    pctx = EVP_PKEY_CTX_new_from_name(NULL, "EC", NULL);
+    if (pctx == NULL ||
+        EVP_PKEY_keygen_init(pctx) != 1) {
+        r = htpm2_result_ossl(1, "ecc_salt: keygen init");
+        goto out;
+    }
+    {
+        OSSL_PARAM gen_params[2];
+        static char p256_name[] = "P-256";
+        static char p384_name[] = "P-384";
+        char *gn = (nid == NID_X9_62_prime256v1) ? p256_name : p384_name;
+        gen_params[0] = OSSL_PARAM_construct_utf8_string(
+            OSSL_PKEY_PARAM_GROUP_NAME, gn, 0);
+        gen_params[1] = OSSL_PARAM_construct_end();
+        if (EVP_PKEY_CTX_set_params(pctx, gen_params) != 1) {
+            r = htpm2_result_ossl(1, "ecc_salt: set group");
+            goto out;
+        }
+    }
+    if (EVP_PKEY_keygen(pctx, &ephemeral_key) != 1) {
+        r = htpm2_result_ossl(1, "ecc_salt: keygen");
+        goto out;
+    }
+
+    /* Build peer public key from coordinates */
+    peer_point_len = 1 + peer_x_len + peer_y_len;
+    peer_point = malloc(peer_point_len);
+    if (peer_point == NULL) {
+        r = htpm2_result_local(ENOMEM, HTPM2_F_LOCAL, ENOMEM,
+                               "ecc_salt: alloc peer point");
+        goto out;
+    }
+    peer_point[0] = 0x04; /* uncompressed */
+    memcpy(peer_point + 1, peer_x, peer_x_len);
+    memcpy(peer_point + 1 + peer_x_len, peer_y, peer_y_len);
+
+    bld = OSSL_PARAM_BLD_new();
+    {
+        static char p256_name[] = "P-256";
+        static char p384_name[] = "P-384";
+        char *gn = (nid == NID_X9_62_prime256v1) ? p256_name : p384_name;
+        OSSL_PARAM_BLD_push_utf8_string(bld, OSSL_PKEY_PARAM_GROUP_NAME, gn, 0);
+    }
+    OSSL_PARAM_BLD_push_octet_string(bld, OSSL_PKEY_PARAM_PUB_KEY,
+                                     peer_point, peer_point_len);
+    params = OSSL_PARAM_BLD_to_param(bld);
+    {
+        EVP_PKEY_CTX *kctx = EVP_PKEY_CTX_new_from_name(NULL, "EC", NULL);
+        if (kctx && EVP_PKEY_fromdata_init(kctx) == 1)
+            EVP_PKEY_fromdata(kctx, &peer_key, EVP_PKEY_PUBLIC_KEY, params);
+        EVP_PKEY_CTX_free(kctx);
+    }
+    if (peer_key == NULL) {
+        r = htpm2_result_ossl(1, "ecc_salt: build peer key");
+        goto out;
+    }
+
+    /* ECDH derive shared secret */
+    dctx = EVP_PKEY_CTX_new(ephemeral_key, NULL);
+    if (dctx == NULL ||
+        EVP_PKEY_derive_init(dctx) != 1 ||
+        EVP_PKEY_derive_set_peer(dctx, peer_key) != 1) {
+        r = htpm2_result_ossl(1, "ecc_salt: derive init");
+        goto out;
+    }
+    if (EVP_PKEY_derive(dctx, NULL, &shared_len) != 1) {
+        r = htpm2_result_ossl(1, "ecc_salt: derive size");
+        goto out;
+    }
+    shared_secret = malloc(shared_len);
+    if (shared_secret == NULL) {
+        r = htpm2_result_local(ENOMEM, HTPM2_F_LOCAL, ENOMEM,
+                               "ecc_salt: alloc shared");
+        goto out;
+    }
+    if (EVP_PKEY_derive(dctx, shared_secret, &shared_len) != 1) {
+        r = htpm2_result_ossl(1, "ecc_salt: derive");
+        goto out;
+    }
+
+    /* Extract ephemeral public point coordinates */
+    {
+        BIGNUM *ex = NULL, *ey = NULL;
+        if (EVP_PKEY_get_bn_param(ephemeral_key, OSSL_PKEY_PARAM_EC_PUB_X, &ex) != 1 ||
+            EVP_PKEY_get_bn_param(ephemeral_key, OSSL_PKEY_PARAM_EC_PUB_Y, &ey) != 1) {
+            BN_free(ex);
+            BN_free(ey);
+            r = htpm2_result_ossl(1, "ecc_salt: get ephemeral coords");
+            goto out;
+        }
+        ephem_x_len = BN_bn2binpad(ex, ephem_x_buf, coord_len);
+        ephem_y_len = BN_bn2binpad(ey, ephem_y_buf, coord_len);
+        BN_free(ex);
+        BN_free(ey);
+    }
+
+    /*
+     * Derive salt:
+     * salt = KDFe(SHA256, Z.x, "SECRET", ephemeral.x, salt_key.x, 256)
+     *
+     * The shared_secret from EVP_PKEY_derive is the x-coordinate of the
+     * shared point (for EC keys with default KDF = none).
+     */
+    r = htpm2_kdfe(ctx, shared_secret, shared_len,
+                   "SECRET",
+                   ephem_x_buf, ephem_x_len,
+                   salt_key_x, salt_key_x_len,
+                   256, salt_out, 32);
+    if (htpm2_is_err(r))
+        goto out;
+
+    /*
+     * Build encryptedSalt: TPM2B wrapping TPMS_ECC_POINT { TPM2B x, TPM2B y }
+     */
+    sp = heim_storage_emem();
+    if (sp == NULL) {
+        r = htpm2_result_local(ENOMEM, HTPM2_F_LOCAL, ENOMEM,
+                               "ecc_salt: alloc point");
+        goto out;
+    }
+    {
+        heim_storage *point_sp = heim_storage_emem();
+        void *point_data;
+        size_t point_data_len;
+        int ret;
+
+        if (point_sp == NULL) {
+            heim_storage_free(sp);
+            r = htpm2_result_local(ENOMEM, HTPM2_F_LOCAL, ENOMEM,
+                                   "ecc_salt: alloc inner");
+            goto out;
+        }
+
+        ret = htpm2_marshal_tpm2b(point_sp, ephem_x_buf, ephem_x_len);
+        if (ret == 0)
+            ret = htpm2_marshal_tpm2b(point_sp, ephem_y_buf, ephem_y_len);
+        if (ret == 0)
+            ret = heim_storage_to_data(point_sp, &point_data, &point_data_len);
+        heim_storage_free(point_sp);
+        if (ret) {
+            heim_storage_free(sp);
+            r = htpm2_result_local(ret, HTPM2_F_MARSHAL, ret,
+                                   "ecc_salt: marshal point");
+            goto out;
+        }
+
+        ret = htpm2_marshal_tpm2b(sp, point_data, point_data_len);
+        free(point_data);
+        if (ret) {
+            heim_storage_free(sp);
+            r = htpm2_result_local(ret, HTPM2_F_MARSHAL, ret,
+                                   "ecc_salt: marshal outer");
+            goto out;
+        }
+    }
+    {
+        int ret = heim_storage_to_data(sp, encrypted_salt, encrypted_salt_len);
+        heim_storage_free(sp);
+        if (ret) {
+            r = htpm2_result_local(ret, HTPM2_F_LOCAL, ret,
+                                   "ecc_salt: to_data");
+            goto out;
+        }
+    }
+
+    r = HTPM2_OK;
+
+out:
+    free(peer_point);
+    free(shared_secret);
+    OSSL_PARAM_BLD_free(bld);
+    OSSL_PARAM_free(params);
+    EVP_PKEY_free(ephemeral_key);
+    EVP_PKEY_free(peer_key);
+    EVP_PKEY_CTX_free(pctx);
+    EVP_PKEY_CTX_free(dctx);
+    return r;
 }
