@@ -1,0 +1,242 @@
+.\" Copyright (c) 2026 Kungliga Tekniska Högskolan
+.\" (Royal Institute of Technology, Stockholm, Sweden).
+.\" All rights reserved.
+.\"
+.\" Redistribution and use in source and binary forms, with or without
+.\" modification, are permitted provided that the following conditions
+.\" are met:
+.\"
+.\" 1. Redistributions of source code must retain the above copyright
+.\"    notice, this list of conditions and the following disclaimer.
+.\"
+.\" 2. Redistributions in binary form must reproduce the above copyright
+.\"    notice, this list of conditions and the following disclaimer in the
+.\"    documentation and/or other materials provided with the distribution.
+.\"
+.\" 3. Neither the name of the Institute nor the names of its contributors
+.\"    may be used to endorse or promote products derived from this software
+.\"    without specific prior written permission.
+.\"
+.\" THIS SOFTWARE IS PROVIDED BY THE INSTITUTE AND CONTRIBUTORS ``AS IS'' AND
+.\" ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+.\" IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+.\" ARE DISCLAIMED.  IN NO EVENT SHALL THE INSTITUTE OR CONTRIBUTORS BE LIABLE
+.\" FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+.\" DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
+.\" OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
+.\" HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
+.\" LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
+.\" OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
+.\" SUCH DAMAGE.
+.\"
+.Dd March 30, 2026
+.Dt HTPM2TOOL 1
+.Os HEIMDAL
+.Sh NAME
+.Nm htpm2tool
+.Nd TPM 2.0 utility for attestation, enrollment, and key management
+.Sh SYNOPSIS
+.Nm
+.Ar command
+.Op Ar options
+.Sh DESCRIPTION
+.Nm
+is a command-line tool for TPM 2.0 operations.
+It supports attestation workflows (Safeboot-style enrollment),
+encrypted envelope sealing to remote TPMs, quote generation and
+verification, and signed timestamp creation.
+.Pp
+.Nm
+uses the
+.Xr libhtpm2 3
+library, which communicates with TPMs directly via
+.Pa /dev/tpmrm0 ,
+Unix sockets (for
+.Xr swtpm 8 ) ,
+TCP, or pipes.
+.Sh COMMANDS
+.Bl -tag -width indent
+.It Cm timestamp
+Generate or verify a signed timestamp for use as qualifying data
+(nonce) in TPM quotes.
+The timestamp prevents replay of old quotes.
+.Pp
+To generate:
+.Bd -literal -offset indent
+htpm2tool timestamp --key keyfile --out timestamp.bin
+.Ed
+.Pp
+If
+.Ar keyfile
+does not exist, a random 32-byte HMAC key is generated and written
+to it.
+The output is 40 bytes: 8 bytes of big-endian Unix time followed by
+32 bytes of HMAC-SHA-256.
+.Pp
+To verify:
+.Bd -literal -offset indent
+htpm2tool timestamp --key keyfile --verify timestamp.bin
+.Ed
+.Pp
+Prints the decoded time if the HMAC is valid; exits non-zero otherwise.
+.It Cm encrypt-to
+Encrypt a file to a target TPM using the EncryptTo protocol.
+The plaintext is encrypted under a random AES-256 key, which is
+split into 1\(en3 shares, each wrapped via MakeCredential to the
+target's Endorsement Key (EK).
+.Pp
+.Bd -literal -offset indent
+htpm2tool encrypt-to \\
+    --ek-pub ek_pub.bin \\
+    --policy policy.bin \\
+    --in plaintext \\
+    --out ciphertext \\
+    --cred-out creds \\
+    [--iak-name iak_name.bin] \\
+    [--owner-name owner_name.bin]
+.Ed
+.Pp
+Options:
+.Bl -tag -width Ds -compact
+.It Fl -ek-pub Ar file
+Target TPM's EK public area (TPMT_PUBLIC, binary).
+.It Fl -policy Ar file
+Policy digest (32 bytes) to enforce on the well-known key share.
+.It Fl -in Ar file
+Plaintext input file.
+.It Fl -out Ar file
+Ciphertext output file (IV + AES-256-CBC).
+.It Fl -cred-out Ar prefix
+Output prefix for credential files.
+Produces
+.Ar prefix Ns .wk.blob ,
+.Ar prefix Ns .wk.secret ,
+and optionally
+.Ar prefix Ns .iak.blob ,
+.Ar prefix Ns .iak.secret ,
+.Ar prefix Ns .owner.blob ,
+.Ar prefix Ns .owner.secret .
+.It Fl -iak-name Ar file
+Optional: IAK Name for identity-binding share.
+.It Fl -owner-name Ar file
+Optional: Owner hierarchy key Name for decommissioning share.
+.El
+.It Cm envelope-open
+Decrypt an EncryptTo ciphertext using the local TPM.
+Connects to the TPM, creates the necessary keys (EK, well-known key,
+optionally IAK and owner key), runs ActivateCredential for each share,
+reconstructs the AES-256 key, and decrypts.
+.Pp
+.Bd -literal -offset indent
+htpm2tool envelope-open \\
+    --transport socket:/path/to/tpm \\
+    --policy policy.bin \\
+    --cred-in creds \\
+    --in ciphertext \\
+    --out plaintext \\
+    [--iak-pub iak_pub.bin --iak-priv iak_priv.bin] \\
+    [--with-owner]
+.Ed
+.Pp
+Options:
+.Bl -tag -width Ds -compact
+.It Fl -transport Ar uri
+TPM transport URI.
+Supported schemes:
+.Dq device:/dev/tpmrm0 ,
+.Dq socket:/path ,
+.Dq tcp:host:port ,
+.Dq pipe:command .
+.It Fl -policy Ar file
+The same policy digest used during encrypt-to.
+.It Fl -cred-in Ar prefix
+Input prefix for credential files.
+.It Fl -in Ar file
+Ciphertext input.
+.It Fl -out Ar file
+Plaintext output.
+.It Fl -iak-pub Ar file , Fl -iak-priv Ar file
+Optional: IAK public and private blobs (loaded under SRK).
+.It Fl -with-owner
+Optional: include the owner hierarchy key share.
+.El
+.It Cm quote-verify
+Validate a TPM quote and/or replay an eventlog against a PCR
+extension database.
+.Pp
+.Bd -literal -offset indent
+htpm2tool quote-verify \\
+    [--quote quote.bin --signature sig.bin --ak-pub ak_pub.bin] \\
+    [--nonce nonce.bin] \\
+    [--eventlog eventlog.bin] \\
+    [--db pcr_extensions.db] \\
+    [--pcr-policy "0-7=validate,8=ignore,10=initial"]
+.Ed
+.Pp
+Quote verification checks:
+.Bl -bullet -compact
+.It
+Magic value (0xff544347) and type (TPM_ST_ATTEST_QUOTE).
+.It
+Signature over the TPMS_ATTEST blob using the AK's public key
+(RSA RSASSA or ECC ECDSA).
+.It
+Nonce (qualifying data) matches expected value.
+.El
+.Pp
+Eventlog validation replays the TCG PC Client binary eventlog,
+checking each PCR extension against the SQLite database.
+Extensions can be marked
+.Dq good ,
+.Dq bad ,
+or
+.Dq unknown ,
+with severity levels and expiry timestamps.
+.Pp
+PCR policy (command-line argument):
+.Bl -tag -width Ds -compact
+.It Dv validate
+Replay eventlog, check each extension against DB.
+.It Dv initial
+PCR must be unextended (all zeros).
+.It Dv ignore
+Skip this PCR.
+.El
+.El
+.Sh EXAMPLES
+Generate a timestamp nonce and use it to verify a quote:
+.Bd -literal -offset indent
+htpm2tool timestamp --key nonce.key --out nonce.bin
+htpm2tool quote-verify --quote quote.bin --signature sig.bin \\
+    --ak-pub ak_pub.bin --nonce nonce.bin \\
+    --eventlog /sys/kernel/security/tpm0/binary_bios_measurements \\
+    --db /etc/htpm2/pcr_extensions.db \\
+    --pcr-policy "0-7=validate,8-9=ignore,10=validate,11-23=ignore"
+.Ed
+.Pp
+Encrypt a secret to a remote TPM:
+.Bd -literal -offset indent
+htpm2tool encrypt-to --ek-pub target_ek.bin --policy boot_policy.bin \\
+    --in secret.key --out secret.enc --cred-out enrollment
+.Ed
+.Pp
+Decrypt on the target:
+.Bd -literal -offset indent
+htpm2tool envelope-open --transport device:/dev/tpmrm0 \\
+    --policy boot_policy.bin --cred-in enrollment \\
+    --in secret.enc --out secret.key
+.Ed
+.Sh SEE ALSO
+.Xr swtpm 8 ,
+.Xr tpm2_quote 1 ,
+.Xr tpm2_createek 1
+.Sh STANDARDS
+TCG TPM 2.0 Library Specification, Parts 1\(en4.
+.Pp
+TCG PC Client Specific Platform Firmware Profile Specification.
+.Sh AUTHORS
+The
+.Nm
+utility and the
+.Xr libhtpm2 3
+library were developed as part of the Heimdal project.

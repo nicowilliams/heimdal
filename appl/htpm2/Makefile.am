@@ -15,3 +15,6 @@ htpm2tool_LDADD = \
 	$(LIB_openssl_crypto) \
 	$(LIB_sqlite3) \
 	$(LIBADD_roken)
+
+man_MANS = htpm2tool.1
+EXTRA_DIST = htpm2tool.1
