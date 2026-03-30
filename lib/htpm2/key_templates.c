@@ -235,42 +235,70 @@ int
 htpm2_marshal_key_template(heim_storage *sp, htpm2_key_type type,
                            const void *policy, size_t policy_len)
 {
+    return htpm2_marshal_key_template_attrs(sp, type, 0, policy, policy_len);
+}
+
+/*
+ * Like htpm2_marshal_key_template but with explicit attribute overrides.
+ *
+ * If attrs_override is non-zero, it replaces the default attributes
+ * for the key type entirely.
+ */
+int
+htpm2_marshal_key_template_attrs(heim_storage *sp, htpm2_key_type type,
+                                 uint32_t attrs_override,
+                                 const void *policy, size_t policy_len)
+{
+    uint32_t attrs;
+
     switch (type) {
     case HTPM2_KEY_RSA_2048_SIGN:
-        return marshal_rsa_template(sp, 2048, ATTRS_SIGNING,
+        attrs = attrs_override ? attrs_override : ATTRS_SIGNING;
+        return marshal_rsa_template(sp, 2048, attrs,
                                     TPM2_ALG_RSASSA, policy, policy_len);
     case HTPM2_KEY_RSA_2048_DECRYPT:
-        return marshal_rsa_template(sp, 2048, ATTRS_DECRYPT,
+        attrs = attrs_override ? attrs_override : ATTRS_DECRYPT;
+        return marshal_rsa_template(sp, 2048, attrs,
                                     TPM2_ALG_OAEP, policy, policy_len);
     case HTPM2_KEY_RSA_2048_STORAGE:
-        return marshal_rsa_template(sp, 2048, ATTRS_STORAGE,
+        attrs = attrs_override ? attrs_override : ATTRS_STORAGE;
+        return marshal_rsa_template(sp, 2048, attrs,
                                     TPM2_ALG_NULL, policy, policy_len);
     case HTPM2_KEY_RSA_3072_SIGN:
-        return marshal_rsa_template(sp, 3072, ATTRS_SIGNING,
+        attrs = attrs_override ? attrs_override : ATTRS_SIGNING;
+        return marshal_rsa_template(sp, 3072, attrs,
                                     TPM2_ALG_RSASSA, policy, policy_len);
     case HTPM2_KEY_RSA_3072_DECRYPT:
-        return marshal_rsa_template(sp, 3072, ATTRS_DECRYPT,
+        attrs = attrs_override ? attrs_override : ATTRS_DECRYPT;
+        return marshal_rsa_template(sp, 3072, attrs,
                                     TPM2_ALG_OAEP, policy, policy_len);
     case HTPM2_KEY_RSA_3072_STORAGE:
-        return marshal_rsa_template(sp, 3072, ATTRS_STORAGE,
+        attrs = attrs_override ? attrs_override : ATTRS_STORAGE;
+        return marshal_rsa_template(sp, 3072, attrs,
                                     TPM2_ALG_NULL, policy, policy_len);
     case HTPM2_KEY_ECC_P256_SIGN:
-        return marshal_ecc_template(sp, TPM2_ECC_NIST_P256, ATTRS_SIGNING,
+        attrs = attrs_override ? attrs_override : ATTRS_SIGNING;
+        return marshal_ecc_template(sp, TPM2_ECC_NIST_P256, attrs,
                                     TPM2_ALG_ECDSA, policy, policy_len);
     case HTPM2_KEY_ECC_P256_DECRYPT:
-        return marshal_ecc_template(sp, TPM2_ECC_NIST_P256, ATTRS_DECRYPT,
+        attrs = attrs_override ? attrs_override : ATTRS_DECRYPT;
+        return marshal_ecc_template(sp, TPM2_ECC_NIST_P256, attrs,
                                     TPM2_ALG_ECDH, policy, policy_len);
     case HTPM2_KEY_ECC_P256_STORAGE:
-        return marshal_ecc_template(sp, TPM2_ECC_NIST_P256, ATTRS_STORAGE,
+        attrs = attrs_override ? attrs_override : ATTRS_STORAGE;
+        return marshal_ecc_template(sp, TPM2_ECC_NIST_P256, attrs,
                                     TPM2_ALG_NULL, policy, policy_len);
     case HTPM2_KEY_ECC_P384_SIGN:
-        return marshal_ecc_template(sp, TPM2_ECC_NIST_P384, ATTRS_SIGNING,
+        attrs = attrs_override ? attrs_override : ATTRS_SIGNING;
+        return marshal_ecc_template(sp, TPM2_ECC_NIST_P384, attrs,
                                     TPM2_ALG_ECDSA, policy, policy_len);
     case HTPM2_KEY_ECC_P384_DECRYPT:
-        return marshal_ecc_template(sp, TPM2_ECC_NIST_P384, ATTRS_DECRYPT,
+        attrs = attrs_override ? attrs_override : ATTRS_DECRYPT;
+        return marshal_ecc_template(sp, TPM2_ECC_NIST_P384, attrs,
                                     TPM2_ALG_ECDH, policy, policy_len);
     case HTPM2_KEY_ECC_P384_STORAGE:
-        return marshal_ecc_template(sp, TPM2_ECC_NIST_P384, ATTRS_STORAGE,
+        attrs = attrs_override ? attrs_override : ATTRS_STORAGE;
+        return marshal_ecc_template(sp, TPM2_ECC_NIST_P384, attrs,
                                     TPM2_ALG_NULL, policy, policy_len);
     default:
         return EINVAL;

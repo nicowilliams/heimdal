@@ -95,6 +95,9 @@ void htpm2_object_get_auth_internal(htpm2_object obj,
 /* Internal key template marshalling */
 int htpm2_marshal_key_template(heim_storage *sp, htpm2_key_type type,
                                const void *policy, size_t policy_len);
+int htpm2_marshal_key_template_attrs(heim_storage *sp, htpm2_key_type type,
+                                     uint32_t attrs_override,
+                                     const void *policy, size_t policy_len);
 
 /* Internal session accessors */
 uint32_t htpm2_session_get_handle(htpm2_session session);

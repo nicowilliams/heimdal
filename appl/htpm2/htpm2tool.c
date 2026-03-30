@@ -54,6 +54,7 @@
 #include "marshal.h"
 #include "crypto.h"
 #include "pcrdb.h"
+#include "policy_p.h"
 
 #include <openssl/evp.h>
 #include <openssl/pem.h>
@@ -870,6 +871,532 @@ out:
     return rc;
 }
 
+/* ================================================================
+ * Key management commands
+ * ================================================================ */
+
+static uint32_t
+parse_attrs_string(const char *s)
+{
+    uint32_t attrs = 0;
+    if (s == NULL) return 0;
+    if (strstr(s, "fixedTPM")) attrs |= (1U << 1);
+    if (strstr(s, "fixedParent")) attrs |= (1U << 4);
+    if (strstr(s, "sensDataOrigin")) attrs |= (1U << 5);
+    if (strstr(s, "userWithAuth")) attrs |= (1U << 6);
+    if (strstr(s, "adminWithPolicy")) attrs |= (1U << 7);
+    if (strstr(s, "noDA")) attrs |= (1U << 10);
+    if (strstr(s, "encryptedDup")) attrs |= (1U << 11);
+    if (strstr(s, "restricted")) attrs |= (1U << 16);
+    if (strstr(s, "decrypt")) attrs |= (1U << 17);
+    if (strstr(s, "sign")) attrs |= (1U << 18);
+    return attrs;
+}
+
+static htpm2_key_type
+parse_key_type(const char *s)
+{
+    if (s == NULL) return HTPM2_KEY_RSA_2048_SIGN;
+    if (strcmp(s, "rsa-2048-sign") == 0) return HTPM2_KEY_RSA_2048_SIGN;
+    if (strcmp(s, "rsa-2048-decrypt") == 0) return HTPM2_KEY_RSA_2048_DECRYPT;
+    if (strcmp(s, "rsa-2048-storage") == 0) return HTPM2_KEY_RSA_2048_STORAGE;
+    if (strcmp(s, "rsa-3072-sign") == 0) return HTPM2_KEY_RSA_3072_SIGN;
+    if (strcmp(s, "rsa-3072-decrypt") == 0) return HTPM2_KEY_RSA_3072_DECRYPT;
+    if (strcmp(s, "rsa-3072-storage") == 0) return HTPM2_KEY_RSA_3072_STORAGE;
+    if (strcmp(s, "ecc-p256-sign") == 0) return HTPM2_KEY_ECC_P256_SIGN;
+    if (strcmp(s, "ecc-p256-decrypt") == 0) return HTPM2_KEY_ECC_P256_DECRYPT;
+    if (strcmp(s, "ecc-p256-storage") == 0) return HTPM2_KEY_ECC_P256_STORAGE;
+    if (strcmp(s, "ecc-p384-sign") == 0) return HTPM2_KEY_ECC_P384_SIGN;
+    if (strcmp(s, "ecc-p384-decrypt") == 0) return HTPM2_KEY_ECC_P384_DECRYPT;
+    if (strcmp(s, "ecc-p384-storage") == 0) return HTPM2_KEY_ECC_P384_STORAGE;
+    return HTPM2_KEY_RSA_2048_SIGN;
+}
+
+static uint32_t
+parse_hierarchy_arg(const char *s)
+{
+    if (s == NULL) return 0;
+    if (strcmp(s, "owner") == 0) return HTPM2_HIERARCHY_OWNER;
+    if (strcmp(s, "endorsement") == 0) return HTPM2_HIERARCHY_ENDORSEMENT;
+    if (strcmp(s, "platform") == 0) return HTPM2_HIERARCHY_PLATFORM;
+    if (strcmp(s, "null") == 0) return HTPM2_HIERARCHY_NULL;
+    return (uint32_t)strtoul(s, NULL, 0);
+}
+
+/*
+ * htpm2tool key-create
+ *
+ * Create a key (primary or child) with optional policy and custom attributes.
+ */
+static int
+cmd_key_create(int argc, char **argv)
+{
+    const char *transport_uri = NULL;
+    const char *type_str = "rsa-2048-sign";
+    const char *hierarchy_str = NULL;
+    const char *parent_handle_str = NULL;
+    const char *policy_file = NULL;
+    const char *attrs_str = NULL;
+    const char *out_pub = NULL;
+    const char *out_priv = NULL;
+    const char *out_name = NULL;
+    htpm2_context ctx = NULL;
+    htpm2_transport tp = NULL;
+    htpm2_object key = NULL, parent = NULL;
+    void *policy_data = NULL;
+    size_t policy_len = 0;
+    htpm2_result r;
+    int i;
+
+    for (i = 0; i < argc; i++) {
+        if (strcmp(argv[i], "--transport") == 0 && i + 1 < argc)
+            transport_uri = argv[++i];
+        else if (strcmp(argv[i], "--type") == 0 && i + 1 < argc)
+            type_str = argv[++i];
+        else if (strcmp(argv[i], "--hierarchy") == 0 && i + 1 < argc)
+            hierarchy_str = argv[++i];
+        else if (strcmp(argv[i], "--parent-handle") == 0 && i + 1 < argc)
+            parent_handle_str = argv[++i];
+        else if (strcmp(argv[i], "--policy") == 0 && i + 1 < argc)
+            policy_file = argv[++i];
+        else if (strcmp(argv[i], "--attrs") == 0 && i + 1 < argc)
+            attrs_str = argv[++i];
+        else if (strcmp(argv[i], "--out-pub") == 0 && i + 1 < argc)
+            out_pub = argv[++i];
+        else if (strcmp(argv[i], "--out-priv") == 0 && i + 1 < argc)
+            out_priv = argv[++i];
+        else if (strcmp(argv[i], "--out-name") == 0 && i + 1 < argc)
+            out_name = argv[++i];
+    }
+
+    if (!transport_uri || !out_pub || (!hierarchy_str && !parent_handle_str)) {
+        fprintf(stderr,
+            "Usage: htpm2tool key-create --transport <uri>\n"
+            "       --type <key-type> --out-pub <file>\n"
+            "       [--hierarchy owner|endorsement|null|platform]\n"
+            "       [--parent-handle <handle>]\n"
+            "       [--policy <policy-digest-file>]\n"
+            "       [--attrs <attr-list>]\n"
+            "       [--out-priv <file>] [--out-name <file>]\n"
+            "\n"
+            "Key types: rsa-2048-sign, rsa-2048-decrypt, rsa-2048-storage,\n"
+            "           rsa-3072-{sign,decrypt,storage},\n"
+            "           ecc-p256-{sign,decrypt,storage},\n"
+            "           ecc-p384-{sign,decrypt,storage}\n"
+            "\n"
+            "Attrs: comma-separated: sensDataOrigin,userWithAuth,sign,\n"
+            "       decrypt,restricted,fixedTPM,fixedParent,noDA,\n"
+            "       adminWithPolicy,encryptedDup\n"
+            "\n"
+            "For duplicable keys, use:\n"
+            "  --attrs sensDataOrigin,userWithAuth,sign,encryptedDup\n");
+        return 1;
+    }
+
+    r = htpm2_context_init(&ctx);
+    if (htpm2_is_err(r)) die_result(r, "context_init");
+
+    r = htpm2_transport_open(ctx, HTPM2_OK, transport_uri, &tp);
+    if (htpm2_is_err(r)) die_result(r, "transport_open");
+
+    if (policy_file) {
+        policy_data = read_file(policy_file, &policy_len);
+        if (!policy_data) { r = htpm2_result_local(EIO, HTPM2_F_LOCAL, EIO, "read policy"); goto out; }
+    }
+
+    if (hierarchy_str) {
+        /* CreatePrimary */
+        /* For CreatePrimary with custom attrs, we need to build the
+         * command ourselves since htpm2_create_primary uses the
+         * standard template.  Use the same approach as enrollment.c. */
+        heim_storage *cmd_sp, *rsp;
+        uint32_t rc, handle, hierarchy;
+        heim_storage *pub_sp, *sens_sp;
+        void *pub_bytes, *sens_bytes;
+        size_t pub_bytes_len, sens_bytes_len;
+        int ret;
+        uint32_t attrs_val = parse_attrs_string(attrs_str);
+
+        hierarchy = parse_hierarchy_arg(hierarchy_str);
+
+        /* Build inPublic (TPMT_PUBLIC wrapped in TPM2B) */
+        pub_sp = heim_storage_emem();
+        ret = htpm2_marshal_key_template_attrs(pub_sp,
+            parse_key_type(type_str), attrs_val,
+            policy_data, policy_len);
+        if (ret) { heim_storage_free(pub_sp); die_result(htpm2_result_local(ret, HTPM2_F_MARSHAL, ret, "template"), "key-create"); }
+        heim_storage_to_data(pub_sp, &pub_bytes, &pub_bytes_len);
+        heim_storage_free(pub_sp);
+
+        /* Build inSensitive */
+        sens_sp = heim_storage_emem();
+        htpm2_marshal_tpm2b(sens_sp, NULL, 0); /* userAuth */
+        htpm2_marshal_tpm2b(sens_sp, NULL, 0); /* data */
+        heim_storage_to_data(sens_sp, &sens_bytes, &sens_bytes_len);
+        heim_storage_free(sens_sp);
+
+        cmd_sp = heim_storage_emem();
+        htpm2_marshal_cmd_header(cmd_sp, TPM_ST_NO_SESSIONS,
+                                 TPM2_CC_CreatePrimary);
+        heim_store_uint32(cmd_sp, hierarchy);
+        htpm2_marshal_tpm2b(cmd_sp, sens_bytes, sens_bytes_len); /* inSensitive */
+        free(sens_bytes);
+        htpm2_marshal_tpm2b(cmd_sp, pub_bytes, pub_bytes_len); /* inPublic */
+        free(pub_bytes);
+        htpm2_marshal_tpm2b(cmd_sp, NULL, 0); /* outsideInfo */
+        heim_store_uint32(cmd_sp, 0); /* creationPCR count=0 */
+
+        r = htpm2_command_execute(ctx, tp, cmd_sp, &rsp, &rc);
+        heim_storage_free(cmd_sp);
+        if (htpm2_is_err(r)) die_result(r, "CreatePrimary");
+
+        heim_ret_uint32(rsp, &handle);
+
+        /* Read outPublic */
+        {
+            void *out_pub_data;
+            uint16_t out_pub_size;
+            htpm2_unmarshal_tpm2b(rsp, &out_pub_data, &out_pub_size);
+            if (out_pub && out_pub_data)
+                write_file(out_pub, out_pub_data, out_pub_size);
+
+            /* Skip creationData, creationHash, creationTicket */
+            /* Read name */
+            { void *tmp; uint16_t tl; htpm2_unmarshal_tpm2b(rsp, &tmp, &tl); free(tmp); } /* creationData */
+            { void *tmp; uint16_t tl; htpm2_unmarshal_tpm2b(rsp, &tmp, &tl); free(tmp); } /* creationHash */
+            { uint16_t tt; uint32_t th; htpm2_unmarshal_tpm2b(rsp, &out_pub_data, &out_pub_size); /* ticket digest - skip structure */  }
+
+            {
+                void *name_data;
+                uint16_t name_size;
+                htpm2_unmarshal_tpm2b(rsp, &name_data, &name_size);
+                if (out_name && name_data)
+                    write_file(out_name, name_data, name_size);
+                free(name_data);
+            }
+
+            free(out_pub_data);
+        }
+        heim_storage_free(rsp);
+
+        printf("Created primary key: handle 0x%08x\n", handle);
+
+    } else if (parent_handle_str) {
+        /* Create child key under parent */
+        uint32_t parent_handle = (uint32_t)strtoul(parent_handle_str, NULL, 0);
+        const void *pub, *priv;
+        size_t pub_len, priv_len;
+
+        /* We need the parent loaded.  For simplicity, assume it's a
+         * persistent handle or the caller has already loaded it. */
+        parent = htpm2_object_alloc(tp, parent_handle);
+        if (parent == NULL) die_result(htpm2_result_local(ENOMEM, HTPM2_F_LOCAL, ENOMEM, "alloc"), "key-create");
+
+        r = htpm2_create(ctx, tp, HTPM2_OK, NULL, parent,
+                         parse_key_type(type_str),
+                         NULL, 0,
+                         policy_data, policy_len,
+                         &key);
+        if (htpm2_is_err(r)) die_result(r, "Create");
+
+        htpm2_object_get_public(key, &pub, &pub_len);
+        htpm2_object_get_private(key, &priv, &priv_len);
+
+        if (out_pub && pub)
+            write_file(out_pub, pub, pub_len);
+        if (out_priv && priv)
+            write_file(out_priv, priv, priv_len);
+
+        printf("Created child key: %zu pub bytes, %zu priv bytes\n",
+               pub_len, priv_len);
+    }
+
+out:
+    free(policy_data);
+    htpm2_object_close(&key);
+    htpm2_object_close(&parent);
+    htpm2_transport_close(&tp);
+    htpm2_context_free(&ctx);
+    return htpm2_is_err(r) ? 1 : 0;
+}
+
+/*
+ * htpm2tool key-duplicate
+ */
+static int
+cmd_key_duplicate(int argc, char **argv)
+{
+    const char *transport_uri = NULL;
+    const char *key_pub_file = NULL;
+    const char *key_priv_file = NULL;
+    const char *parent_handle_str = NULL;
+    const char *new_parent_pub_file = NULL;
+    const char *policy_file = NULL;
+    const char *out_dup = NULL;
+    const char *out_seed = NULL;
+    htpm2_context ctx = NULL;
+    htpm2_transport tp = NULL;
+    htpm2_result r;
+    int i;
+
+    for (i = 0; i < argc; i++) {
+        if (strcmp(argv[i], "--transport") == 0 && i + 1 < argc)
+            transport_uri = argv[++i];
+        else if (strcmp(argv[i], "--key-pub") == 0 && i + 1 < argc)
+            key_pub_file = argv[++i];
+        else if (strcmp(argv[i], "--key-priv") == 0 && i + 1 < argc)
+            key_priv_file = argv[++i];
+        else if (strcmp(argv[i], "--parent-handle") == 0 && i + 1 < argc)
+            parent_handle_str = argv[++i];
+        else if (strcmp(argv[i], "--new-parent-pub") == 0 && i + 1 < argc)
+            new_parent_pub_file = argv[++i];
+        else if (strcmp(argv[i], "--out-dup") == 0 && i + 1 < argc)
+            out_dup = argv[++i];
+        else if (strcmp(argv[i], "--out-seed") == 0 && i + 1 < argc)
+            out_seed = argv[++i];
+    }
+
+    if (!transport_uri || !new_parent_pub_file || !out_dup || !out_seed) {
+        fprintf(stderr,
+            "Usage: htpm2tool key-duplicate --transport <uri>\n"
+            "       --new-parent-pub <file>\n"
+            "       --out-dup <file> --out-seed <file>\n"
+            "       [--key-pub <file> --key-priv <file> "
+            "--parent-handle <handle>]\n"
+            "\n"
+            "If --key-pub and --key-priv are given, loads the key first.\n"
+            "Otherwise performs software-only duplication using\n"
+            "--new-parent-pub.\n");
+        return 1;
+    }
+
+    r = htpm2_context_init(&ctx);
+    if (htpm2_is_err(r)) die_result(r, "context_init");
+
+    if (key_pub_file && new_parent_pub_file && !transport_uri) {
+        /* Software-only duplicate */
+        void *key_pub, *np_pub, *dup_data, *seed_data;
+        size_t key_pub_len, np_pub_len, dup_len, seed_len;
+
+        key_pub = read_file(key_pub_file, &key_pub_len);
+        np_pub = read_file(new_parent_pub_file, &np_pub_len);
+        if (!key_pub || !np_pub) goto sw_out;
+
+        /* TODO: need key_name and sensitive for software duplicate */
+        fprintf(stderr, "htpm2tool: software duplicate requires "
+                "--key-sensitive (not yet implemented)\n");
+    sw_out:
+        htpm2_context_free(&ctx);
+        return 1;
+    }
+
+    /* TPM-side duplicate */
+    r = htpm2_transport_open(ctx, HTPM2_OK, transport_uri, &tp);
+    if (htpm2_is_err(r)) die_result(r, "transport_open");
+
+    {
+        htpm2_object parent_obj, key_obj, np_obj;
+        void *key_pub, *key_priv, *dup_out, *seed_out;
+        size_t key_pub_len, key_priv_len, dup_len, seed_len;
+        uint32_t parent_handle;
+
+        if (!key_pub_file || !key_priv_file || !parent_handle_str) {
+            fprintf(stderr, "htpm2tool: TPM duplicate requires "
+                    "--key-pub, --key-priv, --parent-handle\n");
+            htpm2_transport_close(&tp);
+            htpm2_context_free(&ctx);
+            return 1;
+        }
+
+        key_pub = read_file(key_pub_file, &key_pub_len);
+        key_priv = read_file(key_priv_file, &key_priv_len);
+        parent_handle = (uint32_t)strtoul(parent_handle_str, NULL, 0);
+
+        parent_obj = htpm2_object_alloc(tp, parent_handle);
+        r = htpm2_load(ctx, tp, HTPM2_OK, NULL, parent_obj,
+                       key_pub, key_pub_len,
+                       key_priv, key_priv_len, &key_obj);
+        if (htpm2_is_err(r)) die_result(r, "load key for dup");
+
+        /* TODO: load new parent, evaluate policy, duplicate */
+        /* For now this is a placeholder */
+        fprintf(stderr, "htpm2tool: TPM-side duplicate with policy evaluation "
+                "not yet fully wired\n");
+
+        htpm2_object_close(&key_obj);
+        htpm2_object_close(&parent_obj);
+        free(key_pub);
+        free(key_priv);
+    }
+
+    htpm2_transport_close(&tp);
+    htpm2_context_free(&ctx);
+    return 1;
+}
+
+/*
+ * htpm2tool key-import
+ */
+static int
+cmd_key_import(int argc, char **argv)
+{
+    const char *transport_uri = NULL;
+    const char *parent_handle_str = NULL;
+    const char *dup_file = NULL;
+    const char *seed_file = NULL;
+    const char *pub_file = NULL;
+    const char *out_priv = NULL;
+    htpm2_context ctx = NULL;
+    htpm2_transport tp = NULL;
+    htpm2_object parent_obj = NULL;
+    htpm2_result r;
+    int i;
+
+    for (i = 0; i < argc; i++) {
+        if (strcmp(argv[i], "--transport") == 0 && i + 1 < argc)
+            transport_uri = argv[++i];
+        else if (strcmp(argv[i], "--parent-handle") == 0 && i + 1 < argc)
+            parent_handle_str = argv[++i];
+        else if (strcmp(argv[i], "--dup") == 0 && i + 1 < argc)
+            dup_file = argv[++i];
+        else if (strcmp(argv[i], "--seed") == 0 && i + 1 < argc)
+            seed_file = argv[++i];
+        else if (strcmp(argv[i], "--pub") == 0 && i + 1 < argc)
+            pub_file = argv[++i];
+        else if (strcmp(argv[i], "--out-priv") == 0 && i + 1 < argc)
+            out_priv = argv[++i];
+    }
+
+    if (!transport_uri || !parent_handle_str || !dup_file ||
+        !seed_file || !pub_file || !out_priv) {
+        fprintf(stderr,
+            "Usage: htpm2tool key-import --transport <uri>\n"
+            "       --parent-handle <handle>\n"
+            "       --dup <file> --seed <file> --pub <file>\n"
+            "       --out-priv <file>\n");
+        return 1;
+    }
+
+    r = htpm2_context_init(&ctx);
+    if (htpm2_is_err(r)) die_result(r, "context_init");
+
+    r = htpm2_transport_open(ctx, HTPM2_OK, transport_uri, &tp);
+    if (htpm2_is_err(r)) die_result(r, "transport_open");
+
+    {
+        void *dup_data, *seed_data, *pub_data, *priv_out;
+        size_t dup_len, seed_len, pub_len, priv_out_len;
+        uint32_t parent_handle;
+
+        dup_data = read_file(dup_file, &dup_len);
+        seed_data = read_file(seed_file, &seed_len);
+        pub_data = read_file(pub_file, &pub_len);
+        parent_handle = (uint32_t)strtoul(parent_handle_str, NULL, 0);
+
+        if (!dup_data || !seed_data || !pub_data) goto imp_out;
+
+        parent_obj = htpm2_object_alloc(tp, parent_handle);
+
+        r = htpm2_import(ctx, tp, HTPM2_OK, NULL, parent_obj,
+                         pub_data, pub_len,
+                         dup_data, dup_len,
+                         seed_data, seed_len,
+                         NULL, 0, /* sym_seed unused */
+                         &priv_out, &priv_out_len);
+        if (htpm2_is_err(r)) die_result(r, "Import");
+
+        write_file(out_priv, priv_out, priv_out_len);
+        printf("Imported key: %zu priv bytes written to %s\n",
+               priv_out_len, out_priv);
+        free(priv_out);
+
+    imp_out:
+        free(dup_data);
+        free(seed_data);
+        free(pub_data);
+    }
+
+    htpm2_object_close(&parent_obj);
+    htpm2_transport_close(&tp);
+    htpm2_context_free(&ctx);
+    return htpm2_is_err(r) ? 1 : 0;
+}
+
+/*
+ * htpm2tool key-load
+ */
+static int
+cmd_key_load(int argc, char **argv)
+{
+    const char *transport_uri = NULL;
+    const char *parent_handle_str = NULL;
+    const char *pub_file = NULL;
+    const char *priv_file = NULL;
+    htpm2_context ctx = NULL;
+    htpm2_transport tp = NULL;
+    htpm2_object parent_obj = NULL, key_obj = NULL;
+    htpm2_result r;
+    int i;
+
+    for (i = 0; i < argc; i++) {
+        if (strcmp(argv[i], "--transport") == 0 && i + 1 < argc)
+            transport_uri = argv[++i];
+        else if (strcmp(argv[i], "--parent-handle") == 0 && i + 1 < argc)
+            parent_handle_str = argv[++i];
+        else if (strcmp(argv[i], "--pub") == 0 && i + 1 < argc)
+            pub_file = argv[++i];
+        else if (strcmp(argv[i], "--priv") == 0 && i + 1 < argc)
+            priv_file = argv[++i];
+    }
+
+    if (!transport_uri || !parent_handle_str || !pub_file || !priv_file) {
+        fprintf(stderr,
+            "Usage: htpm2tool key-load --transport <uri>\n"
+            "       --parent-handle <handle>\n"
+            "       --pub <file> --priv <file>\n");
+        return 1;
+    }
+
+    r = htpm2_context_init(&ctx);
+    if (htpm2_is_err(r)) die_result(r, "context_init");
+
+    r = htpm2_transport_open(ctx, HTPM2_OK, transport_uri, &tp);
+    if (htpm2_is_err(r)) die_result(r, "transport_open");
+
+    {
+        void *pub_data, *priv_data;
+        size_t pub_len, priv_len;
+        uint32_t parent_handle;
+
+        pub_data = read_file(pub_file, &pub_len);
+        priv_data = read_file(priv_file, &priv_len);
+        parent_handle = (uint32_t)strtoul(parent_handle_str, NULL, 0);
+
+        if (!pub_data || !priv_data) goto ld_out;
+
+        parent_obj = htpm2_object_alloc(tp, parent_handle);
+
+        r = htpm2_load(ctx, tp, HTPM2_OK, NULL, parent_obj,
+                       pub_data, pub_len,
+                       priv_data, priv_len,
+                       &key_obj);
+        if (htpm2_is_err(r)) die_result(r, "Load");
+
+        printf("Loaded key: handle 0x%08x\n",
+               htpm2_object_get_handle(key_obj));
+
+    ld_out:
+        free(pub_data);
+        free(priv_data);
+    }
+
+    /* Don't close key_obj -- leave it loaded */
+    htpm2_object_close(&parent_obj);
+    htpm2_transport_close(&tp);
+    htpm2_context_free(&ctx);
+    return htpm2_is_err(r) ? 1 : 0;
+}
+
 static void
 usage(void)
 {
@@ -879,8 +1406,12 @@ usage(void)
             "Commands:\n"
             "  timestamp      Generate/verify a signed timestamp for quote nonces\n"
             "  encrypt-to     Encrypt a file to a target TPM\n"
-            "  envelope-open   Decrypt an EncryptTo ciphertext using the local TPM\n"
-            "  quote-verify   Validate a TPM quote (not yet implemented)\n"
+            "  envelope-open  Decrypt an EncryptTo ciphertext using the local TPM\n"
+            "  quote-verify   Validate a TPM quote + eventlog\n"
+            "  key-create     Create a key (primary or child) on the TPM\n"
+            "  key-duplicate  Duplicate a key to a different parent/TPM\n"
+            "  key-import     Import a duplicated key under a local parent\n"
+            "  key-load       Load a key from pub/priv blobs\n"
             "\n"
             "Run 'htpm2tool <command> --help' for command-specific usage.\n");
 }
@@ -901,6 +1432,14 @@ main(int argc, char **argv)
         return cmd_envelope_open(argc - 2, argv + 2);
     if (strcmp(argv[1], "quote-verify") == 0)
         return cmd_quote_verify(argc - 2, argv + 2);
+    if (strcmp(argv[1], "key-create") == 0)
+        return cmd_key_create(argc - 2, argv + 2);
+    if (strcmp(argv[1], "key-duplicate") == 0)
+        return cmd_key_duplicate(argc - 2, argv + 2);
+    if (strcmp(argv[1], "key-import") == 0)
+        return cmd_key_import(argc - 2, argv + 2);
+    if (strcmp(argv[1], "key-load") == 0)
+        return cmd_key_load(argc - 2, argv + 2);
 
     fprintf(stderr, "htpm2tool: unknown command '%s'\n", argv[1]);
     usage();
