@@ -45,7 +45,7 @@ populated by `htpm2_policy_compile`, but the assignment
 compile path at line ~235 which correctly includes it).
 `htpm2_policy_or()` receives all-NULL digest pointers.
 
-### 4. PolicyAuthorize sends wrong ticket tag
+### 4. ~~PolicyAuthorize sends wrong ticket tag~~ (NOT A BUG -- misleading comment)
 
 **`lib/htpm2/policy.c:~540-541`**
 
@@ -54,9 +54,11 @@ compile path at line ~235 which correctly includes it).
 ret = heim_store_uint16(cmd, 0x8014);  /* TPM_ST_VERIFIED */
 ```
 
-Comment says `TPM_ST_NULL = 0x8000` but code sends `0x8014`
-(`TPM_ST_VERIFIED`).  The TPM will reject this for null tickets.
-PolicyAuthorize is broken.
+The **code is correct**: TPM 2.0 Part 2 (Table 92) requires the `tag`
+field of `TPMT_TK_VERIFIED` to always be `TPM_ST_VERIFIED` (0x8014), even
+for a NULL ticket.  A NULL ticket is `tag=0x8014`, `hierarchy=TPM_RH_NULL`,
+`digest=empty`.  The **comment** is wrong and should be fixed -- it
+incorrectly says `tag=0x8000(TPM_ST_NULL)`.
 
 ### 5. Transport dispatch is broken -- device framing never used
 
@@ -485,7 +487,7 @@ with all other `.c` files in the library.
 
 | Severity | Count | Key examples |
 |----------|------:|-------------|
-| Critical | 7 | Use-after-free (#1), stack overflow (#2), double-free (#7) |
+| Critical | 6 | Use-after-free (#1), stack overflow (#2), double-free (#7) |
 | High | 10 | Malformed signatures (#8), timing side-channel (#12), unchecked parse (#10) |
 | Medium | 14 | OOM false-success (#19), UB on 32-bit (#26), NULL deref (#27) |
 | Duplication | 9 | `heim_storage` (#32), RSA parsing x3 (#34), policy boilerplate (#36) |
