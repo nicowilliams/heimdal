@@ -205,9 +205,13 @@ htpm2_command_execute(const htpm2_context ctx,
         return r;
 
     /* Parse response into a new storage */
-    rsp = heim_storage_from_readonly_mem(rsp_buf, rsp_len);
+    rsp = heim_storage_emem();
     if (rsp == NULL)
         return htpm2_result_local(ENOMEM, HTPM2_F_LOCAL, ENOMEM,
+                                  "command: alloc response storage");
+    ret = heim_store_bytes(rsp, rsp_buf, rsp_len);
+    if (ret)
+        return htpm2_result_local(ENOMEM, HTPM2_F_LOCAL, ret,
                                   "command: alloc response storage");
 
     ret = htpm2_unmarshal_rsp_header(rsp, &tag, &size, rc);
@@ -722,6 +726,7 @@ htpm2_command_execute_with_auth(
 
         /* Seek back to start of params for the caller */
         heim_storage_seek(rsp, param_start, SEEK_SET);
+        heim_storage_truncate(rsp, param_start + param_size);
 
         /* Refresh caller nonce for next command */
         htpm2_session_refresh_nonce_caller(ctx, session);

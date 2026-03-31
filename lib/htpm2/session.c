@@ -257,9 +257,6 @@ htpm2_session_start(const htpm2_context ctx,
                     return htpm2_result_prepend(r, "StartAuthSession: salt encrypt");
                 }
                 salt_len = 32;
-            } else {
-                heim_storage_free(pub_sp);
-                free(modulus);
             }
         } else if (alg_type == TPM2_ALG_ECC) {
             /* Parse ECC public point from TPMT_PUBLIC */

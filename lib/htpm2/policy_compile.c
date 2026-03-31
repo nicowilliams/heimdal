@@ -425,12 +425,14 @@ htpm2_policy_evaluate(const htpm2_context ctx,
 
             /* Call PolicyOr */
             if (htpm2_is_ok(r)) {
+                for (j = 0; j < 8; j++)
+                    alt_digests[j] = alt_digest_bufs[j];
                 r = htpm2_policy_or(ctx, session, HTPM2_OK,
-                                    alt_digests,
-                                    alt_digest_lens, n);
+                                    alt_digests, alt_digest_lens, n);
             }
 
-            if (htpm2_is_err(r)) break;
+            if (htpm2_is_err(r))
+                break;
 
         } else {
             /* Normal node -- execute it */

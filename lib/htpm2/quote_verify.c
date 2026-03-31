@@ -80,7 +80,7 @@ static htpm2_result
 ak_pub_to_evp_pkey(const void *ak_pub, size_t ak_pub_len, EVP_PKEY **pkey)
 {
     heim_storage *sp;
-    uint16_t alg_type, name_alg, auth_size, sym_alg, scheme_alg, key_bits;
+    uint16_t alg_type, name_alg, auth_size, sym_alg, scheme_alg, key_bits, dummy16;
     uint32_t obj_attrs, exp;
     int ret;
 
@@ -94,25 +94,36 @@ ak_pub_to_evp_pkey(const void *ak_pub, size_t ak_pub_len, EVP_PKEY **pkey)
     ret = heim_ret_uint16(sp, &alg_type);
     if (ret) { heim_storage_free(sp); return htpm2_result_local(ret, HTPM2_F_MARSHAL, ret, "ak_pub: type"); }
 
-    heim_ret_uint16(sp, &name_alg);
-    heim_ret_uint32(sp, &obj_attrs);
-    heim_ret_uint16(sp, &auth_size);
-    if (auth_size > 0)
-        heim_storage_seek(sp, auth_size, SEEK_CUR);
+    ret = heim_ret_uint16(sp, &name_alg);
+    if (ret) { heim_storage_free(sp); return htpm2_result_local(ret, HTPM2_F_MARSHAL, ret, "ak_pub: name_alg"); }
+
+    ret = heim_ret_uint32(sp, &obj_attrs);
+    if (ret) { heim_storage_free(sp); return htpm2_result_local(ret, HTPM2_F_MARSHAL, ret, "ak_pub: obj_attrs"); }
+
+    ret = heim_ret_uint16(sp, &auth_size);
+    if (ret) { heim_storage_free(sp); return htpm2_result_local(ret, HTPM2_F_MARSHAL, ret, "ak_pub: auth_size"); }
+
+    if (auth_size > 0 && heim_storage_seek(sp, auth_size, SEEK_CUR) == -1) {
+        heim_storage_free(sp);
+        return htpm2_result_local(ret, HTPM2_F_MARSHAL, ret, "ak_pub: firmwareVersion");
+    }
 
     /* symmetric */
-    heim_ret_uint16(sp, &sym_alg);
+    ret = heim_ret_uint16(sp, &sym_alg);
+    if (ret) { heim_storage_free(sp); return htpm2_result_local(ret, HTPM2_F_MARSHAL, ret, "ak_pub: sym_alg"); }
     if (sym_alg != TPM2_ALG_NULL) {
-        uint16_t dummy;
-        heim_ret_uint16(sp, &dummy);
-        heim_ret_uint16(sp, &dummy);
+        ret = heim_ret_uint16(sp, &dummy16);
+        if (ret) { heim_storage_free(sp); return htpm2_result_local(ret, HTPM2_F_MARSHAL, ret, "ak_pub: dummy"); }
+        ret = heim_ret_uint16(sp, &dummy16);
+        if (ret) { heim_storage_free(sp); return htpm2_result_local(ret, HTPM2_F_MARSHAL, ret, "ak_pub: dummy"); }
     }
 
     /* scheme */
-    heim_ret_uint16(sp, &scheme_alg);
+    ret = heim_ret_uint16(sp, &scheme_alg);
+    if (ret) { heim_storage_free(sp); return htpm2_result_local(ret, HTPM2_F_MARSHAL, ret, "ak_pub: scheme"); }
     if (scheme_alg != TPM2_ALG_NULL) {
-        uint16_t dummy;
-        heim_ret_uint16(sp, &dummy);
+        ret = heim_ret_uint16(sp, &dummy16);
+        if (ret) { heim_storage_free(sp); return htpm2_result_local(ret, HTPM2_F_MARSHAL, ret, "ak_pub: dummy"); }
     }
 
     if (alg_type == TPM2_ALG_RSA) {
@@ -123,8 +134,10 @@ ak_pub_to_evp_pkey(const void *ak_pub, size_t ak_pub_len, EVP_PKEY **pkey)
         EVP_PKEY_CTX *kctx;
         BIGNUM *n, *e_bn;
 
-        heim_ret_uint16(sp, &key_bits);
-        heim_ret_uint32(sp, &exp);
+        ret = heim_ret_uint16(sp, &key_bits);
+        if (ret) { heim_storage_free(sp); return htpm2_result_local(ret, HTPM2_F_MARSHAL, ret, "ak_pub: key_bits"); }
+        ret = heim_ret_uint32(sp, &exp);
+        if (ret) { heim_storage_free(sp); return htpm2_result_local(ret, HTPM2_F_MARSHAL, ret, "ak_pub: exp"); }
         if (exp == 0) exp = 65537;
         htpm2_unmarshal_tpm2b(sp, &modulus, &mod_size);
         heim_storage_free(sp);
@@ -168,9 +181,11 @@ ak_pub_to_evp_pkey(const void *ak_pub, size_t ak_pub_len, EVP_PKEY **pkey)
         uint8_t *pub_point;
         size_t pub_point_len;
 
-        heim_ret_uint16(sp, &curve_id);
+        ret = heim_ret_uint16(sp, &curve_id);
+        if (ret) { heim_storage_free(sp); return htpm2_result_local(ret, HTPM2_F_MARSHAL, ret, "ak_pub: curve_id"); }
         /* kdf */
-        { uint16_t dummy; heim_ret_uint16(sp, &dummy); }
+        ret = heim_ret_uint16(sp, &dummy16);
+        if (ret) { heim_storage_free(sp); return htpm2_result_local(ret, HTPM2_F_MARSHAL, ret, "ak_pub: dummy"); }
         /* unique: x, y */
         htpm2_unmarshal_tpm2b(sp, &x_data, &x_len);
         htpm2_unmarshal_tpm2b(sp, &y_data, &y_len);
@@ -244,14 +259,17 @@ verify_quote_signature(const htpm2_context ctx,
     uint16_t sig_alg, hash_alg;
     EVP_MD_CTX *mdctx = NULL;
     htpm2_result r = HTPM2_OK;
+    int ret;
 
     sig_sp = heim_storage_from_readonly_mem(signature, signature_len);
     if (sig_sp == NULL)
         return htpm2_result_local(ENOMEM, HTPM2_F_LOCAL, ENOMEM,
                                   "verify_quote_sig: alloc");
 
-    heim_ret_uint16(sig_sp, &sig_alg);
-    heim_ret_uint16(sig_sp, &hash_alg);
+    ret = heim_ret_uint16(sig_sp, &sig_alg);
+    if (ret) { heim_storage_free(sig_sp); return htpm2_result_local(ret, HTPM2_F_MARSHAL, ret, "verify_quote_sig: sig_alg"); }
+    ret = heim_ret_uint16(sig_sp, &hash_alg);
+    if (ret) { heim_storage_free(sig_sp); return htpm2_result_local(ret, HTPM2_F_MARSHAL, ret, "verify_quote_sig: hash_alg"); }
 
     if (sig_alg == TPM2_ALG_RSASSA) {
         void *sig_data = NULL;
@@ -403,22 +421,36 @@ htpm2_quote_verify(const htpm2_context ctx,
     htpm2_unmarshal_tpm2b(sp, &extra_data, &extra_len);
 
     /* clockInfo (17 bytes): clock(8) + resetCount(4) + restartCount(4) + safe(1) */
-    heim_storage_seek(sp, 17, SEEK_CUR);
+    if (heim_storage_seek(sp, 17, SEEK_CUR) == -1) {
+        heim_storage_free(sp);
+        return htpm2_result_local(ret, HTPM2_F_MARSHAL, ret, "quote_verify: clockInfo");
+    }
 
     /* firmwareVersion (8 bytes) */
-    heim_storage_seek(sp, 8, SEEK_CUR);
+    if (heim_storage_seek(sp, 8, SEEK_CUR) == -1) {
+        heim_storage_free(sp);
+        return htpm2_result_local(ret, HTPM2_F_MARSHAL, ret, "quote_verify: firmwareVersion");
+    }
 
     /* attested: TPMS_QUOTE_INFO { pcrSelect, pcrDigest } */
     /* pcrSelect: TPML_PCR_SELECTION -- skip for now */
     {
         uint32_t count;
         uint32_t i;
-        heim_ret_uint32(sp, &count);
+        ret = heim_ret_uint32(sp, &count);
+        if (ret) { heim_storage_free(sp); return htpm2_result_local(ret, HTPM2_F_MARSHAL, ret, "quote_verify: count"); }
         for (i = 0; i < count; i++) {
             uint8_t size_of_select;
-            heim_storage_seek(sp, 2, SEEK_CUR); /* hash alg */
-            heim_ret_uint8(sp, &size_of_select);
-            heim_storage_seek(sp, size_of_select, SEEK_CUR);
+            if (heim_storage_seek(sp, 2, SEEK_CUR) /* hash alg */ == -1) {
+                heim_storage_free(sp);
+                return htpm2_result_local(ret, HTPM2_F_MARSHAL, ret, "quote_verify: hash_alg");
+            }
+            ret = heim_ret_uint8(sp, &size_of_select);
+            if (ret) { heim_storage_free(sp); return htpm2_result_local(ret, HTPM2_F_MARSHAL, ret, "quote_verify: size_of_select"); }
+            if (heim_storage_seek(sp, 2, SEEK_CUR) /* hash alg */ == -1) {
+                heim_storage_free(sp);
+                return htpm2_result_local(ret, HTPM2_F_MARSHAL, ret, "quote_verify: size_of_select");
+            }
         }
     }
 

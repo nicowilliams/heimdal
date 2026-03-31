@@ -537,12 +537,42 @@ htpm2_policy_authorize(const htpm2_context ctx,
     if (ticket && ticket_len > 0)
         ret = heim_store_bytes(cmd, ticket, ticket_len);
     else {
-        /* NULL ticket: tag=0x8000(TPM_ST_NULL), hierarchy=TPM_RH_NULL, digest=empty */
-        ret = heim_store_uint16(cmd, 0x8014);  /* TPM_ST_VERIFIED */
+        /*
+         * What is the encoding of a NULL ticket?
+         *
+         * The TPM 2.0 Library part 3, 23.16.1, says:
+         *
+         *   The unmarshaling process requires that a proper
+         *   TPMT_TK_VERIFIED be provided for checkTicket but it may be
+         *   a NULL Ticket. A NULL ticke t is useful in a trial policy,
+         *   where the caller uses the TPM to perform policy
+         *   calculations but does not have a valid authorization
+         *   ticket.
+         *
+         * The TPM 2.0 Library part 2, 10.7.4, describes
+         * TPMT_TK_VERIFIED as "tag {TPM_ST_VERIFIED}" followed by
+         * "hierarchy", followed by a "digest" (TPM2B_DIGEST).
+         *
+         * The TPM 2.0 Library part 1, 4.47 says:
+         *
+         *   NULL Ticket
+         *
+         *   ticket structure with tag set to a value that is correct
+         *   for the context, hierarchy is TPM_RH_NULL, and digest is an
+         *   Empty Buffer
+         *
+         * It's unclear what a "correct for the context" tag would be.
+         * The LLMs seem to think it's got to be TPM_ST_VERIFIED.
+         *
+         * So it seems then that the encoding of a NULL ticket is:
+         *
+         *  TPM_ST_VERIFIED || TPM_RH_NULL || empty TPM2B
+         */
+        ret = heim_store_uint16(cmd, 0x8022);  /* TPM_ST_VERIFIED */
         if (ret == 0)
             ret = heim_store_uint32(cmd, 0x40000007);  /* TPM_RH_NULL */
         if (ret == 0)
-            ret = htpm2_marshal_tpm2b(cmd, NULL, 0);
+            ret = htpm2_marshal_tpm2b(cmd, NULL, 0); /* Same as TPM2B_DIGEST */
     }
     if (ret) goto marshal_err;
 

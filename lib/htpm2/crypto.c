@@ -145,17 +145,61 @@ htpm2_kdfa(const htpm2_context ctx,
      *     HMAC-SHA-256(key, counter || label || 0x00 ||
      *                  contextU || contextV || bits)
      */
+    unsigned char buf[4 + 256 + 1 + 256 + 256 + 4]; /* worst case */
     uint32_t counter = 1;
-    size_t label_len = label ? strlen(label) : 0;
+    size_t buf_len = sizeof(buf);
+    size_t label_len = label ? strlen(label) + 1 : 0;
     size_t done = 0;
+    size_t pos = 0;
+
+    buf[pos++] = 0;
+    buf[pos++] = 0;
+    buf[pos++] = 0;
+    buf[pos++] = 0;
+
+    /* label || 0x00 */
+    if (label_len) {
+        if (label_len >= buf_len)
+            return htpm2_result_local(EINVAL, 1, EINVAL, "KDFa() label too long");
+        memcpy(buf + pos, label, label_len);
+        pos += label_len;
+        buf_len -= label_len;
+    }
+
+    /* contextU */
+    if (context_u_len) {
+        if (context_u_len >= buf_len)
+            return htpm2_result_local(EINVAL, 1, EINVAL, "KDFa() label/context_u too long");
+        memcpy(buf + pos, context_u, context_u_len);
+        pos += context_u_len;
+        buf_len -= context_u_len;
+    }
+
+    /* contextV */
+    if (context_v_len) {
+        if (context_v_len >= buf_len)
+            return htpm2_result_local(EINVAL, 1, EINVAL, "KDFa() label/context_u/context_v too long");
+        memcpy(buf + pos, context_v, context_v_len);
+        pos += context_v_len;
+    }
+
+    /* bits (big-endian uint32) */
+    if (4 >= buf_len)
+        return htpm2_result_local(EINVAL, 1, EINVAL, "KDFa() label/context_u/context_v/bits too long");
+    buf[pos++] = (bits >> 24) & 0xff;
+    buf[pos++] = (bits >> 16) & 0xff;
+    buf[pos++] = (bits >> 8) & 0xff;
+    buf[pos++] = bits & 0xff;
+
+    buf_len = pos;
 
     while (done < out_len) {
-        unsigned char buf[4 + 256 + 1 + 256 + 256 + 4]; /* worst case */
         unsigned char hmac_out[32];
         size_t hmac_len = 32;
-        size_t pos = 0;
         size_t chunk;
         htpm2_result r;
+
+        pos = 0;
 
         /* counter (big-endian uint32) */
         buf[pos++] = (counter >> 24) & 0xff;
@@ -163,32 +207,7 @@ htpm2_kdfa(const htpm2_context ctx,
         buf[pos++] = (counter >> 8) & 0xff;
         buf[pos++] = counter & 0xff;
 
-        /* label || 0x00 */
-        if (label_len > 0) {
-            memcpy(buf + pos, label, label_len);
-            pos += label_len;
-        }
-        buf[pos++] = 0x00;
-
-        /* contextU */
-        if (context_u_len > 0) {
-            memcpy(buf + pos, context_u, context_u_len);
-            pos += context_u_len;
-        }
-
-        /* contextV */
-        if (context_v_len > 0) {
-            memcpy(buf + pos, context_v, context_v_len);
-            pos += context_v_len;
-        }
-
-        /* bits (big-endian uint32) */
-        buf[pos++] = (bits >> 24) & 0xff;
-        buf[pos++] = (bits >> 16) & 0xff;
-        buf[pos++] = (bits >> 8) & 0xff;
-        buf[pos++] = bits & 0xff;
-
-        r = htpm2_hmac_sha256(ctx, key, key_len, buf, pos,
+        r = htpm2_hmac_sha256(ctx, key, key_len, buf, buf_len,
                               hmac_out, &hmac_len);
         if (htpm2_is_err(r))
             return htpm2_result_prepend(r, "KDFa: HMAC failed at counter %u",

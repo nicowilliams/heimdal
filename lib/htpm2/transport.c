@@ -129,6 +129,21 @@ tpm_send_recv(htpm2_transport tp,
 
 /* --- Device transport (/dev/tpm0, /dev/tpmrm0) --- */
 
+static htpm2_result device_open(const htpm2_context, const char *,
+                                htpm2_transport *);
+static htpm2_result device_send_recv(htpm2_transport , const void *, size_t,
+                                     void *, size_t *);
+
+static const htpm2_transport_ops device_ops = {
+    "device",
+    device_open,
+    device_send_recv,
+    common_get_read_fd,
+    common_get_write_fd,
+    common_close
+};
+
+
 static htpm2_result
 device_open(const htpm2_context ctx, const char *arg, htpm2_transport *tp)
 {
@@ -151,6 +166,7 @@ device_open(const htpm2_context ctx, const char *arg, htpm2_transport *tp)
     }
     t->fd = fd;
     t->fd_write = -1;
+    t->ops = &device_ops;
     *tp = t;
     return HTPM2_OK;
 }
@@ -184,16 +200,28 @@ device_send_recv(htpm2_transport tp,
     return HTPM2_OK;
 }
 
-static const htpm2_transport_ops device_ops = {
-    "device",
-    device_open,
-    device_send_recv,
+/* --- Socket transport (AF_LOCAL / TCP) --- */
+
+static htpm2_result socket_open(const htpm2_context, const char *,
+                                htpm2_transport *);
+
+static const htpm2_transport_ops socket_ops = {
+    "socket",
+    socket_open,
+    tpm_send_recv,
     common_get_read_fd,
     common_get_write_fd,
     common_close
 };
 
-/* --- Socket transport (AF_LOCAL / TCP) --- */
+static const htpm2_transport_ops tcp_ops = {
+    "tcp",
+    socket_open,
+    tpm_send_recv,
+    common_get_read_fd,
+    common_get_write_fd,
+    common_close
+};
 
 static htpm2_result
 socket_open(const htpm2_context ctx, const char *arg, htpm2_transport *tp)
@@ -293,29 +321,24 @@ socket_open(const htpm2_context ctx, const char *arg, htpm2_transport *tp)
     }
     t->fd = fd;
     t->fd_write = -1;
+    t->ops = &socket_ops;
     *tp = t;
     return HTPM2_OK;
 }
 
-static const htpm2_transport_ops socket_ops = {
-    "socket",
-    socket_open,
-    tpm_send_recv,
-    common_get_read_fd,
-    common_get_write_fd,
-    common_close
-};
-
-static const htpm2_transport_ops tcp_ops = {
-    "tcp",
-    socket_open,
-    tpm_send_recv,
-    common_get_read_fd,
-    common_get_write_fd,
-    common_close
-};
-
 /* --- Pipe transport --- */
+
+static htpm2_result pipe_open(const htpm2_context, const char *, htpm2_transport *);
+static void pipe_close(htpm2_transport *);
+
+static const htpm2_transport_ops pipe_ops = {
+    "pipe",
+    pipe_open,
+    tpm_send_recv,
+    common_get_read_fd,
+    common_get_write_fd,
+    pipe_close
+};
 
 static htpm2_result
 pipe_open(const htpm2_context ctx, const char *arg, htpm2_transport *tp)
@@ -370,6 +393,7 @@ pipe_open(const htpm2_context ctx, const char *arg, htpm2_transport *tp)
     t->fd = from_child[0];       /* read from child's stdout */
     t->fd_write = to_child[1];   /* write to child's stdin */
     t->child_pid = pid;
+    t->ops = &pipe_ops;
     *tp = t;
     return HTPM2_OK;
 }
@@ -390,15 +414,6 @@ pipe_close(htpm2_transport *tp)
     free(*tp);
     *tp = NULL;
 }
-
-static const htpm2_transport_ops pipe_ops = {
-    "pipe",
-    pipe_open,
-    tpm_send_recv,
-    common_get_read_fd,
-    common_get_write_fd,
-    pipe_close
-};
 
 /* --- Common helpers --- */
 
@@ -551,19 +566,7 @@ htpm2_transport_send_recv(htpm2_transport tp,
                           const void *cmd, size_t cmd_len,
                           void *rsp, size_t *rsp_len)
 {
-    if (tp == NULL)
-        return htpm2_result_local(EINVAL, HTPM2_F_TRANSPORT | HTPM2_F_LOCAL,
-                                  EINVAL, "send_recv: NULL transport");
-
-    /*
-     * For /dev/tpm*, the kernel handles framing via single read/write.
-     * For sockets/pipes, we use the header-based framing in tpm_send_recv.
-     * Since we store the child_pid for pipes and fd_write != -1, we can
-     * distinguish.  But simpler: if the device_send_recv was used for
-     * device opens, we'd need to track which ops.  For now, all transports
-     * use tpm_send_recv which works for all cases.
-     */
-    return tpm_send_recv(tp, cmd, cmd_len, rsp, rsp_len);
+    return tp->ops->send_recv(tp, cmd, cmd_len, rsp, rsp_len);
 }
 
 htpm2_result
