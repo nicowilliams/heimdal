@@ -104,14 +104,32 @@ key blobs from the TPM.
 
 ## HIGH SEVERITY BUGS
 
-### 8. Signatures and certify output include trailing auth area
+### 8. `htpm2_sign` and `htpm2_certify` read past parameters into auth area
 
-**`lib/htpm2/sign.c:~105-120`, `lib/htpm2/certify.c:~100-112`**
+**`lib/htpm2/sign.c:~130-145`, `lib/htpm2/certify.c:~100-112`**
 
-Both functions read all remaining response bytes as the output blob.  For
-`TPM_ST_SESSIONS` responses, the auth area is appended, so returned
-signatures/certifyInfo contain garbage trailing bytes.  All signature
-verification will fail.  The code has a TODO acknowledging this.
+Both functions use `SEEK_END` to determine how many bytes to read from the
+response storage as the signature/certifyInfo:
+
+```c
+off_t end = heim_storage_seek(rsp, 0, SEEK_END);
+sig_bytes = end - pos;
+```
+
+`htpm2_command_execute_with_auth` does parse and verify the response auth
+area, then seeks the storage back to the start of the parameter area.  But
+the auth area bytes are still present in the buffer -- they are not removed.
+`SEEK_END` goes to the end of the entire buffer (parameters + auth area),
+so the returned blob includes the trailing auth area bytes as garbage.
+
+The fix is straightforward: `htpm2_command_execute_with_auth` already reads
+`parameterSize` (uint32) from the response, but this value is not returned
+to the caller.  Either return it (e.g., via an output parameter) or provide
+a helper that reads only `parameterSize` bytes of response parameters.  The
+TODO comment in the code acknowledges this.
+
+Note: `htpm2_verify_signature` uses `htpm2_command_execute` (no auth,
+`TPM_ST_NO_SESSIONS`) and has no trailing auth area -- it is not affected.
 
 ### 9. `heim_storage` is a copy-paste of `krb5_storage` with security regression
 
