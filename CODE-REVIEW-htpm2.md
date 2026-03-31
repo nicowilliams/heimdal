@@ -122,11 +122,19 @@ the auth area bytes are still present in the buffer -- they are not removed.
 `SEEK_END` goes to the end of the entire buffer (parameters + auth area),
 so the returned blob includes the trailing auth area bytes as garbage.
 
-The fix is straightforward: `htpm2_command_execute_with_auth` already reads
-`parameterSize` (uint32) from the response, but this value is not returned
-to the caller.  Either return it (e.g., via an output parameter) or provide
-a helper that reads only `parameterSize` bytes of response parameters.  The
-TODO comment in the code acknowledges this.
+**Fix**: In `htpm2_command_execute_with_auth`, after parsing and verifying
+the response auth area and seeking back to `param_start`, truncate the
+storage to remove the auth area:
+
+```c
+heim_storage_seek(rsp, param_start, SEEK_SET);
+heim_storage_truncate(rsp, param_start + param_size);
+```
+
+This way callers can use `SEEK_END` naturally and get only the parameter
+bytes.  No API changes or caller modifications needed.  The same fix should
+apply to `htpm2_command_execute_with_auths` once it gets response auth
+verification.
 
 Note: `htpm2_verify_signature` uses `htpm2_command_execute` (no auth,
 `TPM_ST_NO_SESSIONS`) and has no trailing auth area -- it is not affected.
