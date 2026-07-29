@@ -249,12 +249,6 @@ scandir(const char *path, struct dirent ***entries,
         if (selectfn != NULL && !selectfn(entry))
             continue;
 
-        if (n >= INT_MAX ||
-            n >= (size_t)-1 / sizeof(list[0])) {
-            errno = EOVERFLOW;
-            goto fail;
-        }
-
         len = strlen(entry->d_name);
         if ((copy = malloc(sizeof(*copy) + len)) == NULL) {
             errno = ENOMEM;
